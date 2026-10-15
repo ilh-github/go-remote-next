@@ -243,3 +243,74 @@ func TestPurgeTerminalKeepsInFlightAndRecent(t *testing.T) {
 		t.Errorf("kept statuses = %v, want one each of pending/delivering/delivered", gotStatuses)
 	}
 }
+
+// TestRetryAllFailedRequeuesOnlyFailedRows covers the bulk replay: every
+// `failed` row for the channel is re-armed, and delivered/pending rows are left
+// exactly as they were.
+func TestRetryAllFailedRequeuesOnlyFailedRows(t *testing.T) {
+	dsn := os.Getenv("QD_TEST_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("set QD_TEST_DATABASE_URL to a throwaway Postgres to run the bulk-retry test")
+	}
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := db.AutoMigrate(&models.NotificationDelivery{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	if err := db.Exec("TRUNCATE notification_deliveries").Error; err != nil {
+		t.Fatalf("truncate: %v", err)
+	}
+	svc := NewNotificationDeliveryService(db)
+	ctx := context.Background()
+
+	now := time.Now().UTC()
+	seed := []models.NotificationDelivery{
+		{ChannelID: 42, UserID: 1, EventType: "test", Payload: "{}", Status: DeliveryStatusFailed, Attempts: 8, NextAttemptAt: now},
+		{ChannelID: 42, UserID: 1, EventType: "test", Payload: "{}", Status: DeliveryStatusFailed, Attempts: 8, NextAttemptAt: now},
+		{ChannelID: 42, UserID: 1, EventType: "test", Payload: "{}", Status: DeliveryStatusFailed, Attempts: 8, NextAttemptAt: now},
+		{ChannelID: 42, UserID: 1, EventType: "test", Payload: "{}", Status: DeliveryStatusDelivered, Attempts: 1, NextAttemptAt: now},
+		{ChannelID: 42, UserID: 1, EventType: "test", Payload: "{}", Status: DeliveryStatusPending, Attempts: 2, NextAttemptAt: now},
+		{ChannelID: 7, UserID: 1, EventType: "test", Payload: "{}", Status: DeliveryStatusFailed, Attempts: 8, NextAttemptAt: now},
+	}
+	if err := db.Create(&seed).Error; err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	requeued, err := svc.RetryAllFailed(ctx, 42)
+	if err != nil {
+		t.Fatalf("retry-all: %v", err)
+	}
+	if requeued != 3 {
+		t.Errorf("requeued %d rows, want 3", requeued)
+	}
+
+	var rows []models.NotificationDelivery
+	if err := db.Where("channel_id = ?", 42).Find(&rows).Error; err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	byStatus := make(map[string]int)
+	for _, row := range rows {
+		byStatus[row.Status]++
+		if row.Status == DeliveryStatusPending && row.Attempts != 0 && row.Attempts != 2 {
+			t.Errorf("re-armed row %d attempts=%d, want 0 (the pre-existing pending row keeps 2)", row.ID, row.Attempts)
+		}
+	}
+	if byStatus[DeliveryStatusPending] != 4 || byStatus[DeliveryStatusDelivered] != 1 {
+		t.Errorf("after retry-all statuses = %v, want 4 pending (3 re-armed + 1 old) and 1 delivered", byStatus)
+	}
+
+	// A different channel's failed row must be untouched.
+	var other models.NotificationDelivery
+	if err := db.Where("channel_id = ?", 7).First(&other).Error; err != nil {
+		t.Fatalf("reload other: %v", err)
+	}
+	if other.Status != DeliveryStatusFailed || other.Attempts != 8 {
+		t.Errorf("channel 7 row status=%q attempts=%d, want failed/8 (untouched)", other.Status, other.Attempts)
+	}
+
+	if n, err := svc.RetryAllFailed(ctx, 12345); err != nil || n != 0 {
+		t.Errorf("retry-all on empty channel = (%d, %v), want (0, nil)", n, err)
+	}
+}

@@ -21,6 +21,7 @@ import (
 //	POST   /v1/me/notification-channels/:id/test
 //	GET    /v1/me/notification-channels/:id/deliveries
 //	POST   /v1/me/notification-channels/:id/deliveries/:deliveryId/retry
+//	POST   /v1/me/notification-channels/:id/deliveries:retry-failed
 //
 // Every query is scoped by user_id, so one user can never read, modify or
 // fire another user's endpoint, and the signing secret is never echoed back.
@@ -214,6 +215,31 @@ func (h *NotificationChannelHandler) RetryDelivery(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, row)
+}
+
+// RetryFailedDeliveries re-arms every parked (`failed`) delivery for a channel
+// in one call, for an operator who fixed the endpoint and wants the whole
+// backlog retried. Owner-scoped via the parent channel.
+func (h *NotificationChannelHandler) RetryFailedDeliveries(c *gin.Context) {
+	id, ok := notificationChannelID(c)
+	if !ok {
+		return
+	}
+	uid := middleware.MustUserID(c)
+	if _, err := h.channels.Get(c.Request.Context(), uid, id); err != nil {
+		writeNotificationChannelError(c, err)
+		return
+	}
+	if h.deliveries == nil {
+		ProblemInternal(c, "delivery store is not configured")
+		return
+	}
+	requeued, err := h.deliveries.RetryAllFailed(c.Request.Context(), id)
+	if err != nil {
+		ProblemInternal(c, err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "requeued": requeued})
 }
 
 func notificationChannelID(c *gin.Context) (uint, bool) {

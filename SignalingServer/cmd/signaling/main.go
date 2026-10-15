@@ -326,6 +326,7 @@ func main() {
 			me.POST("/notification-channels/:id/test", notificationChannelHandler.Test)
 			me.GET("/notification-channels/:id/deliveries", notificationChannelHandler.Deliveries)
 			me.POST("/notification-channels/:id/deliveries/:deliveryId/retry", notificationChannelHandler.RetryDelivery)
+			me.POST("/notification-channels/:id/deliveries:retry-failed", notificationChannelHandler.RetryFailedDeliveries)
 
 			me.GET("/recordings", sessionRecordingHandler.List)
 			me.POST("/recordings", sessionRecordingHandler.Create)

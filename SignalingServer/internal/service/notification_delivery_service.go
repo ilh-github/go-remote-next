@@ -294,6 +294,23 @@ func (s *NotificationDeliveryService) Retry(ctx context.Context, channelID, deli
 	return &row, nil
 }
 
+// RetryAllFailed re-arms every parked (`failed`) delivery for one channel and
+// returns how many rows were queued for another pass. It is the bulk form of
+// Retry, for an operator who fixed a flaky endpoint and wants the whole backlog
+// retried without clicking each row.
+func (s *NotificationDeliveryService) RetryAllFailed(ctx context.Context, channelID uint) (int64, error) {
+	now := time.Now().UTC()
+	result := s.db.WithContext(ctx).Model(&models.NotificationDelivery{}).
+		Where("channel_id = ? AND status = ?", channelID, DeliveryStatusFailed).
+		Updates(map[string]interface{}{
+			"status":          DeliveryStatusPending,
+			"attempts":        0,
+			"next_attempt_at": now,
+			"updated_at":      now,
+		})
+	return result.RowsAffected, result.Error
+}
+
 // notificationBackoff grows 2s, 4s, 8s … up to the cap.
 func notificationBackoff(attempts int) time.Duration {
 	if attempts < 1 {
