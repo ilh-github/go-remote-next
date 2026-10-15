@@ -377,6 +377,7 @@ user-owned webhook endpoint that receives that user's own device events.
 | `DELETE` | `/v1/me/notification-channels/:id` | — | Owner-scoped. |
 | `POST` | `/v1/me/notification-channels/:id/test` | — | Fires a synthetic `test` event so the endpoint can be verified without waiting for device traffic. |
 | `GET` | `/v1/me/notification-channels/:id/deliveries?limit=` | — | Delivery history for the channel (newest first, default 50, max 200). Owner-scoped. |
+| `POST` | `/v1/me/notification-channels/:id/deliveries/:deliveryId/retry` | — | Re-arms a parked `failed` delivery (dead-letter replay). Returns `400` for rows that are not `failed`. Owner-scoped. |
 
 Payload shape (same as admin webhooks):
 
@@ -413,6 +414,12 @@ twice — consumers should treat `event` + `timestamp` + `data.log_id` as an
 idempotency key. The `:id/deliveries` endpoint is the operator-facing log:
 it shows what was queued, how many attempts it took, and whether it is still
 `pending`, `delivering`, `delivered` or `failed`.
+
+The claim is written as `SELECT ... FOR UPDATE SKIP LOCKED`, so the outbox is
+safe to drain from more than one worker or more than one server instance — two
+workers never take the same row. A row that exhausts its budget is parked as
+`failed` rather than dropped; `POST .../deliveries/:deliveryId/retry` re-arms
+one for another delivery pass (resetting its attempt budget to zero).
 
 ### 5.3.3 Device access policy (who is allowed to connect)
 

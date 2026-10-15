@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"strconv"
 	"time"
@@ -19,6 +20,10 @@ const (
 	DeliveryStatusDelivered  = "delivered"
 	DeliveryStatusFailed     = "failed"
 )
+
+// ErrDeliveryNotRetryable means the caller asked to replay a delivery that is
+// already delivered (or not parked as failed), so there is nothing to re-arm.
+var ErrDeliveryNotRetryable = errors.New("delivery is not retryable")
 
 const (
 	// notificationMaxAttempts is how many failed posts a row gets before it
@@ -214,6 +219,40 @@ func (s *NotificationDeliveryService) ListByChannel(ctx context.Context, channel
 		Limit(limit).
 		Find(&rows).Error
 	return rows, err
+}
+
+// Retry re-arms one parked (`failed`) delivery so the worker will try it again
+// without waiting for a new event. The attempt budget is reset to zero on
+// purpose: a transient outage should not permanently consume a row's tries,
+// and the previous failure is still visible in `last_error` until the next
+// attempt overwrites it. Rows that are delivered or already in flight are not
+// retryable.
+func (s *NotificationDeliveryService) Retry(ctx context.Context, channelID, deliveryID uint) (*models.NotificationDelivery, error) {
+	var row models.NotificationDelivery
+	if err := s.db.WithContext(ctx).
+		Where("id = ? AND channel_id = ?", deliveryID, channelID).
+		First(&row).Error; err != nil {
+		return nil, err
+	}
+	if row.Status != DeliveryStatusFailed {
+		return nil, ErrDeliveryNotRetryable
+	}
+	now := time.Now().UTC()
+	if err := s.db.WithContext(ctx).Model(&models.NotificationDelivery{}).
+		Where("id = ?", row.ID).
+		Updates(map[string]interface{}{
+			"status":          DeliveryStatusPending,
+			"attempts":        0,
+			"next_attempt_at": now,
+			"updated_at":      now,
+		}).Error; err != nil {
+		return nil, err
+	}
+	row.Status = DeliveryStatusPending
+	row.Attempts = 0
+	row.NextAttemptAt = now
+	row.UpdatedAt = now
+	return &row, nil
 }
 
 // notificationBackoff grows 2s, 4s, 8s … up to the cap.

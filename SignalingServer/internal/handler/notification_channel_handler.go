@@ -20,6 +20,7 @@ import (
 //	DELETE /v1/me/notification-channels/:id
 //	POST   /v1/me/notification-channels/:id/test
 //	GET    /v1/me/notification-channels/:id/deliveries
+//	POST   /v1/me/notification-channels/:id/deliveries/:deliveryId/retry
 //
 // Every query is scoped by user_id, so one user can never read, modify or
 // fire another user's endpoint, and the signing secret is never echoed back.
@@ -180,6 +181,39 @@ func (h *NotificationChannelHandler) Deliveries(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"items": rows})
+}
+
+// RetryDelivery re-arms a parked (`failed`) delivery so the worker tries it
+// again without waiting for a new event. Owner-scoped via the parent channel.
+func (h *NotificationChannelHandler) RetryDelivery(c *gin.Context) {
+	id, ok := notificationChannelID(c)
+	if !ok {
+		return
+	}
+	deliveryID, err := strconv.ParseUint(c.Param("deliveryId"), 10, 32)
+	if err != nil || deliveryID == 0 {
+		ProblemBadRequest(c, ProblemCodeInvalidRequest, "invalid delivery id")
+		return
+	}
+	uid := middleware.MustUserID(c)
+	if _, err := h.channels.Get(c.Request.Context(), uid, id); err != nil {
+		writeNotificationChannelError(c, err)
+		return
+	}
+	if h.deliveries == nil {
+		ProblemInternal(c, "delivery store is not configured")
+		return
+	}
+	row, err := h.deliveries.Retry(c.Request.Context(), id, uint(deliveryID))
+	if err != nil {
+		if errors.Is(err, service.ErrDeliveryNotRetryable) {
+			ProblemBadRequest(c, ProblemCodeInvalidRequest, "only failed deliveries can be retried")
+			return
+		}
+		writeNotificationChannelError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, row)
 }
 
 func notificationChannelID(c *gin.Context) (uint, bool) {
