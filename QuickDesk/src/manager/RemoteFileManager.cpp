@@ -154,6 +154,8 @@ void RemoteFileManager::sendTool(const QString& deviceId, const QString& tool,
     setBusy(true);
     const QString jsonData =
         QString::fromUtf8(QJsonDocument(payload).toJson(QJsonDocument::Compact));
+    LOG_INFO("RemoteFileManager: sending {} to {} (id={})", tool.toStdString(),
+             deviceId.toStdString(), id.toStdString());
     m_clientManager->sendSkillCommand(deviceId, jsonData);
 }
 

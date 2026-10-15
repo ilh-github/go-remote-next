@@ -283,15 +283,25 @@ void ClientManager::sendSkillCommand(const QString& deviceId,
                                      const QString& jsonData)
 {
     if (!m_messaging || !m_messaging->isReady()) {
+        // Dropping this silently used to look like "the file manager did
+        // nothing" in the UI, so both early returns are logged.
+        LOG_WARN("Cannot send skill command: messaging not ready (device={})",
+                 deviceId.toStdString());
         return;
     }
     QString connId = connectionIdFor(deviceId);
-    if (connId.isEmpty()) return;
+    if (connId.isEmpty()) {
+        LOG_WARN("Cannot send skill command: no connection for device {}",
+                 deviceId.toStdString());
+        return;
+    }
 
     QJsonObject message;
     message["type"] = "skillBridgeSend";
     message["connectionId"] = connId;
     message["data"] = jsonData;
+    LOG_INFO("Sending skill command to {} connection {}", deviceId.toStdString(),
+             connId.toStdString());
     m_messaging->sendMessage(message);
 }
 

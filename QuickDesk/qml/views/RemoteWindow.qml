@@ -856,6 +856,16 @@ Window {
         property string previewPath: ""
         property string previewText: ""
 
+        // The file manager always acts on the tab the user is looking at.
+        // Referencing a bare `devId` here resolved to nothing and quietly
+        // dropped every tool call.
+        function activeDeviceId() {
+            return (remoteWindow.currentTabIndex >= 0 &&
+                    remoteWindow.currentTabIndex < remoteWindow.connectionModel.count)
+                ? remoteWindow.connectionModel.deviceIdAt(remoteWindow.currentTabIndex)
+                : ""
+        }
+
         function joinPath(base, name) {
             if (!base) return name
             var sep = (base.indexOf("\\") >= 0 && base.indexOf("/") < 0) ? "\\" : "/"
@@ -891,9 +901,14 @@ Window {
 
         function navigate(path) {
             if (!path) return
+            var deviceId = activeDeviceId()
+            if (!deviceId) {
+                statusText = qsTr("No active connection")
+                return
+            }
             pathField.text = path
             statusText = qsTr("Loading...")
-            mainController.remoteFiles.listDirectory(devId, path)
+            mainController.remoteFiles.listDirectory(deviceId, path)
         }
 
         function refresh() {
@@ -903,10 +918,15 @@ Window {
         function submitPrompt() {
             var name = promptField.text.replace(/^\s+|\s+$/g, "")
             if (!name) return
+            var deviceId = activeDeviceId()
+            if (!deviceId) {
+                statusText = qsTr("No active connection")
+                return
+            }
             if (promptMode === "mkdir") {
-                mainController.remoteFiles.createDirectory(devId, joinPath(currentPath, name))
+                mainController.remoteFiles.createDirectory(deviceId, joinPath(currentPath, name))
             } else if (promptMode === "rename") {
-                mainController.remoteFiles.renamePath(devId, promptTarget, name)
+                mainController.remoteFiles.renamePath(deviceId, promptTarget, name)
             }
             promptMode = ""
         }
@@ -1093,7 +1113,8 @@ Window {
                                     if (model.isDir) {
                                         fileManagerDrawer.navigate(model.entryPath)
                                     } else {
-                                        mainController.remoteFiles.readFile(devId, model.entryPath)
+                                        mainController.remoteFiles.readFile(
+                                            fileManagerDrawer.activeDeviceId(), model.entryPath)
                                     }
                                 }
                                 onClicked: {
@@ -1118,7 +1139,8 @@ Window {
                             MouseArea {
                                 anchors.fill: parent
                                 cursorShape: Qt.PointingHandCursor
-                                onClicked: mainController.remoteFiles.readFile(devId, model.entryPath)
+                                onClicked: mainController.remoteFiles.readFile(
+                                               fileManagerDrawer.activeDeviceId(), model.entryPath)
                             }
                         }
                         Text {
@@ -1146,7 +1168,8 @@ Window {
                             MouseArea {
                                 anchors.fill: parent
                                 cursorShape: Qt.PointingHandCursor
-                                onClicked: mainController.remoteFiles.trashPath(devId, model.entryPath)
+                                onClicked: mainController.remoteFiles.trashPath(
+                                               fileManagerDrawer.activeDeviceId(), model.entryPath)
                             }
                         }
                     }
