@@ -14,9 +14,9 @@ var ErrInvalidAccessWindow = errors.New("access windows need days 0-6 and HH:MM 
 // ErrInvalidTimezone means the IANA timezone could not be loaded.
 var ErrInvalidTimezone = errors.New("timezone must be an IANA name like Asia/Shanghai")
 
-// ErrInvalidAccessException means a one-off exception date is malformed (not a
-// YYYY-MM-DD date, an unknown mode, or the same date listed twice).
-var ErrInvalidAccessException = errors.New("access exception dates need YYYY-MM-DD dates with mode \"allow\" or \"deny\", each listed once")
+// ErrInvalidAccessException means an exception date is malformed (bad date or
+// range, unknown mode/repeat) or two exceptions with different modes overlap.
+var ErrInvalidAccessException = errors.New("access exception dates need YYYY-MM-DD date/end_date, mode \"allow\" or \"deny\", optional repeat \"yearly\", and no overlapping allow/deny entries")
 
 // Exception-date modes.
 const (
@@ -24,14 +24,23 @@ const (
 	AccessExceptionModeDeny  = "deny"
 )
 
-// AccessExceptionDate is a one-off override for a single calendar date,
-// evaluated in the policy's timezone. "deny" blocks access for the whole day
-// (holidays, maintenance); "allow" permits it for the whole day and overrides
-// the weekly windows (a one-off work day). Either way only the *time* rule is
-// decided here - remote_disabled and the IP allow list are still enforced.
+// AccessExceptionRepeatYearly makes an exception recur every year on the same
+// month-day(s), so "Spring Festival" or "New Year" is one entry instead of one
+// per year.
+const AccessExceptionRepeatYearly = "yearly"
+
+// AccessExceptionDate is a one-off (or annually recurring) override, evaluated
+// in the policy's timezone. "deny" blocks access for the covered day(s)
+// (holidays, maintenance); "allow" permits them and overrides the weekly
+// windows (a one-off work day). EndDate is an inclusive range end and defaults
+// to Date; Repeat:"yearly" matches the same month-day(s) every year and may
+// wrap the new year (e.g. 12-30 through 01-02). Either way only the *time* rule
+// is decided here - remote_disabled and the IP allow list are still enforced.
 type AccessExceptionDate struct {
-	Date string `json:"date"`
-	Mode string `json:"mode"`
+	Date    string `json:"date"`
+	EndDate string `json:"end_date,omitempty"`
+	Mode    string `json:"mode"`
+	Repeat  string `json:"repeat,omitempty"`
 }
 
 // AccessWindow is one recurring window in which remote access is allowed.
@@ -78,30 +87,55 @@ func ValidateTimezone(name string) error {
 	return nil
 }
 
-// ValidateAccessExceptions rejects malformed exception dates and refuses to
-// accept the same date twice, so a policy can never be ambiguous about whether
-// a given day is allowed or denied.
+// ValidateAccessExceptions rejects malformed exception entries and refuses to
+// accept an allow and a deny entry that cover the same day, so a policy can
+// never be ambiguous about whether a given day is allowed or denied. Entries
+// with the same mode may overlap (harmless duplication).
 func ValidateAccessExceptions(exceptions []AccessExceptionDate) error {
-	seen := make(map[string]bool, len(exceptions))
 	for i, e := range exceptions {
-		date := strings.TrimSpace(e.Date)
-		if _, err := time.Parse("2006-01-02", date); err != nil {
+		start, err := parseExceptionDate(e.Date)
+		if err != nil {
 			return fmt.Errorf("%w: exception %d date %q", ErrInvalidAccessException, i, e.Date)
 		}
-		mode := strings.ToLower(strings.TrimSpace(e.Mode))
-		if mode != AccessExceptionModeAllow && mode != AccessExceptionModeDeny {
+		end := start
+		if strings.TrimSpace(e.EndDate) != "" {
+			end, err = parseExceptionDate(e.EndDate)
+			if err != nil {
+				return fmt.Errorf("%w: exception %d end_date %q", ErrInvalidAccessException, i, e.EndDate)
+			}
+		}
+		if mode := strings.ToLower(strings.TrimSpace(e.Mode)); mode != AccessExceptionModeAllow && mode != AccessExceptionModeDeny {
 			return fmt.Errorf("%w: exception %d mode %q", ErrInvalidAccessException, i, e.Mode)
 		}
-		if seen[date] {
-			return fmt.Errorf("%w: date %s is listed more than once", ErrInvalidAccessException, date)
+		repeat := strings.ToLower(strings.TrimSpace(e.Repeat))
+		if repeat != "" && repeat != AccessExceptionRepeatYearly {
+			return fmt.Errorf("%w: exception %d repeat %q", ErrInvalidAccessException, i, e.Repeat)
 		}
-		seen[date] = true
+		// A yearly exception may wrap the new year, so only a non-recurring
+		// range has to be ordered.
+		if repeat == "" && end.Before(start) {
+			return fmt.Errorf("%w: exception %d end_date %s is before date %s",
+				ErrInvalidAccessException, i, e.EndDate, e.Date)
+		}
+	}
+
+	// Pairwise conflict check: an allow and a deny must not cover any shared day.
+	for i := 0; i < len(exceptions); i++ {
+		for j := i + 1; j < len(exceptions); j++ {
+			if sameMode(exceptions[i].Mode, exceptions[j].Mode) {
+				continue
+			}
+			if exceptionsOverlap(exceptions[i], exceptions[j]) {
+				return fmt.Errorf("%w: exceptions %d and %d both cover a day with different modes",
+					ErrInvalidAccessException, i, j)
+			}
+		}
 	}
 	return nil
 }
 
 // AccessExceptionMatch reports whether the policy's local calendar date for now
-// has a one-off exception, and if so whether it allows access. matched=false
+// is covered by an exception, and if so whether it allows access. matched=false
 // means "no exception today", so the caller should fall back to the weekly
 // windows.
 func AccessExceptionMatch(exceptions []AccessExceptionDate, loc *time.Location, now time.Time) (matched bool, allowed bool, reason string) {
@@ -111,17 +145,111 @@ func AccessExceptionMatch(exceptions []AccessExceptionDate, loc *time.Location, 
 	if loc == nil {
 		loc = time.UTC
 	}
-	today := now.In(loc).Format("2006-01-02")
+	today := now.In(loc)
+	day := time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, time.UTC)
+
+	// Deny is scanned first as a defensive tie-break; validation already
+	// rejects allow/deny overlaps, but a malformed stored policy should not
+	// silently become an access grant.
 	for _, e := range exceptions {
-		if strings.TrimSpace(e.Date) != today {
-			continue
-		}
-		if strings.EqualFold(strings.TrimSpace(e.Mode), AccessExceptionModeDeny) {
+		if sameMode(e.Mode, AccessExceptionModeDeny) && exceptionCovers(e, day) {
 			return true, false, "today is blocked by an access exception date"
 		}
-		return true, true, ""
+	}
+	for _, e := range exceptions {
+		if sameMode(e.Mode, AccessExceptionModeAllow) && exceptionCovers(e, day) {
+			return true, true, ""
+		}
 	}
 	return false, false, ""
+}
+
+func sameMode(a, b string) bool {
+	return strings.EqualFold(strings.TrimSpace(a), strings.TrimSpace(b))
+}
+
+// exceptionCovers reports whether the (midnight, UTC-normalised) day falls in
+// the exception, honouring yearly recurrence and new-year wrapping.
+func exceptionCovers(e AccessExceptionDate, day time.Time) bool {
+	start, err := parseExceptionDate(e.Date)
+	if err != nil {
+		return false
+	}
+	end := start
+	if strings.TrimSpace(e.EndDate) != "" {
+		if end, err = parseExceptionDate(e.EndDate); err != nil {
+			return false
+		}
+	}
+	if strings.EqualFold(strings.TrimSpace(e.Repeat), AccessExceptionRepeatYearly) {
+		return inMonthDayRange(monthDayKey(start), monthDayKey(end), monthDayKey(day))
+	}
+	return !day.Before(start) && !day.After(end)
+}
+
+// exceptionsOverlap reports whether two entries cover at least one shared day.
+func exceptionsOverlap(a, b AccessExceptionDate) bool {
+	aStart, errA1 := parseExceptionDate(a.Date)
+	bStart, errB1 := parseExceptionDate(b.Date)
+	if errA1 != nil || errB1 != nil {
+		return false
+	}
+	aEnd := aStart
+	if strings.TrimSpace(a.EndDate) != "" {
+		if parsed, err := parseExceptionDate(a.EndDate); err == nil {
+			aEnd = parsed
+		}
+	}
+	bEnd := bStart
+	if strings.TrimSpace(b.EndDate) != "" {
+		if parsed, err := parseExceptionDate(b.EndDate); err == nil {
+			bEnd = parsed
+		}
+	}
+	aYearly := strings.EqualFold(strings.TrimSpace(a.Repeat), AccessExceptionRepeatYearly)
+	bYearly := strings.EqualFold(strings.TrimSpace(b.Repeat), AccessExceptionRepeatYearly)
+
+	switch {
+	case aYearly && bYearly:
+		return monthDayRangesOverlap(monthDayKey(aStart), monthDayKey(aEnd), monthDayKey(bStart), monthDayKey(bEnd))
+	case aYearly:
+		return inMonthDayRange(monthDayKey(aStart), monthDayKey(aEnd), monthDayKey(bStart)) ||
+			inMonthDayRange(monthDayKey(aStart), monthDayKey(aEnd), monthDayKey(bEnd))
+	case bYearly:
+		return inMonthDayRange(monthDayKey(bStart), monthDayKey(bEnd), monthDayKey(aStart)) ||
+			inMonthDayRange(monthDayKey(bStart), monthDayKey(bEnd), monthDayKey(aEnd))
+	default:
+		return !aStart.After(bEnd) && !bStart.After(aEnd)
+	}
+}
+
+// parseExceptionDate parses YYYY-MM-DD into a date-only UTC time so range
+// comparisons never depend on a clock or a location.
+func parseExceptionDate(value string) (time.Time, error) {
+	return time.Parse("2006-01-02", strings.TrimSpace(value))
+}
+
+// monthDayKey returns month*100+day, a sortable stand-in for "day of year".
+func monthDayKey(t time.Time) int {
+	return int(t.Month())*100 + t.Day()
+}
+
+// inMonthDayRange reports membership in a month-day range that may wrap the new
+// year (start > end).
+func inMonthDayRange(start, end, md int) bool {
+	if start <= end {
+		return md >= start && md <= end
+	}
+	return md >= start || md <= end
+}
+
+// monthDayRangesOverlap reports whether two month-day ranges (each possibly
+// wrapping the new year) share at least one day.
+//
+// Two arcs on a circle intersect exactly when one arc's start lies in the
+// other arc, which avoids any cyclic-interval case analysis.
+func monthDayRangesOverlap(aStart, aEnd, bStart, bEnd int) bool {
+	return inMonthDayRange(bStart, bEnd, aStart) || inMonthDayRange(aStart, aEnd, bStart)
 }
 
 // EvaluateAccessWindowsAt reports whether now falls inside any window. An

@@ -264,3 +264,116 @@ func TestEvaluateDeviceAccessPolicyWithExceptionDates(t *testing.T) {
 		t.Fatalf("the IP allow list must beat an allow exception, got %q", reason)
 	}
 }
+
+func TestValidateAccessExceptionRangesAndRepeat(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   []AccessExceptionDate
+		wantErr bool
+	}{
+		{"single day still works", []AccessExceptionDate{{Date: "2026-10-17", Mode: "deny"}}, false},
+		{"inclusive range", []AccessExceptionDate{{Date: "2026-02-15", EndDate: "2026-02-21", Mode: "deny"}}, false},
+		{"range end equals start", []AccessExceptionDate{{Date: "2026-02-15", EndDate: "2026-02-15", Mode: "deny"}}, false},
+		{"yearly single day", []AccessExceptionDate{{Date: "2026-02-17", Mode: "deny", Repeat: "yearly"}}, false},
+		{"yearly range may wrap the new year", []AccessExceptionDate{{Date: "2026-12-30", EndDate: "2026-01-02", Mode: "deny", Repeat: "yearly"}}, false},
+		{"non-yearly range must be ordered", []AccessExceptionDate{{Date: "2026-10-07", EndDate: "2026-10-01", Mode: "deny"}}, true},
+		{"bad end date", []AccessExceptionDate{{Date: "2026-10-01", EndDate: "2026-10-40", Mode: "deny"}}, true},
+		{"unknown repeat", []AccessExceptionDate{{Date: "2026-10-01", Mode: "deny", Repeat: "monthly"}}, true},
+		{"same-mode overlap is harmless", []AccessExceptionDate{
+			{Date: "2026-10-01", EndDate: "2026-10-07", Mode: "deny"},
+			{Date: "2026-10-05", Mode: "deny"},
+		}, false},
+		{"allow/deny overlap is rejected", []AccessExceptionDate{
+			{Date: "2026-10-01", EndDate: "2026-10-07", Mode: "deny"},
+			{Date: "2026-10-05", Mode: "allow"},
+		}, true},
+		{"disjoint allow/deny is fine", []AccessExceptionDate{
+			{Date: "2026-10-01", EndDate: "2026-10-07", Mode: "deny"},
+			{Date: "2026-10-10", Mode: "allow"},
+		}, false},
+		{"yearly deny overlapping a dated allow is rejected", []AccessExceptionDate{
+			{Date: "2026-02-15", EndDate: "2026-02-21", Mode: "deny", Repeat: "yearly"},
+			{Date: "2027-02-18", Mode: "allow"},
+		}, true},
+		{"two yearly ranges that do not touch are fine", []AccessExceptionDate{
+			{Date: "2026-02-01", EndDate: "2026-02-07", Mode: "deny", Repeat: "yearly"},
+			{Date: "2026-03-01", EndDate: "2026-03-07", Mode: "allow", Repeat: "yearly"},
+		}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateAccessExceptions(tt.input)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("ValidateAccessExceptions(%v) err = %v, wantErr %v", tt.input, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestAccessExceptionMatchRangesAndRepeat(t *testing.T) {
+	shanghai := mustLoad(t, "Asia/Shanghai")
+	at := func(y int, m time.Month, d int) time.Time {
+		return time.Date(y, m, d, 9, 0, 0, 0, shanghai)
+	}
+
+	// An inclusive range covers the middle days but nothing outside it.
+	festival := []AccessExceptionDate{{Date: "2026-02-15", EndDate: "2026-02-21", Mode: "deny"}}
+	for _, d := range []int{15, 18, 21} {
+		if matched, allowed, _ := AccessExceptionMatch(festival, shanghai, at(2026, time.February, d)); !matched || allowed {
+			t.Fatalf("2026-02-%02d should be denied by the range", d)
+		}
+	}
+	for _, d := range []int{14, 22} {
+		if matched, _, _ := AccessExceptionMatch(festival, shanghai, at(2026, time.February, d)); matched {
+			t.Fatalf("2026-02-%02d must be outside the range", d)
+		}
+	}
+
+	// The same range, recurring yearly, blocks the same days in another year.
+	annual := []AccessExceptionDate{{Date: "2026-02-15", EndDate: "2026-02-21", Mode: "deny", Repeat: "yearly"}}
+	if matched, allowed, _ := AccessExceptionMatch(annual, shanghai, at(2030, time.February, 18)); !matched || allowed {
+		t.Fatal("a yearly exception must fire in later years")
+	}
+	if matched, _, _ := AccessExceptionMatch(annual, shanghai, at(2030, time.February, 25)); matched {
+		t.Fatal("a yearly exception must not fire outside its month-day range")
+	}
+
+	// A yearly range that wraps the new year covers late December and early
+	// January, across two different calendar years.
+	newYear := []AccessExceptionDate{{Date: "2026-12-30", EndDate: "2026-01-02", Mode: "allow", Repeat: "yearly"}}
+	for _, when := range []time.Time{at(2026, time.December, 31), at(2027, time.January, 1)} {
+		if matched, allowed, _ := AccessExceptionMatch(newYear, shanghai, when); !matched || !allowed {
+			t.Fatalf("%s should be covered by the wrapping yearly range", when.Format("2006-01-02"))
+		}
+	}
+	if matched, _, _ := AccessExceptionMatch(newYear, shanghai, at(2027, time.January, 5)); matched {
+		t.Fatal("a wrapping yearly range must not cover days after its end")
+	}
+}
+
+func TestEvaluateDeviceAccessPolicyWithYearlyExceptionRange(t *testing.T) {
+	shanghai := mustLoad(t, "Asia/Shanghai")
+	// Weekdays 09:00-18:00, but every year the Spring Festival week is closed.
+	policy := &models.DeviceAccessPolicy{
+		AllowedWindows: `[{"days":[1,2,3,4,5],"start":"09:00","end":"18:00"}]`,
+		Timezone:       "Asia/Shanghai",
+		ExceptionDates: `[{"date":"2026-02-15","end_date":"2026-02-21","mode":"deny","repeat":"yearly"}]`,
+	}
+	// 2026-02-18 is a Wednesday inside the window, but the festival blocks it.
+	wednesday := time.Date(2026, time.February, 18, 10, 0, 0, 0, shanghai)
+	if allowed, reason := EvaluateDeviceAccessPolicyAt(policy, "127.0.0.1", wednesday); allowed {
+		t.Fatal("the festival range must block a weekday inside the window")
+	} else if reason != "today is blocked by an access exception date" {
+		t.Fatalf("unexpected reason %q", reason)
+	}
+	// The next year's festival week is blocked too.
+	nextYear := time.Date(2027, time.February, 17, 10, 0, 0, 0, shanghai)
+	if allowed, _ := EvaluateDeviceAccessPolicyAt(policy, "127.0.0.1", nextYear); allowed {
+		t.Fatal("a yearly exception must recur")
+	}
+	// A weekday in March still follows the weekly window.
+	march := time.Date(2026, time.March, 4, 10, 0, 0, 0, shanghai)
+	if allowed, reason := EvaluateDeviceAccessPolicyAt(policy, "127.0.0.1", march); !allowed {
+		t.Fatalf("a March weekday should stay allowed, got %q", reason)
+	}
+}
