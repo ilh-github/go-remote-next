@@ -12,6 +12,7 @@
 | `record.mjs` | 连上之后点录制按钮，录一段再停止，断言上传日志出现（录 → 存 → 索引） |
 | `playback.mjs` | 在录像页点「播放」，断言签名 URL 打开的播放器 `currentTime` 在推进 |
 | `guest-input-target.ps1` | 被控端侧的单窗口输入靶子（WinForms 文本框，内容变化即落盘），比 Win11 记事本可靠 |
+| `guest-qt-ui.ps1` | 用 UI Automation 驱动 Windows 上的 QuickDesk 桌面客户端（填设备号/接入码、点连接、发快捷键），用于验证 Qt 侧录制 |
 | `guest-notepad.ps1` | 备选靶子：用 UI Automation 读写记事本，适合快速人工核对 |
 
 ## 依赖

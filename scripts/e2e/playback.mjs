@@ -44,7 +44,10 @@ const second = await player.evaluate(() => {
 })
 
 await player.screenshot({ path: '/Users/timbl/PDShare/qd-e2e/playback.png' })
-const ok = second.w > 0 && second.t > first.t
+// Duration is asserted, not just progress: a broken frame-timestamp unit
+// (milliseconds written where microseconds are expected) still "plays" but
+// collapses a multi-second recording into a few milliseconds.
+const ok = second.w > 0 && second.t > first.t && second.dur > 1
 console.log('playback:', JSON.stringify({ first, second }))
 console.log(ok ? 'RESULT=PASS' : 'RESULT=FAIL')
 
