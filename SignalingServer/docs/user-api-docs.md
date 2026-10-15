@@ -351,6 +351,10 @@ The unified envelope is `{items: [DeviceItem], next_cursor}`. Every
 | `DELETE` | `/v1/me/recordings/:id` | — |
 | `POST` | `/v1/me/recordings/:id/artifact` | Media bytes. `multipart/form-data` with a `file` part, or a raw body plus `?ext=.mp4\|.mkv\|.webm\|.h264\|.grf`. |
 | `GET` | `/v1/me/recordings/:id/artifact` | Streams the stored media back. Owner only. |
+| `POST` | `/v1/me/recordings/:id/artifact-ticket` | Mints `{url, expires_at}` for playback without an `Authorization` header. |
+| `POST` | `/v1/me/recordings/:id/thumbnail` | Preview image (JPEG or PNG) for the recordings list. `multipart/form-data` with a `file` part, or a raw body plus `?ext=.jpg\|.jpeg\|.png`. |
+| `GET` | `/v1/me/recordings/:id/thumbnail` | Streams the stored preview back. Owner only. |
+| `POST` | `/v1/me/recordings/:id/thumbnail-ticket` | Mints `{url, expires_at}` for the preview, same rules as the artifact ticket. |
 
 `session_recordings` is the control-plane index for remote-session media. The
 recording engine owns the artifact and reports its metadata through
@@ -358,6 +362,16 @@ recording engine owns the artifact and reports its metadata through
 `POST /v1/me/recordings/:id/artifact` and read back through the matching `GET`
 route — there is deliberately **no static directory mount**, every download is
 ownership-checked.
+
+Signed playback links: `<video src>`, `window.open` and `<a download>` cannot
+carry an `Authorization` header, so those two routes have ticket variants.
+`POST .../artifact-ticket` and `POST .../thumbnail-ticket` return a URL of the
+form `/v1/recordings/:id/artifact?t=...` (or `/thumbnail?t=...`) signed with
+`RECORDING_URL_SECRET` (falling back to `API_KEY`), valid for
+`RECORDING_TICKET_TTL_SECONDS` (default `600`). The two routes live outside the
+API-key and user-auth groups because a top-level browser navigation carries
+neither header; the ticket is the credential. Each ticket is scoped to one
+media kind, so a playback link cannot be replayed against the preview route.
 
 Upload behaviour worth knowing:
 
@@ -372,6 +386,16 @@ Upload behaviour worth knowing:
 - the size limit is `RECORDING_MAX_UPLOAD_MB` (default `2048`), and files live
   under `RECORDING_DIR` (default `data/recordings`).
 
+Previews follow the same storage rules with a much smaller budget: the cap is
+2 MiB (`min(2 MiB, RECORDING_MAX_UPLOAD_MB)`), the file is named
+`thumb-<recording_id>.<ext>` next to the media, and only `.jpg`/`.jpeg`/`.png`
+are accepted. Unlike an artifact, the bytes are **sniffed** (JPEG `FF D8 FF`,
+PNG signature) and the declared extension must match them, because the
+recordings list renders this image inline. A successful upload writes
+`thumbnail_url` and removes any preview left under the other extension. Only
+the relative URL is stored, so `thumbnail_url` is never an absolute host and
+the value survives a redeploy behind a different name.
+
 Status lifecycle: a client opens the row as `recording`, uploads the bytes, and
 the server flips it to `completed` when they arrive. If the upload never lands the
 client marks the row `failed`. If a client dies mid-capture the row is repaired by
@@ -380,7 +404,9 @@ the stale sweep below, so `recording` is never a terminal state.
 Retention is opt-in: `RECORDING_RETENTION_DAYS` (default `0` = keep media
 forever) deletes media files older than the window while **keeping the index
 row**; `artifact_path`/`artifact_url`/`size_bytes` are cleared, so playback
-stops being offered and the artifact route answers `404`. `RECORDING_STALE_MINUTES`
+stops being offered and the artifact route answers `404`. A stored preview is
+deleted by the same pass and `thumbnail_path`/`thumbnail_url` are cleared with
+it, so a purge never leaves an image orphaned on disk. `RECORDING_STALE_MINUTES`
 (default `240`) is how long `recording` may stay open before it is marked
 `failed`. Both passes run every `RECORDING_SWEEP_INTERVAL_MINUTES` (default `30`)
 and can be triggered on demand through the admin endpoints below.
@@ -699,6 +725,7 @@ request shapes; this section documents only the route table.
 | `GET` | `/v1/admin/audit-logs` (filters `date_from` / `date_to` / `q`) |
 | `GET` `DELETE` | `/v1/admin/recordings[/:id]` (list filters `user_id` / `device_id` / `status` / `q`; delete writes audit action `recording.delete`) |
 | `GET` | `/v1/admin/recordings/:id/artifact` (cross-user download; audit action `recording.download`) |
+| `GET` | `/v1/admin/recordings/:id/thumbnail` (cross-user preview; audit action `recording.thumbnail.download`) |
 | `GET` | `/v1/admin/recordings:storage` — `{artifact_count, total_bytes, retention_days, stale_after_minutes}` |
 | `POST` | `/v1/admin/recordings:sweep` — runs the stale + retention pass now; returns `{stale_marked_failed, artifacts_purged, bytes_freed}` and audits `recording.sweep` |
 | `GET` `PUT` | `/v1/admin/preset` |

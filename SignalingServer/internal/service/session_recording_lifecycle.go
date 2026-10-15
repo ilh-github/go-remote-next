@@ -42,7 +42,7 @@ func (s *SessionRecordingService) SweepStaleRecordings(ctx context.Context, cuto
 // A row is only eligible when it still points at a file; the index row itself
 // is deliberately kept so history survives the cleanup.
 func ArtifactExpired(row models.SessionRecording, cutoff time.Time) bool {
-	if row.ArtifactPath == "" && row.ArtifactURL == "" {
+	if row.ArtifactPath == "" && row.ArtifactURL == "" && row.ThumbnailPath == "" {
 		return false
 	}
 	stamp := row.UpdatedAt
@@ -59,7 +59,7 @@ func (s *SessionRecordingService) ExpiredArtifacts(
 	limit int,
 ) ([]models.SessionRecording, error) {
 	q := s.db.WithContext(ctx).
-		Where("artifact_path <> '' OR artifact_url <> ''").
+		Where("artifact_path <> '' OR artifact_url <> '' OR thumbnail_path <> ''").
 		Where("COALESCE(ended_at, updated_at) < ?", cutoff.UTC()).
 		Order("id ASC")
 	if limit <= 0 {
@@ -78,10 +78,12 @@ func (s *SessionRecordingService) ClearArtifact(ctx context.Context, id uint) er
 		Model(&models.SessionRecording{}).
 		Where("id = ?", id).
 		Updates(map[string]interface{}{
-			"artifact_path": "",
-			"artifact_url":  "",
-			"size_bytes":    0,
-			"updated_at":    time.Now().UTC(),
+			"artifact_path":  "",
+			"artifact_url":   "",
+			"thumbnail_path": "",
+			"thumbnail_url":  "",
+			"size_bytes":     0,
+			"updated_at":     time.Now().UTC(),
 		})
 	if result.Error != nil {
 		return result.Error
@@ -103,7 +105,7 @@ func (s *SessionRecordingService) ArtifactUsage(ctx context.Context) (RecordingA
 	err := s.db.WithContext(ctx).
 		Model(&models.SessionRecording{}).
 		Select("COUNT(*) AS count, COALESCE(SUM(size_bytes), 0) AS total_bytes").
-		Where("artifact_path <> '' OR artifact_url <> ''").
+		Where("artifact_path <> '' OR artifact_url <> '' OR thumbnail_path <> ''").
 		Scan(&row).Error
 	if err != nil {
 		return usage, err
@@ -180,11 +182,21 @@ func (l *RecordingLifecycle) SweepOnce(ctx context.Context) (stale int64, purged
 	}
 	for i := range rows {
 		row := rows[i]
-		if row.ArtifactPath != "" {
-			if removeErr := l.removeFile(row.ArtifactPath); removeErr != nil && !os.IsNotExist(removeErr) {
-				// Keep the row pointing at the file so a later pass can retry.
+		// A row can hold both a media file and a preview; delete every stored
+		// file, and if any deletion fails keep the row untouched so a later pass
+		// can retry it rather than orphaning the file.
+		retry := false
+		for _, path := range []string{row.ArtifactPath, row.ThumbnailPath} {
+			if path == "" {
 				continue
 			}
+			if removeErr := l.removeFile(path); removeErr != nil && !os.IsNotExist(removeErr) {
+				retry = true
+				break
+			}
+		}
+		if retry {
+			continue
 		}
 		if err = l.recordings.ClearArtifact(ctx, row.ID); err != nil {
 			return stale, purged, freedBytes, err

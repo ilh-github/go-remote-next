@@ -447,3 +447,127 @@ func (s *SessionRecordingService) ArtifactForAdmin(ctx context.Context, id uint)
 }
 
 func strPtr(v string) *string { return &v }
+
+// ---------------------------------------------------------------------
+// Thumbnails
+//
+// A thumbnail is a small still image used by the recordings list. It shares the
+// artifact storage rules (allow-list, derived file name, no static mount) but is
+// validated by content, not just by extension: an image route is a much more
+// attractive place to smuggle something than a video one.
+// ---------------------------------------------------------------------
+
+var thumbnailExtensions = map[string]string{
+	".jpg":  "image/jpeg",
+	".jpeg": "image/jpeg",
+	".png":  "image/png",
+}
+
+// ErrInvalidThumbnailContent means the bytes do not look like the declared type.
+var ErrInvalidThumbnailContent = errors.New("thumbnail bytes do not match an allowed image type")
+
+// NormalizeThumbnailExtension accepts jpg/jpeg/png.
+func NormalizeThumbnailExtension(filename string) (string, error) {
+	ext := strings.ToLower(filepath.Ext(strings.TrimSpace(filename)))
+	if _, ok := thumbnailExtensions[ext]; !ok {
+		return "", ErrArtifactTypeDenied
+	}
+	return ext, nil
+}
+
+// ThumbnailContentType maps a stored extension to the response content type.
+func ThumbnailContentType(ext string) string {
+	return thumbnailExtensions[strings.ToLower(ext)]
+}
+
+// ThumbnailExtensionForType returns the canonical on-disk extension for a
+// sniffed image content type, or "" when the type is not allowed.
+func ThumbnailExtensionForType(contentType string) string {
+	switch strings.ToLower(strings.TrimSpace(contentType)) {
+	case "image/jpeg":
+		return ".jpg"
+	case "image/png":
+		return ".png"
+	}
+	return ""
+}
+
+// SniffThumbnailType verifies the leading bytes of an upload.
+func SniffThumbnailType(head []byte) (string, error) {
+	if len(head) >= 3 && head[0] == 0xFF && head[1] == 0xD8 && head[2] == 0xFF {
+		return "image/jpeg", nil
+	}
+	if len(head) >= 8 && head[0] == 0x89 && head[1] == 'P' && head[2] == 'N' && head[3] == 'G' &&
+		head[4] == 0x0D && head[5] == 0x0A && head[6] == 0x1A && head[7] == 0x0A {
+		return "image/png", nil
+	}
+	return "", ErrInvalidThumbnailContent
+}
+
+// ThumbnailPath mirrors ArtifactPath: the name comes from the ids, never from
+// the uploaded file name.
+func ThumbnailPath(baseDir string, userID uint, recordingID uint, ext string) string {
+	name := "thumb-" + formatUintID(recordingID) + ext
+	return filepath.Join(baseDir, formatUintID(userID), name)
+}
+
+// ThumbnailURL is the relative route clients resolve against the server base.
+func ThumbnailURL(recordingID uint) string {
+	return "/v1/me/recordings/" + formatUintID(recordingID) + "/thumbnail"
+}
+
+// AttachThumbnail records the stored preview image on an existing row.
+func (s *SessionRecordingService) AttachThumbnail(
+	ctx context.Context,
+	userID uint,
+	id uint,
+	storedPath string,
+	ext string,
+	sizeBytes int64,
+) (*models.SessionRecording, error) {
+	if sizeBytes <= 0 {
+		return nil, ErrArtifactEmpty
+	}
+	if ThumbnailContentType(ext) == "" {
+		return nil, ErrArtifactTypeDenied
+	}
+	result := s.db.WithContext(ctx).
+		Model(&models.SessionRecording{}).
+		Where("id = ? AND user_id = ?", id, userID).
+		Updates(map[string]interface{}{
+			"thumbnail_path": storedPath,
+			"thumbnail_url":  ThumbnailURL(id),
+			"updated_at":     time.Now().UTC(),
+		})
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	if result.RowsAffected == 0 {
+		return nil, gorm.ErrRecordNotFound
+	}
+	return s.Get(ctx, userID, id)
+}
+
+// ThumbnailFor returns the row when it owns a preview image.
+func (s *SessionRecordingService) ThumbnailFor(ctx context.Context, userID uint, id uint) (*models.SessionRecording, error) {
+	row, err := s.Get(ctx, userID, id)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(row.ThumbnailPath) == "" {
+		return nil, gorm.ErrRecordNotFound
+	}
+	return row, nil
+}
+
+// ThumbnailForAdmin is the cross-user variant.
+func (s *SessionRecordingService) ThumbnailForAdmin(ctx context.Context, id uint) (*models.SessionRecording, error) {
+	row, err := s.GetAdmin(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(row.ThumbnailPath) == "" {
+		return nil, gorm.ErrRecordNotFound
+	}
+	return row, nil
+}

@@ -12,6 +12,10 @@
 #include <QTimer>
 #include <QVideoFrameInput>
 
+#include <functional>
+
+class QVideoFrame;
+
 namespace quickdesk {
 
 class AuthManager;
@@ -29,7 +33,9 @@ class SharedMemoryManager;
  *
  * Lifecycle: startRecording() -> frames -> stopRecording() -> upload, which
  * creates a `session_recordings` row and then posts the bytes to
- * /v1/me/recordings/:id/artifact.
+ * /v1/me/recordings/:id/artifact. The first decoded frame is also saved as a
+ * small JPEG and posted to /v1/me/recordings/:id/thumbnail so the recordings
+ * list has a preview.
  */
 class DeviceRecorder : public QObject {
     Q_OBJECT
@@ -63,10 +69,24 @@ private slots:
 
 private:
     void fail(const QString& message);
+    void capturePoster(const QVideoFrame& frame);
     QString httpBaseUrl() const;
     void uploadRecording(const QString& filePath);
     void createIndexRowThenUpload(const QString& filePath, qint64 sizeBytes);
     void uploadBytes(const QString& filePath, const QString& recordingId);
+    void uploadThumbnail(const QString& recordingId);
+    /**
+     * POST one file as multipart/form-data, retrying only failures a retry can
+     * actually fix (transport errors, 5xx, 429). A 4xx is a verdict on the
+     * payload, so it is reported immediately instead of being retried.
+     */
+    void postFileWithRetry(const QString& url,
+                           const QString& filePath,
+                           const QString& mimeType,
+                           const QString& fileName,
+                           const QString& label,
+                           std::function<void(bool ok, int status, const QString& detail)> done,
+                           int attempt);
     void markFailed(const QString& recordingId, const QString& filePath);
 
     SharedMemoryManager* m_sharedMemory = nullptr;
@@ -81,9 +101,11 @@ private:
 
     QString m_deviceId;
     QString m_outputPath;
+    QString m_posterPath;
     QString m_lastError;
     QString m_lastRecordingId;
     bool m_recording = false;
+    bool m_posterCaptured = false;
     qint64 m_startedAtMs = 0;
 };
 

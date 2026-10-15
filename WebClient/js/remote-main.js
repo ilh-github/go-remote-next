@@ -1455,11 +1455,43 @@ class RemoteDesktopApp {
         this._recorder.ondataavailable = (e) => {
             if (e.data && e.data.size > 0) this._recordChunks.push(e.data);
         };
+        // Grab the poster now, while the element still holds a live frame.
+        // Capturing at stop time would be unreliable: the decoder may have been
+        // torn down and the canvas would come back blank.
+        this._recordPoster = this._captureRecordingPoster();
         this._recorder.start(1000);
         this._recordStartedAt = Date.now();
         this._setRecordButtonState(true);
         this._log(t('log.recordStarted'));
         return true;
+    }
+
+    // A preview is a thumbnail, not a screenshot: cap the long edge so a 4K
+    // session does not produce a 4K preview that must be re-encoded on every
+    // recordings-list render.
+    _captureRecordingPoster() {
+        const video = document.getElementById('remoteVideo');
+        if (!video || !video.videoWidth || !video.videoHeight) return Promise.resolve(null);
+        const scale = Math.min(1, 640 / Math.max(video.videoWidth, video.videoHeight));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
+        canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return Promise.resolve(null);
+        try {
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        } catch (err) {
+            console.warn('[RemoteDesktop] poster capture failed', err);
+            return Promise.resolve(null);
+        }
+        return new Promise((resolve) => {
+            try {
+                canvas.toBlob((blob) => resolve(blob), 'image/jpeg', 0.82);
+            } catch (err) {
+                console.warn('[RemoteDesktop] poster encode failed', err);
+                resolve(null);
+            }
+        });
     }
 
     async stopRecording() {
@@ -1471,11 +1503,13 @@ class RemoteDesktopApp {
         const mimeType = recorder.mimeType || 'video/webm';
         const blob = new Blob(this._recordChunks, { type: mimeType });
         const durationMs = Date.now() - this._recordStartedAt;
+        const poster = this._recordPoster;
         this._recorder = null;
         this._recordChunks = [];
+        this._recordPoster = null;
         this._setRecordButtonState(false);
         this._log(t('log.recordStopped', { seconds: Math.round(durationMs / 1000), kb: Math.round(blob.size / 1024) }));
-        return { blob, mimeType, durationMs };
+        return { blob, mimeType, durationMs, poster };
     }
 
     async toggleRecording() {
@@ -1491,7 +1525,7 @@ class RemoteDesktopApp {
         this.startRecording();
     }
 
-    async _uploadRecording({ blob, mimeType, durationMs }) {
+    async _uploadRecording({ blob, mimeType, durationMs, poster }) {
         const token = this._recordingAccessToken();
         const base = this._recordingApiBase();
         if (!token || !base) {
@@ -1528,21 +1562,81 @@ class RemoteDesktopApp {
             const row = await created.json();
             rowId = row.id;
 
-            const form = new FormData();
-            form.append('file', blob, `recording.${ext}`);
-            const uploaded = await fetch(`${base}/v1/me/recordings/${row.id}/artifact`, {
-                method: 'POST',
-                headers: { Authorization: `Bearer ${token}` },
-                body: form,
-            });
-            if (!uploaded.ok) throw new Error(`upload failed: HTTP ${uploaded.status}`);
+            const uploaded = await this._postWithRetry(
+                `${base}/v1/me/recordings/${row.id}/artifact`,
+                token,
+                () => {
+                    const form = new FormData();
+                    form.append('file', blob, `recording.${ext}`);
+                    return form;
+                },
+                'artifact',
+            );
             const saved = await uploaded.json();
             this._log(t('log.recordUploaded', { id: saved.id, kb: Math.round((saved.size_bytes || 0) / 1024) }));
+            // Best effort from here down: the recording is already stored, so a
+            // missing preview is a cosmetic loss, not a failed capture.
+            await this._uploadThumbnail(row.id, token, base, poster);
             return saved;
         } catch (err) {
             if (rowId) await this._markRecordingFailed(rowId, token, base);
             this._log(t('log.recordUploadFailed', { error: err.message }), 'error');
             return null;
+        }
+    }
+
+    // POST a multipart body, retrying only what a retry can fix: transport
+    // failures and 5xx/429. A 4xx is the server rejecting this payload, so the
+    // loop stops immediately instead of hammering it.
+    async _postWithRetry(url, token, makeBody, label) {
+        const backoffMs = [0, 800, 2000, 5000];
+        let lastError = null;
+        for (let attempt = 0; attempt < backoffMs.length; attempt++) {
+            if (backoffMs[attempt] > 0) {
+                await new Promise((resolve) => setTimeout(resolve, backoffMs[attempt]));
+                this._log(t('log.recordRetry', { label, attempt: attempt + 1 }));
+            }
+            let response;
+            try {
+                response = await fetch(url, {
+                    method: 'POST',
+                    headers: { Authorization: `Bearer ${token}` },
+                    body: makeBody(),
+                });
+            } catch (err) {
+                lastError = err;
+                continue;
+            }
+            if (response.ok) return response;
+            lastError = new Error(`${label} upload failed: HTTP ${response.status}`);
+            if (response.status < 500 && response.status !== 429) throw lastError;
+        }
+        throw lastError || new Error(`${label} upload failed`);
+    }
+
+    async _uploadThumbnail(recordingId, token, base, posterPromise) {
+        try {
+            let poster = null;
+            try {
+                poster = await posterPromise;
+            } catch {
+                poster = null;
+            }
+            if (!poster || poster.size === 0) return false;
+            await this._postWithRetry(
+                `${base}/v1/me/recordings/${recordingId}/thumbnail`,
+                token,
+                () => {
+                    const form = new FormData();
+                    form.append('file', poster, 'thumb.jpg');
+                    return form;
+                },
+                'thumbnail',
+            );
+            return true;
+        } catch (err) {
+            this._log(t('log.recordThumbFailed', { error: err.message }), 'error');
+            return false;
         }
     }
 

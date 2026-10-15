@@ -297,6 +297,9 @@ func main() {
 			me.POST("/recordings/:id/artifact", sessionRecordingHandler.UploadArtifact)
 			me.GET("/recordings/:id/artifact", sessionRecordingHandler.DownloadArtifact)
 			me.POST("/recordings/:id/artifact-ticket", sessionRecordingHandler.CreateArtifactTicket)
+			me.POST("/recordings/:id/thumbnail", sessionRecordingHandler.UploadThumbnail)
+			me.GET("/recordings/:id/thumbnail", sessionRecordingHandler.DownloadThumbnail)
+			me.POST("/recordings/:id/thumbnail-ticket", sessionRecordingHandler.CreateThumbnailTicket)
 
 			me.GET("/favorites", deviceHandler.ListFavorites)
 			me.POST("/favorites", deviceHandler.AddFavorite)
@@ -414,6 +417,7 @@ func main() {
 		adminGuarded.GET("/recordings/:id", adminSessionRecordingHandler.Get)
 		adminGuarded.DELETE("/recordings/:id", adminSessionRecordingHandler.Delete)
 		adminGuarded.GET("/recordings/:id/artifact", adminSessionRecordingHandler.DownloadArtifactAdmin)
+		adminGuarded.GET("/recordings/:id/thumbnail", adminSessionRecordingHandler.DownloadThumbnailAdmin)
 		// Action-style paths keep gin's router from having to disambiguate a
 		// literal segment against the ":id" wildcard above.
 		adminGuarded.GET("/recordings:storage", adminSessionRecordingHandler.Storage)
@@ -475,6 +479,7 @@ func main() {
 	// available for API clients.
 	// -------------------------------------------------------------------
 	router.GET("/v1/recordings/:id/artifact", sessionRecordingHandler.DownloadArtifactByTicket)
+	router.GET("/v1/recordings/:id/thumbnail", sessionRecordingHandler.DownloadThumbnailByTicket)
 
 	// -------------------------------------------------------------------
 	// Admin web single-page app (served from embedded FS).

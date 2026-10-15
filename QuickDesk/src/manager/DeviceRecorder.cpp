@@ -14,6 +14,7 @@
 #include <QFileInfo>
 #include <QHttpMultiPart>
 #include <QHttpPart>
+#include <QImage>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QMediaFormat>
@@ -33,6 +34,14 @@ namespace {
 constexpr int kFrameIntervalMs = 1000 / 15;
 // QVideoFrame presentation timestamps are in microseconds, not milliseconds.
 constexpr qint64 kFrameDurationUs = 1000000 / 15;
+// Upload retries. The first entry is "send immediately"; the rest are the
+// backoff applied before each subsequent attempt. Four attempts span ~8s, which
+// is long enough to ride out a dropped connection without stalling the UI.
+constexpr int kMaxUploadAttempts = 4;
+constexpr int kRetryBackoffMs[kMaxUploadAttempts] = {0, 800, 2000, 5000};
+// A preview is a thumbnail: cap the long edge so a 4K session does not produce a
+// 4K JPEG that every recordings-list render has to decode.
+constexpr int kPosterMaxEdgePx = 640;
 
 QString isoNow() {
     return QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
@@ -82,6 +91,11 @@ bool DeviceRecorder::startRecording(const QString& deviceId) {
     m_outputPath = QDir(dir).filePath(
         QStringLiteral("quickdesk-rec-%1.mp4").arg(QDateTime::currentMSecsSinceEpoch()));
     QFile::remove(m_outputPath);
+    // The poster lives beside the capture so it shares the temp-file lifetime
+    // and is never mistaken for a recording artifact.
+    m_posterPath = m_outputPath + QStringLiteral(".thumb.jpg");
+    QFile::remove(m_posterPath);
+    m_posterCaptured = false;
 
     QMediaFormat format;
     format.setFileFormat(QMediaFormat::MPEG4);
@@ -130,6 +144,7 @@ void DeviceRecorder::onFrameTick() {
     if (!frame.isValid()) {
         return;
     }
+    capturePoster(frame);
     // readVideoFrame() copies the planes into an owned buffer, so the frame can
     // be handed to the encoder without racing the producer.
     // Qt expects microsecond presentation timestamps here; feeding milliseconds
@@ -140,6 +155,28 @@ void DeviceRecorder::onFrameTick() {
     frame.setStartTime(elapsedUs);
     frame.setEndTime(elapsedUs + kFrameDurationUs);
     m_frameInput.sendVideoFrame(frame);
+}
+
+void DeviceRecorder::capturePoster(const QVideoFrame& frame) {
+    if (m_posterCaptured || m_posterPath.isEmpty()) {
+        return;
+    }
+    // Capture the first frame the operator sees, not the last: grabbing it at
+    // stop time would race the teardown of the decoder.
+    const QImage image = frame.toImage();
+    if (image.isNull()) {
+        return;
+    }
+    const QImage poster =
+        (image.width() > kPosterMaxEdgePx || image.height() > kPosterMaxEdgePx)
+            ? image.scaled(kPosterMaxEdgePx, kPosterMaxEdgePx, Qt::KeepAspectRatio,
+                           Qt::SmoothTransformation)
+            : image;
+    if (poster.save(m_posterPath, "JPEG", 82)) {
+        m_posterCaptured = true;
+    } else {
+        LOG_WARN("DeviceRecorder: could not write the poster to {}", m_posterPath.toStdString());
+    }
 }
 
 void DeviceRecorder::onRecorderStateChanged(QMediaRecorder::RecorderState state) {
@@ -177,6 +214,8 @@ void DeviceRecorder::uploadRecording(const QString& filePath) {
     if (!info.exists() || info.size() <= 0) {
         fail(QStringLiteral("recording produced no data"));
         QFile::remove(filePath);
+        QFile::remove(m_posterPath);
+        m_posterPath.clear();
         return;
     }
     createIndexRowThenUpload(filePath, info.size());
@@ -231,64 +270,131 @@ void DeviceRecorder::createIndexRowThenUpload(const QString& filePath, qint64 si
 }
 
 void DeviceRecorder::uploadBytes(const QString& filePath, const QString& recordingId) {
+    const QString url =
+        httpBaseUrl() + QStringLiteral("v1/me/recordings/%1/artifact").arg(recordingId);
+    postFileWithRetry(url, filePath, QStringLiteral("video/mp4"), QStringLiteral("recording.mp4"),
+                      QStringLiteral("artifact"),
+                      [this, filePath, recordingId](bool ok, int status, const QString& detail) {
+                          if (!ok) {
+                              fail(QStringLiteral("recording upload failed: HTTP %1 %2")
+                                       .arg(status)
+                                       .arg(detail));
+                              // Leave the index honest and drop the orphaned capture: a row
+                              // that says "recording" forever is worse than an explicit failure.
+                              markFailed(recordingId, filePath);
+                              return;
+                          }
+                          m_lastRecordingId = recordingId;
+                          emit uploadFinished(m_lastRecordingId);
+                          LOG_INFO("DeviceRecorder: uploaded recording id={} file={}",
+                                   recordingId.toStdString(), filePath.toStdString());
+                          // The temp file only exists to carry the bytes to the server.
+                          QFile::remove(filePath);
+                          uploadThumbnail(recordingId);
+                      },
+                      0);
+}
+
+void DeviceRecorder::uploadThumbnail(const QString& recordingId) {
+    const QString poster = m_posterPath;
+    m_posterPath.clear();
+    if (poster.isEmpty() || !QFileInfo::exists(poster)) {
+        return;
+    }
+    // Best effort: the recording itself is already stored, so a missing preview
+    // must not turn a completed capture into a reported failure.
+    const QString url =
+        httpBaseUrl() + QStringLiteral("v1/me/recordings/%1/thumbnail").arg(recordingId);
+    postFileWithRetry(url, poster, QStringLiteral("image/jpeg"), QStringLiteral("thumb.jpg"),
+                      QStringLiteral("thumbnail"),
+                      [poster](bool ok, int status, const QString& detail) {
+                          if (!ok) {
+                              LOG_WARN("DeviceRecorder: thumbnail upload failed: HTTP {} {}",
+                                       status, detail.toStdString());
+                          }
+                          QFile::remove(poster);
+                      },
+                      0);
+}
+
+void DeviceRecorder::postFileWithRetry(
+    const QString& url,
+    const QString& filePath,
+    const QString& mimeType,
+    const QString& fileName,
+    const QString& label,
+    std::function<void(bool ok, int status, const QString& detail)> done,
+    int attempt) {
     auto* file = new QFile(filePath);
     if (!file->open(QIODevice::ReadOnly)) {
         delete file;
-        fail(QStringLiteral("cannot reopen the recorded file for upload"));
+        done(false, 0, QStringLiteral("cannot reopen %1").arg(filePath));
         return;
     }
 
     auto* multipart = new QHttpMultiPart(QHttpMultiPart::FormDataType);
     QHttpPart filePart;
-    filePart.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("video/mp4"));
+    filePart.setHeader(QNetworkRequest::ContentTypeHeader, mimeType);
     filePart.setHeader(QNetworkRequest::ContentDispositionHeader,
-                       QStringLiteral("form-data; name=\"file\"; filename=\"recording.mp4\""));
+                       QStringLiteral("form-data; name=\"file\"; filename=\"%1\"").arg(fileName));
     filePart.setBodyDevice(file);
     file->setParent(multipart);
     multipart->append(filePart);
 
-    QNetworkRequest request(
-        QUrl(httpBaseUrl() + QStringLiteral("v1/me/recordings/%1/artifact").arg(recordingId)));
+    QNetworkRequest request(QUrl(url));
     for (const auto& header : m_auth->userAuthHeaders(false)) {
         request.setRawHeader(header.first.toUtf8(), header.second.toUtf8());
     }
 
     QNetworkReply* reply = m_network.post(request, multipart);
     multipart->setParent(reply);
-    connect(reply, &QNetworkReply::finished, this, [this, reply, file, filePath, recordingId]() {
-        const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-        const QByteArray responseBody = reply->readAll();
-        const QNetworkReply::NetworkError networkError = reply->error();
-        reply->deleteLater();
+    connect(reply, &QNetworkReply::finished, this,
+            [this, reply, file, url, filePath, mimeType, fileName, label, done, attempt]() {
+                const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+                const QByteArray responseBody = reply->readAll();
+                const QNetworkReply::NetworkError networkError = reply->error();
+                reply->deleteLater();
 
-        // Close the source file before removing it: Windows refuses to delete an
-        // open handle.
-        if (file && file->isOpen()) {
-            file->close();
-        }
+                // Close the source file before any retry or removal: Windows
+                // refuses to delete (or reopen) an open handle.
+                if (file && file->isOpen()) {
+                    file->close();
+                }
 
-        if (networkError != QNetworkReply::NoError || (status != 200 && status != 201)) {
-            fail(QStringLiteral("recording upload failed: HTTP %1 %2")
-                     .arg(status)
-                     .arg(QString::fromUtf8(responseBody.left(200))));
-            // Leave the index honest and drop the orphaned capture: a row that
-            // says "recording" forever is worse than an explicit failure.
-            markFailed(recordingId, filePath);
-            return;
-        }
-        m_lastRecordingId = recordingId;
-        emit uploadFinished(m_lastRecordingId);
-        LOG_INFO("DeviceRecorder: uploaded recording id={} file={}",
-                 recordingId.toStdString(), filePath.toStdString());
-        // The temp file only exists to carry the bytes to the server.
-        QFile::remove(filePath);
-    });
+                if (networkError == QNetworkReply::NoError && (status == 200 || status == 201)) {
+                    done(true, status, QString());
+                    return;
+                }
+
+                // A 4xx means the server rejected this payload; replaying it
+                // would fail identically. Only transport errors and 5xx/429 are
+                // worth another attempt.
+                const bool transient = networkError != QNetworkReply::NoError || status >= 500
+                                       || status == 429 || status == 0;
+                if (transient && attempt + 1 < kMaxUploadAttempts) {
+                    const int delayMs = kRetryBackoffMs[attempt + 1];
+                    LOG_INFO("DeviceRecorder: retrying {} upload (attempt {} of {}) in {}ms",
+                             label.toStdString(), attempt + 2, kMaxUploadAttempts, delayMs);
+                    QTimer::singleShot(
+                        delayMs, this,
+                        [this, url, filePath, mimeType, fileName, label, done, attempt]() {
+                            postFileWithRetry(url, filePath, mimeType, fileName, label, done,
+                                              attempt + 1);
+                        });
+                    return;
+                }
+                done(false, status, QString::fromUtf8(responseBody.left(200)));
+            });
 }
 
 void DeviceRecorder::markFailed(const QString& recordingId, const QString& filePath) {
     // The capture never reached the server, so drop it immediately: keeping an
     // orphan file around would only hide the failure.
     QFile::remove(filePath);
+    if (!m_posterPath.isEmpty()) {
+        QFile::remove(m_posterPath);
+        m_posterPath.clear();
+    }
     if (!m_auth || recordingId.isEmpty()) {
         return;
     }

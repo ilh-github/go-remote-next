@@ -24,21 +24,34 @@ var ErrInvalidRecordingTicket = errors.New("invalid or expired recording ticket"
 type RecordingTicket struct {
 	RecordingID uint
 	UserID      uint
-	ExpiresAt   time.Time
+	// Kind scopes the ticket to one media type, so a link handed out for
+	// playback cannot be replayed against the thumbnail route or vice versa.
+	Kind      string
+	ExpiresAt time.Time
 }
 
-func recordingTicketPayload(recordingID, userID uint, expUnix int64) string {
+// Accepted values for RecordingTicket.Kind.
+const (
+	TicketKindArtifact  = "artifact"
+	TicketKindThumbnail = "thumbnail"
+)
+
+func recordingTicketPayload(recordingID, userID uint, kind string, expUnix int64) string {
 	return "rid=" + formatUintID(recordingID) +
 		"&uid=" + formatUintID(userID) +
+		"&kind=" + kind +
 		"&exp=" + strconv.FormatInt(expUnix, 10)
 }
 
 // SignRecordingTicket mints a ticket valid for ttl.
-func SignRecordingTicket(secret string, recordingID, userID uint, ttl time.Duration) (string, time.Time) {
+func SignRecordingTicket(secret string, recordingID, userID uint, kind string, ttl time.Duration) (string, time.Time) {
 	// Truncate to whole seconds: the expiry travels as a unix timestamp, so
 	// returning sub-second precision here would misrepresent the real deadline.
 	exp := time.Now().Add(ttl).UTC().Truncate(time.Second)
-	payload := recordingTicketPayload(recordingID, userID, exp.Unix())
+	if kind == "" {
+		kind = TicketKindArtifact
+	}
+	payload := recordingTicketPayload(recordingID, userID, kind, exp.Unix())
 	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write([]byte(payload))
 	sig := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
@@ -89,9 +102,14 @@ func VerifyRecordingTicket(secret, ticket string) (*RecordingTicket, error) {
 	if time.Now().UTC().After(exp) {
 		return nil, ErrInvalidRecordingTicket
 	}
+	kind := values["kind"]
+	if kind == "" {
+		kind = TicketKindArtifact
+	}
 	return &RecordingTicket{
 		RecordingID: uint(recordingID),
 		UserID:      uint(userID),
+		Kind:        kind,
 		ExpiresAt:   exp,
 	}, nil
 }

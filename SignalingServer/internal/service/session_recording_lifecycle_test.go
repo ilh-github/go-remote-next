@@ -38,6 +38,11 @@ func TestArtifactExpired(t *testing.T) {
 			EndedAt:     &old,
 			UpdatedAt:   old,
 		}, true},
+		{"a row holding only a preview is still a purge candidate", models.SessionRecording{
+			ThumbnailPath: "/data/recordings/3/thumb-3.jpg",
+			EndedAt:       &old,
+			UpdatedAt:     old,
+		}, true},
 	}
 	for _, tc := range cases {
 		if got := ArtifactExpired(tc.row, cutoff); got != tc.want {
