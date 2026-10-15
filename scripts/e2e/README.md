@@ -21,6 +21,7 @@
 | `qd-api-probe.mjs` | 直接打 QuickDesk 本地 WebSocket API（默认 `ws://127.0.0.1:9600`）：`listConnections` / `connectToHost` / `skillListTools` / `skillExec`，用来绕开界面单独验证 skill bridge |
 | `realtime-access-events.mjs` | 连上用户的实时流（`/v1/realtime/events`）等 `device.access.*` 事件，`QD_WAIT_MS` 内没等到就退出码 3，可直接当验证闸门 |
 | `notification-receiver.mjs` | 本地 webhook 接收器：打印每一条投递并校验 `X-Webhook-Signature` 的 HMAC，收满 `QD_EXPECT` 条就退出（签名不对退 4、超时退 3），用来验证用户级通知通道 |
+| `signal-client-probe.mjs` | 开一条控制端信令连接并报告服务端的裁决：退 0 = `auth_ok`，退 3 = 收到 `error`（例如 `SESSION_LIMIT_REACHED`），退 4 = 没等到 auth_ok 就断开；`QD_HOLD_MS` 可以让连上的 socket 占住名额，用来测并发上限 |
 | `guest-uia-invoke.ps1` | 用 UI Automation 的 `InvokePattern` 点按钮（比合成鼠标可靠）：`-Hwnd` 指定顶层窗口，`-Name` 或 `-AutomationIdSuffix` 定位元素 |
 | `guest-uia-buttons.ps1` | 列出 QuickDesk 主窗口里所有按钮/分组元素的 `AutomationId`、名称和屏幕坐标，用来找没有名字的 QML 按钮 |
 | `guest-uia-setedit.ps1` | 按顺序设置某个顶层窗口里的第 N 个输入框（QML 输入框没有可访问名字） |

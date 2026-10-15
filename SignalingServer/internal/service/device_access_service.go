@@ -34,6 +34,9 @@ const (
 	// the client (remote access disabled, or the client IP is outside the
 	// allow list). The access code is never even compared.
 	DeviceAccessDeniedPolicy = "denied_policy"
+	// DeviceAccessDeniedSessionLimit means the access code was accepted but
+	// the device already had as many controllers as its policy allows.
+	DeviceAccessDeniedSessionLimit = "denied_session_limit"
 )
 
 // ErrInvalidDeviceAccessResult is returned when a caller passes a result
@@ -48,7 +51,8 @@ func IsDeviceAccessResult(result string) bool {
 		DeviceAccessDeniedRateLimited,
 		DeviceAccessHostOffline,
 		DeviceAccessSessionStarted,
-		DeviceAccessDeniedPolicy:
+		DeviceAccessDeniedPolicy,
+		DeviceAccessDeniedSessionLimit:
 		return true
 	default:
 		return false

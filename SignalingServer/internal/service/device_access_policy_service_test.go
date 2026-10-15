@@ -87,3 +87,27 @@ func TestEvaluateDeviceAccessPolicy(t *testing.T) {
 		t.Fatal("an empty allow list means any IP")
 	}
 }
+
+func TestSessionLimitReached(t *testing.T) {
+	tests := []struct {
+		name   string
+		max    int
+		active int
+		want   bool
+	}{
+		{"unlimited (0)", 0, 9, false},
+		{"negative treated as unlimited", -3, 9, false},
+		{"limit 1 with nobody connected", 1, 0, false},
+		{"limit 1 with one connected", 1, 1, true},
+		{"limit 2 with one connected", 2, 1, false},
+		{"limit 2 with two connected", 2, 2, true},
+		{"already above the limit", 2, 5, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := SessionLimitReached(tt.max, tt.active); got != tt.want {
+				t.Fatalf("SessionLimitReached(%d, %d) = %v, want %v", tt.max, tt.active, got, tt.want)
+			}
+		})
+	}
+}

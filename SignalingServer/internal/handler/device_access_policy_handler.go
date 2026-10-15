@@ -34,6 +34,7 @@ func NewDeviceAccessPolicyHandler(devices *service.DeviceService, policies *serv
 type deviceAccessPolicyReq struct {
 	RemoteDisabled bool     `json:"remote_disabled"`
 	AllowIPs       []string `json:"allow_ips"`
+	MaxSessions    int      `json:"max_sessions"`
 }
 
 // deviceAccessPolicyView is the wire shape: `allow_ips` is returned as a real
@@ -42,6 +43,7 @@ type deviceAccessPolicyView struct {
 	DeviceID       string     `json:"device_id"`
 	RemoteDisabled bool       `json:"remote_disabled"`
 	AllowIPs       []string   `json:"allow_ips"`
+	MaxSessions    int        `json:"max_sessions"`
 	UpdatedAt      *time.Time `json:"updated_at,omitempty"`
 }
 
@@ -73,9 +75,10 @@ func (h *DeviceAccessPolicyHandler) Put(c *gin.Context) {
 		service.UpsertDeviceAccessPolicyInput{
 			RemoteDisabled: req.RemoteDisabled,
 			AllowIPs:       req.AllowIPs,
+			MaxSessions:    req.MaxSessions,
 		})
 	if err != nil {
-		if errors.Is(err, service.ErrInvalidAllowIP) {
+		if errors.Is(err, service.ErrInvalidAllowIP) || errors.Is(err, service.ErrInvalidSessionLimit) {
 			ProblemBadRequest(c, ProblemCodeInvalidRequest, err.Error())
 			return
 		}
@@ -91,6 +94,7 @@ func (h *DeviceAccessPolicyHandler) Put(c *gin.Context) {
 				"device_id":       deviceID,
 				"remote_disabled": policy.RemoteDisabled,
 				"allow_ips":       decodeAllowIPsForEvent(policy.AllowIPs),
+				"max_sessions":    policy.MaxSessions,
 			},
 		})
 	}
@@ -123,6 +127,7 @@ func policyView(deviceID string, policy *models.DeviceAccessPolicy) deviceAccess
 		return view
 	}
 	view.RemoteDisabled = policy.RemoteDisabled
+	view.MaxSessions = policy.MaxSessions
 	if entries := decodeAllowIPsForEvent(policy.AllowIPs); len(entries) > 0 {
 		view.AllowIPs = entries
 	}

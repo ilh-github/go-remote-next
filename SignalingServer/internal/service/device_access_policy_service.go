@@ -17,6 +17,9 @@ import (
 // a CIDR block.
 var ErrInvalidAllowIP = errors.New("allow list entries must be IP addresses or CIDR blocks")
 
+// ErrInvalidSessionLimit means max_sessions was negative.
+var ErrInvalidSessionLimit = errors.New("max_sessions must be zero (unlimited) or a positive number")
+
 // DeviceAccessPolicyService stores and evaluates per-device access policy.
 type DeviceAccessPolicyService struct {
 	db *gorm.DB
@@ -30,6 +33,7 @@ func NewDeviceAccessPolicyService(db *gorm.DB) *DeviceAccessPolicyService {
 type UpsertDeviceAccessPolicyInput struct {
 	RemoteDisabled bool
 	AllowIPs       []string
+	MaxSessions    int
 }
 
 // Get returns the device policy, or (nil, nil) when the device has none: a
@@ -52,6 +56,9 @@ func (s *DeviceAccessPolicyService) Upsert(ctx context.Context, deviceID string,
 	if err := ValidateAllowIPs(in.AllowIPs); err != nil {
 		return nil, err
 	}
+	if in.MaxSessions < 0 {
+		return nil, ErrInvalidSessionLimit
+	}
 	normalized := normalizeAllowIPs(in.AllowIPs)
 	encoded, err := json.Marshal(normalized)
 	if err != nil {
@@ -68,6 +75,7 @@ func (s *DeviceAccessPolicyService) Upsert(ctx context.Context, deviceID string,
 	row.OwnerID = ownerID
 	row.RemoteDisabled = in.RemoteDisabled
 	row.AllowIPs = string(encoded)
+	row.MaxSessions = in.MaxSessions
 	if err := s.db.WithContext(ctx).Save(row).Error; err != nil {
 		return nil, err
 	}
@@ -142,6 +150,15 @@ func IPAllowed(entries []string, clientIP string) bool {
 		}
 	}
 	return false
+}
+
+// SessionLimitReached reports whether one more controller would exceed the
+// device's concurrency cap. max <= 0 means unlimited.
+func SessionLimitReached(max, active int) bool {
+	if max <= 0 {
+		return false
+	}
+	return active >= max
 }
 
 func decodeAllowIPs(encoded string) []string {

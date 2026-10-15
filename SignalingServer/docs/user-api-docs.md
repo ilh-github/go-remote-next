@@ -354,6 +354,7 @@ written server-side, never reported by the client. `result` is one of:
 | `host_offline` | Code matched but the host was not connected; no session started. |
 | `session_started` | The controller actually opened the signaling channel with the token from a `granted` attempt — i.e. the attempt turned into a real control session. Recorded by the realtime handler; `session_id` identifies that session. |
 | `denied_policy` | The device's own access policy refused the client (remote access disabled, or the client IP is outside `allow_ips`). See 5.3.3. |
+| `denied_session_limit` | The access code was accepted, but the device already had as many controllers as `max_sessions` allows. Recorded when the controller opens its signaling socket. |
 
 `owner_id` is the owner at the moment of the attempt (`0` when the device is
 unbound). Rows are newest-first and paginated by the `next_cursor` keyset.
@@ -405,8 +406,14 @@ blocked client never gets to guess codes.
 
 | Method | Path | Body | Notes |
 |---|---|---|---|
-| `GET` | `/v1/me/devices/:device_id/access-policy` | — | Returns `{device_id, remote_disabled, allow_ips: [], updated_at?}`. A device with no policy returns `remote_disabled: false, allow_ips: []`. |
-| `PUT` | `/v1/me/devices/:device_id/access-policy` | `{remote_disabled: bool, allow_ips: ["10.0.0.0/8", "203.0.113.7"]}` | Full replace. Entries must be bare IPs or CIDR blocks; an empty list means "any client IP". |
+| `GET` | `/v1/me/devices/:device_id/access-policy` | — | Returns `{device_id, remote_disabled, allow_ips: [], max_sessions, updated_at?}`. A device with no policy returns `remote_disabled: false, allow_ips: [], max_sessions: 0`. |
+| `PUT` | `/v1/me/devices/:device_id/access-policy` | `{remote_disabled: bool, allow_ips: ["10.0.0.0/8", "203.0.113.7"], max_sessions: 1}` | Full replace. Entries must be bare IPs or CIDR blocks; an empty list means "any client IP". `max_sessions` `0` means unlimited, negative is rejected. |
+
+`max_sessions` is a concurrency cap on *controllers* (viewers count too, the
+host socket does not). It is enforced when a controller authenticates its
+signaling socket — after the access code was already accepted — so the log
+reads `granted` followed by `denied_session_limit`, and the rejected socket
+gets `SESSION_LIMIT_REACHED` **instead of** `auth_ok`.
 
 Rejected attempts are recorded in the access log as `denied_policy` (with the
 reason) and fan out as the usual `device.access.denied` event, so notification

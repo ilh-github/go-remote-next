@@ -20,9 +20,14 @@ type DeviceAccessPolicy struct {
 	// AllowIPs is a JSON array of exact IPs and/or CIDR blocks. Empty means
 	// "any client IP". Entries are matched against the controller's address
 	// as seen by the server.
-	AllowIPs  string    `gorm:"type:text" json:"allow_ips"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	AllowIPs string `gorm:"type:text" json:"allow_ips"`
+	// MaxSessions caps how many controllers may hold a signaling session on
+	// this device at the same time. 0 means unlimited. Enforced when a client
+	// authenticates its signaling socket, i.e. after the access code was
+	// already accepted, so the log shows granted + denied_session_limit.
+	MaxSessions int       `gorm:"not null;default:0" json:"max_sessions"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 // TableName overrides the default table name.
