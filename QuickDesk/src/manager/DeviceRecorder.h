@@ -67,6 +67,7 @@ private:
     void uploadRecording(const QString& filePath);
     void createIndexRowThenUpload(const QString& filePath, qint64 sizeBytes);
     void uploadBytes(const QString& filePath, const QString& recordingId);
+    void markFailed(const QString& recordingId, const QString& filePath);
 
     SharedMemoryManager* m_sharedMemory = nullptr;
     AuthManager* m_auth = nullptr;

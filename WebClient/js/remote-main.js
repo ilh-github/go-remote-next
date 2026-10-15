@@ -1503,6 +1503,10 @@ class RemoteDesktopApp {
         const endedAt = new Date().toISOString();
         const ext = mimeType.includes('mp4') ? 'mp4' : 'webm';
         const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
+        // Tracked outside the try so the catch can repair the index when the
+        // upload dies at the transport layer (an aborted fetch throws instead
+        // of resolving with a non-2xx status).
+        let rowId = null;
         try {
             const created = await fetch(`${base}/v1/me/recordings`, {
                 method: 'POST',
@@ -1511,7 +1515,9 @@ class RemoteDesktopApp {
                     device_id: deviceId,
                     device_name: '',
                     session_id: `web-${Date.now()}`,
-                    status: 'completed',
+                    // Starts as "recording": the upload below decides whether it
+                    // becomes "completed" (server flips it) or "failed".
+                    status: 'recording',
                     format: ext,
                     duration_seconds: Math.max(1, Math.round(durationMs / 1000)),
                     started_at: startedAt,
@@ -1520,6 +1526,7 @@ class RemoteDesktopApp {
             });
             if (!created.ok) throw new Error(`create failed: HTTP ${created.status}`);
             const row = await created.json();
+            rowId = row.id;
 
             const form = new FormData();
             form.append('file', blob, `recording.${ext}`);
@@ -1533,9 +1540,22 @@ class RemoteDesktopApp {
             this._log(t('log.recordUploaded', { id: saved.id, kb: Math.round((saved.size_bytes || 0) / 1024) }));
             return saved;
         } catch (err) {
+            if (rowId) await this._markRecordingFailed(rowId, token, base);
             this._log(t('log.recordUploadFailed', { error: err.message }), 'error');
             return null;
         }
+    }
+
+    // Keep the index honest when the bytes never landed: a row that claims
+    // "recording" forever is worse than an explicit failure.
+    async _markRecordingFailed(recordingId, token, base) {
+        try {
+            await fetch(`${base}/v1/me/recordings/${recordingId}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                body: JSON.stringify({ status: 'failed' }),
+            });
+        } catch { /* the failure is already reported to the user */ }
     }
 
     _setRecordButtonState(recording) {

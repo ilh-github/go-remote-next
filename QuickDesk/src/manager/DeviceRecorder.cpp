@@ -192,7 +192,11 @@ void DeviceRecorder::createIndexRowThenUpload(const QString& filePath, qint64 si
     payload.insert(QStringLiteral("device_name"), QString());
     payload.insert(QStringLiteral("session_id"),
                    QStringLiteral("qt-%1").arg(QDateTime::currentMSecsSinceEpoch()));
-    payload.insert(QStringLiteral("status"), QStringLiteral("completed"));
+    // The row starts as "recording": the capture is on disk but the media has
+    // not reached the server yet. A successful upload flips it to "completed"
+    // server-side, and a failure explicitly marks it "failed" below — so the
+    // index never claims a recording exists when it does not.
+    payload.insert(QStringLiteral("status"), QStringLiteral("recording"));
     payload.insert(QStringLiteral("format"), QStringLiteral("mp4"));
     payload.insert(QStringLiteral("duration_seconds"), durationSeconds);
     payload.insert(QStringLiteral("started_at"),
@@ -267,6 +271,9 @@ void DeviceRecorder::uploadBytes(const QString& filePath, const QString& recordi
             fail(QStringLiteral("recording upload failed: HTTP %1 %2")
                      .arg(status)
                      .arg(QString::fromUtf8(responseBody.left(200))));
+            // Leave the index honest and drop the orphaned capture: a row that
+            // says "recording" forever is worse than an explicit failure.
+            markFailed(recordingId, filePath);
             return;
         }
         m_lastRecordingId = recordingId;
@@ -276,6 +283,26 @@ void DeviceRecorder::uploadBytes(const QString& filePath, const QString& recordi
         // The temp file only exists to carry the bytes to the server.
         QFile::remove(filePath);
     });
+}
+
+void DeviceRecorder::markFailed(const QString& recordingId, const QString& filePath) {
+    // The capture never reached the server, so drop it immediately: keeping an
+    // orphan file around would only hide the failure.
+    QFile::remove(filePath);
+    if (!m_auth || recordingId.isEmpty()) {
+        return;
+    }
+    QJsonObject payload;
+    payload.insert(QStringLiteral("status"), QStringLiteral("failed"));
+    const QString body = QString::fromUtf8(QJsonDocument(payload).toJson(QJsonDocument::Compact));
+    const QUrl url(httpBaseUrl() + QStringLiteral("v1/me/recordings/%1").arg(recordingId));
+    m_auth->request(QStringLiteral("PATCH"), url, body,
+                    [recordingId](int statusCode, const std::string& errorMsg, const std::string&) {
+                        if (statusCode != 200) {
+                            LOG_WARN("DeviceRecorder: could not mark recording {} failed: HTTP {} {}",
+                                     recordingId.toStdString(), statusCode, errorMsg);
+                        }
+                    });
 }
 
 } // namespace quickdesk
