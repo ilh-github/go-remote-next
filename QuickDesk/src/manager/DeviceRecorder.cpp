@@ -341,7 +341,10 @@ void DeviceRecorder::postFileWithRetry(
     file->setParent(multipart);
     multipart->append(filePart);
 
-    QNetworkRequest request(QUrl(url));
+    // Braces, not parentheses: `QNetworkRequest request(QUrl(url));` parses as a
+    // function declaration (most vexing parse) and the follow-up calls then fail
+    // to compile with C2228.
+    QNetworkRequest request{QUrl(url)};
     for (const auto& header : m_auth->userAuthHeaders(false)) {
         request.setRawHeader(header.first.toUtf8(), header.second.toUtf8());
     }

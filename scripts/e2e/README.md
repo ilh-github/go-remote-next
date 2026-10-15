@@ -11,6 +11,7 @@
 | `remote-smoke.mjs` | 用真实 Chrome 打开 WebClient，连接设备，断言解码后的视频帧在推进；可选向远端打字 |
 | `record.mjs` | 连上之后点录制按钮，录一段再停止，断言上传日志出现（录 → 存 → 索引） |
 | `record-failure.mjs` | 录制时拦截上传请求制造失败，断言索引行最终是 `failed` 且没有产物（不允许"假完成"） |
+| `record-retry.mjs` | 中断前两次产物上传与第一次预览上传，断言退避重试后仍然落地，并且最终行是 `completed` **且带 `thumbnail_url`** |
 | `playback.mjs` | 在录像页点「播放」，断言签名 URL 打开的播放器 `currentTime` 在推进 |
 | `guest-input-target.ps1` | 被控端侧的单窗口输入靶子（WinForms 文本框，内容变化即落盘），比 Win11 记事本可靠 |
 | `guest-qt-ui.ps1` | 用 UI Automation 驱动 Windows 上的 QuickDesk 桌面客户端（填设备号/接入码、点连接、发快捷键），用于验证 Qt 侧录制 |
