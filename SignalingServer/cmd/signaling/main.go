@@ -143,6 +143,15 @@ func main() {
 			cfg.Recording.StaleMinutes, cfg.Recording.RetentionDays, cfg.Recording.SweepIntervalMin)
 	}
 	go notificationDeliveryService.Run(context.Background())
+	if cfg.Notification.SweepIntervalMin > 0 && cfg.Notification.RetentionDays > 0 {
+		go notificationDeliveryService.RunRetention(
+			context.Background(),
+			time.Duration(cfg.Notification.SweepIntervalMin)*time.Minute,
+			cfg.Notification.RetentionDays,
+		)
+		log.Printf("Notification retention: retention_days=%d sweep_interval=%dm",
+			cfg.Notification.RetentionDays, cfg.Notification.SweepIntervalMin)
+	}
 	tokenService := service.NewTokenService(redisClient)
 	rateLimitService := service.NewRateLimitService(redisClient)
 	metricsService := service.NewMetricsService()

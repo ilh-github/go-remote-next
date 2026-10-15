@@ -82,6 +82,45 @@ func (s *NotificationDeliveryService) Run(ctx context.Context) {
 	}
 }
 
+// PurgeTerminal deletes finished rows (delivered or failed) that have not been
+// touched since cutoff. In-flight rows (pending/delivering) are never touched,
+// so a long backoff is not mistaken for history.
+func (s *NotificationDeliveryService) PurgeTerminal(ctx context.Context, cutoff time.Time) (int64, error) {
+	result := s.db.WithContext(ctx).
+		Where("status IN ?", []string{DeliveryStatusDelivered, DeliveryStatusFailed}).
+		Where("updated_at < ?", cutoff.UTC()).
+		Delete(&models.NotificationDelivery{})
+	return result.RowsAffected, result.Error
+}
+
+// RunRetention sweeps expired terminal rows on a ticker until ctx is
+// cancelled. retentionDays <= 0 keeps history forever, like the recording
+// retention setting, so the outbox can be audited indefinitely if needed.
+func (s *NotificationDeliveryService) RunRetention(ctx context.Context, interval time.Duration, retentionDays int) {
+	if retentionDays <= 0 || interval <= 0 {
+		return
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			cutoff := time.Now().UTC().AddDate(0, 0, -retentionDays)
+			removed, err := s.PurgeTerminal(ctx, cutoff)
+			if err != nil {
+				log.Printf("[notification] retention sweep failed: %v", err)
+				continue
+			}
+			if removed > 0 {
+				log.Printf("[notification] retention purged %d terminal deliveries older than %s",
+					removed, cutoff.Format(time.RFC3339))
+			}
+		}
+	}
+}
+
 // DrainOnce claims and delivers every row that is due right now. Exported so
 // tests and maintenance commands can drive the queue directly.
 func (s *NotificationDeliveryService) DrainOnce(ctx context.Context) {

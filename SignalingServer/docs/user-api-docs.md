@@ -421,6 +421,13 @@ workers never take the same row. A row that exhausts its budget is parked as
 `failed` rather than dropped; `POST .../deliveries/:deliveryId/retry` re-arms
 one for another delivery pass (resetting its attempt budget to zero).
 
+Retention is opt-in: `NOTIFICATION_RETENTION_DAYS` (default `0` = keep history
+forever) deletes finished rows — `delivered` and `failed` only — whose
+`updated_at` is older than the window. In-flight rows (`pending`, `delivering`)
+are never touched, so a long backoff is not mistaken for history. The sweep runs
+every `NOTIFICATION_SWEEP_INTERVAL_MINUTES` (default `60`); when retention is `0`
+the worker is not started at all.
+
 ### 5.3.3 Device access policy (who is allowed to connect)
 
 The access log records who *tried*; the policy decides who *may*. The owner of

@@ -56,15 +56,23 @@ type SmsConfig struct {
 }
 
 type Config struct {
-	Server    ServerConfig   `mapstructure:"server"`
-	Database  DatabaseConfig `mapstructure:"database"`
-	Redis     RedisConfig    `mapstructure:"redis"`
-	Ice       IceConfig
-	Admin     AdminConfig
-	Security  SecurityConfig
-	Recording RecordingConfig
-	Sms       SmsConfig
-	Runtime   RuntimeConfig
+	Server       ServerConfig   `mapstructure:"server"`
+	Database     DatabaseConfig `mapstructure:"database"`
+	Redis        RedisConfig    `mapstructure:"redis"`
+	Ice          IceConfig
+	Admin        AdminConfig
+	Security     SecurityConfig
+	Recording    RecordingConfig
+	Notification NotificationConfig
+	Sms          SmsConfig
+	Runtime      RuntimeConfig
+}
+
+// NotificationConfig controls how long the user-notification outbox keeps
+// terminal delivery rows. RetentionDays = 0 keeps history forever.
+type NotificationConfig struct {
+	RetentionDays    int
+	SweepIntervalMin int
 }
 
 type RuntimeConfig struct {
@@ -147,6 +155,12 @@ func Load() *Config {
 	viper.SetDefault("RECORDING_RETENTION_DAYS", 0)
 	viper.SetDefault("RECORDING_SWEEP_INTERVAL_MINUTES", 30)
 
+	// Notification outbox retention. 0 keeps terminal delivery rows forever;
+	// any positive value deletes delivered/failed rows older than the window
+	// (pending/delivering rows are never touched).
+	viper.SetDefault("NOTIFICATION_RETENTION_DAYS", 0)
+	viper.SetDefault("NOTIFICATION_SWEEP_INTERVAL_MINUTES", 60)
+
 	// Aliyun SMS (optional – leave empty to disable phone features)
 	viper.SetDefault("ALIYUN_SMS_ACCESS_KEY_ID", "")
 	viper.SetDefault("ALIYUN_SMS_ACCESS_KEY_SECRET", "")
@@ -219,6 +233,10 @@ func Load() *Config {
 		StaleMinutes:     viper.GetInt("RECORDING_STALE_MINUTES"),
 		RetentionDays:    viper.GetInt("RECORDING_RETENTION_DAYS"),
 		SweepIntervalMin: viper.GetInt("RECORDING_SWEEP_INTERVAL_MINUTES"),
+	}
+	cfg.Notification = NotificationConfig{
+		RetentionDays:    viper.GetInt("NOTIFICATION_RETENTION_DAYS"),
+		SweepIntervalMin: viper.GetInt("NOTIFICATION_SWEEP_INTERVAL_MINUTES"),
 	}
 
 	// Aliyun SMS – enabled only when all four fields are set

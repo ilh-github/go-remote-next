@@ -173,3 +173,73 @@ func TestRetryRearmsFailedDelivery(t *testing.T) {
 		t.Errorf("retrying a foreign channel err=%v, want ErrRecordNotFound", err)
 	}
 }
+
+// TestPurgeTerminalKeepsInFlightAndRecent protects the retention sweep: only
+// finished (delivered/failed) rows past the cutoff may be deleted, and
+// in-flight rows are never mistaken for history no matter how old they look.
+func TestPurgeTerminalKeepsInFlightAndRecent(t *testing.T) {
+	dsn := os.Getenv("QD_TEST_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("set QD_TEST_DATABASE_URL to a throwaway Postgres to run the retention test")
+	}
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := db.AutoMigrate(&models.NotificationDelivery{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	if err := db.Exec("TRUNCATE notification_deliveries").Error; err != nil {
+		t.Fatalf("truncate: %v", err)
+	}
+	svc := NewNotificationDeliveryService(db)
+	ctx := context.Background()
+
+	now := time.Now().UTC()
+	old := now.AddDate(0, 0, -30)
+	seed := []models.NotificationDelivery{
+		{ChannelID: 1, UserID: 1, EventType: "test", Payload: "{}", Status: DeliveryStatusDelivered, Attempts: 1, NextAttemptAt: old},
+		{ChannelID: 1, UserID: 1, EventType: "test", Payload: "{}", Status: DeliveryStatusFailed, Attempts: 8, NextAttemptAt: old},
+		{ChannelID: 1, UserID: 1, EventType: "test", Payload: "{}", Status: DeliveryStatusDelivered, Attempts: 1, NextAttemptAt: now},
+		{ChannelID: 1, UserID: 1, EventType: "test", Payload: "{}", Status: DeliveryStatusPending, Attempts: 3, NextAttemptAt: old},
+		{ChannelID: 1, UserID: 1, EventType: "test", Payload: "{}", Status: DeliveryStatusDelivering, Attempts: 0, NextAttemptAt: old},
+	}
+	if err := db.Create(&seed).Error; err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	// Backdate the rows that should look expired; GORM stamps updated_at on
+	// create, so set it explicitly afterwards.
+	for i, row := range seed {
+		stamp := old
+		if i == 2 {
+			stamp = now
+		}
+		if err := db.Model(&models.NotificationDelivery{}).
+			Where("id = ?", row.ID).Update("updated_at", stamp).Error; err != nil {
+			t.Fatalf("backdate %d: %v", row.ID, err)
+		}
+	}
+
+	removed, err := svc.PurgeTerminal(ctx, now.AddDate(0, 0, -7))
+	if err != nil {
+		t.Fatalf("purge: %v", err)
+	}
+	if removed != 2 {
+		t.Errorf("purged %d rows, want 2 (old delivered + old failed)", removed)
+	}
+
+	var remaining []models.NotificationDelivery
+	if err := db.Order("id").Find(&remaining).Error; err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	gotStatuses := make(map[string]int)
+	for _, row := range remaining {
+		gotStatuses[row.Status]++
+	}
+	if len(remaining) != 3 {
+		t.Fatalf("kept %d rows, want 3 (recent delivered + old pending + old delivering)", len(remaining))
+	}
+	if gotStatuses[DeliveryStatusPending] != 1 || gotStatuses[DeliveryStatusDelivering] != 1 || gotStatuses[DeliveryStatusDelivered] != 1 {
+		t.Errorf("kept statuses = %v, want one each of pending/delivering/delivered", gotStatuses)
+	}
+}
