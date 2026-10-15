@@ -73,3 +73,25 @@ func (s *auditSubscriber) HandleEvent(ctx context.Context, evt Event) {
 	details, _ := json.Marshal(evt.Data)
 	s.audit.Log(ctx, 0, "", evt.Type, "event", evt.DeviceID, string(details), "")
 }
+
+// userNotificationSubscriber delivers user-scoped events to that user's own
+// notification channels. It is the user-level counterpart of the admin
+// webhook subscriber: admin webhooks only carry system-scope events, so
+// without this subscriber a user could never be told that somebody tried to
+// open their device.
+type userNotificationSubscriber struct {
+	channels *NotificationChannelService
+}
+
+func NewUserNotificationSubscriber(c *NotificationChannelService) EventSubscriber {
+	return &userNotificationSubscriber{channels: c}
+}
+
+func (s *userNotificationSubscriber) Name() string { return "user_notifications" }
+
+func (s *userNotificationSubscriber) HandleEvent(ctx context.Context, evt Event) {
+	if evt.UserID == 0 {
+		return
+	}
+	s.channels.DispatchEvent(ctx, evt)
+}

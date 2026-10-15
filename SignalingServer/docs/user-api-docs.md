@@ -361,6 +361,40 @@ to that owner's realtime WS stream, and a real control session adds
 `device.access.session_started`; rejected attempts additionally land in the
 admin audit log.
 
+### 5.3.2 Notification channels (per-user webhooks)
+
+Admin webhooks only carry system-scope events, so a user could not be told
+that someone tried to open *their* device. A notification channel is a
+user-owned webhook endpoint that receives that user's own device events.
+
+| Method | Path | Body | Notes |
+|---|---|---|---|
+| `GET` | `/v1/me/notification-channels` | — | `{items, supported_events, signature_header, signature_scheme}`. The signing secret is never returned. |
+| `POST` | `/v1/me/notification-channels` | `{name?, url, secret?, events: [...], enabled?}` | `enabled` defaults to `true`. `events` must come from `supported_events`. |
+| `PATCH` | `/v1/me/notification-channels/:id` | same as create | Omit `enabled` to keep the current state; omit `secret` to keep the stored one. |
+| `DELETE` | `/v1/me/notification-channels/:id` | — | Owner-scoped. |
+| `POST` | `/v1/me/notification-channels/:id/test` | — | Fires a synthetic `test` event so the endpoint can be verified without waiting for device traffic. |
+
+Payload shape (same as admin webhooks):
+
+```json
+{"event": "device.access.denied", "timestamp": "2026-10-16T03:35:23Z", "data": {"device_id": "...", "ip": "...", "reason": "..."}}
+```
+
+Supported events today: `device.access.denied`, `device.access.granted`,
+`device.access.session_started`, `device.online.changed`, `device.bound`,
+`device.unbound`.
+
+When `secret` is set the raw body is signed with HMAC-SHA256 and sent as
+`X-Webhook-Signature: sha256=<hex>`, so receivers can share one verification
+routine with the admin webhooks. Deliveries retry three times with backoff and
+record `last_status` / `last_triggered` on the channel row. Note this is a
+best-effort push, not an at-least-once queue: a channel that is down for
+longer than the retry window loses that event (the audit table and
+`access-logs` remain the source of truth). URLs must be absolute `http(s)`;
+operators exposing this as multi-tenant SaaS should also apply an egress
+allowlist (a user-supplied URL is an SSRF surface).
+
 ### 5.4 Connections (history)
 
 | Method | Path | Body |

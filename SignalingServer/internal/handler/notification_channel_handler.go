@@ -1,0 +1,170 @@
+package handler
+
+import (
+	"errors"
+	"net/http"
+	"strconv"
+
+	"quickdesk/signaling/internal/middleware"
+	"quickdesk/signaling/internal/service"
+
+	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
+)
+
+// NotificationChannelHandler serves the per-user notification endpoints:
+//
+//	GET    /v1/me/notification-channels
+//	POST   /v1/me/notification-channels
+//	PATCH  /v1/me/notification-channels/:id
+//	DELETE /v1/me/notification-channels/:id
+//	POST   /v1/me/notification-channels/:id/test
+//
+// Every query is scoped by user_id, so one user can never read, modify or
+// fire another user's endpoint, and the signing secret is never echoed back.
+type NotificationChannelHandler struct {
+	channels *service.NotificationChannelService
+}
+
+func NewNotificationChannelHandler(channels *service.NotificationChannelService) *NotificationChannelHandler {
+	return &NotificationChannelHandler{channels: channels}
+}
+
+type notificationChannelReq struct {
+	Name    string   `json:"name"`
+	URL     string   `json:"url" binding:"required"`
+	Secret  string   `json:"secret"`
+	Events  []string `json:"events" binding:"required"`
+	Enabled *bool    `json:"enabled"`
+}
+
+func (h *NotificationChannelHandler) List(c *gin.Context) {
+	rows, err := h.channels.List(c.Request.Context(), middleware.MustUserID(c))
+	if err != nil {
+		ProblemInternal(c, err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"items":            rows,
+		"supported_events": service.SupportedUserNotificationEvents,
+		"signature_header": "X-Webhook-Signature",
+		"signature_scheme": "sha256=<hmac-sha256 of the raw body>",
+	})
+}
+
+func (h *NotificationChannelHandler) Create(c *gin.Context) {
+	var req notificationChannelReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		ProblemBadRequest(c, ProblemCodeInvalidRequest, err.Error())
+		return
+	}
+	enabled := true
+	if req.Enabled != nil {
+		enabled = *req.Enabled
+	}
+	row, err := h.channels.Create(c.Request.Context(), middleware.MustUserID(c),
+		service.UpsertNotificationChannelInput{
+			Name:    req.Name,
+			URL:     req.URL,
+			Secret:  req.Secret,
+			Events:  req.Events,
+			Enabled: enabled,
+		})
+	if err != nil {
+		writeNotificationChannelError(c, err)
+		return
+	}
+	c.JSON(http.StatusCreated, row)
+}
+
+func (h *NotificationChannelHandler) Update(c *gin.Context) {
+	id, ok := notificationChannelID(c)
+	if !ok {
+		return
+	}
+	var req notificationChannelReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		ProblemBadRequest(c, ProblemCodeInvalidRequest, err.Error())
+		return
+	}
+	uid := middleware.MustUserID(c)
+
+	// `enabled` is a pointer so PATCH can leave the current state alone.
+	enabled := true
+	if req.Enabled == nil {
+		current, err := h.channels.Get(c.Request.Context(), uid, id)
+		if err != nil {
+			writeNotificationChannelError(c, err)
+			return
+		}
+		enabled = current.Enabled
+	} else {
+		enabled = *req.Enabled
+	}
+
+	row, err := h.channels.Update(c.Request.Context(), uid, id,
+		service.UpsertNotificationChannelInput{
+			Name:    req.Name,
+			URL:     req.URL,
+			Secret:  req.Secret,
+			Events:  req.Events,
+			Enabled: enabled,
+		})
+	if err != nil {
+		writeNotificationChannelError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, row)
+}
+
+func (h *NotificationChannelHandler) Delete(c *gin.Context) {
+	id, ok := notificationChannelID(c)
+	if !ok {
+		return
+	}
+	uid := middleware.MustUserID(c)
+	if _, err := h.channels.Get(c.Request.Context(), uid, id); err != nil {
+		writeNotificationChannelError(c, err)
+		return
+	}
+	if err := h.channels.Delete(c.Request.Context(), uid, id); err != nil {
+		ProblemInternal(c, err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+// Test fires a synthetic event so the user can verify the endpoint works
+// without waiting for real device traffic.
+func (h *NotificationChannelHandler) Test(c *gin.Context) {
+	id, ok := notificationChannelID(c)
+	if !ok {
+		return
+	}
+	if err := h.channels.SendTest(c.Request.Context(), middleware.MustUserID(c), id); err != nil {
+		writeNotificationChannelError(c, err)
+		return
+	}
+	c.JSON(http.StatusAccepted, gin.H{"success": true})
+}
+
+func notificationChannelID(c *gin.Context) (uint, bool) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil || id == 0 {
+		ProblemBadRequest(c, ProblemCodeInvalidRequest, "invalid id")
+		return 0, false
+	}
+	return uint(id), true
+}
+
+func writeNotificationChannelError(c *gin.Context, err error) {
+	switch {
+	case errors.Is(err, service.ErrInvalidNotificationURL),
+		errors.Is(err, service.ErrUnsupportedNotificationEvent):
+		ProblemBadRequest(c, ProblemCodeInvalidRequest, err.Error())
+	case errors.Is(err, gorm.ErrRecordNotFound):
+		ProblemNotFound(c, ProblemCodeNotFound, "Notification channel not found")
+	default:
+		ProblemInternal(c, err.Error())
+	}
+}

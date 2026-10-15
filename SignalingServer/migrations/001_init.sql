@@ -258,6 +258,31 @@ CREATE TABLE IF NOT EXISTS webhooks (
 );
 
 -- ---------------------------------------------------------------
+-- User notification channels (per-user webhook endpoints)
+-- ---------------------------------------------------------------
+-- The per-user counterpart of `webhooks`: admin webhooks only carry
+-- system-scope events (§2.17 M4), so anything tied to one user's devices is
+-- delivered to that user's own channel instead. `secret` signs outbound
+-- deliveries (X-Webhook-Signature: sha256=...) and is never returned by the
+-- API.
+CREATE TABLE IF NOT EXISTS user_notification_channels (
+    id             BIGSERIAL PRIMARY KEY,
+    user_id        BIGINT       NOT NULL,
+    name           VARCHAR(100) NOT NULL DEFAULT 'channel',
+    url            VARCHAR(500) NOT NULL,
+    secret         VARCHAR(200) NOT NULL DEFAULT '',
+    events         TEXT         NOT NULL,
+    enabled        BOOLEAN      NOT NULL DEFAULT TRUE,
+    last_triggered TIMESTAMPTZ,
+    last_status    INTEGER      NOT NULL DEFAULT 0,
+    created_at     TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    updated_at     TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_notification_channels_user_id
+    ON user_notification_channels (user_id);
+
+-- ---------------------------------------------------------------
 -- Preset (single-row server config distributed to clients)
 -- ---------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS presets (

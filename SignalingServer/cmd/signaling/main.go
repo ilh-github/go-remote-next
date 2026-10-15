@@ -81,6 +81,7 @@ func main() {
 			&models.DeviceGroupMember{},
 			&models.DeviceAccessLog{},
 			&models.Webhook{},
+			&models.UserNotificationChannel{},
 			&models.Preset{},
 		); err != nil {
 			log.Printf("Warning: AutoMigrate error (continuing anyway): %v", err)
@@ -119,6 +120,7 @@ func main() {
 	favoriteService := service.NewFavoriteService(db)
 	connectionService := service.NewConnectionService(db)
 	deviceAccessService := service.NewDeviceAccessService(db)
+	notificationChannelService := service.NewNotificationChannelService(db)
 	sessionRecordingService := service.NewSessionRecordingService(db)
 	recordingLifecycle := service.NewRecordingLifecycle(
 		sessionRecordingService,
@@ -148,6 +150,7 @@ func main() {
 	// own constructor so it can receive user-scope events too).
 	bus.Subscribe(service.NewWebhookSubscriber(webhookService))
 	bus.Subscribe(service.NewAuditSubscriber(auditService))
+	bus.Subscribe(service.NewUserNotificationSubscriber(notificationChannelService))
 
 	// Background worker that replays publish-failed events from the
 	// outbox retry list (§2.17). Lives for the full process lifetime.
@@ -186,6 +189,7 @@ func main() {
 	authHandler := handler.NewAuthHandler(userService, tokenService, smsService, bus)
 	meHandler := handler.NewMeHandler(userService, tokenService, smsService, bus)
 	deviceHandler := handler.NewDeviceHandler(deviceService, favoriteService, connectionService, presenceService, deviceAccessService, bus, db)
+	notificationChannelHandler := handler.NewNotificationChannelHandler(notificationChannelService)
 	sessionRecordingHandler := handler.NewSessionRecordingHandler(sessionRecordingService, bus, handler.SessionRecordingStore{
 		Dir:       cfg.Recording.Dir,
 		MaxBytes:  int64(cfg.Recording.MaxUploadMB) * 1024 * 1024,
@@ -293,6 +297,13 @@ func main() {
 
 			me.GET("/connections", deviceHandler.ListConnections)
 			me.POST("/connections", deviceHandler.RecordConnection)
+
+			me.GET("/notification-channels", notificationChannelHandler.List)
+			me.POST("/notification-channels", notificationChannelHandler.Create)
+			me.PATCH("/notification-channels/:id", notificationChannelHandler.Update)
+			me.DELETE("/notification-channels/:id", notificationChannelHandler.Delete)
+			me.POST("/notification-channels/:id/test", notificationChannelHandler.Test)
+
 			me.GET("/recordings", sessionRecordingHandler.List)
 			me.POST("/recordings", sessionRecordingHandler.Create)
 			me.GET("/recordings/:id", sessionRecordingHandler.Get)
