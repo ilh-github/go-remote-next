@@ -13,6 +13,7 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 	"strings"
+	"time"
 
 	signaling "quickdesk/signaling"
 	"quickdesk/signaling/internal/config"
@@ -171,7 +172,12 @@ func main() {
 	authHandler := handler.NewAuthHandler(userService, tokenService, smsService, bus)
 	meHandler := handler.NewMeHandler(userService, tokenService, smsService, bus)
 	deviceHandler := handler.NewDeviceHandler(deviceService, favoriteService, connectionService, presenceService, bus, db)
-	sessionRecordingHandler := handler.NewSessionRecordingHandler(sessionRecordingService, bus)
+	sessionRecordingHandler := handler.NewSessionRecordingHandler(sessionRecordingService, bus, handler.SessionRecordingStore{
+		Dir:       cfg.Recording.Dir,
+		MaxBytes:  int64(cfg.Recording.MaxUploadMB) * 1024 * 1024,
+		URLSecret: cfg.Recording.URLSecret,
+		TicketTTL: time.Duration(cfg.Recording.TicketTTLSeconds) * time.Second,
+	})
 	hostHandler := handler.NewHostHandler(deviceService, tokenService, presenceService, settingsService, rateLimitService, bus, cfg)
 	realtimeHandler := handler.NewRealtimeHandler(tokenService, bus, presenceService, db, deviceService, favoriteService, metricsService, redisClient)
 
@@ -275,6 +281,9 @@ func main() {
 			me.GET("/recordings/:id", sessionRecordingHandler.Get)
 			me.PATCH("/recordings/:id", sessionRecordingHandler.Update)
 			me.DELETE("/recordings/:id", sessionRecordingHandler.Delete)
+			me.POST("/recordings/:id/artifact", sessionRecordingHandler.UploadArtifact)
+			me.GET("/recordings/:id/artifact", sessionRecordingHandler.DownloadArtifact)
+			me.POST("/recordings/:id/artifact-ticket", sessionRecordingHandler.CreateArtifactTicket)
 
 			me.GET("/favorites", deviceHandler.ListFavorites)
 			me.POST("/favorites", deviceHandler.AddFavorite)
@@ -391,6 +400,7 @@ func main() {
 		adminGuarded.GET("/recordings", adminSessionRecordingHandler.List)
 		adminGuarded.GET("/recordings/:id", adminSessionRecordingHandler.Get)
 		adminGuarded.DELETE("/recordings/:id", adminSessionRecordingHandler.Delete)
+		adminGuarded.GET("/recordings/:id/artifact", adminSessionRecordingHandler.DownloadArtifactAdmin)
 
 		// Raw operational log downloads are intentionally restricted to
 		// super administrators and a fixed server-side file allow-list.
@@ -438,6 +448,16 @@ func main() {
 	// -------------------------------------------------------------------
 	router.GET("/v1/realtime/events", realtimeHandler.HandleEvents)
 	router.GET("/v1/realtime/signal", realtimeHandler.HandleSignal)
+
+	// -------------------------------------------------------------------
+	// Recording playback/download — also outside the v1 group. A top-level
+	// browser navigation (<video src>, window.open, <a download>) carries
+	// neither an X-API-Key nor an Origin header, so APIKeyAuth would reject it
+	// before any handler ran. The signed, short-lived ticket in ?t= is the
+	// credential instead; the Bearer-authenticated route under /v1/me stays
+	// available for API clients.
+	// -------------------------------------------------------------------
+	router.GET("/v1/recordings/:id/artifact", sessionRecordingHandler.DownloadArtifactByTicket)
 
 	// -------------------------------------------------------------------
 	// Admin web single-page app (served from embedded FS).

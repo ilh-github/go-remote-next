@@ -349,10 +349,28 @@ The unified envelope is `{items: [DeviceItem], next_cursor}`. Every
 | `GET` | `/v1/me/recordings/:id` | — |
 | `PATCH` | `/v1/me/recordings/:id` | `{status?, format?, artifact_path?, artifact_url?, thumbnail_path?, duration_seconds?, size_bytes?, ended_at?}` |
 | `DELETE` | `/v1/me/recordings/:id` | — |
+| `POST` | `/v1/me/recordings/:id/artifact` | Media bytes. `multipart/form-data` with a `file` part, or a raw body plus `?ext=.mp4\|.mkv\|.webm\|.h264\|.grf`. |
+| `GET` | `/v1/me/recordings/:id/artifact` | Streams the stored media back. Owner only. |
 
 `session_recordings` is the control-plane index for remote-session media. The
 recording engine owns the artifact and reports its metadata through
-`POST /v1/me/recordings`; the API does not stream media bytes itself.
+`POST /v1/me/recordings`. The bytes themselves are pushed with
+`POST /v1/me/recordings/:id/artifact` and read back through the matching `GET`
+route — there is deliberately **no static directory mount**, every download is
+ownership-checked.
+
+Upload behaviour worth knowing:
+
+- the stored file name is derived from `(user_id, recording_id)` and a
+  whitelisted extension (`.mp4 .m4v .mkv .webm .h264 .grf`); the uploaded
+  filename never reaches the filesystem, so traversal is not possible;
+- bytes are written to `<name>.part` and renamed, so a dropped upload cannot
+  leave a half-written artifact under the real name;
+- the upload sets `artifact_url` (server-relative), `size_bytes` and `format`,
+  and flips `status` from `recording` to `completed`. A `failed` status is left
+  alone so a client can still report failure;
+- the size limit is `RECORDING_MAX_UPLOAD_MB` (default `2048`), and files live
+  under `RECORDING_DIR` (default `data/recordings`).
 
 ### 5.5 Favorites
 
@@ -667,6 +685,7 @@ request shapes; this section documents only the route table.
 | `GET` | `/v1/admin/trends?range=24h\|7d\|30d` |
 | `GET` | `/v1/admin/audit-logs` (filters `date_from` / `date_to` / `q`) |
 | `GET` `DELETE` | `/v1/admin/recordings[/:id]` (list filters `user_id` / `device_id` / `status` / `q`; delete writes audit action `recording.delete`) |
+| `GET` | `/v1/admin/recordings/:id/artifact` (cross-user download; audit action `recording.download`) |
 | `GET` `PUT` | `/v1/admin/preset` |
 | `GET` `PUT` | `/v1/admin/settings` |
 | `GET` `POST` `PATCH` `DELETE` | `/v1/admin/webhooks[/:id]` |

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -299,3 +300,150 @@ func (s *SessionRecordingService) DeleteAdmin(ctx context.Context, id uint) erro
 	}
 	return nil
 }
+
+// ---------------------------------------------------------------------
+// Media artifacts
+//
+// The control plane never inspects media bytes; it accepts an uploaded
+// artifact, stores it outside any statically served directory, and hands it
+// back through an ownership-checked route.
+// ---------------------------------------------------------------------
+
+var (
+	ErrArtifactTooLarge   = errors.New("artifact exceeds the configured upload limit")
+	ErrArtifactEmpty      = errors.New("artifact is empty")
+	ErrArtifactTypeDenied = errors.New("unsupported artifact extension")
+)
+
+// artifactExtensions is an allow-list. Recordings are media files, never
+// executables, so anything unrecognised is rejected instead of being stored
+// under a guessed name.
+var artifactExtensions = map[string]string{
+	".mp4":  "mp4",
+	".m4v":  "mp4",
+	".mkv":  "mkv",
+	".webm": "webm",
+	".h264": "h264",
+	".grf":  "grf",
+}
+
+// NormalizeArtifactExtension returns the lower-cased extension when it is on
+// the allow-list, including the leading dot.
+func NormalizeArtifactExtension(filename string) (string, error) {
+	ext := strings.ToLower(filepath.Ext(strings.TrimSpace(filename)))
+	if _, ok := artifactExtensions[ext]; !ok {
+		return "", ErrArtifactTypeDenied
+	}
+	return ext, nil
+}
+
+// ArtifactFormat maps a stored extension back to the value persisted in the
+// `format` column.
+func ArtifactFormat(ext string) string {
+	return artifactExtensions[strings.ToLower(ext)]
+}
+
+// ArtifactPath builds the on-disk location for one recording. Each user gets
+// its own directory and the file name is derived from the recording id, so a
+// hostile upload filename can never influence the resulting path.
+func ArtifactPath(baseDir string, userID uint, recordingID uint, ext string) string {
+	name := "rec-" + formatUintID(recordingID) + ext
+	return filepath.Join(baseDir, formatUintID(userID), name)
+}
+
+// ArtifactURL is the relative route the clients resolve against the server
+// base URL. Storing the route (rather than an absolute URL) keeps the value
+// valid no matter which host name the deployment is reached by.
+func ArtifactURL(recordingID uint) string {
+	return "/v1/me/recordings/" + formatUintID(recordingID) + "/artifact"
+}
+
+func formatUintID(v uint) string {
+	if v == 0 {
+		return "0"
+	}
+	var buf [20]byte
+	i := len(buf)
+	for v > 0 {
+		i--
+		buf[i] = byte('0' + v%10)
+		v /= 10
+	}
+	return string(buf[i:])
+}
+
+// AttachArtifact records the stored media file on an existing row. The caller
+// has already written the bytes to disk; this only updates the index.
+func (s *SessionRecordingService) AttachArtifact(
+	ctx context.Context,
+	userID uint,
+	id uint,
+	storedPath string,
+	ext string,
+	sizeBytes int64,
+) (*models.SessionRecording, error) {
+	if sizeBytes <= 0 {
+		return nil, ErrArtifactEmpty
+	}
+	format := ArtifactFormat(ext)
+	if format == "" {
+		return nil, ErrArtifactTypeDenied
+	}
+	updates := map[string]interface{}{
+		"artifact_path": storedPath,
+		"artifact_url":  ArtifactURL(id),
+		"size_bytes":    sizeBytes,
+		"format":        format,
+		"updated_at":    time.Now().UTC(),
+	}
+	result := s.db.WithContext(ctx).
+		Model(&models.SessionRecording{}).
+		Where("id = ? AND user_id = ?", id, userID).
+		Updates(updates)
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	if result.RowsAffected == 0 {
+		return nil, gorm.ErrRecordNotFound
+	}
+	row, err := s.Get(ctx, userID, id)
+	if err != nil {
+		return nil, err
+	}
+	// A finished upload means the recording is no longer in progress; leave an
+	// explicit "failed" status untouched so a client can still report failure.
+	if row.Status == "recording" {
+		row, err = s.Update(ctx, userID, id, UpdateSessionRecordingInput{Status: strPtr("completed")})
+		if err != nil {
+			return nil, err
+		}
+	}
+	return row, nil
+}
+
+// ArtifactFor loads a recording and asserts ownership before the handler
+// streams bytes. Returning the row keeps the handler free of ownership logic.
+func (s *SessionRecordingService) ArtifactFor(ctx context.Context, userID uint, id uint) (*models.SessionRecording, error) {
+	row, err := s.Get(ctx, userID, id)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(row.ArtifactPath) == "" {
+		return nil, gorm.ErrRecordNotFound
+	}
+	return row, nil
+}
+
+// ArtifactForAdmin is the cross-user variant used by the admin download route.
+func (s *SessionRecordingService) ArtifactForAdmin(ctx context.Context, id uint) (*models.SessionRecording, error) {
+	row, err := s.GetAdmin(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(row.ArtifactPath) == "" {
+		return nil, gorm.ErrRecordNotFound
+	}
+	return row, nil
+}
+
+func strPtr(v string) *string { return &v }
