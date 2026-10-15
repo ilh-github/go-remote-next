@@ -372,6 +372,19 @@ Upload behaviour worth knowing:
 - the size limit is `RECORDING_MAX_UPLOAD_MB` (default `2048`), and files live
   under `RECORDING_DIR` (default `data/recordings`).
 
+Status lifecycle: a client opens the row as `recording`, uploads the bytes, and
+the server flips it to `completed` when they arrive. If the upload never lands the
+client marks the row `failed`. If a client dies mid-capture the row is repaired by
+the stale sweep below, so `recording` is never a terminal state.
+
+Retention is opt-in: `RECORDING_RETENTION_DAYS` (default `0` = keep media
+forever) deletes media files older than the window while **keeping the index
+row**; `artifact_path`/`artifact_url`/`size_bytes` are cleared, so playback
+stops being offered and the artifact route answers `404`. `RECORDING_STALE_MINUTES`
+(default `240`) is how long `recording` may stay open before it is marked
+`failed`. Both passes run every `RECORDING_SWEEP_INTERVAL_MINUTES` (default `30`)
+and can be triggered on demand through the admin endpoints below.
+
 ### 5.5 Favorites
 
 | Method | Path | Body |
@@ -686,6 +699,8 @@ request shapes; this section documents only the route table.
 | `GET` | `/v1/admin/audit-logs` (filters `date_from` / `date_to` / `q`) |
 | `GET` `DELETE` | `/v1/admin/recordings[/:id]` (list filters `user_id` / `device_id` / `status` / `q`; delete writes audit action `recording.delete`) |
 | `GET` | `/v1/admin/recordings/:id/artifact` (cross-user download; audit action `recording.download`) |
+| `GET` | `/v1/admin/recordings:storage` — `{artifact_count, total_bytes, retention_days, stale_after_minutes}` |
+| `POST` | `/v1/admin/recordings:sweep` — runs the stale + retention pass now; returns `{stale_marked_failed, artifacts_purged, bytes_freed}` and audits `recording.sweep` |
 | `GET` `PUT` | `/v1/admin/preset` |
 | `GET` `PUT` | `/v1/admin/settings` |
 | `GET` `POST` `PATCH` `DELETE` | `/v1/admin/webhooks[/:id]` |
