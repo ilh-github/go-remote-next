@@ -151,10 +151,59 @@ if (await tileFor(ONLINE).getByTitle(/解锁输入|Unlock input/).count()) {
 await page.screenshot({ path: `${OUT}/wall.png`, fullPage: false })
 console.log(`screenshot: ${OUT}/wall.png`)
 
+// ---- focus + rotation ---------------------------------------------------
+// "Enlarge" makes one tile span the row; rotation walks that focus through the
+// wall (interval comes from localStorage, which is the documented test hook).
+const focusedName = async () => {
+  const tiles = page.locator('.wall-tile')
+  for (let i = 0; i < await tiles.count(); i++) {
+    const t = tiles.nth(i)
+    if (await t.getByTitle(/取消放大|Exit enlarge/).count()) {
+      return ((await t.locator('.tile-name').textContent()) || '').trim()
+    }
+  }
+  return ''
+}
+
+let layout = null
+if (await tileFor(ONLINE).getByTitle(/放大查看|Enlarge/).count()) {
+  const before = await tileFor(ONLINE).boundingBox()
+  await tileFor(ONLINE).getByTitle(/放大查看|Enlarge/).click()
+  await page.waitForTimeout(1200)
+  const after = await tileFor(ONLINE).boundingBox()
+  const other = OFFLINE ? await tileFor(OFFLINE).boundingBox() : null
+  layout = {
+    beforeWidth: Math.round(before.width),
+    focusedWidth: Math.round(after.width),
+    otherWidth: other ? Math.round(other.width) : null,
+  }
+  console.log('focus layout:', JSON.stringify(layout))
+  await page.screenshot({ path: `${OUT}/wall-focus.png`, fullPage: false })
+}
+
+let rotation = null
+if (OFFLINE) {
+  await page.evaluate(() => localStorage.setItem('quickdesk_wall_rotate_seconds', '3'))
+  // A same-hash goto is a no-op, so reload the document for the new interval.
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await page.waitForTimeout(9000)
+  const start = await focusedName()
+  await page.getByRole('button', { name: /开始轮巡|Start rotation/ }).click()
+  await page.waitForTimeout(5000)
+  const mid = await focusedName()
+  await page.getByRole('button', { name: /停止轮巡|Stop rotation/ }).click()
+  await page.waitForTimeout(4500)
+  const end = await focusedName()
+  rotation = { start, mid, end, moved: start !== mid, stopped: mid === end }
+  console.log('rotation:', JSON.stringify(rotation))
+}
+
 const ok = first.videoWidth > 0 && second.currentTime > first.currentTime &&
   first.wallMode && !first.mouse && !first.keyboard && !first.touch &&
   first.chromeHidden &&
   (!input || (input.armedOk && input.armedMouse && input.armedKeyboard && !input.lockedMouse && !input.lockedKeyboard && input.delivered)) &&
+  (!layout || (layout.focusedWidth > layout.beforeWidth * 1.5)) &&
+  (!rotation || (rotation.moved && rotation.stopped)) &&
   (!OFFLINE || (/离线|Offline/.test(offlinePlaceholder || '')))
 
 console.log(`video ${first.videoWidth}px, clock ${first.currentTime.toFixed(2)} -> ${second.currentTime.toFixed(2)}, ` +

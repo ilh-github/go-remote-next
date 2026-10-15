@@ -4,6 +4,20 @@
       <h2 class="page-title">{{ $t('wall.title') }}</h2>
       <div class="wall-tools">
         <span class="wall-count">{{ $t('wall.onWall', { count: tiles.length }) }}</span>
+        <button
+          v-if="tiles.length > 1"
+          class="btn btn-secondary btn-sm"
+          :class="{ primary: rotating }"
+          :disabled="!!armedId"
+          :title="armedId ? $t('wall.rotateArmedHint') : ''"
+          @click="toggleRotate"
+        >{{ rotating ? $t('wall.rotateOff') : $t('wall.rotateOn') }}</button>
+        <label v-if="rotating" class="wall-cols">
+          <span>{{ $t('wall.rotateEvery') }}</span>
+          <select :value="rotateSeconds" @change="onRotateSecondsChange($event.target.value)">
+            <option v-for="n in [5, 15, 30, 60]" :key="n" :value="n">{{ n }}s</option>
+          </select>
+        </label>
         <label class="wall-cols">
           <span>{{ $t('wall.columns') }}</span>
           <select :value="columns" @change="onColumnsChange($event.target.value)">
@@ -73,7 +87,11 @@
 
       <!-- The wall itself -->
       <div v-else class="wall-grid" :style="{ '--wall-cols': String(columns) }">
-        <div v-for="tile in tiles" :key="tile.deviceId" :class="['wall-tile', { armed: armedId === tile.deviceId }]">
+        <div
+          v-for="tile in tiles"
+          :key="tile.deviceId"
+          :class="['wall-tile', { armed: armedId === tile.deviceId, focused: focusedId === tile.deviceId }]"
+        >
           <div class="tile-head">
             <span :class="['tile-dot', tile.state]"></span>
             <span class="tile-name" :title="tile.deviceId">{{ tile.name }}</span>
@@ -81,6 +99,11 @@
             <span v-if="armedId === tile.deviceId" class="tile-armed">{{ $t('wall.armed') }}</span>
             <span v-if="tile.detail" class="tile-detail">{{ tile.detail }}</span>
             <button class="tile-btn" :title="$t('wall.reload')" @click="reloadTile(tile)">⟳</button>
+            <button
+              class="tile-btn"
+              :title="focusedId === tile.deviceId ? $t('wall.unfocus') : $t('wall.focus')"
+              @click="toggleFocus(tile)"
+            >⤢</button>
             <button
               class="tile-btn"
               :title="armedId === tile.deviceId ? $t('wall.disarmInput') : $t('wall.armInput')"
@@ -140,6 +163,13 @@ const pickerOpen = ref(false)
 const columns = ref(readColumns())
 // Only one tile may hold input at a time: arming a second one locks the first.
 const armedId = ref('')
+// The focused tile spans the whole row; rotation walks that focus through the
+// wall so a control room can follow several machines on one screen.
+const focusedId = ref('')
+const rotating = ref(false)
+const WALL_ROTATE_KEY = 'quickdesk_wall_rotate_seconds'
+const rotateSeconds = ref(readRotateSeconds())
+let rotateTimer = null
 const frameRefs = new Map()
 // Per-device live state. The tile iframe is the only thing that knows whether
 // the session really came up, so it reports back over postMessage.
@@ -178,6 +208,13 @@ function readSelection() {
 function readColumns() {
   const n = Number(localStorage.getItem(WALL_COLUMNS_KEY) || 2)
   return [1, 2, 3, 4].includes(n) ? n : 2
+}
+
+function readRotateSeconds() {
+  // localStorage is also the test hook: the harness sets a short interval so a
+  // rotation can be observed without waiting 15 seconds per step.
+  const n = Number(localStorage.getItem(WALL_ROTATE_KEY) || 15)
+  return Number.isFinite(n) && n >= 1 ? n : 15
 }
 
 function persistSelection() {
@@ -261,6 +298,7 @@ function toggleDevice(deviceId) {
 
 function removeDevice(deviceId) {
   if (armedId.value === deviceId) armedId.value = ''
+  if (focusedId.value === deviceId) focusedId.value = ''
   selected.value = selected.value.filter((id) => id !== deviceId)
   persistSelection()
   delete live[deviceId]
@@ -272,6 +310,8 @@ function removeTile(tile) {
 
 function removeAll() {
   armedId.value = ''
+  focusedId.value = ''
+  stopRotate()
   selected.value = []
   persistSelection()
   for (const key of Object.keys(live)) delete live[key]
@@ -307,8 +347,48 @@ function toggleInput(tile) {
   const next = armedId.value === tile.deviceId ? '' : tile.deviceId
   const previous = armedId.value
   armedId.value = next
+  // A rotating wall must never rotate away from a tile that holds input.
+  if (next) stopRotate()
   if (previous && previous !== next) sendControl(previous, false)
   if (next) sendControl(next, true)
+}
+
+function toggleFocus(tile) {
+  focusedId.value = focusedId.value === tile.deviceId ? '' : tile.deviceId
+}
+
+function stopRotate() {
+  if (rotateTimer) {
+    clearInterval(rotateTimer)
+    rotateTimer = null
+  }
+  rotating.value = false
+}
+
+function toggleRotate() {
+  if (rotating.value) {
+    stopRotate()
+    return
+  }
+  if (armedId.value || selected.value.length < 2) return
+  if (!focusedId.value) focusedId.value = selected.value[0]
+  rotating.value = true
+  rotateTimer = setInterval(() => {
+    const ids = selected.value
+    if (ids.length < 2) return
+    const current = ids.indexOf(focusedId.value)
+    focusedId.value = ids[(current + 1) % ids.length]
+  }, Math.max(1, rotateSeconds.value) * 1000)
+}
+
+function onRotateSecondsChange(value) {
+  const n = Number(value)
+  rotateSeconds.value = Number.isFinite(n) && n >= 1 ? n : 15
+  try { localStorage.setItem(WALL_ROTATE_KEY, String(rotateSeconds.value)) } catch { /* private mode */ }
+  if (rotating.value) {
+    stopRotate()
+    toggleRotate()
+  }
 }
 
 // A wall tile cannot re-use its url: the signal token was already consumed, so
@@ -364,6 +444,7 @@ onMounted(async () => {
 onUnmounted(() => {
   window.removeEventListener('message', onWallMessage)
   if (refreshTimer) clearInterval(refreshTimer)
+  stopRotate()
 })
 </script>
 
@@ -419,6 +500,8 @@ onUnmounted(() => {
 .tile-btn:disabled { opacity: 0.3; cursor: not-allowed; }
 .tile-btn.danger:hover { background: rgba(244,67,54,0.2); color: var(--error); }
 .wall-tile.armed { border-color: var(--error); box-shadow: 0 0 0 1px rgba(244,67,54,0.35); }
+.wall-tile.focused { grid-column: 1 / -1; }
+.wall-tile.focused .tile-body { aspect-ratio: auto; height: min(70vh, 1000px); }
 .tile-armed { padding: 1px 6px; border-radius: 4px; font-size: 11px; background: rgba(244,67,54,0.18); color: var(--error); }
 .tile-body { position: relative; aspect-ratio: 16 / 9; background: #000; }
 .tile-body iframe { width: 100%; height: 100%; border: 0; display: block; }
