@@ -74,11 +74,12 @@ func ValidateNotificationURL(raw string) error {
 // NotificationChannelService owns per-user webhook endpoints: CRUD plus the
 // delivery path that turns user-scoped bus events into outbound HTTP calls.
 type NotificationChannelService struct {
-	db *gorm.DB
+	db         *gorm.DB
+	deliveries *NotificationDeliveryService
 }
 
-func NewNotificationChannelService(db *gorm.DB) *NotificationChannelService {
-	return &NotificationChannelService{db: db}
+func NewNotificationChannelService(db *gorm.DB, deliveries *NotificationDeliveryService) *NotificationChannelService {
+	return &NotificationChannelService{db: db, deliveries: deliveries}
 }
 
 // UpsertNotificationChannelInput is the validated body of the create/update
@@ -190,7 +191,14 @@ func (s *NotificationChannelService) DispatchEvent(ctx context.Context, evt Even
 		if !channelSubscribes(ch.Events, evt.Type) {
 			continue
 		}
-		go s.deliver(ch, payload)
+		if s.deliveries == nil {
+			log.Printf("[notification] no delivery queue configured; dropping %s for channel %d",
+				evt.Type, ch.ID)
+			continue
+		}
+		if err := s.deliveries.Enqueue(ctx, ch, evt.Type, payload); err != nil {
+			log.Printf("[notification] enqueue %s for channel %d failed: %v", evt.Type, ch.ID, err)
+		}
 	}
 }
 
@@ -208,21 +216,10 @@ func (s *NotificationChannelService) SendTest(ctx context.Context, userID, id ui
 			"message": "This is a test notification from QuickDesk",
 		},
 	}
-	go s.deliver(*row, payload)
-	return nil
-}
-
-func (s *NotificationChannelService) deliver(ch models.UserNotificationChannel, payload map[string]interface{}) {
-	status := postWebhook(ch.URL, ch.Secret, payload)
-	now := time.Now().UTC()
-	if err := s.db.Model(&models.UserNotificationChannel{}).
-		Where("id = ?", ch.ID).
-		Updates(map[string]interface{}{
-			"last_triggered": now,
-			"last_status":    status,
-		}).Error; err != nil {
-		log.Printf("[notification] update channel %d status: %v", ch.ID, err)
+	if s.deliveries == nil {
+		return errors.New("delivery queue is not configured")
 	}
+	return s.deliveries.Enqueue(ctx, *row, "test", payload)
 }
 
 func validateChannelInput(in UpsertNotificationChannelInput) error {

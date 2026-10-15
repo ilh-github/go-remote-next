@@ -376,6 +376,7 @@ user-owned webhook endpoint that receives that user's own device events.
 | `PATCH` | `/v1/me/notification-channels/:id` | same as create | Omit `enabled` to keep the current state; omit `secret` to keep the stored one. |
 | `DELETE` | `/v1/me/notification-channels/:id` | — | Owner-scoped. |
 | `POST` | `/v1/me/notification-channels/:id/test` | — | Fires a synthetic `test` event so the endpoint can be verified without waiting for device traffic. |
+| `GET` | `/v1/me/notification-channels/:id/deliveries?limit=` | — | Delivery history for the channel (newest first, default 50, max 200). Owner-scoped. |
 
 Payload shape (same as admin webhooks):
 
@@ -389,13 +390,29 @@ Supported events today: `device.access.denied`, `device.access.granted`,
 
 When `secret` is set the raw body is signed with HMAC-SHA256 and sent as
 `X-Webhook-Signature: sha256=<hex>`, so receivers can share one verification
-routine with the admin webhooks. Deliveries retry three times with backoff and
-record `last_status` / `last_triggered` on the channel row. Note this is a
-best-effort push, not an at-least-once queue: a channel that is down for
-longer than the retry window loses that event (the audit table and
-`access-logs` remain the source of truth). URLs must be absolute `http(s)`;
-operators exposing this as multi-tenant SaaS should also apply an egress
-allowlist (a user-supplied URL is an SSRF surface).
+routine with the admin webhooks. URLs must be absolute `http(s)`; operators
+exposing this as multi-tenant SaaS should also apply an egress allowlist (a
+user-supplied URL is an SSRF surface).
+
+**Delivery is durable (at-least-once).** Every event is first written to the
+`notification_deliveries` outbox, so a channel that is briefly down no longer
+loses the event. A background worker polls the outbox every 2s, claims due
+rows with `SELECT ... FOR UPDATE SKIP LOCKED` (safe across two server
+instances) and posts them one at a time:
+
+- success (`2xx`) → `status: "delivered"`, `delivered_at` is stamped;
+- failure → the row is rescheduled with exponential backoff
+  (2s, 4s, 8s … capped at 5m);
+- after 8 attempts the row is parked as `status: "failed"` (kept, never
+  silently dropped) and still shows up in the history.
+
+Each attempt also records `last_status` (the HTTP code, `0` on a transport
+error) and `last_error` on both the row and the channel row. Because delivery
+is *at-least-once*, a receiver that fails after processing may see an event
+twice — consumers should treat `event` + `timestamp` + `data.log_id` as an
+idempotency key. The `:id/deliveries` endpoint is the operator-facing log:
+it shows what was queued, how many attempts it took, and whether it is still
+`pending`, `delivering`, `delivered` or `failed`.
 
 ### 5.3.3 Device access policy (who is allowed to connect)
 

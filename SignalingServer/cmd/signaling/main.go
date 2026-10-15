@@ -87,6 +87,7 @@ func main() {
 			&models.DeviceAccessPolicy{},
 			&models.Webhook{},
 			&models.UserNotificationChannel{},
+			&models.NotificationDelivery{},
 			&models.Preset{},
 		); err != nil {
 			log.Printf("Warning: AutoMigrate error (continuing anyway): %v", err)
@@ -126,7 +127,8 @@ func main() {
 	connectionService := service.NewConnectionService(db)
 	deviceAccessService := service.NewDeviceAccessService(db)
 	deviceAccessPolicyService := service.NewDeviceAccessPolicyService(db)
-	notificationChannelService := service.NewNotificationChannelService(db)
+	notificationDeliveryService := service.NewNotificationDeliveryService(db)
+	notificationChannelService := service.NewNotificationChannelService(db, notificationDeliveryService)
 	sessionRecordingService := service.NewSessionRecordingService(db)
 	recordingLifecycle := service.NewRecordingLifecycle(
 		sessionRecordingService,
@@ -140,6 +142,7 @@ func main() {
 		log.Printf("Recording lifecycle: stale_after=%dm retention_days=%d sweep_interval=%dm",
 			cfg.Recording.StaleMinutes, cfg.Recording.RetentionDays, cfg.Recording.SweepIntervalMin)
 	}
+	go notificationDeliveryService.Run(context.Background())
 	tokenService := service.NewTokenService(redisClient)
 	rateLimitService := service.NewRateLimitService(redisClient)
 	metricsService := service.NewMetricsService()
@@ -195,7 +198,7 @@ func main() {
 	authHandler := handler.NewAuthHandler(userService, tokenService, smsService, bus)
 	meHandler := handler.NewMeHandler(userService, tokenService, smsService, bus)
 	deviceHandler := handler.NewDeviceHandler(deviceService, favoriteService, connectionService, presenceService, deviceAccessService, bus, db)
-	notificationChannelHandler := handler.NewNotificationChannelHandler(notificationChannelService)
+	notificationChannelHandler := handler.NewNotificationChannelHandler(notificationChannelService, notificationDeliveryService)
 	deviceAccessPolicyHandler := handler.NewDeviceAccessPolicyHandler(deviceService, deviceAccessPolicyService, bus)
 	sessionRecordingHandler := handler.NewSessionRecordingHandler(sessionRecordingService, bus, handler.SessionRecordingStore{
 		Dir:       cfg.Recording.Dir,
@@ -312,6 +315,7 @@ func main() {
 			me.PATCH("/notification-channels/:id", notificationChannelHandler.Update)
 			me.DELETE("/notification-channels/:id", notificationChannelHandler.Delete)
 			me.POST("/notification-channels/:id/test", notificationChannelHandler.Test)
+			me.GET("/notification-channels/:id/deliveries", notificationChannelHandler.Deliveries)
 
 			me.GET("/recordings", sessionRecordingHandler.List)
 			me.POST("/recordings", sessionRecordingHandler.Create)

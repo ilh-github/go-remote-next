@@ -19,15 +19,17 @@ import (
 //	PATCH  /v1/me/notification-channels/:id
 //	DELETE /v1/me/notification-channels/:id
 //	POST   /v1/me/notification-channels/:id/test
+//	GET    /v1/me/notification-channels/:id/deliveries
 //
 // Every query is scoped by user_id, so one user can never read, modify or
 // fire another user's endpoint, and the signing secret is never echoed back.
 type NotificationChannelHandler struct {
-	channels *service.NotificationChannelService
+	channels   *service.NotificationChannelService
+	deliveries *service.NotificationDeliveryService
 }
 
-func NewNotificationChannelHandler(channels *service.NotificationChannelService) *NotificationChannelHandler {
-	return &NotificationChannelHandler{channels: channels}
+func NewNotificationChannelHandler(channels *service.NotificationChannelService, deliveries *service.NotificationDeliveryService) *NotificationChannelHandler {
+	return &NotificationChannelHandler{channels: channels, deliveries: deliveries}
 }
 
 type notificationChannelReq struct {
@@ -146,6 +148,38 @@ func (h *NotificationChannelHandler) Test(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusAccepted, gin.H{"success": true})
+}
+
+// Deliveries returns the outbox history for one channel: what was queued, how
+// many attempts it took, and whether it is still pending, delivered or parked
+// as failed. This is the operator-facing view that makes at-least-once
+// delivery auditable instead of a black box.
+func (h *NotificationChannelHandler) Deliveries(c *gin.Context) {
+	id, ok := notificationChannelID(c)
+	if !ok {
+		return
+	}
+	uid := middleware.MustUserID(c)
+	if _, err := h.channels.Get(c.Request.Context(), uid, id); err != nil {
+		writeNotificationChannelError(c, err)
+		return
+	}
+	if h.deliveries == nil {
+		ProblemInternal(c, "delivery store is not configured")
+		return
+	}
+	limit := 50
+	if raw := c.Query("limit"); raw != "" {
+		if parsed, err := strconv.Atoi(raw); err == nil {
+			limit = parsed
+		}
+	}
+	rows, err := h.deliveries.ListByChannel(c.Request.Context(), id, limit)
+	if err != nil {
+		ProblemInternal(c, err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"items": rows})
 }
 
 func notificationChannelID(c *gin.Context) (uint, bool) {

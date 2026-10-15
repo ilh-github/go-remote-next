@@ -10,40 +10,43 @@ import (
 	"time"
 )
 
-// postWebhook delivers payload as JSON to url with up to three attempts and
-// returns the last HTTP status code (0 when the request never completed).
-// When secret is set the body is signed with HMAC-SHA256 and the digest is
-// sent as `X-Webhook-Signature: sha256=<hex>`, the same scheme the admin
-// webhooks use — receivers can share one verification routine.
-func postWebhook(url, secret string, payload interface{}) int {
+// postWebhookOnce performs a single delivery, returning the HTTP status (0
+// when the request never completed) and any transport error. When secret is
+// set the body is signed with HMAC-SHA256 and the digest is sent as
+// `X-Webhook-Signature: sha256=<hex>`, the same scheme the admin webhooks use
+// — receivers can share one verification routine.
+func postWebhookOnce(url, secret string, payload interface{}) (int, error) {
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return 0
+		return 0, err
 	}
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return 0, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if secret != "" {
+		mac := hmac.New(sha256.New, []byte(secret))
+		mac.Write(body)
+		req.Header.Set("X-Webhook-Signature", "sha256="+hex.EncodeToString(mac.Sum(nil)))
+	}
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+	return resp.StatusCode, nil
+}
 
+// postWebhook is the fire-and-forget variant used by admin webhooks: three
+// attempts with backoff, returning the last HTTP status seen.
+func postWebhook(url, secret string, payload interface{}) int {
 	var lastStatus int
 	for attempt := 0; attempt < 3; attempt++ {
-		req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
-		if err != nil {
-			return 0
-		}
-		req.Header.Set("Content-Type", "application/json")
-		if secret != "" {
-			mac := hmac.New(sha256.New, []byte(secret))
-			mac.Write(body)
-			req.Header.Set("X-Webhook-Signature", "sha256="+hex.EncodeToString(mac.Sum(nil)))
-		}
-
-		client := &http.Client{Timeout: 10 * time.Second}
-		resp, err := client.Do(req)
-		if err != nil {
-			lastStatus = 0
-			time.Sleep(time.Duration(attempt+1) * 2 * time.Second)
-			continue
-		}
-		resp.Body.Close()
-		lastStatus = resp.StatusCode
-		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		status, err := postWebhookOnce(url, secret, payload)
+		lastStatus = status
+		if err == nil && status >= 200 && status < 300 {
 			break
 		}
 		time.Sleep(time.Duration(attempt+1) * 2 * time.Second)

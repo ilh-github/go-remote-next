@@ -304,6 +304,37 @@ CREATE INDEX IF NOT EXISTS idx_user_notification_channels_user_id
     ON user_notification_channels (user_id);
 
 -- ---------------------------------------------------------------
+-- Notification delivery outbox (durable, at-least-once webhook retries)
+-- One row per (event, channel). The delivery worker claims due rows with
+-- SELECT ... FOR UPDATE SKIP LOCKED and retries with exponential backoff
+-- until the endpoint answers 2xx or the attempt budget is exhausted.
+-- ---------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS notification_deliveries (
+    id              BIGSERIAL PRIMARY KEY,
+    channel_id      BIGINT       NOT NULL,
+    user_id         BIGINT       NOT NULL,
+    event_type      VARCHAR(64)  NOT NULL,
+    payload         TEXT         NOT NULL,
+    status          VARCHAR(16)  NOT NULL DEFAULT 'pending',
+    attempts        INTEGER      NOT NULL DEFAULT 0,
+    next_attempt_at TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    last_status     INTEGER      NOT NULL DEFAULT 0,
+    last_error      VARCHAR(255) NOT NULL DEFAULT '',
+    delivered_at    TIMESTAMPTZ,
+    created_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_notification_deliveries_due
+    ON notification_deliveries (status, next_attempt_at);
+
+CREATE INDEX IF NOT EXISTS idx_notification_deliveries_channel_id
+    ON notification_deliveries (channel_id);
+
+CREATE INDEX IF NOT EXISTS idx_notification_deliveries_user_id
+    ON notification_deliveries (user_id);
+
+-- ---------------------------------------------------------------
 -- Preset (single-row server config distributed to clients)
 -- ---------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS presets (
