@@ -42,6 +42,9 @@ type RecordingConfig struct {
 	MaxUploadMB      int
 	URLSecret        string
 	TicketTTLSeconds int
+	StaleMinutes     int
+	RetentionDays    int
+	SweepIntervalMin int
 }
 
 type SmsConfig struct {
@@ -137,6 +140,12 @@ func Load() *Config {
 	viper.SetDefault("RECORDING_MAX_UPLOAD_MB", 2048)
 	viper.SetDefault("RECORDING_URL_SECRET", "")
 	viper.SetDefault("RECORDING_TICKET_TTL_SECONDS", 600)
+	// Recordings stuck in "recording" longer than this are marked failed.
+	viper.SetDefault("RECORDING_STALE_MINUTES", 240)
+	// 0 keeps media forever; any positive value deletes files past the window
+	// while keeping their index rows.
+	viper.SetDefault("RECORDING_RETENTION_DAYS", 0)
+	viper.SetDefault("RECORDING_SWEEP_INTERVAL_MINUTES", 30)
 
 	// Aliyun SMS (optional – leave empty to disable phone features)
 	viper.SetDefault("ALIYUN_SMS_ACCESS_KEY_ID", "")
@@ -207,6 +216,9 @@ func Load() *Config {
 		MaxUploadMB:      viper.GetInt("RECORDING_MAX_UPLOAD_MB"),
 		URLSecret:        recordingSecret,
 		TicketTTLSeconds: viper.GetInt("RECORDING_TICKET_TTL_SECONDS"),
+		StaleMinutes:     viper.GetInt("RECORDING_STALE_MINUTES"),
+		RetentionDays:    viper.GetInt("RECORDING_RETENTION_DAYS"),
+		SweepIntervalMin: viper.GetInt("RECORDING_SWEEP_INTERVAL_MINUTES"),
 	}
 
 	// Aliyun SMS – enabled only when all four fields are set

@@ -118,6 +118,17 @@ func main() {
 	favoriteService := service.NewFavoriteService(db)
 	connectionService := service.NewConnectionService(db)
 	sessionRecordingService := service.NewSessionRecordingService(db)
+	recordingLifecycle := service.NewRecordingLifecycle(
+		sessionRecordingService,
+		time.Duration(cfg.Recording.StaleMinutes)*time.Minute,
+		time.Duration(cfg.Recording.RetentionDays)*24*time.Hour,
+		time.Duration(cfg.Recording.SweepIntervalMin)*time.Minute,
+	)
+	if cfg.Recording.SweepIntervalMin > 0 {
+		go recordingLifecycle.Run(context.Background())
+		log.Printf("Recording lifecycle: stale_after=%dm retention_days=%d sweep_interval=%dm",
+			cfg.Recording.StaleMinutes, cfg.Recording.RetentionDays, cfg.Recording.SweepIntervalMin)
+	}
 	tokenService := service.NewTokenService(redisClient)
 	rateLimitService := service.NewRateLimitService(redisClient)
 	metricsService := service.NewMetricsService()
@@ -189,7 +200,9 @@ func main() {
 	adminSettingsHandler := handler.NewAdminSettingsHandler(settingsService, bus, auditService)
 	adminPresetHandler := handler.NewAdminPresetHandler(presetService, auditService)
 	adminAuditHandler := handler.NewAdminAuditHandler(auditService)
-	adminSessionRecordingHandler := handler.NewAdminSessionRecordingHandler(sessionRecordingService, auditService)
+	adminSessionRecordingHandler := handler.NewAdminSessionRecordingHandler(
+		sessionRecordingService, auditService, recordingLifecycle,
+		cfg.Recording.RetentionDays, cfg.Recording.StaleMinutes)
 	adminLogsHandler := handler.NewAdminLogsHandler(
 		auditService,
 		db,
@@ -401,6 +414,10 @@ func main() {
 		adminGuarded.GET("/recordings/:id", adminSessionRecordingHandler.Get)
 		adminGuarded.DELETE("/recordings/:id", adminSessionRecordingHandler.Delete)
 		adminGuarded.GET("/recordings/:id/artifact", adminSessionRecordingHandler.DownloadArtifactAdmin)
+		// Action-style paths keep gin's router from having to disambiguate a
+		// literal segment against the ":id" wildcard above.
+		adminGuarded.GET("/recordings:storage", adminSessionRecordingHandler.Storage)
+		adminGuarded.POST("/recordings:sweep", adminSessionRecordingHandler.Sweep)
 
 		// Raw operational log downloads are intentionally restricted to
 		// super administrators and a fixed server-side file allow-list.
