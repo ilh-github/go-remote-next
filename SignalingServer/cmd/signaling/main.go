@@ -14,6 +14,10 @@ import (
 	_ "net/http/pprof"
 	"strings"
 	"time"
+	// Embed the IANA timezone database: device access windows are evaluated in
+	// a named zone, and time.LoadLocation needs tzdata on hosts that do not
+	// ship it (Windows, scratch containers).
+	_ "time/tzdata"
 
 	signaling "quickdesk/signaling"
 	"quickdesk/signaling/internal/config"

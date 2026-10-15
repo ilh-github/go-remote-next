@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"time"
 
 	"quickdesk/signaling/internal/models"
 
@@ -34,6 +35,8 @@ type UpsertDeviceAccessPolicyInput struct {
 	RemoteDisabled bool
 	AllowIPs       []string
 	MaxSessions    int
+	AllowedWindows []AccessWindow
+	Timezone       string
 }
 
 // Get returns the device policy, or (nil, nil) when the device has none: a
@@ -59,8 +62,18 @@ func (s *DeviceAccessPolicyService) Upsert(ctx context.Context, deviceID string,
 	if in.MaxSessions < 0 {
 		return nil, ErrInvalidSessionLimit
 	}
+	if err := ValidateAccessWindows(in.AllowedWindows); err != nil {
+		return nil, err
+	}
+	if err := ValidateTimezone(in.Timezone); err != nil {
+		return nil, err
+	}
 	normalized := normalizeAllowIPs(in.AllowIPs)
 	encoded, err := json.Marshal(normalized)
+	if err != nil {
+		return nil, err
+	}
+	windowsEncoded, err := json.Marshal(in.AllowedWindows)
 	if err != nil {
 		return nil, err
 	}
@@ -76,6 +89,8 @@ func (s *DeviceAccessPolicyService) Upsert(ctx context.Context, deviceID string,
 	row.RemoteDisabled = in.RemoteDisabled
 	row.AllowIPs = string(encoded)
 	row.MaxSessions = in.MaxSessions
+	row.AllowedWindows = string(windowsEncoded)
+	row.Timezone = strings.TrimSpace(in.Timezone)
 	if err := s.db.WithContext(ctx).Save(row).Error; err != nil {
 		return nil, err
 	}
@@ -86,6 +101,12 @@ func (s *DeviceAccessPolicyService) Upsert(ctx context.Context, deviceID string,
 // setup. A nil policy allows everything; the returned reason is meant to be
 // shown to the device owner in the access log.
 func EvaluateDeviceAccessPolicy(policy *models.DeviceAccessPolicy, clientIP string) (bool, string) {
+	return EvaluateDeviceAccessPolicyAt(policy, clientIP, time.Now())
+}
+
+// EvaluateDeviceAccessPolicyAt is EvaluateDeviceAccessPolicy with an
+// injectable clock, so the time-window rules can be tested deterministically.
+func EvaluateDeviceAccessPolicyAt(policy *models.DeviceAccessPolicy, clientIP string, now time.Time) (bool, string) {
 	if policy == nil {
 		return true, ""
 	}
@@ -93,11 +114,14 @@ func EvaluateDeviceAccessPolicy(policy *models.DeviceAccessPolicy, clientIP stri
 		return false, "remote access is disabled for this device"
 	}
 	entries := decodeAllowIPs(policy.AllowIPs)
-	if len(entries) == 0 {
-		return true, ""
-	}
-	if !IPAllowed(entries, clientIP) {
+	if len(entries) > 0 && !IPAllowed(entries, clientIP) {
 		return false, "client IP is not in the device allow list"
+	}
+	windows := decodeAccessWindows(policy.AllowedWindows)
+	if len(windows) > 0 {
+		if allowed, reason := EvaluateAccessWindowsAt(windows, LocationForPolicy(policy.Timezone), now); !allowed {
+			return false, reason
+		}
 	}
 	return true, ""
 }
@@ -170,6 +194,17 @@ func decodeAllowIPs(encoded string) []string {
 		return nil
 	}
 	return entries
+}
+
+func decodeAccessWindows(encoded string) []AccessWindow {
+	if strings.TrimSpace(encoded) == "" {
+		return nil
+	}
+	var windows []AccessWindow
+	if err := json.Unmarshal([]byte(encoded), &windows); err != nil {
+		return nil
+	}
+	return windows
 }
 
 func normalizeAllowIPs(entries []string) []string {

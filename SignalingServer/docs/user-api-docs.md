@@ -406,14 +406,29 @@ blocked client never gets to guess codes.
 
 | Method | Path | Body | Notes |
 |---|---|---|---|
-| `GET` | `/v1/me/devices/:device_id/access-policy` | — | Returns `{device_id, remote_disabled, allow_ips: [], max_sessions, updated_at?}`. A device with no policy returns `remote_disabled: false, allow_ips: [], max_sessions: 0`. |
-| `PUT` | `/v1/me/devices/:device_id/access-policy` | `{remote_disabled: bool, allow_ips: ["10.0.0.0/8", "203.0.113.7"], max_sessions: 1}` | Full replace. Entries must be bare IPs or CIDR blocks; an empty list means "any client IP". `max_sessions` `0` means unlimited, negative is rejected. |
+| `GET` | `/v1/me/devices/:device_id/access-policy` | — | Returns `{device_id, remote_disabled, allow_ips: [], max_sessions, allowed_windows: [], timezone, updated_at?}`. A device with no policy returns `remote_disabled: false, allow_ips: [], max_sessions: 0, allowed_windows: []`. |
+| `PUT` | `/v1/me/devices/:device_id/access-policy` | `{remote_disabled: bool, allow_ips: ["10.0.0.0/8"], max_sessions: 1, allowed_windows: [{"days":[1,2,3,4,5],"start":"09:00","end":"18:00"}], timezone: "Asia/Shanghai"}` | Full replace. IP entries must be bare IPs or CIDR blocks; `0` max sessions means unlimited; negative is rejected. |
 
 `max_sessions` is a concurrency cap on *controllers* (viewers count too, the
 host socket does not). It is enforced when a controller authenticates its
 signaling socket — after the access code was already accepted — so the log
 reads `granted` followed by `denied_session_limit`, and the rejected socket
 gets `SESSION_LIMIT_REACHED` **instead of** `auth_ok`.
+
+`allowed_windows` restricts *when* sessions may start, in the policy's
+`timezone` (IANA name, default = the server's local zone; the server embeds
+the IANA database so this works on Windows and scratch containers):
+
+- `days` are `0`=Sunday … `6`=Saturday; omit `days` for "every day";
+- `start`/`end` are `HH:MM` wall-clock times, `end` exclusive;
+- `start` later than `end` wraps past midnight and the day filter applies to
+  the day the window *starts* (`{"days":[5],"start":"22:00","end":"06:00"}`
+  covers Friday night through Saturday 06:00);
+- an empty list means "any time".
+
+A controller outside every window is rejected at verify time with
+`ACCESS_POLICY_DENIED` / "outside the allowed access window" and shows up as
+`denied_policy` on the access timeline — the access code is never compared.
 
 Rejected attempts are recorded in the access log as `denied_policy` (with the
 reason) and fan out as the usual `device.access.denied` event, so notification

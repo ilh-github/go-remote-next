@@ -25,9 +25,18 @@ type DeviceAccessPolicy struct {
 	// this device at the same time. 0 means unlimited. Enforced when a client
 	// authenticates its signaling socket, i.e. after the access code was
 	// already accepted, so the log shows granted + denied_session_limit.
-	MaxSessions int       `gorm:"not null;default:0" json:"max_sessions"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	MaxSessions int `gorm:"not null;default:0" json:"max_sessions"`
+	// AllowedWindows is a JSON array of recurring access windows
+	// (`[{"days":[1,2,3,4,5],"start":"09:00","end":"18:00"}]`). Empty means
+	// "any time". Enforced on verify, so a controller outside the window
+	// cannot even guess access codes.
+	AllowedWindows string `gorm:"type:text" json:"allowed_windows"`
+	// Timezone is the IANA zone the windows are evaluated in (e.g.
+	// "Asia/Shanghai"). Empty means the server's local zone.
+	Timezone string `gorm:"size:64" json:"timezone"`
+
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // TableName overrides the default table name.

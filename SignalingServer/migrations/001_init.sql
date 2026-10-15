@@ -254,6 +254,8 @@ CREATE TABLE IF NOT EXISTS device_access_policies (
     remote_disabled BOOLEAN     NOT NULL DEFAULT FALSE,
     allow_ips       TEXT        NOT NULL DEFAULT '[]',
     max_sessions    INTEGER     NOT NULL DEFAULT 0,
+    allowed_windows TEXT        NOT NULL DEFAULT '[]',
+    timezone        VARCHAR(64) NOT NULL DEFAULT '',
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

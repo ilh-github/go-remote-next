@@ -32,19 +32,23 @@ func NewDeviceAccessPolicyHandler(devices *service.DeviceService, policies *serv
 }
 
 type deviceAccessPolicyReq struct {
-	RemoteDisabled bool     `json:"remote_disabled"`
-	AllowIPs       []string `json:"allow_ips"`
-	MaxSessions    int      `json:"max_sessions"`
+	RemoteDisabled bool                   `json:"remote_disabled"`
+	AllowIPs       []string               `json:"allow_ips"`
+	MaxSessions    int                    `json:"max_sessions"`
+	AllowedWindows []service.AccessWindow `json:"allowed_windows"`
+	Timezone       string                 `json:"timezone"`
 }
 
 // deviceAccessPolicyView is the wire shape: `allow_ips` is returned as a real
 // array (the column stores JSON) so clients never parse a string-of-JSON.
 type deviceAccessPolicyView struct {
-	DeviceID       string     `json:"device_id"`
-	RemoteDisabled bool       `json:"remote_disabled"`
-	AllowIPs       []string   `json:"allow_ips"`
-	MaxSessions    int        `json:"max_sessions"`
-	UpdatedAt      *time.Time `json:"updated_at,omitempty"`
+	DeviceID       string                 `json:"device_id"`
+	RemoteDisabled bool                   `json:"remote_disabled"`
+	AllowIPs       []string               `json:"allow_ips"`
+	MaxSessions    int                    `json:"max_sessions"`
+	AllowedWindows []service.AccessWindow `json:"allowed_windows"`
+	Timezone       string                 `json:"timezone"`
+	UpdatedAt      *time.Time             `json:"updated_at,omitempty"`
 }
 
 func (h *DeviceAccessPolicyHandler) Get(c *gin.Context) {
@@ -76,9 +80,14 @@ func (h *DeviceAccessPolicyHandler) Put(c *gin.Context) {
 			RemoteDisabled: req.RemoteDisabled,
 			AllowIPs:       req.AllowIPs,
 			MaxSessions:    req.MaxSessions,
+			AllowedWindows: req.AllowedWindows,
+			Timezone:       req.Timezone,
 		})
 	if err != nil {
-		if errors.Is(err, service.ErrInvalidAllowIP) || errors.Is(err, service.ErrInvalidSessionLimit) {
+		if errors.Is(err, service.ErrInvalidAllowIP) ||
+			errors.Is(err, service.ErrInvalidSessionLimit) ||
+			errors.Is(err, service.ErrInvalidAccessWindow) ||
+			errors.Is(err, service.ErrInvalidTimezone) {
 			ProblemBadRequest(c, ProblemCodeInvalidRequest, err.Error())
 			return
 		}
@@ -95,6 +104,8 @@ func (h *DeviceAccessPolicyHandler) Put(c *gin.Context) {
 				"remote_disabled": policy.RemoteDisabled,
 				"allow_ips":       decodeAllowIPsForEvent(policy.AllowIPs),
 				"max_sessions":    policy.MaxSessions,
+				"allowed_windows": decodeAccessWindowsForView(policy.AllowedWindows),
+				"timezone":        policy.Timezone,
 			},
 		})
 	}
@@ -128,6 +139,8 @@ func policyView(deviceID string, policy *models.DeviceAccessPolicy) deviceAccess
 	}
 	view.RemoteDisabled = policy.RemoteDisabled
 	view.MaxSessions = policy.MaxSessions
+	view.Timezone = policy.Timezone
+	view.AllowedWindows = decodeAccessWindowsForView(policy.AllowedWindows)
 	if entries := decodeAllowIPsForEvent(policy.AllowIPs); len(entries) > 0 {
 		view.AllowIPs = entries
 	}
@@ -148,4 +161,18 @@ func decodeAllowIPsForEvent(encoded string) []string {
 		return []string{}
 	}
 	return entries
+}
+
+func decodeAccessWindowsForView(encoded string) []service.AccessWindow {
+	if encoded == "" {
+		return []service.AccessWindow{}
+	}
+	var windows []service.AccessWindow
+	if err := json.Unmarshal([]byte(encoded), &windows); err != nil {
+		return []service.AccessWindow{}
+	}
+	if windows == nil {
+		return []service.AccessWindow{}
+	}
+	return windows
 }
