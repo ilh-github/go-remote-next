@@ -82,6 +82,7 @@ const navItems = computed(() => {
     { path: '/remote', icon: '🖥️', label: 'nav.remote' },
     { path: '/devices', icon: '📱', label: 'nav.devices' },
     { path: '/recordings', icon: '🎬', label: 'nav.recordings' },
+    { path: '/wall', icon: '🧱', label: 'nav.wall' },
   ]
   if (authState.isLoggedIn) {
     items.push({ path: '/account', icon: '👤', label: 'nav.account' })

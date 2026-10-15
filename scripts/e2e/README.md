@@ -13,6 +13,7 @@
 | `record-failure.mjs` | 录制时拦截上传请求制造失败，断言索引行最终是 `failed` 且没有产物（不允许"假完成"） |
 | `record-retry.mjs` | 中断前两次产物上传与第一次预览上传，断言退避重试后仍然落地，并且最终行是 `completed` **且带 `thumbnail_url`** |
 | `record-concurrent.mjs` | 同时开 N 个会话录同一个设备（`QD_SESSIONS`，默认 2），断言每路都独立落库为 `completed` 且各自有产物与预览图 |
+| `wall.mjs` | 屏幕墙：把一台在线设备和一台离线设备放上墙，断言在线砖真的在解码（`videoWidth>0` 且时钟推进）、**没有创建鼠标/键盘/触摸处理器**（只看不控）、并隐藏了砖内的连接条与工具按钮；离线砖只显示占位与「重新连接」 |
 | `playback.mjs` | 在录像页点「播放」，断言签名 URL 打开的播放器 `currentTime` 在推进 |
 | `guest-input-target.ps1` | 被控端侧的单窗口输入靶子（WinForms 文本框，内容变化即落盘），比 Win11 记事本可靠 |
 | `guest-qt-ui.ps1` | 用 UI Automation 驱动 Windows 上的 QuickDesk 桌面客户端（填设备号/接入码、点连接、发快捷键），用于验证 Qt 侧录制 |

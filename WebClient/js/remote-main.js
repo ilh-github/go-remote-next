@@ -43,6 +43,10 @@ class RemoteDesktopApp {
         this._currentDisplayList = [];
         this._activeDisplayIndex = 0;
         this._supportsVirtualDisplay = false;
+        // Screen-wall embedding: a wall tile must never capture input (the
+        // operator is watching several machines at once, not driving one) and
+        // reports its state to the embedding page instead of drawing overlays.
+        this._wallMode = false;
     }
 
     /**
@@ -81,6 +85,10 @@ class RemoteDesktopApp {
         applyI18n();
 
         const params = new URLSearchParams(window.location.search);
+        this._wallMode = params.get('wall') === '1';
+        if (this._wallMode) {
+            this._wallNotify('connecting');
+        }
         const serverUrl = params.get('server') || 'ws://localhost:8000';
         const deviceId = params.get('device');
         userApi.setBaseUrl(serverUrl);
@@ -119,7 +127,8 @@ class RemoteDesktopApp {
         document.getElementById('connDevice').textContent = deviceId;
 
         const remoteContainer = document.getElementById('remoteContainer');
-        if (remoteContainer) {
+        // A wall tile gets no toolbar at all: its chrome lives in the wall page.
+        if (remoteContainer && !this._wallMode) {
             this.floatingToolbar = new FloatingToolbar(remoteContainer);
             this.floatingToolbar.addEventListener('action', (e) => this._handleToolbarAction(e.detail));
             this.floatingToolbar.addEventListener('settingChange', (e) => this._handleSettingChange(e.detail));
@@ -463,11 +472,17 @@ class RemoteDesktopApp {
             if (this.floatingToolbar) {
                 this.floatingToolbar.setRemoteResolution(video.videoWidth, video.videoHeight);
             }
-            this._setupInputHandlers();
+            this._wallNotify('live', `${video.videoWidth}x${video.videoHeight}`);
+            // Input stays off in wall mode: a tile is a monitor, not a console.
+            if (!this._wallMode) {
+                this._setupInputHandlers();
+            }
         };
     }
 
     _showClickToUnmute(video) {
+        // A wall tile is muted by design; an overlay per tile would just be noise.
+        if (this._wallMode) return;
         const overlay = document.getElementById('unmuteOverlay');
         if (!overlay) return;
         overlay.textContent = t('overlay.clickToUnmute');
@@ -483,6 +498,7 @@ class RemoteDesktopApp {
     }
 
     _showClickToPlay(video) {
+        if (this._wallMode) return;
         const overlay = document.getElementById('unmuteOverlay');
         if (!overlay) return;
         overlay.textContent = t('overlay.clickToPlay');
@@ -1148,7 +1164,25 @@ class RemoteDesktopApp {
         }, 500);
     }
 
+    // Wall tiles report their state to the embedding page, which owns the
+    // per-tile chrome (name, status badge, actions) - the tile itself stays bare.
+    _wallNotify(state, detail = '') {
+        if (!this._wallMode || !window.parent || window.parent === window) return;
+        const device = this._deviceId
+            || new URLSearchParams(window.location.search).get('device')
+            || '';
+        try {
+            window.parent.postMessage(
+                { type: 'quickdesk-wall', device, state, detail },
+                window.location.origin,
+            );
+        } catch { /* not embedded in a wall */ }
+    }
+
     _setConnectionState(state, text) {
+        if (this._wallMode) {
+            this._wallNotify(state === 'failed' ? 'error' : state, text || '');
+        }
         const dot = document.getElementById('connDot');
         const statusEl = document.getElementById('connStatus');
         if (dot) {
@@ -1701,6 +1735,12 @@ for (const [shifted, base] of Object.entries(SHIFT_CHAR_MAP)) {
     if (CHAR_TO_USB[base]) CHAR_TO_USB[shifted] = CHAR_TO_USB[base];
 }
 const SHIFT_CHARS = new Set(Object.keys(SHIFT_CHAR_MAP));
+
+// Module scripts run after parsing, so the class can be applied before the first
+// paint and a wall tile never flashes the full control chrome.
+if (new URLSearchParams(window.location.search).get('wall') === '1') {
+    document.body.classList.add('qd-wall-tile');
+}
 
 document.addEventListener('DOMContentLoaded', () => {
     const app = new RemoteDesktopApp();

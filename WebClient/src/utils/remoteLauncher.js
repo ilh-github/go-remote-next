@@ -12,7 +12,10 @@
 //     (§2.6 "同样可验证"). sessionStorage is same-origin only and is
 //     cleared by remote-main.js after it reads the entry.
 
-export function openRemoteSession({ deviceId, signalToken, accessCode }) {
+// Builds the legacy remote.html URL and stashes the access_code handoff. Split
+// out from openRemoteSession() because the screen wall embeds remote.html in an
+// iframe instead of opening a window, and needs the same handoff.
+export function prepareRemoteSession({ deviceId, signalToken, accessCode, extraParams = {} }) {
   const serverUrl = localStorage.getItem('quickdesk_signaling_url')
     || 'ws://qdsignaling.quickcoder.cc:8060'
   const codec = localStorage.getItem('quickdesk_video_codec') || 'AV1'
@@ -34,9 +37,14 @@ export function openRemoteSession({ deviceId, signalToken, accessCode }) {
     device: deviceId,
     st:     signalToken,
     codec,
+    ...extraParams,
   })
 
-  const url = `remote.html?${params.toString()}`
+  return `remote.html?${params.toString()}`
+}
+
+export function openRemoteSession({ deviceId, signalToken, accessCode }) {
+  const url = prepareRemoteSession({ deviceId, signalToken, accessCode })
   const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
   if (isMobile) {
     window.location.href = url

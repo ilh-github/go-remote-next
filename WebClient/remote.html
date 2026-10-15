@@ -416,6 +416,22 @@
                 box-shadow: 0 -4px 24px rgba(0,0,0,0.5);
             }
         }
+
+        /*
+         * Screen-wall tiles (?wall=1): the embedding page owns the tile chrome
+         * (device name, live state, actions), so the page keeps only the video
+         * and the "no signal" message. This also removes controls a viewer must
+         * not be able to poke from a monitoring wall.
+         */
+        body.qd-wall-tile #connectionBar,
+        body.qd-wall-tile #logDrawer,
+        body.qd-wall-tile #statsOverlay,
+        body.qd-wall-tile #mobileToolbar,
+        body.qd-wall-tile .floating-btn,
+        body.qd-wall-tile .floating-menu,
+        body.qd-wall-tile .floating-submenu {
+            display: none !important;
+        }
     </style>
 </head>
 <body>
