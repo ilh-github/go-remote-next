@@ -5,10 +5,12 @@
 #   qt-ui.ps1 -Action set -Name X -Value Y
 #   qt-ui.ps1 -Action click -Name X
 param(
-    [Parameter(Mandatory = $true)][ValidateSet('dump', 'focus', 'set', 'setedit', 'click', 'list', 'shortcut')][string]$Action,
+    [Parameter(Mandatory = $true)][ValidateSet('dump', 'focus', 'set', 'setedit', 'click', 'clickat', 'list', 'shortcut')][string]$Action,
     [string]$Name = '',
     [string]$Value = '',
     [int]$Index = 0,
+    [int]$X = -1,
+    [int]$Y = -1,
     [string]$WindowTitle = 'QuickDesk',
     [int]$Depth = 6
 )
@@ -88,6 +90,25 @@ if ($Action -eq 'shortcut') {
     Start-Sleep -Milliseconds 400
     Write-Result @{ ok = $true; action = 'shortcut'; window = $remoteElement.Current.Name
                    sequence = $sequence; pid = $remoteProcessId }
+    exit 0
+}
+
+if ($Action -eq 'clickat') {
+    # Some QML rows (list delegates) expose no accessible name, so automation
+    # needs an absolute click. Coordinates come from the VM screenshot.
+    if ($X -lt 0 -or $Y -lt 0) {
+        Write-Result @{ ok = $false; error = 'clickat needs -X and -Y' }
+        exit 1
+    }
+    Add-Type -Namespace PD -Name Cursor -MemberDefinition @'
+[DllImport("user32.dll")] public static extern bool SetCursorPos(int X, int Y);
+[DllImport("user32.dll")] public static extern void mouse_event(uint f, uint x, uint y, uint d, int i);
+'@
+    [PD.Cursor]::SetCursorPos($X, $Y) | Out-Null
+    Start-Sleep -Milliseconds 150
+    [PD.Cursor]::mouse_event(0x0002, 0, 0, 0, 0)
+    [PD.Cursor]::mouse_event(0x0004, 0, 0, 0, 0)
+    Write-Result @{ ok = $true; action = 'clickat'; x = $X; y = $Y }
     exit 0
 }
 
