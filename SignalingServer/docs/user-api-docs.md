@@ -438,8 +438,8 @@ blocked client never gets to guess codes.
 
 | Method | Path | Body | Notes |
 |---|---|---|---|
-| `GET` | `/v1/me/devices/:device_id/access-policy` | — | Returns `{device_id, remote_disabled, allow_ips: [], max_sessions, allowed_windows: [], timezone, updated_at?}`. A device with no policy returns `remote_disabled: false, allow_ips: [], max_sessions: 0, allowed_windows: []`. |
-| `PUT` | `/v1/me/devices/:device_id/access-policy` | `{remote_disabled: bool, allow_ips: ["10.0.0.0/8"], max_sessions: 1, allowed_windows: [{"days":[1,2,3,4,5],"start":"09:00","end":"18:00"}], timezone: "Asia/Shanghai"}` | Full replace. IP entries must be bare IPs or CIDR blocks; `0` max sessions means unlimited; negative is rejected. |
+| `GET` | `/v1/me/devices/:device_id/access-policy` | — | Returns `{device_id, remote_disabled, allow_ips: [], max_sessions, allowed_windows: [], timezone, exception_dates: [], updated_at?}`. A device with no policy returns `remote_disabled: false, allow_ips: [], max_sessions: 0, allowed_windows: [], exception_dates: []`. |
+| `PUT` | `/v1/me/devices/:device_id/access-policy` | `{remote_disabled: bool, allow_ips: ["10.0.0.0/8"], max_sessions: 1, allowed_windows: [{"days":[1,2,3,4,5],"start":"09:00","end":"18:00"}], timezone: "Asia/Shanghai", exception_dates: [{"date":"2026-02-17","mode":"deny"}]}` | Full replace. IP entries must be bare IPs or CIDR blocks; `0` max sessions means unlimited; negative is rejected. |
 
 `max_sessions` is a concurrency cap on *controllers* (viewers count too, the
 host socket does not). It is enforced when a controller authenticates its
@@ -457,6 +457,20 @@ the IANA database so this works on Windows and scratch containers):
   the day the window *starts* (`{"days":[5],"start":"22:00","end":"06:00"}`
   covers Friday night through Saturday 06:00);
 - an empty list means "any time".
+
+`exception_dates` are one-off overrides for single calendar dates, evaluated in
+the same `timezone`:
+
+- `mode: "deny"` blocks the whole day (holidays, maintenance windows) even if a
+  window would otherwise allow it — reason
+  `today is blocked by an access exception date`;
+- `mode: "allow"` permits the whole day and **overrides** `allowed_windows`
+  (a one-off work day);
+- dates are `YYYY-MM-DD`, each date may appear only once (listing the same date
+  twice is rejected as ambiguous), and an empty list means "no exceptions".
+
+Exception dates only decide the *time* rule. `remote_disabled` and `allow_ips`
+are still evaluated first, so an allow date cannot bypass either of them.
 
 A controller outside every window is rejected at verify time with
 `ACCESS_POLICY_DENIED` / "outside the allowed access window" and shows up as

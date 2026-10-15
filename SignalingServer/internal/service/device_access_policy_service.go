@@ -37,6 +37,7 @@ type UpsertDeviceAccessPolicyInput struct {
 	MaxSessions    int
 	AllowedWindows []AccessWindow
 	Timezone       string
+	ExceptionDates []AccessExceptionDate
 }
 
 // Get returns the device policy, or (nil, nil) when the device has none: a
@@ -68,12 +69,19 @@ func (s *DeviceAccessPolicyService) Upsert(ctx context.Context, deviceID string,
 	if err := ValidateTimezone(in.Timezone); err != nil {
 		return nil, err
 	}
+	if err := ValidateAccessExceptions(in.ExceptionDates); err != nil {
+		return nil, err
+	}
 	normalized := normalizeAllowIPs(in.AllowIPs)
 	encoded, err := json.Marshal(normalized)
 	if err != nil {
 		return nil, err
 	}
 	windowsEncoded, err := json.Marshal(in.AllowedWindows)
+	if err != nil {
+		return nil, err
+	}
+	exceptionsEncoded, err := json.Marshal(in.ExceptionDates)
 	if err != nil {
 		return nil, err
 	}
@@ -91,6 +99,7 @@ func (s *DeviceAccessPolicyService) Upsert(ctx context.Context, deviceID string,
 	row.MaxSessions = in.MaxSessions
 	row.AllowedWindows = string(windowsEncoded)
 	row.Timezone = strings.TrimSpace(in.Timezone)
+	row.ExceptionDates = string(exceptionsEncoded)
 	if err := s.db.WithContext(ctx).Save(row).Error; err != nil {
 		return nil, err
 	}
@@ -118,9 +127,19 @@ func EvaluateDeviceAccessPolicyAt(policy *models.DeviceAccessPolicy, clientIP st
 		return false, "client IP is not in the device allow list"
 	}
 	windows := decodeAccessWindows(policy.AllowedWindows)
-	if len(windows) > 0 {
-		if allowed, reason := EvaluateAccessWindowsAt(windows, LocationForPolicy(policy.Timezone), now); !allowed {
-			return false, reason
+	exceptions := decodeAccessExceptions(policy.ExceptionDates)
+	if len(windows) > 0 || len(exceptions) > 0 {
+		loc := LocationForPolicy(policy.Timezone)
+		if match, allowed, reason := AccessExceptionMatch(exceptions, loc, now); match {
+			// A one-off exception replaces the weekly schedule for that date:
+			// "deny" blocks the whole day, "allow" admits it all day.
+			if !allowed {
+				return false, reason
+			}
+		} else if len(windows) > 0 {
+			if allowed, reason := EvaluateAccessWindowsAt(windows, loc, now); !allowed {
+				return false, reason
+			}
 		}
 	}
 	return true, ""
@@ -205,6 +224,17 @@ func decodeAccessWindows(encoded string) []AccessWindow {
 		return nil
 	}
 	return windows
+}
+
+func decodeAccessExceptions(encoded string) []AccessExceptionDate {
+	if strings.TrimSpace(encoded) == "" {
+		return nil
+	}
+	var exceptions []AccessExceptionDate
+	if err := json.Unmarshal([]byte(encoded), &exceptions); err != nil {
+		return nil
+	}
+	return exceptions
 }
 
 func normalizeAllowIPs(entries []string) []string {

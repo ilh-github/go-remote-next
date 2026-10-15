@@ -14,6 +14,26 @@ var ErrInvalidAccessWindow = errors.New("access windows need days 0-6 and HH:MM 
 // ErrInvalidTimezone means the IANA timezone could not be loaded.
 var ErrInvalidTimezone = errors.New("timezone must be an IANA name like Asia/Shanghai")
 
+// ErrInvalidAccessException means a one-off exception date is malformed (not a
+// YYYY-MM-DD date, an unknown mode, or the same date listed twice).
+var ErrInvalidAccessException = errors.New("access exception dates need YYYY-MM-DD dates with mode \"allow\" or \"deny\", each listed once")
+
+// Exception-date modes.
+const (
+	AccessExceptionModeAllow = "allow"
+	AccessExceptionModeDeny  = "deny"
+)
+
+// AccessExceptionDate is a one-off override for a single calendar date,
+// evaluated in the policy's timezone. "deny" blocks access for the whole day
+// (holidays, maintenance); "allow" permits it for the whole day and overrides
+// the weekly windows (a one-off work day). Either way only the *time* rule is
+// decided here - remote_disabled and the IP allow list are still enforced.
+type AccessExceptionDate struct {
+	Date string `json:"date"`
+	Mode string `json:"mode"`
+}
+
 // AccessWindow is one recurring window in which remote access is allowed.
 //
 // Days use Go's weekday order, 0 = Sunday … 6 = Saturday; an empty list means
@@ -56,6 +76,52 @@ func ValidateTimezone(name string) error {
 		return fmt.Errorf("%w: %q", ErrInvalidTimezone, name)
 	}
 	return nil
+}
+
+// ValidateAccessExceptions rejects malformed exception dates and refuses to
+// accept the same date twice, so a policy can never be ambiguous about whether
+// a given day is allowed or denied.
+func ValidateAccessExceptions(exceptions []AccessExceptionDate) error {
+	seen := make(map[string]bool, len(exceptions))
+	for i, e := range exceptions {
+		date := strings.TrimSpace(e.Date)
+		if _, err := time.Parse("2006-01-02", date); err != nil {
+			return fmt.Errorf("%w: exception %d date %q", ErrInvalidAccessException, i, e.Date)
+		}
+		mode := strings.ToLower(strings.TrimSpace(e.Mode))
+		if mode != AccessExceptionModeAllow && mode != AccessExceptionModeDeny {
+			return fmt.Errorf("%w: exception %d mode %q", ErrInvalidAccessException, i, e.Mode)
+		}
+		if seen[date] {
+			return fmt.Errorf("%w: date %s is listed more than once", ErrInvalidAccessException, date)
+		}
+		seen[date] = true
+	}
+	return nil
+}
+
+// AccessExceptionMatch reports whether the policy's local calendar date for now
+// has a one-off exception, and if so whether it allows access. matched=false
+// means "no exception today", so the caller should fall back to the weekly
+// windows.
+func AccessExceptionMatch(exceptions []AccessExceptionDate, loc *time.Location, now time.Time) (matched bool, allowed bool, reason string) {
+	if len(exceptions) == 0 {
+		return false, false, ""
+	}
+	if loc == nil {
+		loc = time.UTC
+	}
+	today := now.In(loc).Format("2006-01-02")
+	for _, e := range exceptions {
+		if strings.TrimSpace(e.Date) != today {
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(e.Mode), AccessExceptionModeDeny) {
+			return true, false, "today is blocked by an access exception date"
+		}
+		return true, true, ""
+	}
+	return false, false, ""
 }
 
 // EvaluateAccessWindowsAt reports whether now falls inside any window. An

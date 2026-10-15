@@ -144,3 +144,123 @@ func TestEvaluateDeviceAccessPolicyAtHonoursWindows(t *testing.T) {
 		t.Fatalf("expected the IP reason first, got %q", reason)
 	}
 }
+
+func TestValidateAccessExceptions(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   []AccessExceptionDate
+		wantErr bool
+	}{
+		{"empty means no exceptions", nil, false},
+		{"deny a holiday", []AccessExceptionDate{{Date: "2026-02-17", Mode: "deny"}}, false},
+		{"allow a one-off work day", []AccessExceptionDate{{Date: "2026-10-17", Mode: "allow"}}, false},
+		{"mode is case/space tolerant", []AccessExceptionDate{{Date: " 2026-10-17 ", Mode: " ALLOW "}}, false},
+		{"two different dates", []AccessExceptionDate{{Date: "2026-02-17", Mode: "deny"}, {Date: "2026-02-18", Mode: "deny"}}, false},
+		{"bad date", []AccessExceptionDate{{Date: "2026-13-40", Mode: "deny"}}, true},
+		{"date with time", []AccessExceptionDate{{Date: "2026-10-17T00:00:00Z", Mode: "deny"}}, true},
+		{"unknown mode", []AccessExceptionDate{{Date: "2026-10-17", Mode: "block"}}, true},
+		{"empty mode", []AccessExceptionDate{{Date: "2026-10-17"}}, true},
+		{"same date twice is ambiguous", []AccessExceptionDate{{Date: "2026-10-17", Mode: "allow"}, {Date: "2026-10-17", Mode: "deny"}}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateAccessExceptions(tt.input)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("ValidateAccessExceptions(%v) err = %v, wantErr %v", tt.input, err, tt.wantErr)
+			}
+			if tt.wantErr && err != nil && !errors.Is(err, ErrInvalidAccessException) {
+				t.Fatalf("error should wrap ErrInvalidAccessException, got %v", err)
+			}
+		})
+	}
+}
+
+func TestAccessExceptionMatch(t *testing.T) {
+	shanghai := mustLoad(t, "Asia/Shanghai")
+	exceptions := []AccessExceptionDate{
+		{Date: "2026-10-19", Mode: "deny"},
+		{Date: "2026-10-17", Mode: "allow"},
+	}
+
+	// 2026-10-19 10:00 Shanghai is inside the deny date.
+	if matched, allowed, reason := AccessExceptionMatch(exceptions, shanghai, time.Date(2026, 10, 19, 10, 0, 0, 0, shanghai)); !matched || allowed || reason == "" {
+		t.Fatalf("deny date should match and deny, got matched=%v allowed=%v reason=%q", matched, allowed, reason)
+	}
+	// Same instant expressed in UTC must still land on the same local date.
+	utc := time.Date(2026, 10, 19, 2, 0, 0, 0, time.UTC)
+	if matched, allowed, _ := AccessExceptionMatch(exceptions, shanghai, utc); !matched || allowed {
+		t.Fatalf("deny date must be evaluated in the policy timezone, got matched=%v allowed=%v", matched, allowed)
+	}
+	// An allow date matches and permits.
+	if matched, allowed, _ := AccessExceptionMatch(exceptions, shanghai, time.Date(2026, 10, 17, 9, 0, 0, 0, shanghai)); !matched || !allowed {
+		t.Fatal("allow date should match and permit")
+	}
+	// A date with no exception does not match, so callers fall back to windows.
+	if matched, _, _ := AccessExceptionMatch(exceptions, shanghai, time.Date(2026, 10, 18, 9, 0, 0, 0, shanghai)); matched {
+		t.Fatal("a date with no exception must not match")
+	}
+	// The local-date boundary matters: 2026-10-16 20:00 UTC is already
+	// 2026-10-17 04:00 in Shanghai, so the allow date applies.
+	if matched, allowed, _ := AccessExceptionMatch(exceptions, shanghai, time.Date(2026, 10, 16, 20, 0, 0, 0, time.UTC)); !matched || !allowed {
+		t.Fatal("exception must be anchored to the local calendar date, not UTC")
+	}
+}
+
+func TestEvaluateDeviceAccessPolicyWithExceptionDates(t *testing.T) {
+	shanghai := mustLoad(t, "Asia/Shanghai")
+	window := `[{"days":[1],"start":"09:00","end":"18:00"}]`
+
+	// Monday-only windows, but Monday 2026-10-19 is a company holiday.
+	holiday := &models.DeviceAccessPolicy{
+		AllowedWindows: window,
+		Timezone:       "Asia/Shanghai",
+		ExceptionDates: `[{"date":"2026-10-19","mode":"deny"}]`,
+	}
+	mondayInside := time.Date(2026, 10, 19, 10, 0, 0, 0, shanghai)
+	allowed, reason := EvaluateDeviceAccessPolicyAt(holiday, "127.0.0.1", mondayInside)
+	if allowed {
+		t.Fatal("a deny exception must block the day even inside the window")
+	}
+	if reason != "today is blocked by an access exception date" {
+		t.Fatalf("unexpected reason %q", reason)
+	}
+
+	// A different Monday with no exception still follows the window.
+	otherMonday := time.Date(2026, 10, 26, 10, 0, 0, 0, shanghai)
+	if allowed, reason := EvaluateDeviceAccessPolicyAt(holiday, "127.0.0.1", otherMonday); !allowed {
+		t.Fatalf("a Monday without an exception should stay allowed, got %q", reason)
+	}
+
+	// An allow exception on a Saturday overrides the Monday-only windows.
+	workDay := &models.DeviceAccessPolicy{
+		AllowedWindows: window,
+		Timezone:       "Asia/Shanghai",
+		ExceptionDates: `[{"date":"2026-10-17","mode":"allow"}]`,
+	}
+	saturday := time.Date(2026, 10, 17, 10, 0, 0, 0, shanghai)
+	if allowed, reason := EvaluateDeviceAccessPolicyAt(workDay, "127.0.0.1", saturday); !allowed {
+		t.Fatalf("an allow exception must override the windows, got %q", reason)
+	}
+	// ...but the next Saturday with no exception is denied again.
+	if _, reason := EvaluateDeviceAccessPolicyAt(workDay, "127.0.0.1", time.Date(2026, 10, 24, 10, 0, 0, 0, shanghai)); reason != "outside the allowed access window" {
+		t.Fatalf("the following Saturday should fall back to the windows, got %q", reason)
+	}
+
+	// The stronger controls still win over an allow exception.
+	locked := &models.DeviceAccessPolicy{
+		RemoteDisabled: true,
+		Timezone:       "Asia/Shanghai",
+		ExceptionDates: `[{"date":"2026-10-17","mode":"allow"}]`,
+	}
+	if _, reason := EvaluateDeviceAccessPolicyAt(locked, "127.0.0.1", saturday); reason != "remote access is disabled for this device" {
+		t.Fatalf("remote_disabled must beat an allow exception, got %q", reason)
+	}
+	ipLocked := &models.DeviceAccessPolicy{
+		AllowIPs:       `["10.211.55.0/24"]`,
+		Timezone:       "Asia/Shanghai",
+		ExceptionDates: `[{"date":"2026-10-17","mode":"allow"}]`,
+	}
+	if _, reason := EvaluateDeviceAccessPolicyAt(ipLocked, "192.168.1.9", saturday); reason != "client IP is not in the device allow list" {
+		t.Fatalf("the IP allow list must beat an allow exception, got %q", reason)
+	}
+}

@@ -256,6 +256,7 @@ CREATE TABLE IF NOT EXISTS device_access_policies (
     max_sessions    INTEGER     NOT NULL DEFAULT 0,
     allowed_windows TEXT        NOT NULL DEFAULT '[]',
     timezone        VARCHAR(64) NOT NULL DEFAULT '',
+    exception_dates TEXT        NOT NULL DEFAULT '[]',
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

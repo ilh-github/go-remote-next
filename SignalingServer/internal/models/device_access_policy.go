@@ -34,6 +34,11 @@ type DeviceAccessPolicy struct {
 	// Timezone is the IANA zone the windows are evaluated in (e.g.
 	// "Asia/Shanghai"). Empty means the server's local zone.
 	Timezone string `gorm:"size:64" json:"timezone"`
+	// ExceptionDates is a JSON array of one-off date overrides
+	// (`[{"date":"2026-02-17","mode":"deny"}]`) evaluated in Timezone: "deny"
+	// blocks the whole day, "allow" permits it and overrides AllowedWindows.
+	// Empty means "no exceptions".
+	ExceptionDates string `gorm:"type:text" json:"exception_dates"`
 
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
