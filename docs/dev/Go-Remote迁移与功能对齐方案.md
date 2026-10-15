@@ -1,5 +1,8 @@
 # Go-Remote 迁移与功能对齐方案
 
+> 详细功能矩阵、改造优先级和明确不做项见
+> `docs/dev/Go-Remote需求与QuickDesk能力对照.md`。
+
 ## 1. 目标
 
 本仓库以 QuickDesk 为上游，目标是保留 QuickDesk 已经成熟的远程控制和媒体引擎，

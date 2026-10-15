@@ -23,6 +23,8 @@
   3. 是否只需要增加 Host/Client 状态和控制消息。
   4. 最后才考虑 fork 并编译 Remoting。
 - 功能差异和维护计划记录在 `docs/dev/Go-Remote迁移与功能对齐方案.md`。
+- 完整需求矩阵、优先级和明确不做项见
+  `docs/dev/Go-Remote需求与QuickDesk能力对照.md`。
 
 ## 验证
 
