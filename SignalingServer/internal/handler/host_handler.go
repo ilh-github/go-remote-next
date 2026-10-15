@@ -33,6 +33,7 @@ type HostHandler struct {
 	presence    *service.PresenceService
 	settings    *service.SettingsService
 	rateLimit   *service.RateLimitService
+	access      *service.DeviceAccessService
 	bus         *service.EventBus
 	serverSince time.Time
 	appConfig   *config.Config
@@ -44,6 +45,7 @@ func NewHostHandler(
 	presence *service.PresenceService,
 	settings *service.SettingsService,
 	rateLimit *service.RateLimitService,
+	access *service.DeviceAccessService,
 	bus *service.EventBus,
 	appConfig *config.Config,
 ) *HostHandler {
@@ -53,6 +55,7 @@ func NewHostHandler(
 		presence:    presence,
 		settings:    settings,
 		rateLimit:   rateLimit,
+		access:      access,
 		bus:         bus,
 		serverSince: time.Now().UTC(),
 		appConfig:   appConfig,
@@ -347,6 +350,7 @@ func (h *HostHandler) VerifyAccessCode(c *gin.Context) {
 	// Rate-limit precheck (§2.10): per-IP ⇒ 429, per-device or
 	// per-(device,ip) ⇒ 403 TOO_MANY_ATTEMPTS.
 	if decision, _ := h.rateLimit.CheckVerifyPreflight(c.Request.Context(), deviceID, ip); decision.Blocked {
+		h.recordDeviceAccess(c, deviceID, "", service.DeviceAccessDeniedRateLimited, decision.Reason)
 		switch decision.Kind {
 		case service.VerifyBlockPerIP:
 			ProblemTooManyRequests(c, ProblemCodeRateLimited, decision.Reason, decision.RetryAfterSec)
@@ -386,6 +390,8 @@ func (h *HostHandler) VerifyAccessCode(c *gin.Context) {
 	// of host presence.
 	if !matches {
 		if failure, _ := h.rateLimit.RecordVerifyFailure(c.Request.Context(), deviceID, ip); failure.TripsLimit {
+			h.recordDeviceAccess(c, deviceID, req.ClientID, service.DeviceAccessDeniedRateLimited,
+				"too many failed attempts")
 			observability.Event("access_verify", "rate_limited", map[string]interface{}{
 				"device_id": deviceID, "ip": ip, "request_id": c.GetString("request_id"),
 			})
@@ -397,6 +403,8 @@ func (h *HostHandler) VerifyAccessCode(c *gin.Context) {
 			ProblemForbidden(c, ProblemCodeTooManyAttempts, "Too many failed attempts")
 			return
 		}
+		h.recordDeviceAccess(c, deviceID, req.ClientID, service.DeviceAccessDeniedInvalidCode,
+			"access code is incorrect")
 		observability.Event("access_verify", "rejected", map[string]interface{}{
 			"device_id": deviceID, "ip": ip, "request_id": c.GetString("request_id"), "reason": "invalid_code",
 		})
@@ -412,6 +420,7 @@ func (h *HostHandler) VerifyAccessCode(c *gin.Context) {
 		log.Printf("[access-code:verify] HOST_OFFLINE device=%s ip=%s presence={%s}",
 			deviceID, ip, state.String())
 		h.rateLimit.ResetVerifyFailures(c.Request.Context(), deviceID, ip)
+		h.recordDeviceAccess(c, deviceID, req.ClientID, service.DeviceAccessHostOffline, "host is offline")
 		ProblemConflict(c, ProblemCodeHostOffline, "Host is offline")
 		return
 	}
@@ -430,9 +439,50 @@ func (h *HostHandler) VerifyAccessCode(c *gin.Context) {
 	observability.Event("access_verify", "accepted", map[string]interface{}{
 		"client_id": req.ClientID, "device_id": deviceID, "ip": ip, "request_id": c.GetString("request_id"),
 	})
+	h.recordDeviceAccess(c, deviceID, req.ClientID, service.DeviceAccessGranted, "")
 	c.JSON(http.StatusOK, verifyCodeResp{
 		SignalToken: tok,
 		ExpiresAt:   exp.Format("2006-01-02T15:04:05Z"),
+	})
+}
+
+// recordDeviceAccess persists one access attempt and fans it out to the
+// device owner. Audit writes must never alter the verification response, so
+// failures are logged and swallowed.
+func (h *HostHandler) recordDeviceAccess(c *gin.Context, deviceID, clientID, result, reason string) {
+	if h.access == nil {
+		return
+	}
+	row, err := h.access.Record(c.Request.Context(), service.RecordDeviceAccessInput{
+		DeviceID: deviceID,
+		ClientID: clientID,
+		IP:       c.ClientIP(),
+		Result:   result,
+		Reason:   reason,
+	})
+	if err != nil {
+		log.Printf("[device-access] record %s device=%s failed: %v", result, deviceID, err)
+		return
+	}
+	if row.OwnerID == 0 || h.bus == nil {
+		return
+	}
+	eventType := service.EventDeviceAccessGranted
+	if result != service.DeviceAccessGranted {
+		eventType = service.EventDeviceAccessDenied
+	}
+	h.bus.Publish(c.Request.Context(), service.Event{
+		Type:     eventType,
+		UserID:   row.OwnerID,
+		DeviceID: deviceID,
+		Data: map[string]interface{}{
+			"device_id": deviceID,
+			"client_id": row.ClientID,
+			"ip":        row.IP,
+			"result":    row.Result,
+			"reason":    row.Reason,
+			"log_id":    row.ID,
+		},
 	})
 }
 

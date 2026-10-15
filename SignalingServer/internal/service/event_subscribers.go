@@ -61,7 +61,12 @@ func (s *auditSubscriber) HandleEvent(ctx context.Context, evt Event) {
 	switch evt.Type {
 	case EventDeviceSecretRotated,
 		EventTurnConfigChang,
-		EventSessionRevoked:
+		EventSessionRevoked,
+		// Rejected remote-access attempts are the security-relevant business
+		// events operators want in the admin audit trail. Successful ones
+		// live in `device_access_logs` (owner-scoped) instead, so the audit
+		// table does not grow a row per healthy session.
+		EventDeviceAccessDenied:
 	default:
 		return
 	}

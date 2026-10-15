@@ -46,6 +46,8 @@ const (
 	EventDeviceRemarkChanged     = "device.remark.changed"
 	EventDeviceNameChanged       = "device.device_name.changed"
 	EventDeviceSecretRotated     = "device.secret.rotated"
+	EventDeviceAccessGranted     = "device.access.granted"
+	EventDeviceAccessDenied      = "device.access.denied"
 
 	EventFavoriteAdded   = "favorite.added"
 	EventFavoriteUpdated = "favorite.updated"

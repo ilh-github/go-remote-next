@@ -79,6 +79,7 @@ func main() {
 			&models.Settings{},
 			&models.DeviceGroup{},
 			&models.DeviceGroupMember{},
+			&models.DeviceAccessLog{},
 			&models.Webhook{},
 			&models.Preset{},
 		); err != nil {
@@ -117,6 +118,7 @@ func main() {
 	userService := service.NewUserService(db, service.UserServiceDeps{DeviceUnbinder: deviceRepo})
 	favoriteService := service.NewFavoriteService(db)
 	connectionService := service.NewConnectionService(db)
+	deviceAccessService := service.NewDeviceAccessService(db)
 	sessionRecordingService := service.NewSessionRecordingService(db)
 	recordingLifecycle := service.NewRecordingLifecycle(
 		sessionRecordingService,
@@ -183,14 +185,14 @@ func main() {
 	publicHandler := handler.NewPublicHandler(db, redisClient, presetService, settingsService, smsService, Version)
 	authHandler := handler.NewAuthHandler(userService, tokenService, smsService, bus)
 	meHandler := handler.NewMeHandler(userService, tokenService, smsService, bus)
-	deviceHandler := handler.NewDeviceHandler(deviceService, favoriteService, connectionService, presenceService, bus, db)
+	deviceHandler := handler.NewDeviceHandler(deviceService, favoriteService, connectionService, presenceService, deviceAccessService, bus, db)
 	sessionRecordingHandler := handler.NewSessionRecordingHandler(sessionRecordingService, bus, handler.SessionRecordingStore{
 		Dir:       cfg.Recording.Dir,
 		MaxBytes:  int64(cfg.Recording.MaxUploadMB) * 1024 * 1024,
 		URLSecret: cfg.Recording.URLSecret,
 		TicketTTL: time.Duration(cfg.Recording.TicketTTLSeconds) * time.Second,
 	})
-	hostHandler := handler.NewHostHandler(deviceService, tokenService, presenceService, settingsService, rateLimitService, bus, cfg)
+	hostHandler := handler.NewHostHandler(deviceService, tokenService, presenceService, settingsService, rateLimitService, deviceAccessService, bus, cfg)
 	realtimeHandler := handler.NewRealtimeHandler(tokenService, bus, presenceService, db, deviceService, favoriteService, metricsService, redisClient)
 
 	adminAuthHandler := handler.NewAdminAuthHandler(adminUserService, tokenService, auditService)
@@ -284,6 +286,7 @@ func main() {
 			me.GET("/devices", deviceHandler.ListMine)
 			me.POST("/devices", deviceHandler.Bind)
 			me.GET("/devices/:device_id", deviceHandler.GetOne)
+			me.GET("/devices/:device_id/access-logs", deviceHandler.ListAccessLogs)
 			me.PATCH("/devices/:device_id", deviceHandler.Patch)
 			me.DELETE("/devices/:device_id", deviceHandler.Unbind)
 			me.DELETE("/devices/:device_id/session", deviceHandler.ClearSession)

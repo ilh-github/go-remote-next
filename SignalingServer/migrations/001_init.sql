@@ -218,6 +218,29 @@ CREATE TABLE IF NOT EXISTS device_group_members (
 );
 
 -- ---------------------------------------------------------------
+-- Device access log (owner-scoped audit of incoming session attempts)
+-- ---------------------------------------------------------------
+-- Written by the server at access-code verification time: a controller
+-- cannot hide or forge its own attempts. `owner_id` is the device owner at
+-- that moment (0 when the device is unbound); the caller is identified by
+-- IP + client_id because `access-code:verify` authenticates the desktop
+-- client with the API key rather than a user session.
+CREATE TABLE IF NOT EXISTS device_access_logs (
+    id         BIGSERIAL PRIMARY KEY,
+    device_id  VARCHAR(20) NOT NULL,
+    owner_id   BIGINT      NOT NULL DEFAULT 0,
+    client_id  VARCHAR(64) NOT NULL DEFAULT '',
+    ip         VARCHAR(50) NOT NULL DEFAULT '',
+    result     VARCHAR(32) NOT NULL,
+    reason     VARCHAR(255) NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_device_access_logs_device_id ON device_access_logs (device_id);
+CREATE INDEX IF NOT EXISTS idx_device_access_logs_owner_id ON device_access_logs (owner_id);
+CREATE INDEX IF NOT EXISTS idx_device_access_logs_result ON device_access_logs (result);
+
+-- ---------------------------------------------------------------
 -- Webhooks (system/admin scope, per §2.17 M4)
 -- ---------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS webhooks (

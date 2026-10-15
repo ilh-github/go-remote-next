@@ -36,7 +36,7 @@ QuickDesk 已经覆盖了远程控制最核心、最难实现的画面、输入�
 | 设备在线状态 | 心跳和在线检测 | Redis presence、heartbeat、WS 派生 online | 已有 | 保留 |
 | 设备历史 | 最近连接、快速重连 | 连接历史、收藏、最近设备 | 已有 | 保留 |
 | 会话创建 | 用户发起远程会话 | 访问码校验、signal token、WebRTC 信令 | 已有 | 保留 |
-| 会话生命周期 | 创建、运行、结束、清理 | Client/Host WebRTC 生命周期，连接历史 | 部分 | 补统一 session 模型和审计事件 |
+| 会话生命周期 | 创建、运行、结束、清理 | Client/Host WebRTC 生命周期，连接历史；**设备访问审计已完成**（`/v1/me/devices/:id/access-logs` + `device.access.*` 事件） | 部分 | 统一 session 模型仍待补；访问尝试这一侧已可查、可订阅 |
 | Quick Connect | 设备 ID 快速连接 | WebClient 输入 device ID + access code | 已有 | 保留 |
 | 视频画面 | 低延迟观看 | Chromium Remoting，H.264/VP8/VP9/AV1，共享内存 | 已有 | 不重写 |
 | 硬件编码 | GPU 编码 | Chromium Remoting 各平台编码后端 | 已有 | 不重写 |
@@ -60,7 +60,7 @@ QuickDesk 已经覆盖了远程控制最核心、最难实现的画面、输入�
 | 工作流录制回放 | AI 人工流程录制和重放 | 有设计文档，未形成完整实现 | 部分 | 后续按上游方案推进 |
 | Web 控制端 | 浏览器访问 | `WebClient` 已有 | 已有 | 品牌化并补我们的功能入口 |
 | 管理后台 | 用户、设备、审计、统计 | Go + Vue 管理后台已有 | 已有 | 保留并定制 |
-| 审计 | 管理员和业务操作审计 | audit logs、导出、webhook | 已有 | 补 Go-Remote 业务事件 |
+| 审计 | 管理员和业务操作审计 | audit logs、导出、webhook；**已补设备访问事件**（拒绝的访问进审计表，授权/拒绝都推用户实时流） | 已有 | 继续补文件传输、录像等业务事件 |
 | 权限角色 | 多角色、租户、权限 | 有 admin 角色，但没有我们的租户模型 | 部分 | 后续按业务需要扩展 |
 | 2FA | 管理员双因素 | Admin TOTP 已有 | 已有 | 保留 |
 | SSO | 企业单点登录 | 未发现完整接入 | 缺失 | 明确暂不做，后续评估 |

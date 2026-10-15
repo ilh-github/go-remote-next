@@ -337,6 +337,27 @@ The unified envelope is `{items: [DeviceItem], next_cursor}`. Every
 | `PATCH` | `/v1/me/devices/:device_id` | `{remark?, device_name?}` | Partial update. |
 | `DELETE` | `/v1/me/devices/:device_id` | — | Unbind (clears `user_id` and `logged_in_intent`). |
 | `DELETE` | `/v1/me/devices/:device_id/session` | — | Marks `logged_in_intent = false` without unbinding. Used by the Qt logout flow. |
+| `GET` | `/v1/me/devices/:device_id/access-logs?cursor=&limit=` | — | Owner-only audit of attempts to open a session **on this device**: `{items: [{id, device_id, owner_id, client_id, ip, result, reason, created_at}], next_cursor}`. |
+
+### 5.3.1 Device access log (who tried to reach my machine)
+
+Every `POST /v1/devices/:device_id/access-code:verify` writes one row, so the
+device owner can answer "did anyone try to open my machine, from where, and
+did it work". The controller cannot fabricate or suppress these rows — they are
+written server-side, never reported by the client. `result` is one of:
+
+| `result` | Meaning |
+|---|---|
+| `granted` | Access code matched and the host was online; a `signal_token` was minted. |
+| `denied_invalid_code` | Wrong access code. |
+| `denied_rate_limited` | Blocked by the per-IP / per-device / per-(device,ip) limiter, or the failure counter tripped. |
+| `host_offline` | Code matched but the host was not connected; no session started. |
+
+`owner_id` is the owner at the moment of the attempt (`0` when the device is
+unbound). Rows are newest-first and paginated by the `next_cursor` keyset.
+Each attempt also fans a `device.access.denied` / `device.access.granted` event
+to that owner's realtime WS stream; rejected attempts additionally land in the
+admin audit log.
 
 ### 5.4 Connections (history)
 
