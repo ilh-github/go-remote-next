@@ -46,6 +46,7 @@ type RealtimeHandler struct {
 	devices   *service.DeviceService
 	favorites *service.FavoriteService
 	metrics   *service.MetricsService
+	access    *service.DeviceAccessService
 	rdb       *redis.Client
 
 	// Per-user fan-out for realtime events.
@@ -67,6 +68,7 @@ func NewRealtimeHandler(
 	devices *service.DeviceService,
 	favorites *service.FavoriteService,
 	metrics *service.MetricsService,
+	access *service.DeviceAccessService,
 	rdb *redis.Client,
 ) *RealtimeHandler {
 	h := &RealtimeHandler{
@@ -77,6 +79,7 @@ func NewRealtimeHandler(
 		devices:   devices,
 		favorites: favorites,
 		metrics:   metrics,
+		access:    access,
 		rdb:       rdb,
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  4096,
@@ -686,6 +689,15 @@ func (h *RealtimeHandler) HandleSignal(c *gin.Context) {
 	}
 	defer h.unregisterSignalConn(sc)
 
+	// Reaching auth_ok means the controller presented a valid signal token,
+	// i.e. it already passed an access-code check: this is the moment an
+	// attempt turns into a real control session. Record it on the device's
+	// access timeline so the owner can tell "someone tried" from "someone
+	// actually connected".
+	if sc.role == service.SignalRoleClient {
+		h.recordSessionStart(c, sc, sessionID)
+	}
+
 	if sc.role == service.SignalRoleHost {
 		if err := h.presence.MarkWSConnected(c.Request.Context(), sc.deviceID); err == nil {
 			state := h.presence.State(c.Request.Context(), sc.deviceID)
@@ -722,6 +734,43 @@ func (h *RealtimeHandler) HandleSignal(c *gin.Context) {
 
 	go sc.writer()
 	sc.reader()
+}
+
+// recordSessionStart appends a session_started row to the device's access
+// timeline and fans it out to the owner. Audit writes must never break the
+// signaling handshake, so failures are logged and swallowed.
+func (h *RealtimeHandler) recordSessionStart(c *gin.Context, sc *signalConn, sessionID string) {
+	if h.access == nil {
+		return
+	}
+	row, err := h.access.Record(c.Request.Context(), service.RecordDeviceAccessInput{
+		DeviceID:  sc.deviceID,
+		ClientID:  sc.clientID,
+		SessionID: sessionID,
+		IP:        c.ClientIP(),
+		Result:    service.DeviceAccessSessionStarted,
+	})
+	if err != nil {
+		log.Printf("[device-access] record session_started device=%s failed: %v",
+			sc.deviceID, err)
+		return
+	}
+	if row.OwnerID == 0 || h.bus == nil {
+		return
+	}
+	h.bus.Publish(c.Request.Context(), service.Event{
+		Type:     service.EventDeviceAccessSession,
+		UserID:   row.OwnerID,
+		DeviceID: sc.deviceID,
+		Data: map[string]interface{}{
+			"device_id":  sc.deviceID,
+			"client_id":  row.ClientID,
+			"session_id": sessionID,
+			"ip":         row.IP,
+			"result":     row.Result,
+			"log_id":     row.ID,
+		},
+	})
 }
 
 // registerSignalConn places sc into the topology maps. For host role,

@@ -230,6 +230,7 @@ CREATE TABLE IF NOT EXISTS device_access_logs (
     device_id  VARCHAR(20) NOT NULL,
     owner_id   BIGINT      NOT NULL DEFAULT 0,
     client_id  VARCHAR(64) NOT NULL DEFAULT '',
+    session_id VARCHAR(64) NOT NULL DEFAULT '',
     ip         VARCHAR(50) NOT NULL DEFAULT '',
     result     VARCHAR(32) NOT NULL,
     reason     VARCHAR(255) NOT NULL DEFAULT '',

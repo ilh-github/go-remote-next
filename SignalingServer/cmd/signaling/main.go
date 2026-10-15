@@ -193,7 +193,7 @@ func main() {
 		TicketTTL: time.Duration(cfg.Recording.TicketTTLSeconds) * time.Second,
 	})
 	hostHandler := handler.NewHostHandler(deviceService, tokenService, presenceService, settingsService, rateLimitService, deviceAccessService, bus, cfg)
-	realtimeHandler := handler.NewRealtimeHandler(tokenService, bus, presenceService, db, deviceService, favoriteService, metricsService, redisClient)
+	realtimeHandler := handler.NewRealtimeHandler(tokenService, bus, presenceService, db, deviceService, favoriteService, metricsService, deviceAccessService, redisClient)
 
 	adminAuthHandler := handler.NewAdminAuthHandler(adminUserService, tokenService, auditService)
 	adminTOTPHandler := handler.NewAdminTOTPHandler(adminUserService, db)

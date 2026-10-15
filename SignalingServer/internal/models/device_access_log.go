@@ -17,6 +17,7 @@ type DeviceAccessLog struct {
 	DeviceID  string    `gorm:"size:9;not null;index" json:"device_id"`
 	OwnerID   uint      `gorm:"index" json:"owner_id"` // device owner at the time of the attempt, 0 = unbound
 	ClientID  string    `gorm:"size:64" json:"client_id"`
+	SessionID string    `gorm:"size:64" json:"session_id"` // signaling session id, set for session_started rows
 	IP        string    `gorm:"size:50" json:"ip"`
 	Result    string    `gorm:"size:32;not null;index" json:"result"`
 	Reason    string    `gorm:"size:255" json:"reason"`

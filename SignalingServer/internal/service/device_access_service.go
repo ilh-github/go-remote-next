@@ -26,6 +26,10 @@ const (
 	// DeviceAccessHostOffline means the code matched but the host was not
 	// reachable, so no session could start. Not counted as a failure.
 	DeviceAccessHostOffline = "host_offline"
+	// DeviceAccessSessionStarted means the controller actually established
+	// the signaling channel with a valid token: the attempt turned into a
+	// real control session. Recorded by the realtime handler, not by verify.
+	DeviceAccessSessionStarted = "session_started"
 )
 
 // ErrInvalidDeviceAccessResult is returned when a caller passes a result
@@ -38,7 +42,8 @@ func IsDeviceAccessResult(result string) bool {
 	case DeviceAccessGranted,
 		DeviceAccessDeniedInvalidCode,
 		DeviceAccessDeniedRateLimited,
-		DeviceAccessHostOffline:
+		DeviceAccessHostOffline,
+		DeviceAccessSessionStarted:
 		return true
 	default:
 		return false
@@ -59,6 +64,7 @@ func NewDeviceAccessService(db *gorm.DB) *DeviceAccessService {
 type RecordDeviceAccessInput struct {
 	DeviceID string
 	ClientID string
+	SessionID string
 	IP       string
 	Result   string
 	Reason   string
@@ -80,6 +86,7 @@ func (s *DeviceAccessService) Record(ctx context.Context, in RecordDeviceAccessI
 		DeviceID:  in.DeviceID,
 		OwnerID:   s.OwnerID(ctx, in.DeviceID),
 		ClientID:  in.ClientID,
+		SessionID: in.SessionID,
 		IP:        in.IP,
 		Result:    in.Result,
 		Reason:    in.Reason,
