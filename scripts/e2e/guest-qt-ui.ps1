@@ -105,9 +105,14 @@ if ($Action -eq 'clickat') {
 [DllImport("user32.dll")] public static extern void mouse_event(uint f, uint x, uint y, uint d, int i);
 '@
     [PD.Cursor]::SetCursorPos($X, $Y) | Out-Null
-    Start-Sleep -Milliseconds 150
+    # Move first, then settle: Qt only treats the press/release pair as a click
+    # when the pointer has actually arrived, and a 0 ms press+release pair is
+    # routinely dropped.
+    Start-Sleep -Milliseconds 250
     [PD.Cursor]::mouse_event(0x0002, 0, 0, 0, 0)
+    Start-Sleep -Milliseconds 120
     [PD.Cursor]::mouse_event(0x0004, 0, 0, 0, 0)
+    Start-Sleep -Milliseconds 200
     Write-Result @{ ok = $true; action = 'clickat'; x = $X; y = $Y }
     exit 0
 }

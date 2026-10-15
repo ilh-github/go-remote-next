@@ -114,11 +114,12 @@ QuickDesk 已经覆盖了远程控制最核心、最难实现的画面、输入�
 
 1. 屏幕墙。**已完成**：WebClient `/wall`，支持多设备同屏、单砖放大、轮巡、默认只看不控、
    单砖解锁输入、离线/未登录占位。
-2. 完整远程文件管理器。**已有结论**：
+2. 完整远程文件管理器。**Qt 侧已完成 / 浏览器端仍缺**：
    - 传输已具备：两个控制端都有分片上传/下载（WebClient 走 `filetransfer-*` 数据通道）；
-   - 浏览/重命名/删除这类管理动作依赖 host 侧文件操作。Qt 控制端可以走 **skill bridge**
-     （host 侧 `file-ops` 技能已提供 `list_directory` / `read_file` / `write_file` /
-     `create_directory` / `move_file` / `get_file_info`）；
+   - **Qt 控制端已完成**：`RemoteWindow.qml` 的「远程文件」抽屉走 **skill bridge**
+     调用 host 侧 `file-ops` 技能，浏览 / 新建 / 重命名 / 预览 / 软删除（建
+     `.quickdesk-trash` 再 `move_file`）都已在真机跑通，详见
+     `docs/dev/自托管端到端联调记录.md` 第 14 节；
    - **浏览器端目前没有这条路**：skill bridge 是 Qt↔host 的原生消息通道
      （`skillBridgeSend` / `skillBridgeResponse`），不在 WebRTC 数据通道上。
      所以 WebClient 文件管理器要么先补一条浏览器可用的技能通道（涉及 Remoting），

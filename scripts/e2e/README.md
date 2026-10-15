@@ -18,6 +18,12 @@
 | `guest-input-target.ps1` | 被控端侧的单窗口输入靶子（WinForms 文本框，内容变化即落盘），比 Win11 记事本可靠 |
 | `guest-qt-ui.ps1` | 用 UI Automation 驱动 Windows 上的 QuickDesk 桌面客户端（填设备号/接入码、点连接、发快捷键），用于验证 Qt 侧录制 |
 | `guest-notepad.ps1` | 备选靶子：用 UI Automation 读写记事本，适合快速人工核对 |
+| `qd-api-probe.mjs` | 直接打 QuickDesk 本地 WebSocket API（默认 `ws://127.0.0.1:9600`）：`listConnections` / `connectToHost` / `skillListTools` / `skillExec`，用来绕开界面单独验证 skill bridge |
+| `guest-uia-invoke.ps1` | 用 UI Automation 的 `InvokePattern` 点按钮（比合成鼠标可靠）：`-Hwnd` 指定顶层窗口，`-Name` 或 `-AutomationIdSuffix` 定位元素 |
+| `guest-uia-buttons.ps1` | 列出 QuickDesk 主窗口里所有按钮/分组元素的 `AutomationId`、名称和屏幕坐标，用来找没有名字的 QML 按钮 |
+| `guest-uia-setedit.ps1` | 按顺序设置某个顶层窗口里的第 N 个输入框（QML 输入框没有可访问名字） |
+| `guest-list-windows.ps1` | 按进程列出顶层窗口（句柄、可见性、矩形、标题），确认"窗口到底开没开" |
+| `guest-close-hard-error.ps1` | 关掉 `csrss` 持有的 `xxx.exe - 系统错误` 僵尸弹窗（会吞掉合成鼠标点击），按标题片段匹配 |
 
 ## 依赖
 
