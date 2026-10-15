@@ -55,6 +55,19 @@ Window {
     //   packetRate, codec, frameQuality, encodedRectWidth, encodedRectHeight }
     property var performanceStatsMap: ({})
     property int statsVersion: 0  // Increment to notify changes
+
+    // Toggle control-side session recording for the active connection.
+    function toggleSessionRecording() {
+        var devId = currentTabIndex >= 0 && currentTabIndex < connectionModel.count
+            ? connectionModel.deviceIdAt(currentTabIndex)
+            : ""
+        if (!devId) return
+        if (mainController.deviceRecorder.recording) {
+            mainController.deviceRecorder.stopRecording()
+        } else {
+            mainController.deviceRecorder.startRecording(devId)
+        }
+    }
     
     // Get performance stats for a connection
     function getPerformanceStats(deviceId) {
@@ -596,17 +609,14 @@ Window {
                 anchors.fill: parent
                 cursorShape: Qt.PointingHandCursor
                 onClicked: {
-                    var devId = currentTabIndex >= 0 && currentTabIndex < connectionModel.count
-                        ? connectionModel.deviceIdAt(currentTabIndex)
-                        : ""
-                    if (!devId) return
-                    if (mainController.deviceRecorder.recording) {
-                        mainController.deviceRecorder.stopRecording()
-                    } else {
-                        mainController.deviceRecorder.startRecording(devId)
-                    }
+                    remoteWindow.toggleSessionRecording()
                 }
             }
+
+            // Expose the control to accessibility tooling and automation.
+            Accessible.role: Accessible.Button
+            Accessible.name: qsTr("Record this session")
+            Accessible.onPressAction: remoteWindow.toggleSessionRecording()
 
             ToolTip.visible: hoverHandler.hovered
             ToolTip.text: mainController.deviceRecorder.recording
@@ -614,6 +624,13 @@ Window {
                 : qsTr("Record this session")
 
             HoverHandler { id: hoverHandler }
+        }
+
+        // Keyboard equivalent of the record button.
+        Shortcut {
+            sequence: "Ctrl+Shift+R"
+            enabled: connectionModel.count > 0
+            onActivated: remoteWindow.toggleSessionRecording()
         }
 
         // Single floating button bound to current active connection
