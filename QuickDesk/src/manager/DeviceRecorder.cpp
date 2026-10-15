@@ -31,7 +31,8 @@ namespace {
 // may arrive at a different rate; the encoder is fed at a steady cadence and
 // timestamps are generated locally so the resulting file has correct timing.
 constexpr int kFrameIntervalMs = 1000 / 15;
-constexpr int kFrameDurationMs = 1000 / 15;
+// QVideoFrame presentation timestamps are in microseconds, not milliseconds.
+constexpr qint64 kFrameDurationUs = 1000000 / 15;
 
 QString isoNow() {
     return QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
@@ -131,9 +132,13 @@ void DeviceRecorder::onFrameTick() {
     }
     // readVideoFrame() copies the planes into an owned buffer, so the frame can
     // be handed to the encoder without racing the producer.
-    const qint64 now = QDateTime::currentMSecsSinceEpoch();
-    frame.setStartTime(now - m_startedAtMs);
-    frame.setEndTime(now - m_startedAtMs + kFrameDurationMs);
+    // Qt expects microsecond presentation timestamps here; feeding milliseconds
+    // collapses a multi-second recording into a few milliseconds of container
+    // time (caught by probing the produced MP4, not by the build).
+    const qint64 nowUs = QDateTime::currentMSecsSinceEpoch() * 1000;
+    const qint64 elapsedUs = nowUs - (m_startedAtMs * 1000);
+    frame.setStartTime(elapsedUs);
+    frame.setEndTime(elapsedUs + kFrameDurationUs);
     m_frameInput.sendVideoFrame(frame);
 }
 
