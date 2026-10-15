@@ -432,6 +432,11 @@
         body.qd-wall-tile .floating-submenu {
             display: none !important;
         }
+        /* Armed tile: the wall page also marks it, this is the in-frame cue. */
+        body.qd-wall-tile.qd-wall-armed #videoContainer {
+            outline: 2px solid var(--accent, #e94560);
+            outline-offset: -2px;
+        }
     </style>
 </head>
 <body>

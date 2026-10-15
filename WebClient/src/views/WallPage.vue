@@ -73,13 +73,20 @@
 
       <!-- The wall itself -->
       <div v-else class="wall-grid" :style="{ '--wall-cols': String(columns) }">
-        <div v-for="tile in tiles" :key="tile.deviceId" class="wall-tile">
+        <div v-for="tile in tiles" :key="tile.deviceId" :class="['wall-tile', { armed: armedId === tile.deviceId }]">
           <div class="tile-head">
             <span :class="['tile-dot', tile.state]"></span>
             <span class="tile-name" :title="tile.deviceId">{{ tile.name }}</span>
             <span :class="['tile-badge', tile.state]">{{ stateLabel(tile.state) }}</span>
+            <span v-if="armedId === tile.deviceId" class="tile-armed">{{ $t('wall.armed') }}</span>
             <span v-if="tile.detail" class="tile-detail">{{ tile.detail }}</span>
             <button class="tile-btn" :title="$t('wall.reload')" @click="reloadTile(tile)">⟳</button>
+            <button
+              class="tile-btn"
+              :title="armedId === tile.deviceId ? $t('wall.disarmInput') : $t('wall.armInput')"
+              :disabled="!canArm(tile)"
+              @click="toggleInput(tile)"
+            >{{ armedId === tile.deviceId ? '🔓' : '🔒' }}</button>
             <button
               class="tile-btn"
               :title="$t('wall.openWindow')"
@@ -91,6 +98,7 @@
           <div class="tile-body">
             <iframe
               v-if="tile.url"
+              :ref="(el) => setFrameRef(tile.deviceId, el)"
               :key="tile.url"
               :src="tile.url"
               :title="tile.name"
@@ -130,6 +138,9 @@ const devices = ref([])
 const selected = ref(readSelection())
 const pickerOpen = ref(false)
 const columns = ref(readColumns())
+// Only one tile may hold input at a time: arming a second one locks the first.
+const armedId = ref('')
+const frameRefs = new Map()
 // Per-device live state. The tile iframe is the only thing that knows whether
 // the session really came up, so it reports back over postMessage.
 const live = reactive({})
@@ -182,6 +193,13 @@ function stateLabel(state) {
   const key = `wall.state.${state}`
   const str = t(key)
   return str === key ? state : str
+}
+
+// The session reports both "connected" (transport up) and "live" (frames
+// flowing), and the later of the two is not guaranteed; either means the tile
+// has something to attach input handlers to.
+function canArm(tile) {
+  return tile.state === 'live' || tile.state === 'connected'
 }
 
 function placeholderIcon(state) {
@@ -242,6 +260,7 @@ function toggleDevice(deviceId) {
 }
 
 function removeDevice(deviceId) {
+  if (armedId.value === deviceId) armedId.value = ''
   selected.value = selected.value.filter((id) => id !== deviceId)
   persistSelection()
   delete live[deviceId]
@@ -252,17 +271,44 @@ function removeTile(tile) {
 }
 
 function removeAll() {
+  armedId.value = ''
   selected.value = []
   persistSelection()
   for (const key of Object.keys(live)) delete live[key]
 }
 
 async function reloadTile(tile) {
+  if (armedId.value === tile.deviceId) armedId.value = ''
   await mintTile(tile.deviceId)
 }
 
 async function reloadAll() {
+  armedId.value = ''
   await Promise.all(selected.value.map((id) => mintTile(id)))
+}
+
+function setFrameRef(deviceId, el) {
+  if (el) frameRefs.set(deviceId, el)
+  else frameRefs.delete(deviceId)
+}
+
+// Input arming is a message to the tile, not a wall-side setting: the tile owns
+// whether it has input handlers at all.
+function sendControl(deviceId, armed) {
+  const el = frameRefs.get(deviceId)
+  if (!el || !el.contentWindow) return
+  el.contentWindow.postMessage(
+    { type: 'quickdesk-wall-control', device: deviceId, armed },
+    window.location.origin,
+  )
+}
+
+function toggleInput(tile) {
+  const next = armedId.value === tile.deviceId ? '' : tile.deviceId
+  const previous = armedId.value
+  armedId.value = next
+  if (previous && previous !== next) sendControl(previous, false)
+  if (next) sendControl(next, true)
 }
 
 // A wall tile cannot re-use its url: the signal token was already consumed, so
@@ -293,6 +339,13 @@ function onWallMessage(event) {
     ...previous,
     state: data.state || previous.state || 'connecting',
     detail: data.detail || '',
+  }
+  // Re-apply the armed state once the tile actually has a session to attach
+  // handlers to, and drop it if the session died.
+  if (data.state === 'live' && armedId.value === data.device) {
+    sendControl(data.device, true)
+  } else if (data.state === 'error' && armedId.value === data.device) {
+    armedId.value = ''
   }
 }
 
@@ -365,6 +418,8 @@ onUnmounted(() => {
 .tile-btn:hover:not(:disabled) { background: rgba(255,255,255,0.1); color: var(--text-primary); }
 .tile-btn:disabled { opacity: 0.3; cursor: not-allowed; }
 .tile-btn.danger:hover { background: rgba(244,67,54,0.2); color: var(--error); }
+.wall-tile.armed { border-color: var(--error); box-shadow: 0 0 0 1px rgba(244,67,54,0.35); }
+.tile-armed { padding: 1px 6px; border-radius: 4px; font-size: 11px; background: rgba(244,67,54,0.18); color: var(--error); }
 .tile-body { position: relative; aspect-ratio: 16 / 9; background: #000; }
 .tile-body iframe { width: 100%; height: 100%; border: 0; display: block; }
 .tile-placeholder {

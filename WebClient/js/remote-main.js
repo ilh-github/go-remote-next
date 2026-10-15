@@ -47,6 +47,9 @@ class RemoteDesktopApp {
         // operator is watching several machines at once, not driving one) and
         // reports its state to the embedding page instead of drawing overlays.
         this._wallMode = false;
+        // A wall tile can be explicitly armed for input from the wall page; the
+        // wall only ever arms one tile at a time.
+        this._inputArmed = false;
     }
 
     /**
@@ -88,6 +91,7 @@ class RemoteDesktopApp {
         this._wallMode = params.get('wall') === '1';
         if (this._wallMode) {
             this._wallNotify('connecting');
+            window.addEventListener('message', (event) => this._onWallMessage(event));
         }
         const serverUrl = params.get('server') || 'ws://localhost:8000';
         const deviceId = params.get('device');
@@ -475,6 +479,9 @@ class RemoteDesktopApp {
             this._wallNotify('live', `${video.videoWidth}x${video.videoHeight}`);
             // Input stays off in wall mode: a tile is a monitor, not a console.
             if (!this._wallMode) {
+                this._setupInputHandlers();
+            } else if (this._inputArmed) {
+                // The wall asked for input before the media was ready.
                 this._setupInputHandlers();
             }
         };
@@ -1177,6 +1184,31 @@ class RemoteDesktopApp {
                 window.location.origin,
             );
         } catch { /* not embedded in a wall */ }
+    }
+
+    // The wall page arms exactly one tile when the operator wants to drive it.
+    // Locked tiles stay input-free, so a wall can never send a stray click to a
+    // machine nobody is looking at.
+    _onWallMessage(event) {
+        if (!this._wallMode || event.origin !== window.location.origin) return;
+        const data = event.data;
+        if (!data || data.type !== 'quickdesk-wall-control') return;
+        const device = new URLSearchParams(window.location.search).get('device') || '';
+        if (data.device && data.device !== device) return;
+        this._setWallInput(!!data.armed);
+    }
+
+    _setWallInput(armed) {
+        if (!this._wallMode || this._inputArmed === armed) return;
+        this._inputArmed = armed;
+        document.body.classList.toggle('qd-wall-armed', armed);
+        if (armed) {
+            // Before the media is up there is nothing to attach handlers to; the
+            // metadata callback re-applies the armed state.
+            if (this.dcHandler) this._setupInputHandlers();
+        } else {
+            this._cleanupInputHandlers();
+        }
     }
 
     _setConnectionState(state, text) {
