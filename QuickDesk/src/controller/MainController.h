@@ -17,6 +17,7 @@
 #include "../manager/HostManager.h"
 #include "../manager/ClientManager.h"
 #include "../manager/DeviceRecorder.h"
+#include "../manager/RemoteFileManager.h"
 #include "../manager/TurnServerManager.h"
 #include "../manager/RemoteDeviceManager.h"
 #include "../manager/PresetManager.h"
@@ -41,6 +42,7 @@ class MainController : public QObject {
     Q_PROPERTY(HostManager* hostManager READ hostManager CONSTANT)
     Q_PROPERTY(ClientManager* clientManager READ clientManager CONSTANT)
     Q_PROPERTY(DeviceRecorder* deviceRecorder READ deviceRecorder CONSTANT)
+    Q_PROPERTY(RemoteFileManager* remoteFiles READ remoteFiles CONSTANT)
     Q_PROPERTY(TurnServerManager* turnServerManager READ turnServerManager CONSTANT)
     Q_PROPERTY(RemoteDeviceManager* remoteDeviceManager READ remoteDeviceManager CONSTANT)
     Q_PROPERTY(PresetManager* presetManager READ presetManager CONSTANT)
@@ -139,6 +141,7 @@ public:
     HostManager* hostManager() const;
     ClientManager* clientManager() const;
     DeviceRecorder* deviceRecorder() const;
+    RemoteFileManager* remoteFiles() const;
     TurnServerManager* turnServerManager() const;
     RemoteDeviceManager* remoteDeviceManager() const;
     PresetManager* presetManager() const;
@@ -270,6 +273,7 @@ private:
     std::unique_ptr<AuthManager> m_authManager;
     std::unique_ptr<CloudDeviceManager> m_cloudDeviceManager;
     std::unique_ptr<DeviceRecorder> m_deviceRecorder;
+    std::unique_ptr<RemoteFileManager> m_remoteFileManager;
     std::unique_ptr<WebSocketApiServer> m_wsApiServer;
     std::unique_ptr<SkillHostManager> m_skillHostManager;
 

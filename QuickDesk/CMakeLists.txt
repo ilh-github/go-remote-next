@@ -16,6 +16,7 @@ set(MANAGER_SOURCES
     src/manager/HostManager.cpp
     src/manager/ClientManager.cpp
     src/manager/DeviceRecorder.cpp
+    src/manager/RemoteFileManager.cpp
     src/manager/SharedMemoryManager.cpp
     src/manager/RemoteDeviceManager.cpp
     src/manager/PresetManager.cpp

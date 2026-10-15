@@ -633,6 +633,48 @@ Window {
             onActivated: remoteWindow.toggleSessionRecording()
         }
 
+        // Remote file manager. Browses the controlled machine through its
+        // file-ops skill, which every host already ships.
+        Rectangle {
+            id: fileButton
+            x: recordButton.x + recordButton.width + Theme.spacingSmall
+            y: recordButton.y
+            z: 1000
+            width: 34
+            height: 34
+            radius: 17
+            visible: connectionModel.count > 0
+            color: Qt.rgba(1, 1, 1, 0.12)
+            border.width: 1
+            border.color: Qt.rgba(1, 1, 1, 0.22)
+
+            Text {
+                anchors.centerIn: parent
+                text: "🗂"
+                font.pixelSize: 15
+            }
+
+            MouseArea {
+                anchors.fill: parent
+                cursorShape: Qt.PointingHandCursor
+                onClicked: {
+                    fileManagerDrawer.open()
+                    fileManagerDrawer.openManager()
+                }
+            }
+
+            Accessible.role: Accessible.Button
+            Accessible.name: qsTr("Remote files")
+            Accessible.onPressAction: {
+                fileManagerDrawer.open()
+                fileManagerDrawer.openManager()
+            }
+
+            ToolTip.visible: fileHover.hovered
+            ToolTip.text: qsTr("Browse files on the controlled machine")
+            HoverHandler { id: fileHover }
+        }
+
         // Single floating button bound to current active connection
         FloatingToolButton {
             x: parent.width - width - Theme.spacingXLarge
@@ -794,6 +836,367 @@ Window {
     }
     
     // Monitor connection state changes
+    // ---------------------------------------------------------------
+    // Remote file manager (host file-ops skill over the skill bridge).
+    // Browsing, new folder, rename and a reversible "move to .quickdesk-trash"
+    // delete: the skill deliberately has no delete tool, so the safe
+    // equivalent is create-trash-directory + move.
+    // ---------------------------------------------------------------
+    QDDrawer {
+        id: fileManagerDrawer
+        edge: Qt.RightEdge
+        width: 440
+        title: qsTr("Remote Files")
+
+        property string currentPath: ""
+        property string statusText: ""
+        property string promptMode: ""      // "" | "mkdir" | "rename"
+        property string promptTarget: ""
+        property string promptText: ""
+        property string previewPath: ""
+        property string previewText: ""
+
+        function joinPath(base, name) {
+            if (!base) return name
+            var sep = (base.indexOf("\\") >= 0 && base.indexOf("/") < 0) ? "\\" : "/"
+            var last = base.charAt(base.length - 1)
+            if (last === "/" || last === "\\") return base + name
+            return base + sep + name
+        }
+
+        function parentOf(path) {
+            if (!path) return ""
+            var idx = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"))
+            if (idx < 0) return ""
+            if (idx === 0) return path.substring(0, 1)
+            if (idx === 2 && path.charAt(1) === ":") return path.substring(0, 2)
+            return path.substring(0, idx)
+        }
+
+        function formatSize(bytes) {
+            var b = Number(bytes) || 0
+            if (b < 1024) return b + " B"
+            if (b < 1024 * 1024) return (b / 1024).toFixed(1) + " KB"
+            if (b < 1024 * 1024 * 1024) return (b / 1024 / 1024).toFixed(1) + " MB"
+            return (b / 1024 / 1024 / 1024).toFixed(2) + " GB"
+        }
+
+        function openManager() {
+            previewPath = ""
+            statusText = ""
+            // The host can be Windows, macOS or Linux; start on the drive letter
+            // most hosts have and let the path field be edited for the rest.
+            navigate(currentPath ? currentPath : "C:\\")
+        }
+
+        function navigate(path) {
+            if (!path) return
+            pathField.text = path
+            statusText = qsTr("Loading...")
+            mainController.remoteFiles.listDirectory(devId, path)
+        }
+
+        function refresh() {
+            if (currentPath) navigate(currentPath)
+        }
+
+        function submitPrompt() {
+            var name = promptField.text.replace(/^\s+|\s+$/g, "")
+            if (!name) return
+            if (promptMode === "mkdir") {
+                mainController.remoteFiles.createDirectory(devId, joinPath(currentPath, name))
+            } else if (promptMode === "rename") {
+                mainController.remoteFiles.renamePath(devId, promptTarget, name)
+            }
+            promptMode = ""
+        }
+
+        ListModel { id: fileModel }
+
+        Connections {
+            target: mainController.remoteFiles
+
+            function onListingReady(deviceId, path, entries) {
+                fileModel.clear()
+                for (var i = 0; i < entries.length; i++) {
+                    var entry = entries[i]
+                    fileModel.append({
+                        name: entry.name,
+                        entryType: entry.type,
+                        size: entry.size,
+                        entryPath: fileManagerDrawer.joinPath(path, entry.name),
+                        isDir: entry.type === "directory" || entry.type === "dir"
+                    })
+                }
+                fileManagerDrawer.currentPath = path
+                fileManagerDrawer.statusText = entries.length + " " + qsTr("items")
+            }
+
+            function onFileReady(deviceId, path, content) {
+                fileManagerDrawer.previewPath = path
+                fileManagerDrawer.previewText = content
+            }
+
+            function onOperationDone(op, deviceId, ok, message) {
+                if (!ok) {
+                    fileManagerDrawer.statusText = message
+                    toast.show(message)
+                    return
+                }
+                if (op === "mkdir" || op === "rename" || op === "trash") {
+                    fileManagerDrawer.refresh()
+                }
+            }
+        }
+
+        ColumnLayout {
+            anchors.fill: parent
+            spacing: 0
+
+            // Path bar
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.margins: Theme.spacingMedium
+                spacing: Theme.spacingSmall
+
+                QDButton {
+                    text: qsTr("Up")
+                    buttonType: QDButton.Type.Secondary
+                    enabled: fileManagerDrawer.currentPath !== ""
+                    onClicked: fileManagerDrawer.navigate(
+                        fileManagerDrawer.parentOf(fileManagerDrawer.currentPath))
+                    Accessible.role: Accessible.Button
+                    Accessible.name: qsTr("Up")
+                }
+
+                TextField {
+                    id: pathField
+                    Layout.fillWidth: true
+                    text: fileManagerDrawer.currentPath
+                    placeholderText: qsTr("Path on the controlled machine")
+                    Accessible.name: qsTr("Remote path")
+                    onAccepted: fileManagerDrawer.navigate(text)
+                }
+
+                QDButton {
+                    text: qsTr("Go")
+                    buttonType: QDButton.Type.Secondary
+                    onClicked: fileManagerDrawer.navigate(pathField.text)
+                    Accessible.role: Accessible.Button
+                    Accessible.name: qsTr("Go")
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.leftMargin: Theme.spacingMedium
+                Layout.rightMargin: Theme.spacingMedium
+                spacing: Theme.spacingSmall
+
+                QDButton {
+                    text: qsTr("New Folder")
+                    buttonType: QDButton.Type.Secondary
+                    onClicked: {
+                        fileManagerDrawer.promptMode = "mkdir"
+                        fileManagerDrawer.promptTarget = ""
+                        fileManagerDrawer.promptText = ""
+                    }
+                    Accessible.role: Accessible.Button
+                    Accessible.name: qsTr("New Folder")
+                }
+                QDButton {
+                    text: qsTr("Refresh")
+                    buttonType: QDButton.Type.Secondary
+                    onClicked: fileManagerDrawer.refresh()
+                    Accessible.role: Accessible.Button
+                    Accessible.name: qsTr("Refresh")
+                }
+                Item { Layout.fillWidth: true }
+                Text {
+                    text: fileManagerDrawer.statusText
+                    color: Theme.textSecondary
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.fontSizeSmall
+                    elide: Text.ElideRight
+                }
+            }
+
+            // Inline prompt (new folder / rename)
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.margins: Theme.spacingMedium
+                spacing: Theme.spacingSmall
+                visible: fileManagerDrawer.promptMode !== ""
+
+                TextField {
+                    id: promptField
+                    Layout.fillWidth: true
+                    text: fileManagerDrawer.promptText
+                    placeholderText: fileManagerDrawer.promptMode === "mkdir"
+                        ? qsTr("Folder name") : qsTr("New name")
+                    Accessible.name: qsTr("Name")
+                    onAccepted: fileManagerDrawer.submitPrompt()
+                }
+                QDButton {
+                    text: qsTr("OK")
+                    onClicked: fileManagerDrawer.submitPrompt()
+                    Accessible.role: Accessible.Button
+                    Accessible.name: qsTr("OK")
+                }
+                QDButton {
+                    text: qsTr("Cancel")
+                    buttonType: QDButton.Type.Secondary
+                    onClicked: fileManagerDrawer.promptMode = ""
+                    Accessible.role: Accessible.Button
+                    Accessible.name: qsTr("Cancel")
+                }
+            }
+
+            // List
+            ListView {
+                id: fileListView
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                visible: fileManagerDrawer.previewPath === ""
+                model: fileModel
+                clip: true
+                spacing: 2
+
+                delegate: Rectangle {
+                    width: fileListView.width
+                    height: 34
+                    color: rowHover.hovered ? Theme.surfaceHover : "transparent"
+
+                    HoverHandler { id: rowHover }
+
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: Theme.spacingMedium
+                        anchors.rightMargin: Theme.spacingSmall
+                        spacing: Theme.spacingSmall
+
+                        Text {
+                            text: model.isDir ? "📁" : "📄"
+                            font.pixelSize: 14
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            text: model.name
+                            color: Theme.text
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.fontSizeMedium
+                            elide: Text.ElideMiddle
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onDoubleClicked: {
+                                    if (model.isDir) {
+                                        fileManagerDrawer.navigate(model.entryPath)
+                                    } else {
+                                        mainController.remoteFiles.readFile(devId, model.entryPath)
+                                    }
+                                }
+                                onClicked: {
+                                    if (model.isDir) fileManagerDrawer.navigate(model.entryPath)
+                                }
+                            }
+                        }
+                        Text {
+                            visible: !model.isDir
+                            text: fileManagerDrawer.formatSize(model.size)
+                            color: Theme.textSecondary
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.fontSizeSmall
+                        }
+                        Text {
+                            visible: !model.isDir
+                            text: "👁"
+                            font.pixelSize: 13
+                            ToolTip.visible: previewHover.hovered
+                            ToolTip.text: qsTr("Preview text file")
+                            HoverHandler { id: previewHover }
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: mainController.remoteFiles.readFile(devId, model.entryPath)
+                            }
+                        }
+                        Text {
+                            text: "✏️"
+                            font.pixelSize: 13
+                            ToolTip.visible: renameHover.hovered
+                            ToolTip.text: qsTr("Rename")
+                            HoverHandler { id: renameHover }
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: {
+                                    fileManagerDrawer.promptMode = "rename"
+                                    fileManagerDrawer.promptTarget = model.entryPath
+                                    fileManagerDrawer.promptText = model.name
+                                }
+                            }
+                        }
+                        Text {
+                            text: "🗑"
+                            font.pixelSize: 13
+                            ToolTip.visible: trashHover.hovered
+                            ToolTip.text: qsTr("Move to .quickdesk-trash")
+                            HoverHandler { id: trashHover }
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: mainController.remoteFiles.trashPath(devId, model.entryPath)
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Text preview
+            ColumnLayout {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                visible: fileManagerDrawer.previewPath !== ""
+                spacing: Theme.spacingSmall
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    Layout.margins: Theme.spacingMedium
+                    spacing: Theme.spacingSmall
+                    QDButton {
+                        text: qsTr("Back")
+                        buttonType: QDButton.Type.Secondary
+                        onClicked: fileManagerDrawer.previewPath = ""
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        text: fileManagerDrawer.previewPath
+                        color: Theme.textSecondary
+                        font.family: Theme.fontFamily
+                        font.pixelSize: Theme.fontSizeSmall
+                        elide: Text.ElideMiddle
+                    }
+                }
+
+                ScrollView {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    Layout.margins: Theme.spacingMedium
+
+                    TextArea {
+                        text: fileManagerDrawer.previewText
+                        readOnly: true
+                        wrapMode: TextArea.Wrap
+                        font.family: "Consolas"
+                        font.pixelSize: Theme.fontSizeSmall
+                        Accessible.name: qsTr("File content")
+                    }
+                }
+            }
+        }
+    }
+
     Connections {
         target: remoteWindow.clientManager
         

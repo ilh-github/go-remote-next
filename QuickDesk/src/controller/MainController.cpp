@@ -78,6 +78,10 @@ MainController::MainController(QObject* parent)
     m_deviceRecorder = std::make_unique<DeviceRecorder>(
         m_clientManager->sharedMemoryManager(), m_authManager.get(), m_serverManager.get(), this);
 
+    // Control-side file browser. Talks to the host's file-ops skill over the
+    // same skill bridge the MCP tools use, without blocking the GUI thread.
+    m_remoteFileManager = std::make_unique<RemoteFileManager>(m_clientManager.get(), this);
+
     // Create SkillHostManager and wire it to HostManager (host-side skill bridge)
     m_skillHostManager = std::make_unique<SkillHostManager>(this);
     m_skillHostManager->setHostManager(m_hostManager.get());
@@ -545,6 +549,11 @@ ClientManager* MainController::clientManager() const
 DeviceRecorder* MainController::deviceRecorder() const
 {
     return m_deviceRecorder.get();
+}
+
+RemoteFileManager* MainController::remoteFiles() const
+{
+    return m_remoteFileManager.get();
 }
 
 TurnServerManager* MainController::turnServerManager() const
