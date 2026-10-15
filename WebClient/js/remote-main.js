@@ -1397,6 +1397,155 @@ class RemoteDesktopApp {
         if (needShift) this.dcHandler.sendKeyEvent({ pressed: false, usbKeycode: SHIFT_USB });
     }
 
+    // ==================== Session recording ====================
+    //
+    // Phase 1 records on the controller: the decoded remote stream is already
+    // attached to #remoteVideo, so MediaRecorder can capture exactly what the
+    // operator sees without touching the remoting engine. Uploading the result
+    // creates a `session_recordings` row and then posts the bytes, which is the
+    // same pair of calls a native recorder would make.
+
+    _recordingApiBase() {
+        let base = (localStorage.getItem('quickdesk_signaling_url') || '').replace(/\/+$/, '');
+        if (base.startsWith('wss://')) base = base.replace(/^wss:\/\//, 'https://');
+        else if (base.startsWith('ws://')) base = base.replace(/^ws:\/\//, 'http://');
+        return base;
+    }
+
+    _recordingAccessToken() {
+        return localStorage.getItem('quickdesk_user_access_token') || '';
+    }
+
+    _pickRecordingMime() {
+        // Chrome 126+ can mux MP4 (H.264) directly; WebM is the fallback.
+        const candidates = [
+            'video/mp4;codecs=avc1.42E01E',
+            'video/mp4',
+            'video/webm;codecs=vp9',
+            'video/webm;codecs=vp8',
+            'video/webm',
+        ];
+        for (const type of candidates) {
+            if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(type)) return type;
+        }
+        return '';
+    }
+
+    startRecording() {
+        if (this._recorder) return true;
+        const video = document.getElementById('remoteVideo');
+        const stream = video && video.srcObject;
+        if (!stream) {
+            this._log(t('log.recordNoStream'), 'error');
+            return false;
+        }
+        const mimeType = this._pickRecordingMime();
+        if (!mimeType) {
+            this._log(t('log.recordUnsupported'), 'error');
+            return false;
+        }
+        this._recordChunks = [];
+        try {
+            this._recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 4_000_000 });
+        } catch (err) {
+            this._log(`record: ${err.message}`, 'error');
+            this._recorder = null;
+            return false;
+        }
+        this._recorder.ondataavailable = (e) => {
+            if (e.data && e.data.size > 0) this._recordChunks.push(e.data);
+        };
+        this._recorder.start(1000);
+        this._recordStartedAt = Date.now();
+        this._setRecordButtonState(true);
+        this._log(t('log.recordStarted'));
+        return true;
+    }
+
+    async stopRecording() {
+        const recorder = this._recorder;
+        if (!recorder) return null;
+        const stopped = new Promise((resolve) => { recorder.onstop = resolve; });
+        recorder.stop();
+        await stopped;
+        const mimeType = recorder.mimeType || 'video/webm';
+        const blob = new Blob(this._recordChunks, { type: mimeType });
+        const durationMs = Date.now() - this._recordStartedAt;
+        this._recorder = null;
+        this._recordChunks = [];
+        this._setRecordButtonState(false);
+        this._log(t('log.recordStopped', { seconds: Math.round(durationMs / 1000), kb: Math.round(blob.size / 1024) }));
+        return { blob, mimeType, durationMs };
+    }
+
+    async toggleRecording() {
+        if (this._recorder) {
+            const result = await this.stopRecording();
+            if (result && result.blob.size > 0) {
+                await this._uploadRecording(result);
+            } else if (result) {
+                this._log(t('log.recordEmpty'), 'error');
+            }
+            return;
+        }
+        this.startRecording();
+    }
+
+    async _uploadRecording({ blob, mimeType, durationMs }) {
+        const token = this._recordingAccessToken();
+        const base = this._recordingApiBase();
+        if (!token || !base) {
+            this._log(t('log.recordNoSession'), 'error');
+            return null;
+        }
+        const deviceId = new URLSearchParams(window.location.search).get('device') || '';
+        const startedAt = new Date(Date.now() - durationMs).toISOString();
+        const endedAt = new Date().toISOString();
+        const ext = mimeType.includes('mp4') ? 'mp4' : 'webm';
+        const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
+        try {
+            const created = await fetch(`${base}/v1/me/recordings`, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify({
+                    device_id: deviceId,
+                    device_name: '',
+                    session_id: `web-${Date.now()}`,
+                    status: 'completed',
+                    format: ext,
+                    duration_seconds: Math.max(1, Math.round(durationMs / 1000)),
+                    started_at: startedAt,
+                    ended_at: endedAt,
+                }),
+            });
+            if (!created.ok) throw new Error(`create failed: HTTP ${created.status}`);
+            const row = await created.json();
+
+            const form = new FormData();
+            form.append('file', blob, `recording.${ext}`);
+            const uploaded = await fetch(`${base}/v1/me/recordings/${row.id}/artifact`, {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${token}` },
+                body: form,
+            });
+            if (!uploaded.ok) throw new Error(`upload failed: HTTP ${uploaded.status}`);
+            const saved = await uploaded.json();
+            this._log(t('log.recordUploaded', { id: saved.id, kb: Math.round((saved.size_bytes || 0) / 1024) }));
+            return saved;
+        } catch (err) {
+            this._log(t('log.recordUploadFailed', { error: err.message }), 'error');
+            return null;
+        }
+    }
+
+    _setRecordButtonState(recording) {
+        const button = document.getElementById('btnRecord');
+        if (!button) return;
+        button.classList.toggle('recording', !!recording);
+        button.textContent = recording ? '■' : '●';
+        button.title = recording ? t('remote.stopRecording') : t('remote.startRecording');
+    }
+
     _log(message, level = 'info') {
         const container = document.getElementById('logContainer');
         if (container) {
@@ -1443,4 +1592,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const app = new RemoteDesktopApp();
     app.init();
     window.remoteDesktopApp = app;
+
+    const recordButton = document.getElementById('btnRecord');
+    if (recordButton) {
+        recordButton.addEventListener('click', () => {
+            app.toggleRecording();
+        });
+        app._setRecordButtonState(false);
+    }
 });
