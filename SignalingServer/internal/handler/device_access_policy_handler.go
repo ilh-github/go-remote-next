@@ -1,0 +1,146 @@
+package handler
+
+import (
+	"encoding/json"
+	"errors"
+	"net/http"
+	"time"
+
+	"quickdesk/signaling/internal/middleware"
+	"quickdesk/signaling/internal/models"
+	"quickdesk/signaling/internal/service"
+
+	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
+)
+
+// DeviceAccessPolicyHandler serves the owner-controlled access policy:
+//
+//	GET /v1/me/devices/:device_id/access-policy
+//	PUT /v1/me/devices/:device_id/access-policy
+//
+// The policy is enforced on the device-side verify endpoint, so the owner of
+// the *controlled* machine decides who may even try to connect.
+type DeviceAccessPolicyHandler struct {
+	devices  *service.DeviceService
+	policies *service.DeviceAccessPolicyService
+	bus      *service.EventBus
+}
+
+func NewDeviceAccessPolicyHandler(devices *service.DeviceService, policies *service.DeviceAccessPolicyService, bus *service.EventBus) *DeviceAccessPolicyHandler {
+	return &DeviceAccessPolicyHandler{devices: devices, policies: policies, bus: bus}
+}
+
+type deviceAccessPolicyReq struct {
+	RemoteDisabled bool     `json:"remote_disabled"`
+	AllowIPs       []string `json:"allow_ips"`
+}
+
+// deviceAccessPolicyView is the wire shape: `allow_ips` is returned as a real
+// array (the column stores JSON) so clients never parse a string-of-JSON.
+type deviceAccessPolicyView struct {
+	DeviceID       string     `json:"device_id"`
+	RemoteDisabled bool       `json:"remote_disabled"`
+	AllowIPs       []string   `json:"allow_ips"`
+	UpdatedAt      *time.Time `json:"updated_at,omitempty"`
+}
+
+func (h *DeviceAccessPolicyHandler) Get(c *gin.Context) {
+	deviceID, ok := h.ownedDeviceID(c)
+	if !ok {
+		return
+	}
+	policy, err := h.policies.Get(c.Request.Context(), deviceID)
+	if err != nil {
+		ProblemInternal(c, err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, policyView(deviceID, policy))
+}
+
+func (h *DeviceAccessPolicyHandler) Put(c *gin.Context) {
+	deviceID, ok := h.ownedDeviceID(c)
+	if !ok {
+		return
+	}
+	var req deviceAccessPolicyReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		ProblemBadRequest(c, ProblemCodeInvalidRequest, err.Error())
+		return
+	}
+	uid := middleware.MustUserID(c)
+	policy, err := h.policies.Upsert(c.Request.Context(), deviceID, uid,
+		service.UpsertDeviceAccessPolicyInput{
+			RemoteDisabled: req.RemoteDisabled,
+			AllowIPs:       req.AllowIPs,
+		})
+	if err != nil {
+		if errors.Is(err, service.ErrInvalidAllowIP) {
+			ProblemBadRequest(c, ProblemCodeInvalidRequest, err.Error())
+			return
+		}
+		ProblemInternal(c, err.Error())
+		return
+	}
+	if h.bus != nil {
+		h.bus.Publish(c.Request.Context(), service.Event{
+			Type:     service.EventDevicePolicyChanged,
+			UserID:   uid,
+			DeviceID: deviceID,
+			Data: map[string]interface{}{
+				"device_id":       deviceID,
+				"remote_disabled": policy.RemoteDisabled,
+				"allow_ips":       decodeAllowIPsForEvent(policy.AllowIPs),
+			},
+		})
+	}
+	c.JSON(http.StatusOK, policyView(deviceID, policy))
+}
+
+// ownedDeviceID resolves :device_id and enforces that the caller owns it.
+func (h *DeviceAccessPolicyHandler) ownedDeviceID(c *gin.Context) (string, bool) {
+	uid := middleware.MustUserID(c)
+	deviceID := c.Param("device_id")
+	d, err := h.devices.GetByDeviceID(c.Request.Context(), deviceID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			ProblemNotFound(c, ProblemCodeDeviceNotFound, "Device not found")
+			return "", false
+		}
+		ProblemInternal(c, err.Error())
+		return "", false
+	}
+	if d.UserID == nil || *d.UserID != uid {
+		ProblemForbidden(c, ProblemCodeForbidden, "Device is not owned by this user")
+		return "", false
+	}
+	return deviceID, true
+}
+
+func policyView(deviceID string, policy *models.DeviceAccessPolicy) deviceAccessPolicyView {
+	view := deviceAccessPolicyView{DeviceID: deviceID, AllowIPs: []string{}}
+	if policy == nil {
+		return view
+	}
+	view.RemoteDisabled = policy.RemoteDisabled
+	if entries := decodeAllowIPsForEvent(policy.AllowIPs); len(entries) > 0 {
+		view.AllowIPs = entries
+	}
+	updated := policy.UpdatedAt
+	view.UpdatedAt = &updated
+	return view
+}
+
+func decodeAllowIPsForEvent(encoded string) []string {
+	if encoded == "" {
+		return []string{}
+	}
+	var entries []string
+	if err := json.Unmarshal([]byte(encoded), &entries); err != nil {
+		return []string{}
+	}
+	if entries == nil {
+		return []string{}
+	}
+	return entries
+}

@@ -49,6 +49,7 @@ const (
 	EventDeviceAccessGranted     = "device.access.granted"
 	EventDeviceAccessDenied      = "device.access.denied"
 	EventDeviceAccessSession     = "device.access.session_started"
+	EventDevicePolicyChanged     = "device.access_policy.changed"
 
 	EventFavoriteAdded   = "favorite.added"
 	EventFavoriteUpdated = "favorite.updated"

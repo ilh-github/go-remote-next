@@ -66,7 +66,9 @@ func (s *auditSubscriber) HandleEvent(ctx context.Context, evt Event) {
 		// events operators want in the admin audit trail. Successful ones
 		// live in `device_access_logs` (owner-scoped) instead, so the audit
 		// table does not grow a row per healthy session.
-		EventDeviceAccessDenied:
+		EventDeviceAccessDenied,
+		// Changing who may reach a device is itself an auditable act.
+		EventDevicePolicyChanged:
 	default:
 		return
 	}

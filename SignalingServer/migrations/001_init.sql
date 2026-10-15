@@ -242,6 +242,24 @@ CREATE INDEX IF NOT EXISTS idx_device_access_logs_owner_id ON device_access_logs
 CREATE INDEX IF NOT EXISTS idx_device_access_logs_result ON device_access_logs (result);
 
 -- ---------------------------------------------------------------
+-- Device access policy (owner-controlled gate for new sessions)
+-- ---------------------------------------------------------------
+-- Enforced on `POST /v1/devices/:id/access-code:verify` before the access
+-- code is compared. A missing row means "no policy", so devices that existed
+-- before this feature keep accepting connections.
+CREATE TABLE IF NOT EXISTS device_access_policies (
+    id              BIGSERIAL PRIMARY KEY,
+    device_id       VARCHAR(20) NOT NULL UNIQUE,
+    owner_id        BIGINT      NOT NULL DEFAULT 0,
+    remote_disabled BOOLEAN     NOT NULL DEFAULT FALSE,
+    allow_ips       TEXT        NOT NULL DEFAULT '[]',
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_device_access_policies_owner_id ON device_access_policies (owner_id);
+
+-- ---------------------------------------------------------------
 -- Webhooks (system/admin scope, per §2.17 M4)
 -- ---------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS webhooks (

@@ -30,6 +30,10 @@ const (
 	// the signaling channel with a valid token: the attempt turned into a
 	// real control session. Recorded by the realtime handler, not by verify.
 	DeviceAccessSessionStarted = "session_started"
+	// DeviceAccessDeniedPolicy means the device's own access policy refused
+	// the client (remote access disabled, or the client IP is outside the
+	// allow list). The access code is never even compared.
+	DeviceAccessDeniedPolicy = "denied_policy"
 )
 
 // ErrInvalidDeviceAccessResult is returned when a caller passes a result
@@ -43,7 +47,8 @@ func IsDeviceAccessResult(result string) bool {
 		DeviceAccessDeniedInvalidCode,
 		DeviceAccessDeniedRateLimited,
 		DeviceAccessHostOffline,
-		DeviceAccessSessionStarted:
+		DeviceAccessSessionStarted,
+		DeviceAccessDeniedPolicy:
 		return true
 	default:
 		return false
@@ -62,12 +67,12 @@ func NewDeviceAccessService(db *gorm.DB) *DeviceAccessService {
 
 // RecordDeviceAccessInput is one access attempt as observed by the server.
 type RecordDeviceAccessInput struct {
-	DeviceID string
-	ClientID string
+	DeviceID  string
+	ClientID  string
 	SessionID string
-	IP       string
-	Result   string
-	Reason   string
+	IP        string
+	Result    string
+	Reason    string
 }
 
 // Record persists one access attempt. Callers treat a failure as

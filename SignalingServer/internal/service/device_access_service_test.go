@@ -16,6 +16,7 @@ func TestIsDeviceAccessResult(t *testing.T) {
 		{DeviceAccessDeniedRateLimited, true},
 		{DeviceAccessHostOffline, true},
 		{DeviceAccessSessionStarted, true},
+		{DeviceAccessDeniedPolicy, true},
 		{"", false},
 		{"denied", false},
 		{"GRANTED", false},

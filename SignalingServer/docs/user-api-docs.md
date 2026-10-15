@@ -353,6 +353,7 @@ written server-side, never reported by the client. `result` is one of:
 | `denied_rate_limited` | Blocked by the per-IP / per-device / per-(device,ip) limiter, or the failure counter tripped. |
 | `host_offline` | Code matched but the host was not connected; no session started. |
 | `session_started` | The controller actually opened the signaling channel with the token from a `granted` attempt — i.e. the attempt turned into a real control session. Recorded by the realtime handler; `session_id` identifies that session. |
+| `denied_policy` | The device's own access policy refused the client (remote access disabled, or the client IP is outside `allow_ips`). See 5.3.3. |
 
 `owner_id` is the owner at the moment of the attempt (`0` when the device is
 unbound). Rows are newest-first and paginated by the `next_cursor` keyset.
@@ -394,6 +395,23 @@ longer than the retry window loses that event (the audit table and
 `access-logs` remain the source of truth). URLs must be absolute `http(s)`;
 operators exposing this as multi-tenant SaaS should also apply an egress
 allowlist (a user-supplied URL is an SSRF surface).
+
+### 5.3.3 Device access policy (who is allowed to connect)
+
+The access log records who *tried*; the policy decides who *may*. The owner of
+the controlled machine sets it, and it is enforced on the device-side
+`access-code:verify` endpoint **before** the access code is compared — a
+blocked client never gets to guess codes.
+
+| Method | Path | Body | Notes |
+|---|---|---|---|
+| `GET` | `/v1/me/devices/:device_id/access-policy` | — | Returns `{device_id, remote_disabled, allow_ips: [], updated_at?}`. A device with no policy returns `remote_disabled: false, allow_ips: []`. |
+| `PUT` | `/v1/me/devices/:device_id/access-policy` | `{remote_disabled: bool, allow_ips: ["10.0.0.0/8", "203.0.113.7"]}` | Full replace. Entries must be bare IPs or CIDR blocks; an empty list means "any client IP". |
+
+Rejected attempts are recorded in the access log as `denied_policy` (with the
+reason) and fan out as the usual `device.access.denied` event, so notification
+channels subscribed to denials see policy blocks too. Policy changes are
+audited as `device.access_policy.changed`.
 
 ### 5.4 Connections (history)
 

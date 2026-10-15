@@ -28,15 +28,16 @@ import (
 //
 // See docs §2.5, §2.6, §2.10, §2.19, §2.23.
 type HostHandler struct {
-	devices     *service.DeviceService
-	tokens      *service.TokenService
-	presence    *service.PresenceService
-	settings    *service.SettingsService
-	rateLimit   *service.RateLimitService
-	access      *service.DeviceAccessService
-	bus         *service.EventBus
-	serverSince time.Time
-	appConfig   *config.Config
+	devices      *service.DeviceService
+	tokens       *service.TokenService
+	presence     *service.PresenceService
+	settings     *service.SettingsService
+	rateLimit    *service.RateLimitService
+	access       *service.DeviceAccessService
+	accessPolicy *service.DeviceAccessPolicyService
+	bus          *service.EventBus
+	serverSince  time.Time
+	appConfig    *config.Config
 }
 
 func NewHostHandler(
@@ -46,19 +47,21 @@ func NewHostHandler(
 	settings *service.SettingsService,
 	rateLimit *service.RateLimitService,
 	access *service.DeviceAccessService,
+	accessPolicy *service.DeviceAccessPolicyService,
 	bus *service.EventBus,
 	appConfig *config.Config,
 ) *HostHandler {
 	return &HostHandler{
-		devices:     devices,
-		tokens:      tokens,
-		presence:    presence,
-		settings:    settings,
-		rateLimit:   rateLimit,
-		access:      access,
-		bus:         bus,
-		serverSince: time.Now().UTC(),
-		appConfig:   appConfig,
+		devices:      devices,
+		tokens:       tokens,
+		presence:     presence,
+		settings:     settings,
+		rateLimit:    rateLimit,
+		access:       access,
+		accessPolicy: accessPolicy,
+		bus:          bus,
+		serverSince:  time.Now().UTC(),
+		appConfig:    appConfig,
 	}
 }
 
@@ -362,6 +365,27 @@ func (h *HostHandler) VerifyAccessCode(c *gin.Context) {
 			ProblemForbidden(c, ProblemCodeTooManyAttempts, decision.Reason)
 		}
 		return
+	}
+
+	// Device-level access policy, owned by the device owner: a device with
+	// remote access switched off, or a client outside the allow list, never
+	// reaches the access-code comparison at all. Checked after the rate
+	// limiter so a blocked caller cannot use this path to spray requests.
+	if h.accessPolicy != nil {
+		policy, err := h.accessPolicy.Get(c.Request.Context(), deviceID)
+		if err != nil {
+			ProblemInternal(c, err.Error())
+			return
+		}
+		if allowed, reason := service.EvaluateDeviceAccessPolicy(policy, ip); !allowed {
+			h.recordDeviceAccess(c, deviceID, "", service.DeviceAccessDeniedPolicy, reason)
+			observability.Event("access_verify", "policy_denied", map[string]interface{}{
+				"device_id": deviceID, "ip": ip, "reason": reason,
+				"request_id": c.GetString("request_id"),
+			})
+			ProblemForbidden(c, ProblemCodeAccessPolicyDenied, reason)
+			return
+		}
 	}
 
 	var req verifyCodeReq
