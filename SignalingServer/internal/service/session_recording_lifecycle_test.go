@@ -63,3 +63,31 @@ func TestArtifactExpiredFallsBackToUpdatedAt(t *testing.T) {
 		t.Fatal("expected a recording with only updated_at in the past to expire")
 	}
 }
+
+// The orphan reaper must recognise exactly the names this service writes, and
+// must refuse to touch an in-flight upload temporary.
+func TestRecordFileID(t *testing.T) {
+	cases := []struct {
+		name string
+		want uint
+		ok   bool
+	}{
+		{"rec-42.mp4", 42, true},
+		{"rec-42.webm", 42, true},
+		{"thumb-42.jpg", 42, true},
+		{"thumb-42.png", 42, true},
+		{"rec-42.mp4.part", 0, false},
+		{"thumb-42.jpg.part", 0, false},
+		{"rec-abc.mp4", 0, false},
+		{"rec-.mp4", 0, false},
+		{"other-42.mp4", 0, false},
+		{"42.mp4", 0, false},
+		{"", 0, false},
+	}
+	for _, tc := range cases {
+		got, ok := RecordFileID(tc.name)
+		if ok != tc.ok || (ok && got != tc.want) {
+			t.Errorf("RecordFileID(%q) = (%d, %v), want (%d, %v)", tc.name, got, ok, tc.want, tc.ok)
+		}
+	}
+}

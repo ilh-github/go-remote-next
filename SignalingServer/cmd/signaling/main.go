@@ -120,6 +120,7 @@ func main() {
 	sessionRecordingService := service.NewSessionRecordingService(db)
 	recordingLifecycle := service.NewRecordingLifecycle(
 		sessionRecordingService,
+		cfg.Recording.Dir,
 		time.Duration(cfg.Recording.StaleMinutes)*time.Minute,
 		time.Duration(cfg.Recording.RetentionDays)*24*time.Hour,
 		time.Duration(cfg.Recording.SweepIntervalMin)*time.Minute,

@@ -348,7 +348,7 @@ The unified envelope is `{items: [DeviceItem], next_cursor}`. Every
 | `POST` | `/v1/me/recordings` | `{device_id, device_name?, session_id?, status, format?, artifact_path?, artifact_url?, thumbnail_path?, duration_seconds?, size_bytes?, started_at?, ended_at?}` |
 | `GET` | `/v1/me/recordings/:id` | — |
 | `PATCH` | `/v1/me/recordings/:id` | `{status?, format?, artifact_path?, artifact_url?, thumbnail_path?, duration_seconds?, size_bytes?, ended_at?}` |
-| `DELETE` | `/v1/me/recordings/:id` | — |
+| `DELETE` | `/v1/me/recordings/:id` | Deletes the row **and the stored media/preview files** it points at. |
 | `POST` | `/v1/me/recordings/:id/artifact` | Media bytes. `multipart/form-data` with a `file` part, or a raw body plus `?ext=.mp4\|.mkv\|.webm\|.h264\|.grf`. |
 | `GET` | `/v1/me/recordings/:id/artifact` | Streams the stored media back. Owner only. |
 | `POST` | `/v1/me/recordings/:id/artifact-ticket` | Mints `{url, expires_at}` for playback without an `Authorization` header. |
@@ -410,6 +410,13 @@ it, so a purge never leaves an image orphaned on disk. `RECORDING_STALE_MINUTES`
 (default `240`) is how long `recording` may stay open before it is marked
 `failed`. Both passes run every `RECORDING_SWEEP_INTERVAL_MINUTES` (default `30`)
 and can be triggered on demand through the admin endpoints below.
+
+Deleting a recording (`DELETE /v1/me/recordings/:id` or the admin equivalent)
+drops the media and the preview along with the row. The same pass also reaps
+**orphan files** - stored files under `RECORDING_DIR` whose index row is gone,
+for example because an unlink failed earlier - once they are more than an hour
+old. Upload temporaries (`.part`) are never matched, so an in-flight upload
+cannot be reaped.
 
 ### 5.5 Favorites
 
@@ -727,7 +734,7 @@ request shapes; this section documents only the route table.
 | `GET` | `/v1/admin/recordings/:id/artifact` (cross-user download; audit action `recording.download`) |
 | `GET` | `/v1/admin/recordings/:id/thumbnail` (cross-user preview; audit action `recording.thumbnail.download`) |
 | `GET` | `/v1/admin/recordings:storage` — `{artifact_count, total_bytes, retention_days, stale_after_minutes}` |
-| `POST` | `/v1/admin/recordings:sweep` — runs the stale + retention pass now; returns `{stale_marked_failed, artifacts_purged, bytes_freed}` and audits `recording.sweep` |
+| `POST` | `/v1/admin/recordings:sweep` — runs the stale + retention + orphan pass now; returns `{stale_marked_failed, artifacts_purged, bytes_freed, orphans_removed}` and audits `recording.sweep` |
 | `GET` `PUT` | `/v1/admin/preset` |
 | `GET` `PUT` | `/v1/admin/settings` |
 | `GET` `POST` `PATCH` `DELETE` | `/v1/admin/webhooks[/:id]` |

@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"errors"
+	"log"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -16,10 +18,12 @@ import (
 // Media production remains the responsibility of the remote-control engine.
 type SessionRecordingService struct {
 	db *gorm.DB
+	// removeFile is a seam for tests; production deletes through os.Remove.
+	removeFile func(string) error
 }
 
 func NewSessionRecordingService(db *gorm.DB) *SessionRecordingService {
-	return &SessionRecordingService{db: db}
+	return &SessionRecordingService{db: db, removeFile: os.Remove}
 }
 
 type CreateSessionRecordingInput struct {
@@ -218,6 +222,12 @@ func (s *SessionRecordingService) Get(
 }
 
 func (s *SessionRecordingService) Delete(ctx context.Context, userID uint, id uint) error {
+	var row models.SessionRecording
+	if err := s.db.WithContext(ctx).
+		Where("id = ? AND user_id = ?", id, userID).
+		First(&row).Error; err != nil {
+		return err
+	}
 	result := s.db.WithContext(ctx).
 		Where("id = ? AND user_id = ?", id, userID).
 		Delete(&models.SessionRecording{})
@@ -227,7 +237,36 @@ func (s *SessionRecordingService) Delete(ctx context.Context, userID uint, id ui
 	if result.RowsAffected == 0 {
 		return gorm.ErrRecordNotFound
 	}
+	// The row is the only record of where the bytes live, so the files have to
+	// go with it - otherwise every delete leaks a video nothing can ever
+	// reclaim (the retention sweep works from rows).
+	s.removeStoredMedia(row)
 	return nil
+}
+
+// removeStoredMedia drops the media files a row pointed at. A failure is
+// reported but not fatal: the row is already gone, and the lifecycle's orphan
+// pass will retry the deletion later.
+func (s *SessionRecordingService) removeStoredMedia(row models.SessionRecording) {
+	for _, path := range []string{row.ArtifactPath, row.ThumbnailPath} {
+		path = strings.TrimSpace(path)
+		if path == "" {
+			continue
+		}
+		if err := s.removeFile(path); err != nil && !os.IsNotExist(err) {
+			log.Printf("[Recording] could not delete stored media %s: %v", path, err)
+		}
+	}
+}
+
+// Exists reports whether a recording id is still indexed.
+func (s *SessionRecordingService) Exists(ctx context.Context, id uint) (bool, error) {
+	var count int64
+	err := s.db.WithContext(ctx).
+		Model(&models.SessionRecording{}).
+		Where("id = ?", id).
+		Count(&count).Error
+	return count > 0, err
 }
 
 // SessionRecordingAdminListParams filters the cross-user recording index used
@@ -289,6 +328,10 @@ func (s *SessionRecordingService) GetAdmin(ctx context.Context, id uint) (*model
 
 // DeleteAdmin removes a recording regardless of owner.
 func (s *SessionRecordingService) DeleteAdmin(ctx context.Context, id uint) error {
+	var row models.SessionRecording
+	if err := s.db.WithContext(ctx).Where("id = ?", id).First(&row).Error; err != nil {
+		return err
+	}
 	result := s.db.WithContext(ctx).
 		Where("id = ?", id).
 		Delete(&models.SessionRecording{})
@@ -298,6 +341,7 @@ func (s *SessionRecordingService) DeleteAdmin(ctx context.Context, id uint) erro
 	if result.RowsAffected == 0 {
 		return gorm.ErrRecordNotFound
 	}
+	s.removeStoredMedia(row)
 	return nil
 }
 
@@ -410,9 +454,11 @@ func (s *SessionRecordingService) AttachArtifact(
 	if err != nil {
 		return nil, err
 	}
-	// A finished upload means the recording is no longer in progress; leave an
-	// explicit "failed" status untouched so a client can still report failure.
-	if row.Status == "recording" {
+	// Once the bytes are on the server "completed" is the truth, whatever the row
+	// said before: without this, re-uploading a capture that failed earlier would
+	// store the file and still leave the row reading "failed". A client that
+	// reports failure after this point still wins, because its PATCH lands later.
+	if row.Status != "completed" {
 		row, err = s.Update(ctx, userID, id, UpdateSessionRecordingInput{Status: strPtr("completed")})
 		if err != nil {
 			return nil, err

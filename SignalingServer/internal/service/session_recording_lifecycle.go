@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
 
 	"quickdesk/signaling/internal/models"
@@ -118,6 +121,7 @@ func (s *SessionRecordingService) ArtifactUsage(ctx context.Context) (RecordingA
 // RecordingLifecycle periodically reclaims storage and unsticks recordings.
 type RecordingLifecycle struct {
 	recordings *SessionRecordingService
+	dir        string
 	staleAfter time.Duration
 	retention  time.Duration
 	interval   time.Duration
@@ -125,14 +129,29 @@ type RecordingLifecycle struct {
 	purgeBatch int
 }
 
+// SweepResult is what one lifecycle pass changed.
+type SweepResult struct {
+	StaleMarkedFailed int64
+	ArtifactsPurged   int
+	BytesFreed        int64
+	OrphansRemoved    int
+}
+
+// orphanMinAge keeps the orphan pass away from a file that an upload may still
+// be writing. A row is always created before its bytes, so a file this old with
+// no row is genuinely abandoned.
+const orphanMinAge = time.Hour
+
 func NewRecordingLifecycle(
 	recordings *SessionRecordingService,
+	dir string,
 	staleAfter time.Duration,
 	retention time.Duration,
 	interval time.Duration,
 ) *RecordingLifecycle {
 	return &RecordingLifecycle{
 		recordings: recordings,
+		dir:        dir,
 		staleAfter: staleAfter,
 		retention:  retention,
 		interval:   interval,
@@ -154,31 +173,125 @@ func (l *RecordingLifecycle) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			_, _, _, _ = l.SweepOnce(ctx)
+			_, _ = l.SweepOnce(ctx)
 		}
 	}
 }
 
-// SweepOnce performs one stale sweep plus one retention pass and reports what
-// changed. It is also the implementation behind the admin trigger.
-func (l *RecordingLifecycle) SweepOnce(ctx context.Context) (stale int64, purged int, freedBytes int64, err error) {
+// RecordFileID extracts the recording id a stored file belongs to, or false when
+// the name is not one this service writes (`rec-<id>.<ext>` / `thumb-<id>.<ext>`).
+// Upload temporaries (`...mp4.part`) deliberately do not parse, so a pass can
+// never delete a file that is still being written.
+func RecordFileID(name string) (uint, bool) {
+	rest := ""
+	switch {
+	case strings.HasPrefix(name, "rec-"):
+		rest = strings.TrimPrefix(name, "rec-")
+	case strings.HasPrefix(name, "thumb-"):
+		rest = strings.TrimPrefix(name, "thumb-")
+	default:
+		return 0, false
+	}
+	digits := strings.TrimSuffix(rest, filepath.Ext(rest))
+	if digits == "" {
+		return 0, false
+	}
+	id, err := strconv.ParseUint(digits, 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	return uint(id), true
+}
+
+// ReapOrphanFiles deletes stored media whose index row no longer exists. Deleting
+// a row already deletes its files, but an unlink can fail (a locked or
+// permission-protected file); without this pass such a file would never be
+// reclaimed, because every other cleanup path starts from a row.
+func (l *RecordingLifecycle) ReapOrphanFiles(ctx context.Context) (int, error) {
+	if l == nil || l.recordings == nil || l.dir == "" {
+		return 0, nil
+	}
+	userDirs, err := os.ReadDir(l.dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	now := time.Now().UTC()
+	removed := 0
+	for _, userDir := range userDirs {
+		if !userDir.IsDir() {
+			continue
+		}
+		dir := filepath.Join(l.dir, userDir.Name())
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			return removed, err
+		}
+		for _, entry := range entries {
+			if entry.IsDir() {
+				continue
+			}
+			id, ok := RecordFileID(entry.Name())
+			if !ok {
+				continue
+			}
+			info, err := entry.Info()
+			if err != nil || now.Sub(info.ModTime().UTC()) < orphanMinAge {
+				continue
+			}
+			indexed, err := l.recordings.Exists(ctx, id)
+			if err != nil {
+				return removed, err
+			}
+			if indexed {
+				continue
+			}
+			if removeErr := l.removeFile(filepath.Join(dir, entry.Name())); removeErr != nil &&
+				!os.IsNotExist(removeErr) {
+				continue
+			}
+			removed++
+		}
+	}
+	return removed, nil
+}
+
+// SweepOnce performs one stale sweep, one retention pass and one orphan pass,
+// and reports what changed. It is also the implementation behind the admin
+// trigger.
+func (l *RecordingLifecycle) SweepOnce(ctx context.Context) (SweepResult, error) {
+	var result SweepResult
 	if l == nil || l.recordings == nil {
-		return 0, 0, 0, errors.New("recording lifecycle is not configured")
+		return result, errors.New("recording lifecycle is not configured")
 	}
 	now := time.Now().UTC()
 	if l.staleAfter > 0 {
-		stale, err = l.recordings.SweepStaleRecordings(ctx, now.Add(-l.staleAfter))
+		stale, err := l.recordings.SweepStaleRecordings(ctx, now.Add(-l.staleAfter))
 		if err != nil {
-			return stale, 0, 0, err
+			return result, err
+		}
+		result.StaleMarkedFailed = stale
+	}
+	if l.retention > 0 {
+		if err := l.purgeExpired(ctx, now, &result); err != nil {
+			return result, err
 		}
 	}
-	if l.retention <= 0 {
-		return stale, 0, 0, nil
+	orphans, err := l.ReapOrphanFiles(ctx)
+	if err != nil {
+		return result, err
 	}
+	result.OrphansRemoved = orphans
+	return result, nil
+}
+
+func (l *RecordingLifecycle) purgeExpired(ctx context.Context, now time.Time, result *SweepResult) error {
 	cutoff := now.Add(-l.retention)
 	rows, err := l.recordings.ExpiredArtifacts(ctx, cutoff, l.purgeBatch)
 	if err != nil {
-		return stale, 0, 0, err
+		return err
 	}
 	for i := range rows {
 		row := rows[i]
@@ -199,10 +312,10 @@ func (l *RecordingLifecycle) SweepOnce(ctx context.Context) (stale int64, purged
 			continue
 		}
 		if err = l.recordings.ClearArtifact(ctx, row.ID); err != nil {
-			return stale, purged, freedBytes, err
+			return err
 		}
-		purged++
-		freedBytes += row.SizeBytes
+		result.ArtifactsPurged++
+		result.BytesFreed += row.SizeBytes
 	}
-	return stale, purged, freedBytes, nil
+	return nil
 }

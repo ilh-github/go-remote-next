@@ -62,7 +62,7 @@ func (h *AdminSessionRecordingHandler) Sweep(c *gin.Context) {
 		ProblemBadRequest(c, ProblemCodeInvalidRequest, "recording lifecycle is not configured")
 		return
 	}
-	stale, purged, freed, err := h.lifecycle.SweepOnce(c.Request.Context())
+	result, err := h.lifecycle.SweepOnce(c.Request.Context())
 	if err != nil {
 		ProblemInternal(c, err.Error())
 		return
@@ -70,13 +70,16 @@ func (h *AdminSessionRecordingHandler) Sweep(c *gin.Context) {
 	if h.audit != nil {
 		h.audit.Log(c.Request.Context(), middleware.MustAdminID(c), "", "recording.sweep",
 			"session_recording", "",
-			fmt.Sprintf("stale=%d purged=%d freed_bytes=%d", stale, purged, freed),
+			fmt.Sprintf("stale=%d purged=%d freed_bytes=%d orphans=%d",
+				result.StaleMarkedFailed, result.ArtifactsPurged, result.BytesFreed,
+				result.OrphansRemoved),
 			c.ClientIP())
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"stale_marked_failed": stale,
-		"artifacts_purged":    purged,
-		"bytes_freed":         freed,
+		"stale_marked_failed": result.StaleMarkedFailed,
+		"artifacts_purged":    result.ArtifactsPurged,
+		"bytes_freed":         result.BytesFreed,
+		"orphans_removed":     result.OrphansRemoved,
 	})
 }
 
