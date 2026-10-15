@@ -413,6 +413,13 @@ class UserApi {
     return this._req('DELETE', `/v1/me/recordings/${encodeURIComponent(id)}`)
   }
 
+  // Playback/download happen through a plain browser navigation (<video src>,
+  // window.open, <a download>) which cannot carry the Bearer token. The server
+  // mints a short-lived signed URL for exactly that case.
+  createRecordingTicket(id) {
+    return this._req('POST', `/v1/me/recordings/${encodeURIComponent(id)}/artifact-ticket`)
+  }
+
   fetchFavorites() { return this._req('GET', '/v1/me/favorites') }
 
   addFavorite(deviceId, name, password) {

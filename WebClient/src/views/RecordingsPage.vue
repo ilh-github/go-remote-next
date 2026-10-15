@@ -211,14 +211,14 @@ function loadMore() {
 // may have been finalized after the session ended (GET /v1/me/recordings/:id).
 async function playRecording(row) {
   const fresh = await loadDetail(row.id)
-  const url = resolveMediaUrl(fresh || row)
+  const url = await playbackUrl(fresh || row)
   if (!url) { showToast(t('recordings.noMediaHint'), 'info'); return }
   window.open(url, `quickdesk_recording_${row.id}`)
 }
 
 async function downloadRecording(row) {
   const fresh = await loadDetail(row.id)
-  const url = resolveMediaUrl(fresh || row)
+  const url = await playbackUrl(fresh || row)
   if (!url) { showToast(t('recordings.noMediaHint'), 'info'); return }
   const a = document.createElement('a')
   a.href = url
@@ -227,6 +227,20 @@ async function downloadRecording(row) {
   document.body.appendChild(a)
   a.click()
   a.remove()
+}
+
+// Browsers cannot attach the Bearer token to <video src>, window.open or
+// <a download>, so ask the server for a short-lived signed URL first. If tickets
+// are unavailable on this deployment we fall back to the plain artifact URL,
+// which still works when the server is reached without the API-key gate.
+async function playbackUrl(row) {
+  const direct = resolveMediaUrl(row)
+  if (!direct) return null
+  try {
+    const r = await userApi.createRecordingTicket(row.id)
+    if (r.ok && r.data && r.data.url) return resolveMediaUrl({ ...row, artifact_url: r.data.url })
+  } catch { /* fall through to the direct URL */ }
+  return direct
 }
 
 function suggestedFilename(row) {
