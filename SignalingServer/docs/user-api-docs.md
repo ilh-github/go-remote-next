@@ -15,8 +15,9 @@ rationale for every decision is in
 contract for the stable, integrator-facing subset of this API (authenticate,
 enumerate devices, verify an access code, and manage the access policy, guest
 access codes, approvals including approve / deny / claim, offline-alert rule,
-notification channels and the session-recording index) — generate a client in
-any language from it. It covers
+notification channels, and the session-recording index including media
+download and playback tickets) — generate a client in any language from it. It
+covers
 a documented subset rather than every route: operations are added as they are
 pinned by a conformance check, which is
 [`scripts/sdk/openapi-smoke.mjs`](../../scripts/sdk/openapi-smoke.mjs). That
@@ -35,6 +36,17 @@ shapes (it uses an id that cannot exist, so nothing is created or decided). Thei
 happy path needs a real pending approval - an online device plus
 `approval_mode` - so it is verified by the end-to-end run recorded in
 `docs/dev/自托管端到端联调记录.md` §67 rather than by the smoke.
+
+The recording media routes are covered too, and unlike the approval decisions
+they are pinned end to end by the always-runnable smoke: it mints an artifact
+ticket and a thumbnail ticket for the newest recording that has a stored
+artifact, asserts the returned `url` shape, fetches **one byte** through the
+ticket URL with no `Authorization` header (proving the ticket is the
+authorization), and checks the `401` for a bogus ticket. Minting a ticket is
+stateless, so nothing is written by these checks. The recording **write** verbs
+(`POST`/`PATCH`/`DELETE` and the multipart uploads) are deliberately still out
+of the contract: they need a body the smoke cannot safely invent on a real
+account.
 
 ---
 
@@ -917,9 +929,11 @@ ownership-checked.
 `{items, next_cursor}` newest-first, `limit` defaults to `50` and caps at `200`,
 and the envelope carries **no** `total` because the endpoint does not count the
 whole set on every page. Follow `next_cursor` until it is absent rather than
-trusting a count. This list endpoint is the one recordings route pinned by the
-machine-readable contract (`/v1/me/recordings` in `api/openapi.yaml`); the
-artifact/thumbnail routes and the write verbs are not in the contract yet.
+trusting a count. The machine-readable contract covers the list endpoint plus
+the media half of this surface: `GET .../artifact`, `GET .../thumbnail`,
+`POST .../artifact-ticket`, `POST .../thumbnail-ticket`, and the ticket-gated
+`GET /v1/recordings/{id}/artifact|thumbnail?t=`. Only the **write** verbs
+(`POST`/`PATCH`/`DELETE` and the multipart uploads) are still out of it.
 
 Signed playback links: `<video src>`, `window.open` and `<a download>` cannot
 carry an `Authorization` header, so those two routes have ticket variants.

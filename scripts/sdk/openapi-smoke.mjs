@@ -255,6 +255,48 @@ if (deviceId) {
   problemShape(claimMissing.json, 'POST access-approvals:claim (missing secret)');
 }
 
+// 12. Recording playback tickets and the ticket-gated media route.
+// Minting a ticket is stateless (a signed URL; nothing is written), so these
+// checks stay in the read-only path. The media fetch is exercised with a
+// one-byte range request rather than downloading the file.
+const ticketedRecording = Array.isArray(recordingItems)
+  ? recordingItems.find((r) => typeof r.artifact_path === 'string' && r.artifact_path !== '')
+  : undefined;
+if (ticketedRecording) {
+  const recordingId = ticketedRecording.id;
+  const artifactTicket = await call('POST', `/v1/me/recordings/${recordingId}/artifact-ticket`, { token, expect: 200 });
+  const artifactUrl = field(artifactTicket.json, 'url', 'string', 'POST artifact-ticket');
+  field(artifactTicket.json, 'expires_at', 'string', 'POST artifact-ticket');
+  check(typeof artifactUrl === 'string' && artifactUrl.includes('/artifact?t='),
+    `artifact ticket url is "${artifactUrl}", want a signed /artifact?t= path`);
+
+  const thumbTicket = await call('POST', `/v1/me/recordings/${recordingId}/thumbnail-ticket`, { token, expect: 200 });
+  const thumbUrl = field(thumbTicket.json, 'url', 'string', 'POST thumbnail-ticket');
+  check(typeof thumbUrl === 'string' && thumbUrl.includes('/thumbnail?t='),
+    `thumbnail ticket url is "${thumbUrl}", want a signed /thumbnail?t= path`);
+
+  if (typeof artifactUrl === 'string' && artifactUrl.startsWith('/')) {
+    // No Authorization and no API key: the signed ticket is the authorization.
+    let ranged;
+    try {
+      ranged = await fetch(server + artifactUrl, { headers: { Range: 'bytes=0-0' } });
+    } catch (err) {
+      console.error(`transport error fetching a ticket-gated artifact: ${err.message}`);
+      process.exit(4);
+    }
+    check(ranged.status === 200 || ranged.status === 206,
+      `ticket-gated artifact fetch returned ${ranged.status}, want 200 or 206`);
+  }
+
+  const badTicket = await call('GET', `/v1/recordings/${recordingId}/artifact?t=not-a-ticket`, { expect: 401 });
+  problemShape(badTicket.json, 'GET artifact by ticket (bad ticket)');
+} else {
+  console.log('note: no recording with a stored artifact; skipped the playback-ticket checks');
+}
+
+const ghostTicket = await call('POST', '/v1/me/recordings/2147483647/artifact-ticket', { token, expect: 404 });
+problemShape(ghostTicket.json, 'POST artifact-ticket (unknown recording)');
+
 if (smokeDevice) {
   // 6. PUT the rule back unchanged, then restore the prior state exactly.
   const putBody = {

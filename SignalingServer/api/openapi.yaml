@@ -205,6 +205,173 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+  /v1/me/recordings/{recording_id}/artifact:
+    parameters:
+      - $ref: '#/components/parameters/RecordingId'
+    get:
+      tags: [recordings]
+      summary: Download a recording's media bytes
+      operationId: downloadRecordingArtifact
+      description: |
+        Owner-only, `Authorization` (Bearer) required. The response is the
+        stored file itself: the `Content-Type` follows the stored file's
+        extension (`video/mp4` for `.mp4`, `application/octet-stream`
+        otherwise) and `Content-Disposition` is `inline`. A browser cannot
+        attach an `Authorization` header to `<video src>`, which is why the
+        ticket routes below exist; this route is for API clients.
+      responses:
+        '200':
+          description: The media bytes.
+          content:
+            video/mp4:
+              schema:
+                type: string
+                format: binary
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/me/recordings/{recording_id}/thumbnail:
+    parameters:
+      - $ref: '#/components/parameters/RecordingId'
+    get:
+      tags: [recordings]
+      summary: Download a recording's preview image
+      operationId: downloadRecordingThumbnail
+      description: |
+        Owner-only. Served with `Cache-Control: private, max-age=300` because a
+        preview is user-scoped and can change under the same URL.
+      responses:
+        '200':
+          description: The preview image bytes.
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/me/recordings/{recording_id}/artifact-ticket:
+    parameters:
+      - $ref: '#/components/parameters/RecordingId'
+    post:
+      tags: [recordings]
+      summary: Mint a short-lived playback URL for a recording
+      operationId: createRecordingArtifactTicket
+      description: |
+        Owner-only. Returns a signed, time-limited `url` that can be fetched
+        **without** an `Authorization` header, which is what makes playback work
+        from `<video src>`. The ticket is bound to the recording, the owner and
+        its purpose, so an artifact ticket cannot be replayed against the
+        thumbnail route. Minting is stateless - nothing is written - and the
+        link stops working when `expires_at` passes. `400` when playback tickets
+        are disabled on the deployment (`RECORDING_URL_SECRET`/`API_KEY` unset);
+        `404` when the recording has no stored artifact.
+      responses:
+        '200':
+          description: A signed playback URL.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaybackTicket'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/me/recordings/{recording_id}/thumbnail-ticket:
+    parameters:
+      - $ref: '#/components/parameters/RecordingId'
+    post:
+      tags: [recordings]
+      summary: Mint a short-lived preview URL for a recording
+      operationId: createRecordingThumbnailTicket
+      description: |
+        Same rules as the artifact ticket, but the URL addresses the thumbnail
+        route and the ticket's purpose is checked on redemption.
+      responses:
+        '200':
+          description: A signed preview URL.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaybackTicket'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/recordings/{recording_id}/artifact:
+    parameters:
+      - $ref: '#/components/parameters/RecordingId'
+    get:
+      tags: [recordings]
+      summary: Fetch recording media with a playback ticket
+      operationId: downloadRecordingArtifactByTicket
+      description: |
+        The URL returned by `POST /v1/me/recordings/{recording_id}/artifact-ticket`.
+        Deliberately registered **outside** the API-key and user-auth groups,
+        because a browser `<video>` element can send neither header - the signed
+        `t` query parameter is the authorization, and the ticket is bound to
+        owner and purpose. `401` for a missing, malformed or expired ticket;
+        `404` when the ticket is for the wrong route or the recording is gone.
+      parameters:
+        - name: t
+          in: query
+          required: true
+          description: The signed ticket from the artifact-ticket endpoint.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The media bytes.
+          content:
+            video/mp4:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/recordings/{recording_id}/thumbnail:
+    parameters:
+      - $ref: '#/components/parameters/RecordingId'
+    get:
+      tags: [recordings]
+      summary: Fetch a recording preview with a playback ticket
+      operationId: downloadRecordingThumbnailByTicket
+      description: |
+        The URL returned by `POST /v1/me/recordings/{recording_id}/thumbnail-ticket`.
+        Same ticket rules as the artifact route; an artifact ticket is rejected
+        here (`404`) because the purpose is part of the signature.
+      parameters:
+        - name: t
+          in: query
+          required: true
+          description: The signed ticket from the thumbnail-ticket endpoint.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The preview image bytes.
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /v1/devices/{device_id}/access-code:verify:
     parameters:
       - $ref: '#/components/parameters/DeviceId'
@@ -624,6 +791,15 @@ components:
       in: path
       required: true
       description: The numeric id from an approval row.
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+    RecordingId:
+      name: recording_id
+      in: path
+      required: true
+      description: The numeric id from a recording index row.
       schema:
         type: integer
         format: int64
@@ -1326,3 +1502,17 @@ components:
           enum: [consumed]
         message:
           type: string
+    PlaybackTicket:
+      type: object
+      description: |
+        A signed, time-limited URL for one recording's media or preview. It
+        carries no credentials, so it must be treated as a bearer token: anyone
+        who holds the link can fetch the file until `expires_at`.
+      required: [url, expires_at]
+      properties:
+        url:
+          type: string
+          description: Absolute path (with the signed `t` parameter) to fetch.
+        expires_at:
+          type: string
+          format: date-time
