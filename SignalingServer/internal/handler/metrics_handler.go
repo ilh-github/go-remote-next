@@ -69,6 +69,19 @@ func (h *MetricsHandler) Prometheus(c *gin.Context) {
 	writeMetric("quickdesk_signaling_api_requests_today",
 		"API requests observed today in UTC.", "gauge",
 		strconv.FormatInt(snapshot.APIRequestsToday, 10))
+	// Per-route counters are what alert rules can actually be written against:
+	// a total says "traffic", a route plus status says "which endpoint is
+	// failing". The families are always declared, even with no series yet, so a
+	// rule file referring to them is valid from the first scrape.
+	fmt.Fprintf(&b, "# HELP quickdesk_signaling_http_requests_by_route_total Completed /v1 requests, labelled by the matched route pattern, method and status code.\n")
+	fmt.Fprintf(&b, "# TYPE quickdesk_signaling_http_requests_by_route_total counter\n")
+	for _, row := range snapshot.HTTPRouteRequests {
+		fmt.Fprintf(&b, "quickdesk_signaling_http_requests_by_route_total{route=%s,method=%s,status=%s} %d\n",
+			prometheusLabelValue(row.Route),
+			prometheusLabelValue(row.Method),
+			prometheusLabelValue(strconv.Itoa(row.Status)),
+			row.Count)
+	}
 	writeMetric("quickdesk_signaling_websocket_connections",
 		"Current websocket connections across signaling and event streams.", "gauge",
 		strconv.Itoa(snapshot.WebSocketConnections))
@@ -104,4 +117,17 @@ func validMetricsToken(header, want string) bool {
 	}
 	got := strings.TrimSpace(strings.TrimPrefix(header, prefix))
 	return subtle.ConstantTimeCompare([]byte(got), []byte(want)) == 1
+}
+
+// prometheusLabelValue quotes a label value the way the text exposition format
+// expects: backslash, double quote and newline are escaped and nothing else is.
+// (strconv.Quote would additionally escape non-ASCII as \uXXXX, which is Go
+// syntax rather than Prometheus syntax.)
+func prometheusLabelValue(value string) string {
+	escaped := strings.NewReplacer(
+		`\`, `\\`,
+		"\n", `\n`,
+		`"`, `\"`,
+	).Replace(value)
+	return `"` + escaped + `"`
 }

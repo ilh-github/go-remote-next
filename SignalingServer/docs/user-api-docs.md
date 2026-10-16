@@ -207,6 +207,7 @@ The response is `text/plain; version=0.0.4` and currently exposes:
 `quickdesk_signaling_build_info`, `quickdesk_signaling_uptime_seconds`,
 `quickdesk_signaling_api_requests_total`,
 `quickdesk_signaling_api_requests_today`,
+`quickdesk_signaling_http_requests_by_route_total`,
 `quickdesk_signaling_websocket_connections`,
 `quickdesk_signaling_signal_hosts`,
 `quickdesk_signaling_signal_clients`,
@@ -215,6 +216,29 @@ The response is `text/plain; version=0.0.4` and currently exposes:
 `quickdesk_signaling_go_mem_alloc_bytes`, and
 `quickdesk_signaling_go_mem_sys_bytes`. `api_requests_total` is process-local
 and monotonic; `api_requests_today` is a UTC-day gauge that resets at midnight.
+
+`http_requests_by_route_total` is the family alert rules can be written
+against: it carries `route` (gin's matched **pattern**, so
+`/v1/devices/:device_id/heartbeat` is one series and not one per device),
+`method` and `status` (the exact code). A request that matched no route is
+labelled `route="unmatched"` rather than dropped, so a 404 storm stays visible.
+The label set is bounded by the route table, and the series are emitted in a
+stable order so two scrapes of an idle process are comparable line by line.
+
+Ready-made alert rules live in
+[`deploy/prometheus/quickdesk-signaling.rules.yml`](../deploy/prometheus/quickdesk-signaling.rules.yml)
+- an API error-ratio alert, a per-route 5xx burst, a goroutine-growth check and
+a "no signaling hosts" check. A unit test parses that file and fails if any rule
+names a metric the endpoint does not export, so a rename cannot leave a silent
+rule behind.
+
+**A counter reset is expected, not a gap.** Every `quickdesk_signaling_*`
+counter starts at zero when the process restarts; Prometheus handles that
+inside `rate()`, which is why the shipped rules are rate/ratio/gauge based and
+never `counter > N`. What the metrics deliberately do **not** carry is
+per-user, per-device or per-action business dimensions: those live in the audit
+trail and the access timeline, where they are queryable and retained, rather
+than in a time series whose cardinality would follow the customer base.
 
 ### 3.2 `GET /v1/preset`
 
