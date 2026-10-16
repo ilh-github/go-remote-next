@@ -2,7 +2,7 @@
 # Regenerates a committed client from the signaling OpenAPI spec.
 #
 # Usage: generate-client.sh [output-dir] [language]
-#   language defaults to typescript-fetch; `go` is the other committed client.
+#   language defaults to typescript-fetch; `go` and `python` are the others.
 #
 # The generator is pinned by version and run from its jar rather than through
 # `npx @openapitools/openapi-generator-cli`: that wrapper resolves the latest
@@ -76,8 +76,40 @@ case "$lang" in
       rm -r "$out/test"
     fi
     ;;
+  python)
+    java -jar "$jar" generate \
+      -i "$spec" \
+      -g python \
+      -o "$out" \
+      --git-user-id=ilh-github \
+      --git-repo-id=go-remote-next \
+      --additional-properties=packageName=quickdesk_signaling,projectName=quickdesk-signaling-client,packageVersion=1.0.0
+
+    # The template writes `license = "NoLicense"`, which is not an SPDX
+    # identifier, and a modern setuptools refuses to build a project whose
+    # `project.license` it cannot parse - so `pip install .` fails before the
+    # client is even imported. The repository is MIT (see LICENSE), so pin the
+    # real value here rather than by hand, which keeps the freshness check
+    # reproducible.
+    perl -pi -e 's{^license\s*=\s*"NoLicense"$}{license = "MIT"}' "$out/pyproject.toml"
+
+    # Same normalisation as the Go client, for the same reason. The generated
+    # `test/` tree is a contract suite that needs a runner this repository does
+    # not wire up, and every file that exists only to run it (`tox.ini`, the
+    # test requirements, the vendor CI configs, `git_push.sh`) would then be a
+    # broken pointer. The server's own smoke is what covers those paths; the
+    # hand-written `examples/` script is what proves the client can talk to a
+    # live server.
+    rm -rf "$out/test" \
+      "$out/test-requirements.txt" \
+      "$out/tox.ini" \
+      "$out/git_push.sh" \
+      "$out/.travis.yml" \
+      "$out/.gitlab-ci.yml" \
+      "$out/.github"
+    ;;
   *)
-    echo "unknown language '$lang': expected typescript-fetch or go" >&2
+    echo "unknown language '$lang': expected typescript-fetch, go or python" >&2
     exit 2
     ;;
 esac

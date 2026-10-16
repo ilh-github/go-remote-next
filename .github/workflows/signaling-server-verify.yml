@@ -97,6 +97,7 @@ jobs:
         run: |
           ./scripts/sdk/check-generated-sdk.sh
           ./scripts/sdk/check-generated-sdk.sh go
+          ./scripts/sdk/check-generated-sdk.sh python
       - name: Generated Go client vets and compiles
         # `go vet ./...` type-checks the hand-written examples/ package too, so a
         # change to the client's API surface that the example no longer matches
@@ -105,6 +106,18 @@ jobs:
         run: |
           go vet ./...
           go build ./...
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Generated Python client imports
+        # Importing the package and every generated module is the compile-level
+        # gate: a generator upgrade that emits syntax this interpreter cannot
+        # parse fails here. The live Python call belongs to the smoke job, which
+        # is where a server is running.
+        working-directory: sdk/python
+        run: |
+          pip install --quiet -r requirements.txt
+          python -c "import quickdesk_signaling; from quickdesk_signaling.api import auth_api, devices_api, me_api, notifications_api, recordings_api; print('imported', len(quickdesk_signaling.__all__), 'symbols')"
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -231,6 +244,18 @@ jobs:
         # this proves the generated Go code can actually talk to it.
         working-directory: sdk/go
         run: go run ./examples
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run the generated Python client
+        # Same argument as the Go client: the freshness check proves the tree
+        # matches the spec, only a real call proves it can talk to the server.
+        # Installing the package (rather than only its requirements) is also the
+        # check that the generated `pyproject.toml` still builds.
+        working-directory: sdk/python
+        run: |
+          pip install --quiet .
+          python examples/login_and_list_devices.py
       - name: Upload the server log
         if: failure()
         uses: actions/upload-artifact@v4

@@ -18,23 +18,34 @@ access codes, approvals including approve / deny / claim, offline-alert rule,
 notification channels, and the session-recording index including media
 download and playback tickets) — generate a client in any language from it.
 
-Two generated clients are committed and kept in step with the spec by CI:
-[`sdk/ts`](../../sdk/ts) (TypeScript, `fetch`) and [`sdk/go`](../../sdk/go)
-(Go). Both come from a pinned openapi-generator jar, so a local regeneration and
-a CI regeneration are byte-identical:
+Three generated clients are committed and kept in step with the spec by CI:
+[`sdk/ts`](../../sdk/ts) (TypeScript, `fetch`), [`sdk/go`](../../sdk/go) (Go)
+and [`sdk/python`](../../sdk/python) (Python). All three come from a pinned
+openapi-generator jar, so a local regeneration and a CI regeneration are
+byte-identical:
 
 ```bash
 scripts/sdk/generate-client.sh sdk/ts
 scripts/sdk/generate-client.sh sdk/go go
-scripts/sdk/check-generated-sdk.sh        # fails when sdk/ts is stale
-scripts/sdk/check-generated-sdk.sh go     # fails when sdk/go is stale
+scripts/sdk/generate-client.sh sdk/python python
+scripts/sdk/check-generated-sdk.sh          # fails when sdk/ts is stale
+scripts/sdk/check-generated-sdk.sh go       # fails when sdk/go is stale
+scripts/sdk/check-generated-sdk.sh python   # fails when sdk/python is stale
 ```
 
-`sdk/go/examples/main.go` is the one hand-written file in that module: it logs
-in and lists devices with the generated client, CI runs it against the smoke
-server, and the freshness check excludes it for exactly that reason. The
-generated tree is otherwise untouched, so regenerating after a spec change is
-the whole maintenance story.
+Each client carries one hand-written `examples/` directory - `sdk/go/examples`
+and `sdk/python/examples/login_and_list_devices.py` - that logs in and lists
+devices with the generated client. CI runs the Python one against the smoke
+server and `go vet ./...` compiles the Go one; the freshness check excludes both
+directories for exactly that reason. The generated trees are otherwise
+untouched, so regenerating after a spec change is the whole maintenance story.
+
+The generator applies two normalisations the templates get wrong for a nested
+module: the Go client's `go.mod` module path is pinned to
+`github.com/ilh-github/go-remote-next/sdk/go`, and the Python `pyproject.toml`
+license placeholder `NoLicense` (not an SPDX identifier, which makes modern
+setuptools refuse to build) becomes `MIT`. Both live in
+`scripts/sdk/generate-client.sh` so the freshness check reproduces them.
 
 It covers
 a documented subset rather than every route: operations are added as they are

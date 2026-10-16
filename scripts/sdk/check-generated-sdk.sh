@@ -2,7 +2,7 @@
 # Fails when a committed client no longer matches what the spec generates.
 #
 # Usage: check-generated-sdk.sh [language]
-#   language defaults to typescript-fetch; `go` checks sdk/go.
+#   language defaults to typescript-fetch; `go` checks sdk/go, `python` sdk/python.
 #
 # This is the gate that keeps `SignalingServer/api/openapi.yaml` and `sdk/ts`
 # from drifting: a spec edit without a regenerated client fails here, and so does
@@ -19,8 +19,11 @@ case "$lang" in
   go)
     committed="$root/sdk/go"
     ;;
+  python)
+    committed="$root/sdk/python"
+    ;;
   *)
-    echo "unknown language '$lang': expected typescript-fetch or go" >&2
+    echo "unknown language '$lang': expected typescript-fetch, go or python" >&2
     exit 2
     ;;
 esac
@@ -40,11 +43,17 @@ echo "generating a fresh $lang client to compare against ${committed#"$root"/}..
 #   node_modules      local npm state; the committed client carries no deps.
 #   dist              local build output.
 #   package-lock.json produced by `npm install` here, not by the generator.
+#   __pycache__ / *.egg-info / build / .venv
+#                     local Python state, for the same reason as node_modules.
+#                     (`build` and the egg-info tree are what `pip install .`
+#                     leaves behind in the source directory.)
 #   examples          the Go client's hand-written usage example, which the CI
 #                     smoke job runs against a live server. It is the only file
 #                     under sdk/ that is not generated, and excluding it here is
 #                     what keeps that distinction honest.
-if ! diff -r -x FILES -x node_modules -x dist -x package-lock.json -x examples "$committed" "$fresh/out"; then
+if ! diff -r -x FILES -x node_modules -x dist -x package-lock.json \
+     -x __pycache__ -x '*.egg-info' -x build -x .venv -x examples \
+     "$committed" "$fresh/out"; then
   echo
   echo "${committed#"$root"/} is stale: run scripts/sdk/generate-client.sh and commit the result." >&2
   exit 1
