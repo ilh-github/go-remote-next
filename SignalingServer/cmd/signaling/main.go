@@ -107,6 +107,9 @@ func main() {
 				log.Printf("Warning: AutoMigrate %T failed (continuing with the remaining tables): %v", model, err)
 			}
 		}
+		// AutoMigrate manages columns, not expression indexes; the log search
+		// indexes are ensured separately and may legitimately be unavailable.
+		database.EnsureLogSearchIndexes(context.Background(), db)
 	} else {
 		log.Println("AutoMigrate disabled (set RUN_AUTO_MIGRATE=true to enable).")
 	}

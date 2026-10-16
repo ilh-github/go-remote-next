@@ -1688,7 +1688,7 @@ request shapes; this section documents only the route table.
 | `GET` | `/v1/admin/stats` |
 | `GET` | `/v1/admin/system/status` |
 | `GET` | `/v1/admin/system/logs` — the operational files an operator may read: `{items: [{name, size_bytes, modified_at}]}` from a fixed server-side allow-list (`signaling.log`, plus `postgres.log` / `redis.log` when `POSTGRES_LOG_FILE` / `REDIS_LOG_FILE` are set). Super-admin only |
-| `GET` | `/v1/admin/system/logs:search` — search a log instead of downloading it. `?q=` (case-insensitive substring), `&file=` (which configured log: `signaling.log` by default, `postgres.log` / `redis.log` when `POSTGRES_LOG_FILE` / `REDIS_LOG_FILE` are set, or **`all`** to search every configured source in one pass; an unknown name is `400`), `&component=` (whole-token match on the structured `component=` field, so `component=api` does not match `api_auth`), `&since=` / `&until=` (RFC3339, inclusive, compared against the line's own UTC timestamp), `&limit=` (default 200, clamped to 2000), `&scope=` (`local`, the default, reads this instance's files; **`all`** reads the lines every instance shipped into the shared store, and needs `INSTANCE_LOG_SINK=true` or it is a `400` naming the setting; with the sink on, the PostgreSQL and Redis logs are shipped too when `POSTGRES_LOG_FILE` / `REDIS_LOG_FILE` are configured, so `&file=postgres.log` narrows the aggregate the same way it narrows a local scan), `&instance=` (with `scope=all`, narrow to one instance id). Local returns `{items: [{timestamp, line, file}], count, limit, scope, file, files, scanned_bytes, scanned_lines, truncated}`; `scope=all` returns `{items: [{instance, source, timestamp, line}], count, limit, scope, instance, instances, truncated, stored_lines, dropped_lines}`. Audited as `log.search` (`log_file` resource locally, `log_store:aggregated` for the merged view). Super-admin only |
+| `GET` | `/v1/admin/system/logs:search` — search a log instead of downloading it. `?q=` (case-insensitive substring), `&match=` (**full text**, `scope=all` only: words are ANDed, `"a phrase"` is a phrase, `OR` and a leading `-` negation are supported; the two modes are separate because a substring finds a request id while full text finds words without matching them apart), `&file=` (which configured log: `signaling.log` by default, `postgres.log` / `redis.log` when `POSTGRES_LOG_FILE` / `REDIS_LOG_FILE` are set, or **`all`** to search every configured source in one pass; an unknown name is `400`), `&component=` (whole-token match on the structured `component=` field, so `component=api` does not match `api_auth`), `&since=` / `&until=` (RFC3339, inclusive, compared against the line's own UTC timestamp), `&limit=` (default 200, clamped to 2000), `&scope=` (`local`, the default, reads this instance's files; **`all`** reads the lines every instance shipped into the shared store, and needs `INSTANCE_LOG_SINK=true` or it is a `400` naming the setting; with the sink on, the PostgreSQL and Redis logs are shipped too when `POSTGRES_LOG_FILE` / `REDIS_LOG_FILE` are configured, so `&file=postgres.log` narrows the aggregate the same way it narrows a local scan), `&instance=` (with `scope=all`, narrow to one instance id). Local returns `{items: [{timestamp, line, file}], count, limit, scope, file, files, scanned_bytes, scanned_lines, truncated}`; `scope=all` returns `{items: [{instance, source, timestamp, line}], count, limit, scope, instance, match, instances, truncated, stored_lines, dropped_lines}` (`match` echoes the full-text expression that was applied). Audited as `log.search` (`log_file` resource locally, `log_store:aggregated` for the merged view). Super-admin only |
 | `GET` | `/v1/admin/system/logs/:name` — download one allow-listed file; audited as `log.download`. Super-admin only |
 | `GET` | `/v1/admin/connections` |
 | `GET` | `/v1/admin/activity` |
@@ -1878,6 +1878,24 @@ database and `scope=all` reads that table instead:
   makes an empty result interpretable;
 - `instance=<id>` narrows to one instance, and `component=` keeps its whole-token
   rule, so the aggregate answers the same questions as the file scan;
+- **two search modes, on purpose.** `q=` is the case-insensitive substring
+  search it always was - the right tool for a request id or a fragment - and it
+  is now index-backed by a `pg_trgm` GIN index on `line`, which is what makes
+  `ILIKE '%…%'` usable on a table that grows with the fleet's log volume.
+  `match=` is PostgreSQL full text via `websearch_to_tsquery('simple', …)`:
+  words are ANDed, `"quoted text"` is a phrase, `OR` works and a leading `-`
+  negates, so `match="connection refused"` does not return a line that merely
+  contains both words apart. The `simple` configuration is deliberate - log
+  lines are identifiers and stack frames, and language stemming would rewrite
+  `connection` into `connect` and match lines nobody asked for. `match` is only
+  offered on `scope=all` (the file scanner would have to reimplement Postgres
+  text search), and the response echoes it back;
+- the full-text column is a **generated** `tsvector` with its own GIN index.
+  Neither it nor the trigram index is created by GORM's AutoMigrate - it manages
+  columns, not expression indexes or generated columns - so the server ensures
+  both at startup and logs the outcome. If a managed Postgres refuses
+  `pg_trgm`, the queries stay correct and simply fall back to a sequential scan,
+  which is logged as a warning at boot rather than silently accepted;
 - shipping is **best effort by design**. The authoritative log is still the
   rotating file on the instance that wrote the line, so shipping must never
   block or fail a caller: lines queue in a 4096-line buffer, and if that fills -

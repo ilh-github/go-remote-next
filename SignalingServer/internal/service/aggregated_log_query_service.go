@@ -17,6 +17,13 @@ import (
 type AggregatedLogQuery struct {
 	// Query is a case-insensitive substring match over the whole line.
 	Query string
+	// Match is a PostgreSQL full-text expression (`websearch_to_tsquery`
+	// syntax): plain words are ANDed, "quoted phrases" are phrases, OR is
+	// supported and a leading `-` negates. It is a second, separate mode rather
+	// than a change to Query because the two answer different questions -
+	// substring finds a request id, full text finds "connection refused"
+	// without matching every line that contains both words apart.
+	Match string
 	// Component matches the structured `component=...` token, if present.
 	Component string
 	Since     *time.Time
@@ -46,6 +53,9 @@ type AggregatedLogResult struct {
 	Instances []string `json:"instances"`
 	// Truncated reports that older matches exist beyond Limit.
 	Truncated bool `json:"truncated"`
+	// Match echoes the full-text expression that was applied, so a caller can
+	// tell "no results" from "the mode I asked for was not used".
+	Match string `json:"match,omitempty"`
 	// Stored and Dropped are this process's shipping counters, so a search can
 	// tell "that line was never shipped" from "shipping dropped lines".
 	Stored  int64 `json:"stored_lines"`
@@ -99,6 +109,16 @@ func (s *AggregatedLogQueryService) Query(ctx context.Context, q AggregatedLogQu
 	query := s.db.WithContext(ctx).Model(&models.InstanceLogEntry{})
 	if trimmed := strings.TrimSpace(q.Query); trimmed != "" {
 		query = query.Where("line ILIKE ?", "%"+escapeLikePattern(trimmed)+"%")
+	}
+	if trimmed := strings.TrimSpace(q.Match); trimmed != "" {
+		result.Match = trimmed
+		// websearch_to_tsquery is the forgiving entry point: it accepts what an
+		// operator types (words, "a phrase", OR, -excluded) and never raises a
+		// syntax error, unlike to_tsquery. The 'simple' configuration is
+		// deliberate - log lines are identifiers and stack frames, and language
+		// stemming would rewrite `connection` into `connect` and match lines the
+		// caller did not ask for.
+		query = query.Where("line_tsv @@ websearch_to_tsquery('simple', ?)", trimmed)
 	}
 	if trimmed := strings.TrimSpace(q.Component); trimmed != "" {
 		// Same whole-token rule as the file search: component=api must not match

@@ -624,3 +624,25 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_instance_log_seq
 
 CREATE INDEX IF NOT EXISTS idx_instance_log_entries_logged_at
     ON instance_log_entries (logged_at);
+
+-- Search indexes. GORM's AutoMigrate does not create expression indexes or
+-- generated columns, so the server ensures these itself at startup
+-- (internal/database/log_search_index.go) and logs a warning if a managed
+-- Postgres refuses the extension: the queries stay correct either way, they
+-- just fall back to a sequential scan.
+--
+-- pg_trgm backs the substring search (`q=`), which keeps its ILIKE semantics.
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
+CREATE INDEX IF NOT EXISTS idx_instance_log_entries_line_trgm
+    ON instance_log_entries USING gin (line gin_trgm_ops);
+
+-- The generated tsvector backs the full-text search (`match=`); 'simple'
+-- because log lines are identifiers, not prose, and stemming would rewrite
+-- them.
+ALTER TABLE instance_log_entries
+    ADD COLUMN IF NOT EXISTS line_tsv tsvector
+    GENERATED ALWAYS AS (to_tsvector('simple', line)) STORED;
+
+CREATE INDEX IF NOT EXISTS idx_instance_log_entries_line_tsv
+    ON instance_log_entries USING gin (line_tsv);

@@ -185,6 +185,7 @@ func (h *AdminLogsHandler) Search(c *gin.Context) {
 		}
 		result, err := h.aggregated.Query(c.Request.Context(), service.AggregatedLogQuery{
 			Query:     strings.TrimSpace(c.Query("q")),
+			Match:     strings.TrimSpace(c.Query("match")),
 			Component: strings.TrimSpace(c.Query("component")),
 			Since:     since,
 			Until:     until,
@@ -196,8 +197,8 @@ func (h *AdminLogsHandler) Search(c *gin.Context) {
 			ProblemInternal(c, err.Error())
 			return
 		}
-		filter := fmt.Sprintf("scope=%q q=%q component=%q instance=%q file=%q limit=%d truncated=%t instances=%d",
-			scope, c.Query("q"), c.Query("component"), c.Query("instance"), file, limit,
+		filter := fmt.Sprintf("scope=%q q=%q match=%q component=%q instance=%q file=%q limit=%d truncated=%t instances=%d",
+			scope, c.Query("q"), c.Query("match"), c.Query("component"), c.Query("instance"), file, limit,
 			result.Truncated, len(result.Instances))
 		h.audit.Log(c.Request.Context(), admin.ID, admin.Username, "log.search", "log_store", "aggregated", filter, c.ClientIP())
 		c.JSON(http.StatusOK, gin.H{
@@ -207,6 +208,7 @@ func (h *AdminLogsHandler) Search(c *gin.Context) {
 			"scope":         scope,
 			"file":          file,
 			"instance":      strings.TrimSpace(c.Query("instance")),
+			"match":         result.Match,
 			"instances":     result.Instances,
 			"truncated":     result.Truncated,
 			"stored_lines":  result.Stored,
