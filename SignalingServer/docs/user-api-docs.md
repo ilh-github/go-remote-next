@@ -13,16 +13,20 @@ rationale for every decision is in
 
 [`SignalingServer/api/openapi.yaml`](../api/openapi.yaml) is an OpenAPI 3.1
 contract for the stable, integrator-facing subset of this API (authenticate,
-enumerate devices, verify an access code, manage the offline-alert rule and
-notification channels) — generate a client in any language from it. It covers a
-documented subset rather than every route: operations are added as they are
-pinned by a conformance check, which is
+enumerate devices, verify an access code, and manage the access policy, guest
+access codes, approvals, offline-alert rule and notification channels) —
+generate a client in any language from it. It covers a documented subset rather
+than every route: operations are added as they are pinned by a conformance
+check, which is
 [`scripts/sdk/openapi-smoke.mjs`](../../scripts/sdk/openapi-smoke.mjs). That
 script calls the documented operations against a running server and asserts the
 fields the spec promises, so a rename or shape change fails the check instead of
 silently invalidating the file. It is read-only by default; pass
-`QD_SMOKE_DEVICE=<device_id>` to also exercise the offline-alert `PUT` (the rule
-is restored to its prior state afterwards) and the rejected-access-code shape.
+`QD_SMOKE_DEVICE=<device_id>` to also exercise the offline-alert and
+access-policy `PUT`s (both restored to their prior state), issue-then-revoke a
+short-lived guest code, and the rejected-access-code shape. The guest-code probe
+deliberately leaves one **revoked, never-used** grant row behind, because
+revocation rather than deletion is how a grant is disabled.
 
 ---
 

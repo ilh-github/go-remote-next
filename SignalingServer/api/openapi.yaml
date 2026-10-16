@@ -7,15 +7,23 @@ info:
     This document is the contract for the operations a business system needs to
     integrate with a self-hosted QuickDesk signaling server: authenticate,
     enumerate the caller's devices, verify a device access code, and manage the
-    owner's offline-alert rule and notification channels.
+    owner's access policy, guest access codes, second-factor approvals,
+    offline-alert rule and notification channels.
 
     It deliberately covers a **subset**. The server exposes more (admin
-    endpoints, access policies and grants, approvals, recordings, realtime
-    WebSockets); those are documented in `docs/user-api-docs.md` and are added
-    here as they are pinned by a conformance test. Everything listed here is
-    exercised against a live server by `scripts/sdk/openapi-smoke.mjs`, so a
-    change to a documented field fails that check rather than silently
-    invalidating this file.
+    endpoints, the approve/deny and claim halves of the approval flow,
+    recordings, realtime WebSockets); those are documented in
+    `docs/user-api-docs.md` and are added here as they are pinned by a
+    conformance test. Everything listed here is exercised against a live server
+    by `scripts/sdk/openapi-smoke.mjs`, so a change to a documented field fails
+    that check rather than silently invalidating this file.
+
+    That smoke is read-only by default; `QD_SMOKE_DEVICE=<device_id>` adds the
+    operations with side effects, and it restores what it touches: the
+    offline-alert rule and the access policy are put back exactly as they were.
+    The one deliberate residue is a **revoked, never-used guest code** row from
+    the create-then-revoke probe, because revocation (not deletion) is how a
+    grant is disabled.
 
     Generate a client in any language from this file, for example:
 
@@ -207,6 +215,182 @@ paths:
           $ref: '#/components/responses/NotFound'
         '429':
           $ref: '#/components/responses/RateLimited'
+  /v1/me/devices/{device_id}/access-policy:
+    parameters:
+      - $ref: '#/components/parameters/DeviceId'
+    get:
+      tags: [devices]
+      summary: The device's access policy
+      operationId: getAccessPolicy
+      description: |
+        Returns the documented "no policy" defaults when the owner never saved
+        one, so a client can render the form without a second existence check.
+      responses:
+        '200':
+          description: The policy, or its defaults.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceAccessPolicy'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [devices]
+      summary: Create or replace the device's access policy
+      operationId: putAccessPolicy
+      description: |
+        A **full replace**: every field not sent is reset to its zero value. The
+        policy is enforced on the device-side verify route before the access
+        code is compared, so a blocked client never gets to guess codes.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceAccessPolicyInput'
+      responses:
+        '200':
+          description: The stored policy.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceAccessPolicy'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/me/devices/{device_id}/access-grants:
+    parameters:
+      - $ref: '#/components/parameters/DeviceId'
+    get:
+      tags: [devices]
+      summary: Guest access codes issued for a device
+      operationId: listAccessGrants
+      responses:
+        '200':
+          description: The device's grants, newest first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AccessGrant'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [devices]
+      summary: Issue a time-boxed guest access code
+      operationId: createAccessGrant
+      description: |
+        The plaintext code is returned **once**, in the creation response; a
+        grant is limited by expiry and uses, may be bound to a client id and/or
+        source addresses, and is revoked with the DELETE below.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AccessGrantInput'
+      responses:
+        '201':
+          description: The created grant, including its one-time plaintext code.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessGrant'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/me/devices/{device_id}/access-grants/{grant_id}:
+    parameters:
+      - $ref: '#/components/parameters/DeviceId'
+      - name: grant_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+    delete:
+      tags: [devices]
+      summary: Revoke a guest access code
+      operationId: revokeAccessGrant
+      responses:
+        '200':
+          description: The grant is no longer redeemable.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success]
+                properties:
+                  success:
+                    type: boolean
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/me/devices/{device_id}/access-approvals:
+    parameters:
+      - $ref: '#/components/parameters/DeviceId'
+    get:
+      tags: [devices]
+      summary: Second-factor approvals awaiting (or already decided by) the owner
+      operationId: listAccessApprovals
+      description: |
+        `status` is a comma-separated subset of `pending, approved, denied,
+        expired, consumed` and defaults to `pending`. Approval is created by the
+        device-side verify route when the policy asks for it; approving or
+        denying happens on the sub-resource routes documented in
+        `docs/user-api-docs.md` §5.3.5 (not yet part of this contract).
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: The matching approvals, newest first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AccessApproval'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
 components:
   securitySchemes:
     ApiKeyAuth:
@@ -512,6 +696,210 @@ components:
           format: date-time
         poll_after_ms:
           type: integer
+    DeviceAccessPolicyInput:
+      type: object
+      description: |
+        Full replace: fields not sent are reset to their zero value.
+      properties:
+        remote_disabled:
+          type: boolean
+          description: When true, no controller may start a session at all.
+        allow_ips:
+          type: array
+          description: Bare IPs or CIDR blocks; empty means "no IP restriction".
+          items:
+            type: string
+        max_sessions:
+          type: integer
+          description: Concurrent controller cap; 0 means unlimited, negative is rejected.
+        allowed_windows:
+          type: array
+          description: Recurring windows in which access is allowed; empty means always.
+          items:
+            $ref: '#/components/schemas/AccessWindow'
+        timezone:
+          type: string
+          description: IANA zone the windows are evaluated in; empty means the server's local zone.
+        exception_dates:
+          type: array
+          description: Per-date overrides (holidays, one-off closures, lunar dates).
+          items:
+            $ref: '#/components/schemas/AccessExceptionDate'
+        approval_required:
+          type: boolean
+          description: Legacy switch kept for older clients; prefer `approval_mode`.
+        approval_mode:
+          type: string
+          enum: [off, always, grant, untrusted_ip]
+          description: When the owner must approve a correct code before a session starts.
+        approval_trusted_ips:
+          type: array
+          description: "Sources exempted by `approval_mode: untrusted_ip`."
+          items:
+            type: string
+    DeviceAccessPolicy:
+      allOf:
+        - $ref: '#/components/schemas/DeviceAccessPolicyInput'
+        - type: object
+          required: [device_id, allow_ips, allowed_windows, exception_dates, approval_mode, approval_trusted_ips]
+          properties:
+            device_id:
+              type: string
+            updated_at:
+              type: [string, 'null']
+              format: date-time
+              description: Omitted when the owner never saved a policy.
+    AccessWindow:
+      type: object
+      required: [start, end]
+      description: |
+        `start > end` wraps past midnight and the day filter then applies to the
+        day the window starts; `start == end` means all day on the selected days;
+        an empty `days` list means every day.
+      properties:
+        days:
+          type: array
+          items:
+            type: integer
+            minimum: 0
+            maximum: 6
+        start:
+          type: string
+          pattern: '^[0-2][0-9]:[0-5][0-9]$'
+        end:
+          type: string
+          pattern: '^[0-2][0-9]:[0-5][0-9]$'
+    AccessExceptionDate:
+      type: object
+      required: [mode]
+      description: |
+        Exactly one of `date` (+ optional `end_date`), `holiday`, or
+        `repeat: "lunar"` with the lunar month/day. `mode` is `allow` or
+        `deny`; an allow and a deny entry covering the same day are rejected.
+      properties:
+        date:
+          type: string
+          description: First date of the exception (YYYY-MM-DD).
+        end_date:
+          type: string
+          description: Last date of a range (YYYY-MM-DD); omit for a single day.
+        mode:
+          type: string
+          enum: [allow, deny]
+        repeat:
+          type: string
+          enum: [yearly, lunar]
+        holiday:
+          type: string
+          description: A statutory holiday name from the server's calendar, e.g. 春节.
+        holiday_day:
+          type: string
+          enum: [off, work]
+          description: Which dates of the holiday an entry covers (default `off`).
+        lunar_month:
+          type: integer
+        lunar_day:
+          type: integer
+      additionalProperties: true
+    AccessGrantInput:
+      type: object
+      required: [expires_in_minutes]
+      properties:
+        label:
+          type: string
+        expires_in_minutes:
+          type: integer
+          minimum: 1
+        max_uses:
+          type: integer
+          description: 0 means "no use limit"; the grant still expires.
+        code:
+          type: string
+          description: Optional caller-chosen code; omitted means the server generates one.
+        bound_client_id:
+          type: string
+          description: Self-reported controller identity the code is bound to.
+        bound_ips:
+          type: array
+          items:
+            type: string
+    AccessGrant:
+      type: object
+      required: [id, device_id, code, expires_at, max_uses, uses, active, bound_client_id, bound_ips, created_at]
+      properties:
+        id:
+          type: integer
+          format: int64
+        device_id:
+          type: string
+        code:
+          type: string
+          description: Returned only in the creation response; treat it as a secret.
+        label:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+        max_uses:
+          type: integer
+        uses:
+          type: integer
+        active:
+          type: boolean
+        revoked_at:
+          type: [string, 'null']
+          format: date-time
+        last_used_at:
+          type: [string, 'null']
+          format: date-time
+        bound_client_id:
+          type: string
+        bound_ips:
+          type: array
+          items:
+            type: string
+        last_used_client_id:
+          type: string
+        last_used_ip:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+    AccessApproval:
+      type: object
+      required: [id, device_id, client_id, client_ip, source, status, expires_at, created_at]
+      properties:
+        id:
+          type: integer
+          format: int64
+        device_id:
+          type: string
+        client_id:
+          type: string
+          description: Self-reported by the requesting controller.
+        client_ip:
+          type: string
+          description: The address the server observed (trusted-proxy aware).
+        source:
+          type: string
+          enum: [device_code, grant]
+        grant_id:
+          type: [integer, 'null']
+          format: int64
+        status:
+          type: string
+          enum: [pending, approved, denied, expired, consumed]
+        expires_at:
+          type: string
+          format: date-time
+        decided_at:
+          type: [string, 'null']
+          format: date-time
+        reason:
+          type: string
+        created_at:
+          type: string
+          format: date-time
     Problem:
       type: object
       description: RFC 7807 problem details, served as `application/problem+json`.

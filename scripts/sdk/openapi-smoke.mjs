@@ -8,9 +8,10 @@
 // fails instead of quietly invalidating the spec.
 //
 // Read-only by default. Give QD_SMOKE_DEVICE=<device_id> and it also covers the
-// two documented operations with side effects - the offline-alert PUT (restored
-// to exactly the prior state afterwards) and the wrong-access-code rejection
-// (which writes an access-log row and may notify the owner).
+// documented operations with side effects - the offline-alert and access-policy
+// PUTs (restored to exactly the prior state afterwards), issuing then revoking a
+// short-lived guest code, and the wrong-access-code rejection (which writes an
+// access-log row and may notify the owner).
 //
 // Usage:
 //   QD_IDENTIFIER=user QD_PASSWORD=secret scripts/sdk/openapi-smoke.mjs
@@ -159,6 +160,38 @@ if (Array.isArray(channelItems) && channelItems.length > 0) {
   check(typeof ch.events === 'string', 'NotificationChannel.events is not a string');
 }
 
+// 6. GET /v1/me/devices/{device_id}/access-policy
+const policy = await call('GET', `/v1/me/devices/${deviceId}/access-policy`, { token, expect: 200 });
+for (const name of ['device_id', 'remote_disabled', 'allow_ips', 'max_sessions', 'allowed_windows', 'timezone', 'exception_dates', 'approval_mode', 'approval_trusted_ips']) {
+  field(policy.json, name, undefined, 'GET access-policy');
+}
+for (const list of ['allow_ips', 'allowed_windows', 'exception_dates', 'approval_trusted_ips']) {
+  check(Array.isArray(policy.json[list]), `access-policy: ${list} is not an array`);
+}
+
+// 7. GET /v1/me/devices/{device_id}/access-grants
+const grants = await call('GET', `/v1/me/devices/${deviceId}/access-grants`, { token, expect: 200 });
+const grantItems = field(grants.json, 'items', 'object', 'GET access-grants');
+check(Array.isArray(grantItems), 'GET access-grants: items is not an array');
+if (Array.isArray(grantItems) && grantItems.length > 0) {
+  for (const name of ['id', 'device_id', 'code', 'expires_at', 'max_uses', 'uses', 'active', 'bound_client_id', 'bound_ips', 'created_at']) {
+    field(grantItems[0], name, undefined, 'AccessGrant');
+  }
+  check(Array.isArray(grantItems[0].bound_ips), 'AccessGrant.bound_ips is not an array');
+}
+
+// 8. GET /v1/me/devices/{device_id}/access-approvals
+const approvals = await call('GET', `/v1/me/devices/${deviceId}/access-approvals`, { token, expect: 200 });
+const approvalItems = field(approvals.json, 'items', 'object', 'GET access-approvals');
+check(Array.isArray(approvalItems), 'GET access-approvals: items is not an array');
+if (Array.isArray(approvalItems) && approvalItems.length > 0) {
+  for (const name of ['id', 'device_id', 'client_id', 'client_ip', 'source', 'status', 'expires_at', 'created_at']) {
+    field(approvalItems[0], name, undefined, 'AccessApproval');
+  }
+}
+const badStatus = await call('GET', `/v1/me/devices/${deviceId}/access-approvals?status=nope`, { token, expect: 400 });
+problemShape(badStatus.json, 'GET access-approvals (unknown status)');
+
 if (smokeDevice) {
   // 6. PUT the rule back unchanged, then restore the prior state exactly.
   const putBody = {
@@ -183,7 +216,45 @@ if (smokeDevice) {
     check(del.status === 204, 'DELETE offline-alert did not return 204');
   }
 
-  // 7. POST access-code:verify with a code that cannot be right, to pin the
+  // 7. PUT the access policy back unchanged. A full replace with what was just
+  // read is a no-op semantically, so nothing about the device is loosened or
+  // tightened by running the smoke.
+  const policyPut = {
+    remote_disabled: policy.json.remote_disabled,
+    allow_ips: policy.json.allow_ips ?? [],
+    max_sessions: policy.json.max_sessions,
+    allowed_windows: policy.json.allowed_windows ?? [],
+    timezone: policy.json.timezone ?? '',
+    exception_dates: policy.json.exception_dates ?? [],
+    approval_required: policy.json.approval_required ?? false,
+    approval_mode: policy.json.approval_mode ?? 'off',
+    approval_trusted_ips: policy.json.approval_trusted_ips ?? [],
+  };
+  const policyRes = await call('PUT', `/v1/me/devices/${deviceId}/access-policy`, { token, body: policyPut, expect: 200 });
+  for (const name of ['device_id', 'remote_disabled', 'allow_ips', 'max_sessions', 'allowed_windows', 'timezone', 'exception_dates', 'approval_mode', 'approval_trusted_ips']) {
+    field(policyRes.json, name, undefined, 'PUT access-policy');
+  }
+  check(policyRes.json.approval_mode === policyPut.approval_mode,
+    `PUT access-policy changed approval_mode: ${policyRes.json.approval_mode} != ${policyPut.approval_mode}`);
+  check(policyRes.json.max_sessions === policyPut.max_sessions, 'PUT access-policy did not echo max_sessions');
+
+  // 8. Issue a short-lived guest code and revoke it. Revocation (not deletion)
+  // is the documented way to disable a grant, so this leaves one inert
+  // `active: false` row behind rather than pretending to erase it.
+  const created = await call('POST', `/v1/me/devices/${deviceId}/access-grants`, {
+    token,
+    body: { label: 'openapi-smoke', expires_in_minutes: 5, max_uses: 1 },
+    expect: 201,
+  });
+  for (const name of ['id', 'device_id', 'code', 'expires_at', 'max_uses', 'uses', 'active', 'created_at']) {
+    field(created.json, name, undefined, 'POST access-grants');
+  }
+  check(typeof created.json.code === 'string' && created.json.code.length > 0,
+    'POST access-grants returned no code');
+  const revoked = await call('DELETE', `/v1/me/devices/${deviceId}/access-grants/${created.json.id}`, { token, expect: 200 });
+  field(revoked.json, 'success', 'boolean', 'DELETE access-grants');
+
+  // 9. POST access-code:verify with a code that cannot be right, to pin the
   // documented rejection shape.
   const verify = await call('POST', `/v1/devices/${deviceId}/access-code:verify`, {
     body: { code: '000000', client_id: 'openapi-smoke' },
