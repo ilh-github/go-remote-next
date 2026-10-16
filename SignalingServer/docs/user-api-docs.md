@@ -524,6 +524,17 @@ a usable grant. Two properties matter:
 Admissions via a grant land on the access timeline as `granted` with the reason
 `access grant <id>`, so the owner can tell a guest code from their own code.
 
+Grants also emit realtime events to the owner (§11):
+
+- `device.access_grant.changed` on create and revoke (`action: "created"` /
+  `"revoked"`). It deliberately omits the code — the owner already received it
+  in the create response and events must not carry credentials. This event is
+  also written to the admin audit trail, the same way a policy change is.
+- `device.access_grant.used` when a grant admits a session, carrying
+  `{grant_id, label, uses, max_uses, client_id}`. Successful admissions are
+  intentionally *not* audited (that would add an admin row per healthy session);
+  they are visible on the owner-scoped access timeline instead.
+
 ### 5.4 Connections (history)
 
 | Method | Path | Body |
@@ -1023,6 +1034,10 @@ include access-code plaintext, `device_secret`, or `refresh_token`.
 | `recording.deleted` | `DELETE /v1/me/recordings/:id` | `{recording_id}` |
 | `session.revoked` | this user's session was killed | `{}` |
 | `device.secret.rotated` | admin rotated `device_secret` (sent to host owner) | `{device_id}` (host should re-provision on next 401) |
+| `device.access.granted` / `device.access.denied` / `device.access.session_started` | an access attempt or session start on this user's device (§5.3.1) | `{device_id, client_id, ip, result, reason?, log_id}` |
+| `device.access_policy.changed` | owner changed the device access policy (§5.3.3) | `{device_id, remote_disabled, allow_ips, max_sessions, allowed_windows, timezone, exception_dates}` |
+| `device.access_grant.changed` | owner created or revoked a guest grant (§5.3.4) | `{action: "created"\|"revoked", grant_id, label, expires_at, max_uses, uses}` (never the code) |
+| `device.access_grant.used` | a grant just admitted a session | `{grant_id, label, uses, max_uses, client_id}` |
 
 Event envelope (always present):
 

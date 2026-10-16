@@ -50,6 +50,11 @@ const (
 	EventDeviceAccessDenied      = "device.access.denied"
 	EventDeviceAccessSession     = "device.access.session_started"
 	EventDevicePolicyChanged     = "device.access_policy.changed"
+	// Grant lifecycle and redemption. `changed` fires on create/revoke and is
+	// audited; `used` fires when a grant actually admits a session. Neither
+	// carries the grant code - the owner already got it in the create response.
+	EventDeviceAccessGrantChanged = "device.access_grant.changed"
+	EventDeviceAccessGrantUsed    = "device.access_grant.used"
 
 	EventFavoriteAdded   = "favorite.added"
 	EventFavoriteUpdated = "favorite.updated"

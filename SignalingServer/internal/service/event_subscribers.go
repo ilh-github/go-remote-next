@@ -68,7 +68,9 @@ func (s *auditSubscriber) HandleEvent(ctx context.Context, evt Event) {
 		// table does not grow a row per healthy session.
 		EventDeviceAccessDenied,
 		// Changing who may reach a device is itself an auditable act.
-		EventDevicePolicyChanged:
+		EventDevicePolicyChanged,
+		// Issuing or cancelling a shared guest code is the same kind of act.
+		EventDeviceAccessGrantChanged:
 	default:
 		return
 	}

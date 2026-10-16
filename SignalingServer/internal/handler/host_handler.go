@@ -491,6 +491,22 @@ func (h *HostHandler) VerifyAccessCode(c *gin.Context) {
 			ProblemForbidden(c, ProblemCodeInvalidCode, "Access code is incorrect")
 			return
 		}
+		if h.bus != nil {
+			// Tell the owner their shared code was just used. `UsedGrant.Uses`
+			// is the value read before the increment, so +1 is the new count.
+			h.bus.Publish(c.Request.Context(), service.Event{
+				Type:     service.EventDeviceAccessGrantUsed,
+				UserID:   usedGrant.OwnerID,
+				DeviceID: deviceID,
+				Data: map[string]interface{}{
+					"grant_id":  usedGrant.ID,
+					"label":     usedGrant.Label,
+					"uses":      usedGrant.Uses + 1,
+					"max_uses":  usedGrant.MaxUses,
+					"client_id": req.ClientID,
+				},
+			})
+		}
 	}
 
 	tok, exp, err := h.tokens.IssueSignalToken(c.Request.Context(), service.SignalTokenPayload{

@@ -25,10 +25,11 @@ import (
 type DeviceAccessGrantHandler struct {
 	devices *service.DeviceService
 	grants  *service.DeviceAccessGrantService
+	bus     *service.EventBus
 }
 
-func NewDeviceAccessGrantHandler(devices *service.DeviceService, grants *service.DeviceAccessGrantService) *DeviceAccessGrantHandler {
-	return &DeviceAccessGrantHandler{devices: devices, grants: grants}
+func NewDeviceAccessGrantHandler(devices *service.DeviceService, grants *service.DeviceAccessGrantService, bus *service.EventBus) *DeviceAccessGrantHandler {
+	return &DeviceAccessGrantHandler{devices: devices, grants: grants, bus: bus}
 }
 
 type accessGrantReq struct {
@@ -97,6 +98,7 @@ func (h *DeviceAccessGrantHandler) Create(c *gin.Context) {
 		ProblemInternal(c, err.Error())
 		return
 	}
+	h.publishGrantChange(c, deviceID, row, "created")
 	c.JSON(http.StatusCreated, grantView(*row, time.Now().UTC()))
 }
 
@@ -123,7 +125,31 @@ func (h *DeviceAccessGrantHandler) Delete(c *gin.Context) {
 		ProblemInternal(c, err.Error())
 		return
 	}
+	h.publishGrantChange(c, deviceID, row, "revoked")
 	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+// publishGrantChange tells the owner's realtime stream that a shared code was
+// issued or cancelled. The payload deliberately omits the code itself: the
+// owner already received it in the create response, and events must not carry
+// credentials (§2.16).
+func (h *DeviceAccessGrantHandler) publishGrantChange(c *gin.Context, deviceID string, row *models.DeviceAccessGrant, action string) {
+	if h.bus == nil {
+		return
+	}
+	h.bus.Publish(c.Request.Context(), service.Event{
+		Type:     service.EventDeviceAccessGrantChanged,
+		UserID:   middleware.MustUserID(c),
+		DeviceID: deviceID,
+		Data: map[string]interface{}{
+			"action":     action,
+			"grant_id":   row.ID,
+			"label":      row.Label,
+			"expires_at": row.ExpiresAt.UTC().Format(time.RFC3339),
+			"max_uses":   row.MaxUses,
+			"uses":       row.Uses,
+		},
+	})
 }
 
 // ownedDeviceID resolves :device_id and enforces that the caller owns it.
