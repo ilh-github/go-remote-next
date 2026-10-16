@@ -582,6 +582,10 @@ func main() {
 		adminGuarded.GET("/audit-logs", adminAuditHandler.List)
 		adminGuarded.GET("/audit-logs:export", adminLogsHandler.ExportAudit)
 		adminGuarded.POST("/audit-logs:sweep", adminAuditHandler.Sweep)
+		// A separate segment, not `audit-logs:archive`: gin keys routes by
+		// method and cannot hold two different wildcard names (`:export` and
+		// `:archive`) under the same GET prefix.
+		adminGuarded.GET("/audit-archive:search", adminAuditHandler.Archive)
 
 		// Session recordings (cross-user index).
 		adminGuarded.GET("/recordings", adminSessionRecordingHandler.List)

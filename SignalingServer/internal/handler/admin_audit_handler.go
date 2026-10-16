@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -136,5 +137,94 @@ func (h *AdminAuditHandler) Sweep(c *gin.Context) {
 		"older_than_days": days,
 		"cutoff":          cutoff.Format(time.RFC3339),
 		"archive_dir":     h.audit.ArchiveDir(),
+	})
+}
+
+// parseAuditArchiveLimit reads the optional `limit` query. Zero means "use the
+// default"; anything negative or non-numeric is a 400 rather than a silent
+// fallback, because "I asked for everything" and "you returned 50" must not be
+// confused. Values above the cap are clamped and echoed back.
+func parseAuditArchiveLimit(raw string) (int, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, nil
+	}
+	parsed, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, fmt.Errorf("limit must be a number")
+	}
+	if parsed < 0 {
+		return 0, fmt.Errorf("limit must be zero (default) or positive")
+	}
+	return parsed, nil
+}
+
+// Archive handles GET /v1/admin/audit-archive:search.
+//
+// Retention appends expired rows to a daily JSONL file before deleting them, so
+// the live table stays bounded; this endpoint reads that file back so "what
+// happened last week" survives the purge. It is a bounded reverse scan like
+// `system/logs:search`, and it refuses to run at all when no archive directory
+// is configured - an empty result must never mean "retention deleted it and you
+// never turned on the archive".
+func (h *AdminAuditHandler) Archive(c *gin.Context) {
+	if h.audit == nil {
+		ProblemBadRequest(c, ProblemCodeInvalidRequest, "audit store is not configured")
+		return
+	}
+	if h.audit.ArchiveDir() == "" {
+		ProblemBadRequest(c, ProblemCodeInvalidRequest,
+			"audit archive is not configured; set AUDIT_ARCHIVE_DIR")
+		return
+	}
+	actorUserID, err := parseActorUserID(c.Query("actor_user_id"))
+	if err != nil {
+		ProblemBadRequest(c, ProblemCodeInvalidRequest, err.Error())
+		return
+	}
+	limit, err := parseAuditArchiveLimit(c.Query("limit"))
+	if err != nil {
+		ProblemBadRequest(c, ProblemCodeInvalidRequest, err.Error())
+		return
+	}
+
+	result, err := h.audit.QueryArchive(c.Request.Context(), service.AuditArchiveQuery{
+		Date:          c.Query("date"),
+		Query:         c.Query("q"),
+		Action:        c.Query("action"),
+		AdminUsername: c.Query("admin"),
+		ActorUserID:   actorUserID,
+		Limit:         limit,
+	})
+	if errors.Is(err, service.ErrAuditArchiveNotFound) {
+		ProblemNotFound(c, ProblemCodeNotFound, fmt.Sprintf("no archive file for %s", result.Date))
+		return
+	}
+	if errors.Is(err, service.ErrAuditArchiveBadDate) {
+		ProblemBadRequest(c, ProblemCodeInvalidRequest, err.Error())
+		return
+	}
+	if err != nil {
+		ProblemInternal(c, err.Error())
+		return
+	}
+
+	h.audit.Log(c.Request.Context(), middleware.MustAdminID(c), "", "audit.archive.search",
+		"audit_log", result.Date,
+		fmt.Sprintf("date=%s q=%q action=%q admin=%q actor_user_id=%d limit=%d returned=%d truncated=%t",
+			result.Date, c.Query("q"), c.Query("action"), c.Query("admin"), actorUserID, limit,
+			len(result.Items), result.Truncated),
+		c.ClientIP())
+
+	c.JSON(http.StatusOK, gin.H{
+		"items":         result.Items,
+		"count":         len(result.Items),
+		"date":          result.Date,
+		"file":          result.File,
+		"scanned_bytes": result.ScannedBytes,
+		"scanned_lines": result.ScannedLines,
+		"truncated":     result.Truncated,
+		"has_more":      result.HasMore,
+		"archive_dir":   h.audit.ArchiveDir(),
 	})
 }

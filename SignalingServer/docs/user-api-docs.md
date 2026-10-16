@@ -1333,6 +1333,7 @@ request shapes; this section documents only the route table.
 | `GET` | `/v1/admin/trends?range=24h\|7d\|30d` |
 | `GET` | `/v1/admin/audit-logs` (filters `action` / `admin` / `actor_user_id` / `date_from` / `date_to`; a non-numeric `actor_user_id` is `400` rather than a filter that quietly matches everything) |
 | `POST` | `/v1/admin/audit-logs:sweep` — run the audit-retention purge now. Optional body `{older_than_days: N}` overrides the configured window. Returns `{purged, older_than_days, cutoff, archive_dir}` and audits `audit.sweep`. `400` when neither the config nor the body supplies a window; when `AUDIT_ARCHIVE_DIR` is set an archive write failure deletes nothing |
+| `GET` | `/v1/admin/audit-archive:search` — read back a day's archive that retention wrote. `?date=` (`YYYY-MM-DD`, default today in UTC), `&q=` (case-insensitive substring over action/resource/details/ip/admin), `&action=` (exact), `&admin=` (substring), `&actor_user_id=` (positive integer), `&limit=` (default 50, clamped to 500). Returns `{items, count, date, file, scanned_bytes, scanned_lines, truncated, has_more, archive_dir}` newest first and audits `audit.archive.search`. `400` when `AUDIT_ARCHIVE_DIR` is unset or `date`/`limit`/`actor_user_id` is malformed; `404` when that day has no archive file |
 | `GET` `DELETE` | `/v1/admin/recordings[/:id]` (list filters `user_id` / `device_id` / `status` / `q`; delete writes audit action `recording.delete`) |
 | `GET` | `/v1/admin/recordings/:id/artifact` (cross-user download; audit action `recording.download`) |
 | `GET` | `/v1/admin/recordings/:id/thumbnail` (cross-user preview; audit action `recording.thumbnail.download`) |
@@ -1377,6 +1378,21 @@ removed and the endpoint reports the error, because an audit trail is evidence
 and retention must not be the step that destroys the only copy. A sweep with no
 configured retention and no `older_than_days` is a `400` rather than a silent
 no-op or a "keep zero days".
+
+**The archive is searchable, not write-only.**
+`GET /v1/admin/audit-archive:search` reads a day's JSONL archive back with the
+same bounded reverse scan the log search uses: `date` picks the file (default
+today in UTC), `q` / `action` / `admin` / `actor_user_id` filter it, and the
+response is newest-first with `scanned_bytes`, `scanned_lines`, `truncated`
+(the scan budget ran out) and `has_more` (the limit was reached). Retention
+deletes the live rows as it archives them, so without this endpoint "what did
+administrator X do last month" became an SSH-and-grep job the moment the window
+closed. The endpoint refuses to run when no `AUDIT_ARCHIVE_DIR` is configured
+(`400`): an empty result must never mean "retention deleted it and you never
+turned the archive on". A missing day is a `404`, distinct from a day that
+exists but holds no matching rows. The path is `audit-archive:search` rather
+than `audit-logs:archive` because gin keys routes by method and cannot hold two
+different wildcard names (`:export` and `:archive`) under the same `GET` prefix.
 
 **`logs:search` reads the log backwards.** The application log is a rotating
 file (`signaling.log`, `signaling.log.1`, …), so the newest line is at the end
