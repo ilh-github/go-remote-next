@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 )
 
@@ -73,12 +74,68 @@ func (s *auditSubscriber) HandleEvent(ctx context.Context, evt Event) {
 		EventDeviceAccessGrantChanged,
 		// Approving or denying a waiting session is a deliberate admission
 		// decision and belongs in the admin trail alongside policy changes.
-		EventDeviceAccessApprovalDecided:
+		EventDeviceAccessApprovalDecided,
+		// Deleting a recording destroys evidence, so "it was deleted, by this
+		// actor, at this time" is exactly what a later review needs. Creating
+		// one is deliberately not audited: the recording index already records
+		// it, and a row per session would only dilute the trail.
+		EventRecordingDeleted:
 	default:
 		return
 	}
 	details, _ := json.Marshal(evt.Data)
-	s.audit.Log(ctx, 0, "", evt.Type, "event", evt.DeviceID, string(details), "")
+	action := auditAction(evt)
+	resourceType, resourceID := auditResource(evt)
+	if actor := auditActorUserID(evt); actor != 0 {
+		s.audit.LogActor(ctx, actor, action, resourceType, resourceID, string(details))
+		return
+	}
+	s.audit.Log(ctx, 0, "", action, resourceType, resourceID, string(details), "")
+}
+
+// auditAction is the name written to the trail. It defaults to the event type,
+// but where an administrator action already exists for the same fact the two
+// have to agree: an operator filtering `recording.delete` must see every
+// deletion, whoever performed it. Which id column is set - admin_id or
+// actor_user_id - is what tells them apart.
+func auditAction(evt Event) string {
+	if evt.Type == EventRecordingDeleted {
+		return "recording.delete"
+	}
+	return evt.Type
+}
+
+// auditResource names what an audited event is about. The device id is the
+// default because most of these events are about a device; a recording deletion
+// is about the recording, and the device is incidental.
+func auditResource(evt Event) (resourceType, resourceID string) {
+	if evt.Type == EventRecordingDeleted {
+		if v, ok := evt.Data["recording_id"]; ok && v != nil {
+			return "session_recording", fmt.Sprintf("%v", v)
+		}
+		return "session_recording", evt.DeviceID
+	}
+	return "event", evt.DeviceID
+}
+
+// auditActorUserID reports the user who *did* the thing, or 0 when the event's
+// user is only the subject of it.
+//
+// The distinction is the difference between a useful trail and a misleading
+// one: a rejected access attempt is routed to the device owner but was caused
+// by somebody else, so recording the owner as its actor would file a stranger's
+// action under the owner's history. Only the events below are acts a user
+// performs on their own resources.
+func auditActorUserID(evt Event) uint {
+	switch evt.Type {
+	case EventRecordingDeleted,
+		EventDevicePolicyChanged,
+		EventDeviceAccessGrantChanged,
+		EventDeviceAccessApprovalDecided:
+		return evt.UserID
+	default:
+		return 0
+	}
 }
 
 // userNotificationSubscriber delivers user-scoped events to that user's own

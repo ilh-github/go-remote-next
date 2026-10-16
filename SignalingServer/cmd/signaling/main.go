@@ -72,7 +72,13 @@ func main() {
 
 	if cfg.Runtime.RunAutoMigrate {
 		log.Println("Running AutoMigrate (schema source of truth is migrations/001_init.sql)...")
-		if err := db.AutoMigrate(
+		// Migrated one model at a time on purpose. AutoMigrate returns on the
+		// first failure, so a single table that cannot be altered (a new
+		// NOT NULL column over rows that are still NULL is the usual cause)
+		// would silently skip every model after it in the list. Per-model
+		// calls keep one bad table from blocking the rest, and the log names
+		// the table that needs attention.
+		for _, model := range []interface{}{
 			&models.User{},
 			&models.Device{},
 			&models.UserDevice{},
@@ -93,8 +99,10 @@ func main() {
 			&models.NotificationDelivery{},
 			&models.DeviceOfflineAlertRule{},
 			&models.Preset{},
-		); err != nil {
-			log.Printf("Warning: AutoMigrate error (continuing anyway): %v", err)
+		} {
+			if err := db.AutoMigrate(model); err != nil {
+				log.Printf("Warning: AutoMigrate %T failed (continuing with the remaining tables): %v", model, err)
+			}
 		}
 	} else {
 		log.Println("AutoMigrate disabled (set RUN_AUTO_MIGRATE=true to enable).")

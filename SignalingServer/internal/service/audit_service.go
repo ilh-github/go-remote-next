@@ -31,12 +31,31 @@ func (s *AuditService) Log(ctx context.Context, adminID uint, adminUsername, act
 	s.db.WithContext(ctx).Create(entry)
 }
 
+// LogActor records an audit row for an action taken by an end user rather than
+// an administrator: the actor lands in actor_user_id, and admin_id stays zero
+// so an "admin activity" query does not pick it up.
+//
+// This exists because the interesting user-side actions are destructive ones -
+// deleting a recording, changing who may reach a device - and until now they
+// reached the audit trail either not at all or with no way to say who did it.
+func (s *AuditService) LogActor(ctx context.Context, actorUserID uint, action, resourceType, resourceID, details string) {
+	entry := &models.AuditLog{
+		ActorUserID:  actorUserID,
+		Action:       action,
+		ResourceType: resourceType,
+		ResourceID:   resourceID,
+		Details:      details,
+		CreatedAt:    time.Now(),
+	}
+	s.db.WithContext(ctx).Create(entry)
+}
+
 // AuditListParams is the cursor-keyset filter used by GET /v1/admin/audit-logs.
 type AuditListParams struct {
-	AfterID                 uint
-	Limit                   int
-	Action, AdminUsername   string
-	DateFrom, DateTo        string
+	AfterID               uint
+	Limit                 int
+	Action, AdminUsername string
+	DateFrom, DateTo      string
 }
 
 func (s *AuditService) List(ctx context.Context, p AuditListParams) ([]models.AuditLog, int64, error) {

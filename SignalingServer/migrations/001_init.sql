@@ -171,6 +171,14 @@ CREATE INDEX IF NOT EXISTS idx_audit_logs_admin_id   ON audit_logs(admin_id);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_action     ON audit_logs(action);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at DESC);
 
+-- End-user actors. Added after the table shipped: until this column existed an
+-- audited user action (deleting a recording, changing a device policy) had no
+-- way to record *who* did it, because admin_id means "which administrator".
+ALTER TABLE audit_logs
+    ADD COLUMN IF NOT EXISTS actor_user_id BIGINT NOT NULL DEFAULT 0;
+
+CREATE INDEX IF NOT EXISTS idx_audit_logs_actor_user_id ON audit_logs(actor_user_id);
+
 -- ---------------------------------------------------------------
 -- Dynamic settings (single row)
 -- ---------------------------------------------------------------

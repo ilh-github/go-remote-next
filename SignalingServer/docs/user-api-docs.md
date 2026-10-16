@@ -1172,6 +1172,16 @@ request shapes; this section documents only the route table.
 | `GET` `POST` `PATCH` `DELETE` | `/v1/admin/webhooks[/:id]` |
 | `POST` | `/v1/admin/webhooks/:id/test` |
 
+**Audit rows carry two actor columns.** `admin_id` / `admin_username` identify
+an administrator; `actor_user_id` identifies an end user who acted on their own
+resource. Exactly one of them is set. They are separate columns rather than one
+"actor" on purpose: the two live in different tables, and overloading
+`admin_id` with a user id would make "which administrator did this?"
+unanswerable. The action name is shared where the same fact can be caused by
+either party — a recording deletion is `recording.delete` whether the owner or
+an admin did it, and the actor columns are what tell them apart, so one filter
+shows every deletion.
+
 > **Why `webhooks/:id/test` and not `webhooks/:id:test`** — gin's httprouter
 > cannot register a literal suffix on a wildcard segment. The AIP-136-style
 > `:test` would silently fail to register. Sub-resource form is RESTful and
