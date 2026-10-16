@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"sync"
 	"testing"
@@ -193,5 +195,153 @@ func TestApprovalExpiryAndListFilter(t *testing.T) {
 	}
 	if len(expired) != 1 || expired[0].ID != row.ID {
 		t.Fatalf("expired list = %+v, want the one overdue row", expired)
+	}
+}
+
+// A correct access code is not a licence to fill the owner's decision queue:
+// while a request from the same client is waiting, a second one is refused with
+// a retry hint instead of becoming another entry (and another notification).
+func TestApprovalRefusesSecondPendingFromSameSource(t *testing.T) {
+	db := newApprovalTestDB(t)
+	svc := NewDeviceAccessApprovalService(db)
+	ctx := context.Background()
+
+	first, _, err := svc.Create(ctx, CreateDeviceAccessApprovalInput{
+		DeviceID: "D1111111",
+		OwnerID:  1,
+		ClientID: "controller-1",
+		ClientIP: "203.0.113.9",
+		TTL:      time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("first create: %v", err)
+	}
+
+	_, _, err = svc.Create(ctx, CreateDeviceAccessApprovalInput{
+		DeviceID: "D1111111",
+		OwnerID:  1,
+		ClientID: "controller-1",
+		ClientIP: "203.0.113.9",
+		TTL:      time.Minute,
+	})
+	var pending *PendingApprovalError
+	if !errors.As(err, &pending) {
+		t.Fatalf("second create from the same source = %v, want PendingApprovalError", err)
+	}
+	if pending.Reason != ApprovalRefusedAlreadyPending {
+		t.Fatalf("reason = %q, want %q", pending.Reason, ApprovalRefusedAlreadyPending)
+	}
+	if pending.RetryAfter <= 0 || pending.RetryAfter > time.Minute {
+		t.Fatalf("RetryAfter = %s, want a positive hint inside the pending TTL", pending.RetryAfter)
+	}
+
+	var count int64
+	if err := db.Model(&models.DeviceAccessApproval{}).
+		Where("device_id = ?", "D1111111").Count(&count).Error; err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("refused request still wrote a row: %d rows", count)
+	}
+
+	// A different source is not affected by one client's pending request.
+	if _, _, err := svc.Create(ctx, CreateDeviceAccessApprovalInput{
+		DeviceID: "D1111111",
+		OwnerID:  1,
+		ClientID: "controller-2",
+		ClientIP: "203.0.113.10",
+		TTL:      time.Minute,
+	}); err != nil {
+		t.Fatalf("a different source must still be able to ask: %v", err)
+	}
+
+	// Once the owner decides, the same source may ask again - being refused is
+	// about "already waiting", not about having asked before.
+	if _, changed, err := svc.Decide(ctx, "D1111111", first.ID, false, 1, "no"); err != nil || !changed {
+		t.Fatalf("decide: changed=%t err=%v", changed, err)
+	}
+	if _, _, err := svc.Create(ctx, CreateDeviceAccessApprovalInput{
+		DeviceID: "D1111111",
+		OwnerID:  1,
+		ClientID: "controller-1",
+		ClientIP: "203.0.113.9",
+		TTL:      time.Minute,
+	}); err != nil {
+		t.Fatalf("create after a decision: %v", err)
+	}
+}
+
+// The device's queue has a ceiling whatever the sources, and a lapsed request
+// is expired before it is counted so a stale row cannot block a real one.
+func TestApprovalQueueCapPerDevice(t *testing.T) {
+	db := newApprovalTestDB(t)
+	svc := NewDeviceAccessApprovalService(db)
+	ctx := context.Background()
+
+	// A pending row that has already lapsed must not count towards the cap.
+	if _, _, err := svc.Create(ctx, CreateDeviceAccessApprovalInput{
+		DeviceID: "D2222222",
+		OwnerID:  1,
+		ClientIP: "198.51.100.1",
+		TTL:      time.Millisecond,
+	}); err != nil {
+		t.Fatalf("stale seed: %v", err)
+	}
+	time.Sleep(5 * time.Millisecond)
+
+	for i := 0; i < MaxPendingApprovalsPerDevice; i++ {
+		// The stale row still occupies the first source slot; the second
+		// request from that same address is what proves it was expired.
+		ip := "198.51.100.1"
+		if i > 0 {
+			ip = fmt.Sprintf("198.51.100.%d", i+10)
+		}
+		if _, _, err := svc.Create(ctx, CreateDeviceAccessApprovalInput{
+			DeviceID: "D2222222",
+			OwnerID:  1,
+			ClientID: "controller",
+			ClientIP: ip,
+			TTL:      time.Minute,
+		}); err != nil {
+			t.Fatalf("create %d: %v", i, err)
+		}
+	}
+
+	_, _, err := svc.Create(ctx, CreateDeviceAccessApprovalInput{
+		DeviceID: "D2222222",
+		OwnerID:  1,
+		ClientID: "controller",
+		ClientIP: "203.0.113.200",
+		TTL:      time.Minute,
+	})
+	var pending *PendingApprovalError
+	if !errors.As(err, &pending) {
+		t.Fatalf("overflow create = %v, want PendingApprovalError", err)
+	}
+	if pending.Reason != ApprovalRefusedQueueFull {
+		t.Fatalf("reason = %q, want %q", pending.Reason, ApprovalRefusedQueueFull)
+	}
+	if pending.RetryAfter <= 0 {
+		t.Fatalf("RetryAfter = %s, want a positive hint", pending.RetryAfter)
+	}
+
+	var livePending int64
+	if err := db.Model(&models.DeviceAccessApproval{}).
+		Where("device_id = ? AND status = ?", "D2222222", models.ApprovalPending).
+		Count(&livePending).Error; err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if livePending != MaxPendingApprovalsPerDevice {
+		t.Fatalf("pending = %d, want the cap of %d", livePending, MaxPendingApprovalsPerDevice)
+	}
+
+	// A different device is unaffected by another device's full queue.
+	if _, _, err := svc.Create(ctx, CreateDeviceAccessApprovalInput{
+		DeviceID: "D3333333",
+		OwnerID:  1,
+		ClientIP: "203.0.113.200",
+		TTL:      time.Minute,
+	}); err != nil {
+		t.Fatalf("another device must not inherit the full queue: %v", err)
 	}
 }

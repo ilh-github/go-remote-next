@@ -578,6 +578,19 @@ reason) and fan out as the usual `device.access.denied` event, so notification
 channels subscribed to denials see policy blocks too. Policy changes are
 audited as `device.access_policy.changed`.
 
+> **Where `client_ip` comes from (known limitation).** Everything that keys on
+> a client address — `allow_ips`, `approval_trusted_ips`, the per-IP rate
+> limiters, the access log, and the per-source half of the approval queue guard
+> — uses gin's `ClientIP()`, which trusts `X-Forwarded-For` **from any peer** by
+> default. A client that can send the header therefore chooses its own
+> `client_ip`; verified locally by sending `X-Forwarded-For: 198.51.100.77`
+> from loopback and seeing the access log record that address. Behind a reverse
+> proxy this is fine as long as the proxy sets or strips the header (the
+> supplied Nginx config does), but it must not be assumed: a directly exposed
+> server makes the IP-based gates advisory. The fix is to make the trusted
+> proxies configurable and default to loopback/private ranges; until then,
+> deploy behind a proxy that owns the header.
+
 ### 5.3.4 Device access grants (time-boxed guest codes)
 
 Handing a guest the device's own access code means handing them a code that
@@ -673,6 +686,17 @@ Rules that matter:
   after the host-online check — the same property as the non-approval path.
 - A pending approval **expires** after 2 minutes (`DeviceAccessApprovalDefaultTTL`);
   the client then sees `403` on claim and the row reads `expired`.
+- **A request is refused while one is already waiting.** A correct code is not
+  a licence to fill the owner's decision queue: the same client asking again
+  gets `429 RATE_LIMITED` with `Retry-After` until its pending request expires,
+  and a device never accumulates more than 5 unanswered requests from any mix
+  of sources (the sixth is `429` too). Both refusals mean "wait", not "wrong
+  code" — the code was right. Once the pending request expires or the owner
+  decides, the same client may ask again.
+  The per-source half keys on the address the server saw, which is the
+  `X-Forwarded-For`-derived client IP — see the trusted-proxy caveat in
+  §5.3.3: behind a proxy that does not strip or overwrite the header, a client
+  can choose its own `client_ip`.
 - Access-timeline rows read `pending_approval` on request, `denied_approval`
   when the owner refuses, and `granted` when the claim succeeds. Approving or
   denying is also written to the admin audit trail (it is an admission

@@ -539,6 +539,20 @@ func (h *HostHandler) VerifyAccessCode(c *gin.Context) {
 				GrantID:  grantID,
 			})
 		if aerr != nil {
+			// One request per source at a time, and a ceiling on the device's
+			// queue: otherwise a correct code buys unlimited entries in the
+			// owner's decision list, and each entry is also a notification.
+			var pending *service.PendingApprovalError
+			if errors.As(aerr, &pending) {
+				retry := int(pending.RetryAfter.Seconds())
+				if retry < 1 {
+					// The blocking request is expiring right now; still tell
+					// the client to come back rather than looping immediately.
+					retry = 1
+				}
+				ProblemTooManyRequests(c, ProblemCodeRateLimited, pending.Error(), retry)
+				return
+			}
 			ProblemInternal(c, aerr.Error())
 			return
 		}

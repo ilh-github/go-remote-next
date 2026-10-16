@@ -21,6 +21,47 @@ import (
 // front of a countdown.
 const DeviceAccessApprovalDefaultTTL = 2 * time.Minute
 
+// Access-request queue limits.
+//
+// A correct access code is not a licence to fill the owner's decision queue.
+// Without these guards one source can create unlimited pending requests and
+// every one of them pushes a notification, so the "second factor" becomes a
+// way to page the owner at will.
+const (
+	// MaxPendingApprovalsPerDevice bounds how many unanswered requests one
+	// device accumulates, whatever the sources. The trade-off is explicit: a
+	// distributed source can hold the queue full for up to one TTL, which is
+	// why the cap is paired with a short TTL and not set to 1.
+	MaxPendingApprovalsPerDevice = 5
+)
+
+// Reasons a request was refused instead of queued. Stable strings so the API
+// can echo them and a client can branch on them.
+const (
+	// ApprovalRefusedAlreadyPending means this same client already has a
+	// request waiting for this device.
+	ApprovalRefusedAlreadyPending = "already_pending"
+	// ApprovalRefusedQueueFull means the device's decision queue is full.
+	ApprovalRefusedQueueFull = "queue_full"
+)
+
+// PendingApprovalError reports that no approval was created because one is
+// already waiting. Callers map it onto 429 with a retry hint rather than a
+// 5xx: the request was well-formed and the code was right, the client simply
+// has to wait.
+type PendingApprovalError struct {
+	Reason string
+	// RetryAfter is how long until the blocking request stops mattering.
+	RetryAfter time.Duration
+}
+
+func (e *PendingApprovalError) Error() string {
+	if e.Reason == ApprovalRefusedQueueFull {
+		return "too many access requests are already waiting for the owner"
+	}
+	return "an access request from this client is already waiting for the owner"
+}
+
 // ClaimOutcome is the state a claim attempt observed. It mirrors the approval
 // status plus the two transport-level cases (not found / already consumed) so
 // the handler can map straight onto HTTP codes.
@@ -102,10 +143,90 @@ func (s *DeviceAccessApprovalService) Create(
 		CreatedAt:  now,
 		UpdatedAt:  now,
 	}
-	if err := s.db.WithContext(ctx).Create(row).Error; err != nil {
+	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := s.guardPendingRequests(tx, in, now); err != nil {
+			return err
+		}
+		return tx.Create(row).Error
+	})
+	if err != nil {
 		return nil, "", err
 	}
 	return row, secret, nil
+}
+
+// guardPendingRequests refuses a new request while one is already waiting.
+//
+// Two guards, for two different abuses. The first is per source: the same
+// client asking twice does not create two entries in the owner's queue, which
+// is what "连续发起多笔审批" was. The second is per device: whatever the
+// sources, the queue has a ceiling, because every entry is also a notification
+// and "unbounded queue" means "unbounded ability to page the owner".
+//
+// It runs inside the caller's transaction and takes a row lock on the device
+// first. A bare check-then-insert is exactly the shape that races: two
+// simultaneous requests from the same source would both see an empty queue and
+// both insert. The lock serialises them per device, and it is short - two
+// indexed reads and one insert.
+func (s *DeviceAccessApprovalService) guardPendingRequests(
+	tx *gorm.DB,
+	in CreateDeviceAccessApprovalInput,
+	now time.Time,
+) error {
+	var device struct {
+		ID uint `gorm:"column:id"`
+	}
+	if err := tx.Raw("SELECT id FROM devices WHERE device_id = ? FOR UPDATE", in.DeviceID).
+		Scan(&device).Error; err != nil {
+		return err
+	}
+
+	// A stale `pending` row must not block a legitimate request, and the owner
+	// may not have opened the approvals list since it lapsed.
+	if err := tx.Model(&models.DeviceAccessApproval{}).
+		Where("device_id = ? AND status = ? AND expires_at <= ?", in.DeviceID, models.ApprovalPending, now).
+		Updates(map[string]interface{}{
+			"status":     models.ApprovalExpired,
+			"decided_at": now,
+			"reason":     "expired without a decision",
+			"updated_at": now,
+		}).Error; err != nil {
+		return err
+	}
+
+	if ip := strings.TrimSpace(in.ClientIP); ip != "" {
+		var existing models.DeviceAccessApproval
+		err := tx.Where("device_id = ? AND client_ip = ? AND status = ?", in.DeviceID, ip, models.ApprovalPending).
+			Order("id ASC").
+			First(&existing).Error
+		switch {
+		case err == nil:
+			return &PendingApprovalError{
+				Reason:     ApprovalRefusedAlreadyPending,
+				RetryAfter: time.Until(existing.ExpiresAt),
+			}
+		case !errors.Is(err, gorm.ErrRecordNotFound):
+			return err
+		}
+	}
+
+	var pending int64
+	if err := tx.Model(&models.DeviceAccessApproval{}).
+		Where("device_id = ? AND status = ?", in.DeviceID, models.ApprovalPending).
+		Count(&pending).Error; err != nil {
+		return err
+	}
+	if pending >= MaxPendingApprovalsPerDevice {
+		var next models.DeviceAccessApproval
+		_ = tx.Where("device_id = ? AND status = ?", in.DeviceID, models.ApprovalPending).
+			Order("expires_at ASC").
+			First(&next).Error
+		return &PendingApprovalError{
+			Reason:     ApprovalRefusedQueueFull,
+			RetryAfter: time.Until(next.ExpiresAt),
+		}
+	}
+	return nil
 }
 
 // Get returns one approval by id, or (nil, nil) when it does not exist.
