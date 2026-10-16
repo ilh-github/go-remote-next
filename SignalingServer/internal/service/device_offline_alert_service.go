@@ -2,8 +2,11 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"quickdesk/signaling/internal/models"
@@ -21,6 +24,11 @@ var ErrInvalidOfflineAlertThreshold = errors.New("after_minutes must be between 
 // cap. 0 is allowed and means "one alert per outage".
 var ErrInvalidOfflineAlertRepeat = errors.New("repeat_minutes must be zero (no repeat) or between 1 and 10080")
 
+// ErrInvalidOfflineAlertMaintenance means the recurring maintenance windows or
+// their timezone were malformed. The window shape is shared with device access
+// windows, so the underlying validation errors are reused.
+var ErrInvalidOfflineAlertMaintenance = errors.New("maintenance_windows must be a list of {days 0-6, start/end HH:MM} with a valid IANA timezone")
+
 // Bounds and defaults for the offline-alert threshold.
 const (
 	DefaultOfflineAlertAfterMinutes = 10
@@ -29,6 +37,10 @@ const (
 	// MaxOfflineAlertRepeatMinutes bounds the reminder interval the same way
 	// the threshold is bounded: a week is already longer than most outages.
 	MaxOfflineAlertRepeatMinutes = 7 * 24 * 60
+	// MaxOfflineAlertMaintenanceWindows bounds how many recurring windows one
+	// rule may carry. A handful covers "nights and weekends"; an unbounded
+	// list would only make the evaluator's per-tick work surprising.
+	MaxOfflineAlertMaintenanceWindows = 20
 )
 
 // UpsertOfflineAlertInput is the validated body of the offline-alert endpoint.
@@ -38,6 +50,12 @@ type UpsertOfflineAlertInput struct {
 	RepeatMinutes int
 	// SnoozedUntil silences alerts until this instant; nil clears any snooze.
 	SnoozedUntil *time.Time
+	// MaintenanceWindows are recurring quiet periods evaluated in
+	// MaintenanceTimezone. Nil/empty clears any existing windows.
+	MaintenanceWindows []AccessWindow
+	// MaintenanceTimezone is the IANA zone the windows use. Empty means the
+	// server's local zone.
+	MaintenanceTimezone string
 }
 
 // offlineAlertBatch bounds one evaluator pass. Rules are one-per-device and
@@ -111,21 +129,32 @@ func (s *DeviceOfflineAlertService) Upsert(
 	if in.RepeatMinutes < 0 || in.RepeatMinutes > MaxOfflineAlertRepeatMinutes {
 		return nil, ErrInvalidOfflineAlertRepeat
 	}
+	if err := validateOfflineAlertMaintenance(in.MaintenanceWindows, in.MaintenanceTimezone); err != nil {
+		return nil, err
+	}
+	windowsJSON, err := encodeOfflineAlertMaintenance(in.MaintenanceWindows)
+	if err != nil {
+		return nil, err
+	}
 	now := time.Now().UTC()
 
 	row := models.DeviceOfflineAlertRule{
-		DeviceID:      deviceID,
-		OwnerID:       ownerID,
-		Enabled:       in.Enabled,
-		AfterMinutes:  in.AfterMinutes,
-		RepeatMinutes: in.RepeatMinutes,
+		DeviceID:            deviceID,
+		OwnerID:             ownerID,
+		Enabled:             in.Enabled,
+		AfterMinutes:        in.AfterMinutes,
+		RepeatMinutes:       in.RepeatMinutes,
+		MaintenanceWindows:  windowsJSON,
+		MaintenanceTimezone: in.MaintenanceTimezone,
 	}
 	updates := map[string]interface{}{
-		"owner_id":       ownerID,
-		"enabled":        in.Enabled,
-		"after_minutes":  in.AfterMinutes,
-		"repeat_minutes": in.RepeatMinutes,
-		"updated_at":     now,
+		"owner_id":             ownerID,
+		"enabled":              in.Enabled,
+		"after_minutes":        in.AfterMinutes,
+		"repeat_minutes":       in.RepeatMinutes,
+		"maintenance_windows":  windowsJSON,
+		"maintenance_timezone": in.MaintenanceTimezone,
+		"updated_at":           now,
 	}
 	if in.SnoozedUntil != nil {
 		updates["snoozed_until"] = in.SnoozedUntil.UTC()
@@ -268,6 +297,12 @@ func (s *DeviceOfflineAlertService) evaluateRule(
 	if rule.SnoozedUntil != nil && now.Before(*rule.SnoozedUntil) {
 		return 0, nil
 	}
+	// A recurring maintenance window is the same idea as a snooze, just on a
+	// schedule: stay quiet, keep the episode clock running, and speak up when
+	// the window ends if the device is still down.
+	if OfflineAlertMaintenanceActive(rule, now) {
+		return 0, nil
+	}
 	if rule.AlertedAt != nil {
 		if rule.RepeatMinutes <= 0 {
 			// Already told the owner about this episode and no reminder was
@@ -353,6 +388,63 @@ func (s *DeviceOfflineAlertService) publishOfflineAlert(
 			"repeat_minutes": rule.RepeatMinutes,
 		},
 	})
+}
+
+// encodeOfflineAlertMaintenance marshals the windows for storage. An empty
+// list is stored as "" rather than "[]" so "no windows" has exactly one
+// representation and a legacy row needs no backfill.
+func encodeOfflineAlertMaintenance(windows []AccessWindow) (string, error) {
+	if len(windows) == 0 {
+		return "", nil
+	}
+	buf, err := json.Marshal(windows)
+	if err != nil {
+		return "", err
+	}
+	return string(buf), nil
+}
+
+// validateOfflineAlertMaintenance reuses the access-window validator and the
+// timezone validator so the two features cannot drift on what a valid window
+// is, and caps the list so one rule cannot carry an unbounded schedule.
+func validateOfflineAlertMaintenance(windows []AccessWindow, timezone string) error {
+	if len(windows) > MaxOfflineAlertMaintenanceWindows {
+		return fmt.Errorf("%w: at most %d windows", ErrInvalidOfflineAlertMaintenance, MaxOfflineAlertMaintenanceWindows)
+	}
+	if err := ValidateAccessWindows(windows); err != nil {
+		return fmt.Errorf("%w: %s", ErrInvalidOfflineAlertMaintenance, err)
+	}
+	if err := ValidateTimezone(timezone); err != nil {
+		return fmt.Errorf("%w: %s", ErrInvalidOfflineAlertMaintenance, err)
+	}
+	return nil
+}
+
+// OfflineAlertMaintenanceWindows decodes the stored windows. A malformed row
+// (hand-edited database, older schema) decodes to "no windows" so the
+// evaluator keeps running instead of failing every tick.
+func OfflineAlertMaintenanceWindows(stored string) []AccessWindow {
+	if strings.TrimSpace(stored) == "" {
+		return nil
+	}
+	var windows []AccessWindow
+	if err := json.Unmarshal([]byte(stored), &windows); err != nil {
+		return nil
+	}
+	return windows
+}
+
+// OfflineAlertMaintenanceActive reports whether `now` falls inside any of the
+// rule's recurring quiet windows. It reuses the access-window evaluator, so
+// midnight wrap and the "same start/end means all day" reading behave exactly
+// as they do for device access windows.
+func OfflineAlertMaintenanceActive(rule models.DeviceOfflineAlertRule, now time.Time) bool {
+	windows := OfflineAlertMaintenanceWindows(rule.MaintenanceWindows)
+	if len(windows) == 0 {
+		return false
+	}
+	active, _ := EvaluateAccessWindowsAt(windows, LocationForPolicy(rule.MaintenanceTimezone), now)
+	return active
 }
 
 // Run evaluates the rules until ctx is cancelled.

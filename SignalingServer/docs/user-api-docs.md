@@ -736,15 +736,24 @@ rule per device:
 | Method | Path | Auth | Body / notes |
 |---|---|---|---|
 | `GET` | `/v1/me/devices/:device_id/offline-alert` | user token | The rule, or the defaults (`enabled: false`, `after_minutes: 10`) when none is configured. Also returns the evaluator's episode state. |
-| `PUT` | `/v1/me/devices/:device_id/offline-alert` | user token | `{enabled, after_minutes, repeat_minutes?, snoozed_until?}`. `after_minutes` is 1…10080 (7 days); omitting it (or sending `0`) stores the default of 10. `repeat_minutes` is 0 (one alert per outage, the default) or 1…10080. `snoozed_until` is an RFC3339 instant; omitting or sending `null` clears an existing snooze. Out-of-range values are `400`. |
+| `PUT` | `/v1/me/devices/:device_id/offline-alert` | user token | `{enabled, after_minutes, repeat_minutes?, snoozed_until?, maintenance_windows?, maintenance_timezone?}`. `after_minutes` is 1…10080 (7 days); omitting it (or sending `0`) stores the default of 10. `repeat_minutes` is 0 (one alert per outage, the default) or 1…10080. `snoozed_until` is an RFC3339 instant; omitting or sending `null` clears an existing snooze. `maintenance_windows` is a list of recurring quiet periods, each `{"days":[0-6],"start":"HH:MM","end":"HH:MM"}` (at most 20); `maintenance_timezone` is an IANA zone name (empty = the server's local zone). Omitted/empty clears them. Out-of-range or malformed values are `400`. |
 | `DELETE` | `/v1/me/devices/:device_id/offline-alert` | user token | `204`. Idempotent: deleting a rule that does not exist is still `204`. |
 
 Response:
 
 ```json
 {"device_id": "256983850", "enabled": true, "after_minutes": 10, "repeat_minutes": 0,
+ "maintenance_windows": [{"days":[0],"start":"02:00","end":"04:00"}], "maintenance_timezone": "Asia/Shanghai",
+ "in_maintenance_window": false,
  "offline_since": "2026-10-16T04:10:17Z", "last_alerted_at": "2026-10-16T04:11:17Z"}
 ```
+
+`in_maintenance_window` is computed at read time, so a client can show "quiet
+right now because of a recurring window" without re-implementing the schedule.
+The window shape and its midnight-wrap rule (`start` later than `end` means the
+window runs into the next day; `start == end` means all day on the selected
+days; an empty `days` list means every day) are identical to device access
+windows, so operators only have to learn one model.
 
 A background evaluator (`OFFLINE_ALERT_INTERVAL_SECONDS`, default 30; `0`
 disables it) turns presence into an episode state machine:
@@ -792,6 +801,12 @@ them wrong:
   publishing while it is in the future, but `offline_since` keeps running and
   the moment it expires the alert (or the next reminder) goes out — a
   maintenance window should not make the outage invisible, only quiet.
+- **A recurring window behaves like a snooze that repeats.** While `now` falls
+  inside any configured `maintenance_windows` entry the evaluator publishes
+  nothing, but the episode clock keeps running exactly as with a snooze, so a
+  weekly backup window is one setting instead of a fresh `snoozed_until` every
+  time. `in_maintenance_window` in the response tells the owner why it is
+  quiet.
 
 Both `offline_since` and `last_alerted_at` are written with conditional
 `UPDATE`s (`... WHERE offline_since IS NULL` and `... WHERE alerted_at IS NULL`),

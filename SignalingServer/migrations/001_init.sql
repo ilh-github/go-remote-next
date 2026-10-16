@@ -491,6 +491,15 @@ ALTER TABLE device_offline_alert_rules
 ALTER TABLE device_offline_alert_rules
     ADD COLUMN IF NOT EXISTS snoozed_until TIMESTAMPTZ;
 
+-- Recurring maintenance windows (weekly quiet periods) were added after the
+-- one-shot snooze, so keep a JSON list of windows plus the zone they are
+-- evaluated in. Empty string means "no recurring window".
+ALTER TABLE device_offline_alert_rules
+    ADD COLUMN IF NOT EXISTS maintenance_windows TEXT NOT NULL DEFAULT '';
+
+ALTER TABLE device_offline_alert_rules
+    ADD COLUMN IF NOT EXISTS maintenance_timezone VARCHAR(64) NOT NULL DEFAULT '';
+
 -- ---------------------------------------------------------------
 -- Preset (single-row server config distributed to clients)
 -- ---------------------------------------------------------------
