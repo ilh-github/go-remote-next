@@ -227,6 +227,14 @@ type ApprovalConfig struct {
 	// denial be followed by another request immediately - the historical
 	// behaviour, and the abuse the cooldown exists to close.
 	DenialCooldownSeconds int
+	// DenialCooldownMultiplier makes each further consecutive refusal cost
+	// more: a source with a streak of n denials waits
+	// DenialCooldownSeconds * multiplier^(n-1). 1 keeps the window constant,
+	// which is why it is the default.
+	DenialCooldownMultiplier int
+	// DenialCooldownMaxSeconds caps that escalation. 0 means "no ceiling", so
+	// only the multiplier bounds the window.
+	DenialCooldownMaxSeconds int
 }
 
 type RuntimeConfig struct {
@@ -379,6 +387,14 @@ func Load() *Config {
 	// what turns a correct access code into a way to keep paging the owner.
 	viper.SetDefault("APPROVAL_DENIAL_COOLDOWN_SECONDS", 300)
 
+	// Repeated denials from one source can lengthen that window. The default
+	// multiplier of 1 keeps the window constant: escalation is opt-in because
+	// it changes how a well-behaved-but-unlucky client is treated.
+	viper.SetDefault("APPROVAL_DENIAL_COOLDOWN_MULTIPLIER", 1)
+	// 0 means "no ceiling"; set it whenever the multiplier is above 1, or the
+	// window grows without bound as the streak grows.
+	viper.SetDefault("APPROVAL_DENIAL_COOLDOWN_MAX_SECONDS", 0)
+
 	// Statutory holiday calendar used by device access policies. Empty keeps
 	// the year(s) embedded in the binary; point it at a directory of
 	// holiday-cn style YYYY.json files to add years without a rebuild.
@@ -493,7 +509,9 @@ func Load() *Config {
 		IntervalSeconds: viper.GetInt("SCHEDULED_TASK_INTERVAL_SECONDS"),
 	}
 	cfg.Approval = ApprovalConfig{
-		DenialCooldownSeconds: viper.GetInt("APPROVAL_DENIAL_COOLDOWN_SECONDS"),
+		DenialCooldownSeconds:    viper.GetInt("APPROVAL_DENIAL_COOLDOWN_SECONDS"),
+		DenialCooldownMultiplier: viper.GetInt("APPROVAL_DENIAL_COOLDOWN_MULTIPLIER"),
+		DenialCooldownMaxSeconds: viper.GetInt("APPROVAL_DENIAL_COOLDOWN_MAX_SECONDS"),
 	}
 	cfg.Holiday = HolidayConfig{
 		Dir: viper.GetString("HOLIDAY_CALENDAR_DIR"),

@@ -157,7 +157,15 @@ func main() {
 	if cfg.Approval.DenialCooldownSeconds > 0 {
 		deviceAccessApprovalService.WithDenialCooldown(
 			time.Duration(cfg.Approval.DenialCooldownSeconds) * time.Second)
-		log.Printf("Approval denial cooldown: %ds", cfg.Approval.DenialCooldownSeconds)
+		deviceAccessApprovalService.WithDenialCooldownEscalation(
+			cfg.Approval.DenialCooldownMultiplier, cfg.Approval.DenialCooldownMaxSeconds)
+		if multiplier := deviceAccessApprovalService.DenialCooldownMultiplier(); multiplier > 1 {
+			log.Printf(
+				"Approval denial cooldown: %ds per denial, x%d per consecutive denial, capped at %ds",
+				cfg.Approval.DenialCooldownSeconds, multiplier, cfg.Approval.DenialCooldownMaxSeconds)
+		} else {
+			log.Printf("Approval denial cooldown: %ds", cfg.Approval.DenialCooldownSeconds)
+		}
 	}
 	notificationDeliveryService := service.NewNotificationDeliveryService(db)
 	if cfg.Notification.ArchiveDir != "" {

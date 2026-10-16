@@ -33,6 +33,17 @@ const (
 	// distributed source can hold the queue full for up to one TTL, which is
 	// why the cap is paired with a short TTL and not set to 1.
 	MaxPendingApprovalsPerDevice = 5
+
+	// approvalDenialStreakScanLimit bounds how far back the escalating denial
+	// cooldown counts. A source that has been refused this many times in a row
+	// is already pinned to the ceiling by any multiplier worth configuring, so
+	// reading further would only cost queries.
+	approvalDenialStreakScanLimit = 64
+
+	// denialCooldownSaturation is the largest representable Duration. The
+	// escalation multiplies, so it has to stop somewhere: a streak long enough
+	// to overflow is a streak that should be capped by configuration anyway.
+	denialCooldownSaturation = time.Duration(1<<63 - 1)
 )
 
 // Reasons a request was refused instead of queued. Stable strings so the API
@@ -101,10 +112,17 @@ type DeviceAccessApprovalService struct {
 	// it, which is the historical behaviour: a denial immediately frees the
 	// source to ask again.
 	denialCooldown time.Duration
+	// denialCooldownMultiplier lengthens the window for a source that has been
+	// denied repeatedly: the streak of leading denials is the exponent. 1
+	// leaves the window constant, which is the historical behaviour.
+	denialCooldownMultiplier int
+	// denialCooldownMax, when positive, is the ceiling the escalation cannot
+	// pass. 0 means "no ceiling", so only the multiplier bounds the window.
+	denialCooldownMax time.Duration
 }
 
 func NewDeviceAccessApprovalService(db *gorm.DB) *DeviceAccessApprovalService {
-	return &DeviceAccessApprovalService{db: db}
+	return &DeviceAccessApprovalService{db: db, denialCooldownMultiplier: 1}
 }
 
 // WithDenialCooldown sets how long a denied source must wait before it may ask
@@ -123,6 +141,71 @@ func (s *DeviceAccessApprovalService) DenialCooldown() time.Duration {
 		return 0
 	}
 	return s.denialCooldown
+}
+
+// WithDenialCooldownEscalation makes repeated denials cost more: a source that
+// has been refused `n` times in a row without a decision in its favour waits
+// `denialCooldown * multiplier^(n-1)`, capped at maxSeconds.
+//
+// It is deliberately additive to WithDenialCooldown rather than a replacement:
+// a multiplier of 1 and a ceiling of 0 reproduce the fixed window exactly, so
+// an existing deployment that sets neither keeps the behaviour it has.
+func (s *DeviceAccessApprovalService) WithDenialCooldownEscalation(multiplier int, maxSeconds int) *DeviceAccessApprovalService {
+	if multiplier < 1 {
+		multiplier = 1
+	}
+	ceiling := time.Duration(0)
+	if maxSeconds > 0 {
+		ceiling = time.Duration(maxSeconds) * time.Second
+	}
+	s.denialCooldownMultiplier = multiplier
+	s.denialCooldownMax = ceiling
+	return s
+}
+
+// DenialCooldownMultiplier reports the configured escalation factor (1 =
+// escalation disabled).
+func (s *DeviceAccessApprovalService) DenialCooldownMultiplier() int {
+	if s == nil || s.denialCooldownMultiplier < 1 {
+		return 1
+	}
+	return s.denialCooldownMultiplier
+}
+
+// DenialCooldownMax reports the configured ceiling (0 = uncapped).
+func (s *DeviceAccessApprovalService) DenialCooldownMax() time.Duration {
+	if s == nil {
+		return 0
+	}
+	return s.denialCooldownMax
+}
+
+// denialWindowFor returns how long a source with this denial streak must wait.
+// The ceiling applies whenever it is set, including with a multiplier of 1,
+// where it acts as a plain override rather than an escalation cap.
+func (s *DeviceAccessApprovalService) denialWindowFor(streak int) time.Duration {
+	base := s.DenialCooldown()
+	if base <= 0 {
+		return 0
+	}
+	window := base
+	if multiplier := s.DenialCooldownMultiplier(); multiplier > 1 {
+		for i := 1; i < streak; i++ {
+			if ceiling := s.DenialCooldownMax(); ceiling > 0 && window >= ceiling {
+				break
+			}
+			step := time.Duration(multiplier)
+			if window > denialCooldownSaturation/step {
+				window = denialCooldownSaturation
+				break
+			}
+			window *= step
+		}
+	}
+	if ceiling := s.DenialCooldownMax(); ceiling > 0 && window > ceiling {
+		window = ceiling
+	}
+	return window
 }
 
 // CreateDeviceAccessApprovalInput is one pending request.
@@ -246,24 +329,23 @@ func (s *DeviceAccessApprovalService) guardPendingRequests(
 	// a correct access code into a way to keep paging the owner. The window is
 	// per (device, source), so one stranger's denial cannot lock out anybody
 	// else, and the retry hint is honest about when the block lifts.
+	//
+	// The window grows with the streak of consecutive denials ("no" after "no"
+	// costs more than the first "no") and never shrinks below the configured
+	// base. An approval, or a request that simply expired because the owner
+	// never answered, ends the streak: only an explicit refusal escalates.
 	if ip := strings.TrimSpace(in.ClientIP); ip != "" && s.denialCooldown > 0 {
-		var denied models.DeviceAccessApproval
-		err := tx.Where("device_id = ? AND client_ip = ? AND status = ? AND decided_at > ?",
-			in.DeviceID, ip, models.ApprovalDenied, now.Add(-s.denialCooldown)).
-			Order("id DESC").
-			First(&denied).Error
-		switch {
-		case err == nil:
-			retry := time.Duration(0)
-			if denied.DecidedAt != nil {
-				retry = time.Until(denied.DecidedAt.Add(s.denialCooldown))
-			}
-			return &PendingApprovalError{
-				Reason:     ApprovalRefusedDeniedRecently,
-				RetryAfter: retry,
-			}
-		case !errors.Is(err, gorm.ErrRecordNotFound):
+		streak, lastDeniedAt, err := s.denialStreak(tx, in.DeviceID, ip)
+		if err != nil {
 			return err
+		}
+		if streak > 0 && lastDeniedAt != nil {
+			if retry := time.Until(lastDeniedAt.Add(s.denialWindowFor(streak))); retry > 0 {
+				return &PendingApprovalError{
+					Reason:     ApprovalRefusedDeniedRecently,
+					RetryAfter: retry,
+				}
+			}
 		}
 	}
 
@@ -284,6 +366,43 @@ func (s *DeviceAccessApprovalService) guardPendingRequests(
 		}
 	}
 	return nil
+}
+
+// denialStreak counts how many times this source has been refused in a row
+// without a decision in its favour, and reports when the most recent refusal
+// happened.
+//
+// The streak is read from the decided rows for this (device, source) pair in
+// reverse chronological order and stops at the first decision that was not a
+// denial. That makes the counter self-healing: an approval, or a request that
+// merely expired because nobody answered, resets it to zero, so a source that
+// once misbehaved is not punished months later. Only a refusal escalates.
+func (s *DeviceAccessApprovalService) denialStreak(
+	tx *gorm.DB,
+	deviceID string,
+	ip string,
+) (int, *time.Time, error) {
+	var rows []models.DeviceAccessApproval
+	if err := tx.
+		Where("device_id = ? AND client_ip = ? AND decided_at IS NOT NULL", deviceID, ip).
+		Order("decided_at DESC, id DESC").
+		Limit(approvalDenialStreakScanLimit).
+		Find(&rows).Error; err != nil {
+		return 0, nil, err
+	}
+	streak := 0
+	for _, row := range rows {
+		if row.Status != models.ApprovalDenied {
+			break
+		}
+		streak++
+	}
+	if streak == 0 {
+		return 0, nil, nil
+	}
+	// Rows are ordered newest first and the query excludes undecided rows, so
+	// this is the timestamp of the refusal that is currently holding the door.
+	return streak, rows[0].DecidedAt, nil
 }
 
 // Get returns one approval by id, or (nil, nil) when it does not exist.
@@ -364,6 +483,12 @@ type ApprovalSummary struct {
 	// tell "this source is being refused right now" from "it was refused a
 	// while ago".
 	DenialCooldownSeconds int `json:"denial_cooldown_seconds"`
+	// DenialCooldownMultiplier echoes how much each further consecutive
+	// refusal lengthens the window (1 = the window never grows).
+	DenialCooldownMultiplier int `json:"denial_cooldown_multiplier"`
+	// DenialCooldownMaxSeconds echoes the ceiling the escalation cannot pass
+	// (0 = uncapped).
+	DenialCooldownMaxSeconds int `json:"denial_cooldown_max_seconds"`
 }
 
 // Summary aggregates this device's approvals inside a window. The window is
@@ -396,8 +521,10 @@ func (s *DeviceAccessApprovalService) Summary(
 			models.ApprovalExpired:  0,
 			models.ApprovalConsumed: 0,
 		},
-		DeniedSources:         []ApprovalDeniedSource{},
-		DenialCooldownSeconds: int(s.denialCooldown.Seconds()),
+		DeniedSources:            []ApprovalDeniedSource{},
+		DenialCooldownSeconds:    int(s.denialCooldown.Seconds()),
+		DenialCooldownMultiplier: s.DenialCooldownMultiplier(),
+		DenialCooldownMaxSeconds: int(s.DenialCooldownMax().Seconds()),
 	}
 
 	type statusRow struct {

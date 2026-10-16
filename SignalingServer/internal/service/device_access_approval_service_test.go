@@ -543,3 +543,241 @@ func TestApprovalSummaryAggregatesStatusesAndDeniedSources(t *testing.T) {
 		t.Fatalf("another device's summary = %+v, want empty", other)
 	}
 }
+
+// The window a refused source has to sit out is base * multiplier^(streak-1),
+// never below the base, and capped when a ceiling is configured. The default
+// configuration (multiplier 1, no ceiling) must reproduce the fixed window
+// exactly, because that is what every existing deployment runs.
+func TestApprovalDenialWindowEscalation(t *testing.T) {
+	cases := []struct {
+		name       string
+		base       time.Duration
+		multiplier int
+		maxSeconds int
+		streak     int
+		want       time.Duration
+	}{
+		{"fixed window is unchanged by a multiplier of one", time.Minute, 1, 0, 7, time.Minute},
+		{"an unconfigured multiplier never grows", time.Minute, 0, 0, 7, time.Minute},
+		{"escalation is off before the first refusal", time.Minute, 2, 0, 0, time.Minute},
+		{"the first refusal costs the base window", time.Minute, 2, 0, 1, time.Minute},
+		{"the third consecutive refusal costs four base windows", time.Minute, 2, 0, 3, 4 * time.Minute},
+		{"the ceiling stops the growth", time.Minute, 3, 300, 5, 5 * time.Minute},
+		{"a ceiling with no multiplier acts as a plain override", time.Minute, 1, 30, 4, 30 * time.Second},
+		{"a disabled cooldown stays disabled", 0, 5, 300, 9, 0},
+		{"a streak long enough to overflow saturates instead", time.Second, 1000, 0, 64, denialCooldownSaturation},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := NewDeviceAccessApprovalService(nil).
+				WithDenialCooldown(tc.base).
+				WithDenialCooldownEscalation(tc.multiplier, tc.maxSeconds)
+			if got := svc.denialWindowFor(tc.streak); got != tc.want {
+				t.Fatalf("window for a streak of %d = %s, want %s", tc.streak, got, tc.want)
+			}
+		})
+	}
+
+	// Sanity on the sanitising accessors: a nonsense multiplier is treated as
+	// "no escalation" rather than as a window of zero.
+	svc := NewDeviceAccessApprovalService(nil).WithDenialCooldown(time.Minute).
+		WithDenialCooldownEscalation(-4, -1)
+	if svc.DenialCooldownMultiplier() != 1 || svc.DenialCooldownMax() != 0 {
+		t.Fatalf("multiplier/max = %d/%s, want 1/0s",
+			svc.DenialCooldownMultiplier(), svc.DenialCooldownMax())
+	}
+	if got := svc.denialWindowFor(5); got != time.Minute {
+		t.Fatalf("window after sanitising = %s, want the base minute", got)
+	}
+}
+
+// Escalation has to be observable on the real path, not only in the arithmetic:
+// after two refusals the source is still blocked at an age that the plain base
+// window would already have forgiven.
+func TestApprovalDenialCooldownEscalatesOnTheRealPath(t *testing.T) {
+	db := newApprovalTestDB(t)
+	const base = time.Minute
+	svc := NewDeviceAccessApprovalService(db).
+		WithDenialCooldown(base).
+		WithDenialCooldownEscalation(2, 300)
+	ctx := context.Background()
+	const deviceID = "D8888888"
+	const ip = "203.0.113.88"
+
+	// Refuse this source once, then age that decision past the base window so
+	// the next request is let through and becomes the second refusal.
+	deny := func(age time.Duration) uint {
+		t.Helper()
+		row, _, err := svc.Create(ctx, CreateDeviceAccessApprovalInput{
+			DeviceID: deviceID,
+			OwnerID:  1,
+			ClientID: "controller-1",
+			ClientIP: ip,
+			TTL:      time.Minute,
+		})
+		if err != nil {
+			t.Fatalf("create: %v", err)
+		}
+		if _, _, err := svc.Decide(ctx, deviceID, row.ID, false, 1, "not now"); err != nil {
+			t.Fatalf("deny: %v", err)
+		}
+		if age > 0 {
+			if err := db.Model(&models.DeviceAccessApproval{}).
+				Where("id = ?", row.ID).
+				Update("decided_at", time.Now().Add(-age)).Error; err != nil {
+				t.Fatalf("age the decision: %v", err)
+			}
+		}
+		return row.ID
+	}
+
+	first := deny(200 * time.Second)
+	second := deny(0)
+
+	// 90s after the second refusal: inside the escalated 120s window, outside
+	// the 60s one the deployment would have had without escalation. The first
+	// refusal is aged further still, so "the second refusal is the newest
+	// decision" holds and the guard reads its timestamp.
+	if err := db.Model(&models.DeviceAccessApproval{}).
+		Where("id IN ?", []uint{first, second}).
+		Updates(map[string]interface{}{
+			"decided_at": time.Now().Add(-90 * time.Second),
+		}).Error; err != nil {
+		t.Fatalf("age the second decision: %v", err)
+	}
+	if err := db.Model(&models.DeviceAccessApproval{}).
+		Where("id = ?", first).
+		Update("decided_at", time.Now().Add(-200*time.Second)).Error; err != nil {
+		t.Fatalf("age the first decision further: %v", err)
+	}
+	_, _, err := svc.Create(ctx, CreateDeviceAccessApprovalInput{
+		DeviceID: deviceID,
+		OwnerID:  1,
+		ClientID: "controller-1",
+		ClientIP: ip,
+		TTL:      time.Minute,
+	})
+	var pending *PendingApprovalError
+	if !errors.As(err, &pending) {
+		t.Fatalf("re-request 90s after the second refusal = %v, want PendingApprovalError", err)
+	}
+	if pending.Reason != ApprovalRefusedDeniedRecently {
+		t.Fatalf("reason = %q, want %q", pending.Reason, ApprovalRefusedDeniedRecently)
+	}
+	if pending.RetryAfter <= 0 || pending.RetryAfter > 30*time.Second {
+		t.Fatalf("RetryAfter = %s, want the remaining part of the escalated window", pending.RetryAfter)
+	}
+
+	// Past the escalated window the source is welcome again; the streak is not
+	// a permanent ban. Both refusals have to be aged: the guard reads the
+	// newest decision, and the older one is still what makes this a streak.
+	if err := db.Model(&models.DeviceAccessApproval{}).
+		Where("id IN ?", []uint{first, second}).
+		Update("decided_at", time.Now().Add(-(2*base + time.Second))).Error; err != nil {
+		t.Fatalf("age both decisions past the escalation: %v", err)
+	}
+	if _, _, err := svc.Create(ctx, CreateDeviceAccessApprovalInput{
+		DeviceID: deviceID,
+		OwnerID:  1,
+		ClientID: "controller-1",
+		ClientIP: ip,
+		TTL:      time.Minute,
+	}); err != nil {
+		t.Fatalf("after the escalated window the source must be allowed again: %v", err)
+	}
+}
+
+// Only explicit refusals escalate. A decision in the source's favour, or a
+// request that simply expired because the owner never answered, ends the
+// streak - otherwise a single old refusal would haunt a source forever.
+func TestApprovalDenialStreakEndsAtANonDenialDecision(t *testing.T) {
+	db := newApprovalTestDB(t)
+	svc := NewDeviceAccessApprovalService(db).
+		WithDenialCooldown(time.Minute).
+		WithDenialCooldownEscalation(4, 3600)
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	seed := func(deviceID, ip, status string, decided time.Time) {
+		t.Helper()
+		row := models.DeviceAccessApproval{
+			DeviceID:  deviceID,
+			OwnerID:   1,
+			ClientIP:  ip,
+			Source:    models.ApprovalSourceDeviceCode,
+			Status:    status,
+			ExpiresAt: now.Add(time.Hour),
+			CreatedAt: now.Add(-time.Hour),
+			UpdatedAt: now,
+			DecidedAt: &decided,
+		}
+		if err := db.Create(&row).Error; err != nil {
+			t.Fatalf("seed %s: %v", status, err)
+		}
+	}
+
+	// A refusal followed by an approval: the refusal is long past its window,
+	// and even a fresh one would not matter because the streak is broken.
+	seed("D9999999", "203.0.113.91", models.ApprovalDenied, now.Add(-time.Hour))
+	seed("D9999999", "203.0.113.91", models.ApprovalApproved, now.Add(-30*time.Minute))
+	if _, _, err := svc.Create(ctx, CreateDeviceAccessApprovalInput{
+		DeviceID: "D9999999", OwnerID: 1, ClientID: "controller-1", ClientIP: "203.0.113.91", TTL: time.Minute,
+	}); err != nil {
+		t.Fatalf("an approval after a refusal must clear the streak: %v", err)
+	}
+
+	// A refusal followed by an expiry: nobody said no the second time, so the
+	// source is not treated as a repeat offender.
+	seed("DAAAAAAA", "203.0.113.92", models.ApprovalDenied, now.Add(-time.Hour))
+	seed("DAAAAAAA", "203.0.113.92", models.ApprovalExpired, now.Add(-10*time.Second))
+	if _, _, err := svc.Create(ctx, CreateDeviceAccessApprovalInput{
+		DeviceID: "DAAAAAAA", OwnerID: 1, ClientID: "controller-1", ClientIP: "203.0.113.92", TTL: time.Minute,
+	}); err != nil {
+		t.Fatalf("an expiry must clear the streak: %v", err)
+	}
+
+	// The control: two refusals in a row with no favourable decision between
+	// them do escalate, so the test above is not passing for the wrong reason.
+	seed("DBBBBBBB", "203.0.113.93", models.ApprovalDenied, now.Add(-91*time.Second))
+	seed("DBBBBBBB", "203.0.113.93", models.ApprovalDenied, now.Add(-90*time.Second))
+	_, _, err := svc.Create(ctx, CreateDeviceAccessApprovalInput{
+		DeviceID: "DBBBBBBB", OwnerID: 1, ClientID: "controller-1", ClientIP: "203.0.113.93", TTL: time.Minute,
+	})
+	var pending *PendingApprovalError
+	if !errors.As(err, &pending) || pending.Reason != ApprovalRefusedDeniedRecently {
+		t.Fatalf("two consecutive refusals = %v, want a denied_recently refusal", err)
+	}
+}
+
+// The summary has to describe the window that is actually being enforced, or
+// an owner reading "300s" would not understand why a repeat offender is
+// waiting twenty minutes.
+func TestApprovalSummaryEchoesEscalationConfig(t *testing.T) {
+	db := newApprovalTestDB(t)
+	ctx := context.Background()
+
+	plain := NewDeviceAccessApprovalService(db).WithDenialCooldown(5 * time.Minute)
+	summary, err := plain.Summary(ctx, "DCCCCCCC", time.Now().Add(-time.Hour), 0)
+	if err != nil {
+		t.Fatalf("summary: %v", err)
+	}
+	if summary.DenialCooldownMultiplier != 1 || summary.DenialCooldownMaxSeconds != 0 {
+		t.Fatalf("default escalation = x%d/%ds, want x1/0s",
+			summary.DenialCooldownMultiplier, summary.DenialCooldownMaxSeconds)
+	}
+
+	escalating := NewDeviceAccessApprovalService(db).
+		WithDenialCooldown(5*time.Minute).
+		WithDenialCooldownEscalation(3, 1800)
+	summary, err = escalating.Summary(ctx, "DCCCCCCC", time.Now().Add(-time.Hour), 0)
+	if err != nil {
+		t.Fatalf("summary: %v", err)
+	}
+	if summary.DenialCooldownSeconds != 300 {
+		t.Fatalf("denial_cooldown_seconds = %d, want the base 300", summary.DenialCooldownSeconds)
+	}
+	if summary.DenialCooldownMultiplier != 3 || summary.DenialCooldownMaxSeconds != 1800 {
+		t.Fatalf("escalation echoed as x%d/%ds, want x3/1800s",
+			summary.DenialCooldownMultiplier, summary.DenialCooldownMaxSeconds)
+	}
+}

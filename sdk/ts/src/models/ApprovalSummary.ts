@@ -64,6 +64,18 @@ export interface ApprovalSummary {
      * @memberof ApprovalSummary
      */
     denialCooldownSeconds: number;
+    /**
+     * The live APPROVAL_DENIAL_COOLDOWN_MULTIPLIER; 1 means each further consecutive refusal costs the same as the last.
+     * @type {number}
+     * @memberof ApprovalSummary
+     */
+    denialCooldownMultiplier: number;
+    /**
+     * The live APPROVAL_DENIAL_COOLDOWN_MAX_SECONDS, the ceiling the escalation cannot pass; 0 means uncapped.
+     * @type {number}
+     * @memberof ApprovalSummary
+     */
+    denialCooldownMaxSeconds: number;
 }
 
 /**
@@ -75,6 +87,8 @@ export function instanceOfApprovalSummary(value: object): value is ApprovalSumma
     if (!('byStatus' in value) || value['byStatus'] === undefined) return false;
     if (!('deniedSources' in value) || value['deniedSources'] === undefined) return false;
     if (!('denialCooldownSeconds' in value) || value['denialCooldownSeconds'] === undefined) return false;
+    if (!('denialCooldownMultiplier' in value) || value['denialCooldownMultiplier'] === undefined) return false;
+    if (!('denialCooldownMaxSeconds' in value) || value['denialCooldownMaxSeconds'] === undefined) return false;
     return true;
 }
 
@@ -93,6 +107,8 @@ export function ApprovalSummaryFromJSONTyped(json: any, ignoreDiscriminator: boo
         'byStatus': ApprovalSummaryByStatusFromJSON(json['by_status']),
         'deniedSources': ((json['denied_sources'] as Array<any>).map(ApprovalSummaryDeniedSourcesInnerFromJSON)),
         'denialCooldownSeconds': json['denial_cooldown_seconds'],
+        'denialCooldownMultiplier': json['denial_cooldown_multiplier'],
+        'denialCooldownMaxSeconds': json['denial_cooldown_max_seconds'],
     };
 }
 
@@ -112,6 +128,8 @@ export function ApprovalSummaryToJSONTyped(value?: ApprovalSummary | null, ignor
         'by_status': ApprovalSummaryByStatusToJSON(value['byStatus']),
         'denied_sources': ((value['deniedSources'] as Array<any>).map(ApprovalSummaryDeniedSourcesInnerToJSON)),
         'denial_cooldown_seconds': value['denialCooldownSeconds'],
+        'denial_cooldown_multiplier': value['denialCooldownMultiplier'],
+        'denial_cooldown_max_seconds': value['denialCooldownMaxSeconds'],
     };
 }
 

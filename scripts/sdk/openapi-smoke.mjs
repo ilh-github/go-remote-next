@@ -260,6 +260,8 @@ const summary = await call('GET', `/v1/me/devices/${deviceId}/access-approvals:s
 field(summary.json, 'since', 'string', 'GET access-approvals:summary');
 field(summary.json, 'total', 'number', 'GET access-approvals:summary');
 field(summary.json, 'denial_cooldown_seconds', 'number', 'GET access-approvals:summary');
+field(summary.json, 'denial_cooldown_multiplier', 'number', 'GET access-approvals:summary');
+field(summary.json, 'denial_cooldown_max_seconds', 'number', 'GET access-approvals:summary');
 const byStatus = field(summary.json, 'by_status', 'object', 'GET access-approvals:summary');
 for (const state of ['pending', 'approved', 'denied', 'expired', 'consumed']) {
   field(byStatus, state, 'number', 'AccessApprovalSummary.by_status');

@@ -801,7 +801,7 @@ The flow:
 | Method | Path | Auth | Body / notes |
 |---|---|---|---|
 | `GET` | `/v1/me/devices/:device_id/access-approvals` | user token | `?status=pending&limit=50`. `status` is a comma-separated subset of `pending,approved,denied,expired,consumed` and defaults to `pending`. Returns `{items: [...]}` newest first. |
-| `GET` | `/v1/me/devices/:device_id/access-approvals:summary` | user token | `?since=` (RFC3339, default the last 24 hours) and `&limit=` (how many refused sources, default 5, capped at 10). Returns `{since, total, by_status, denied_sources, denial_cooldown_seconds}` — see below. |
+| `GET` | `/v1/me/devices/:device_id/access-approvals:summary` | user token | `?since=` (RFC3339, default the last 24 hours) and `&limit=` (how many refused sources, default 5, capped at 10). Returns `{since, total, by_status, denied_sources, denial_cooldown_seconds, denial_cooldown_multiplier, denial_cooldown_max_seconds}` — see below. |
 | `POST` | `/v1/me/devices/:device_id/access-approvals/:approval_id/approve` | user token | Optional `{reason}`. `200` with the updated row. A request that was already decided (or timed out) returns `409` with the current `status` instead of silently flipping it. |
 | `POST` | `/v1/me/devices/:device_id/access-approvals/:approval_id/deny` | user token | Optional `{reason}`. Same `200` / `409` shape. |
 | `POST` | `/v1/devices/:device_id/access-approvals:claim` | `X-API-Key` | `{approval_id, secret}` from step 2. `202` while pending, `200` with a signal token once approved, `403` when denied or expired, `404` for an unknown id *or* a wrong secret (they are deliberately indistinguishable), `409` when the approval was already used. |
@@ -817,8 +817,11 @@ lists the refused sources most-refusals-first with each one's
 requests that arrived in this window" — so a denial of an older request does not
 appear even if the decision happened after the window opened.
 `denial_cooldown_seconds` echoes the live `APPROVAL_DENIAL_COOLDOWN_SECONDS`
-(§5.3.5 rules below), which is what lets an owner tell "this source is being
-refused right now" from "it was refused a while ago".
+and `denial_cooldown_multiplier` / `denial_cooldown_max_seconds` echo the two
+escalation settings (§5.3.5 rules below). Together they are what lets an owner
+tell "this source is being refused right now" from "it was refused a while
+ago", and — when the window escalates — understand why a repeat offender is
+waiting longer than the base interval suggests.
 
 Rules that matter:
 
@@ -852,6 +855,19 @@ Rules that matter:
   that says exactly when the block lifts. The window is per `(device, source)`,
   so one stranger's denial cannot lock out anybody else, and it is keyed on the
   same `client_ip` as the per-source guard above.
+- **Repeated denials can cost more.**
+  `APPROVAL_DENIAL_COOLDOWN_MULTIPLIER` (default `1`) multiplies the window for
+  a source that has been refused again and again: with a multiplier of `3`, the
+  third consecutive refusal waits `3 × 3 × 300s` instead of `300s`.
+  `APPROVAL_DENIAL_COOLDOWN_MAX_SECONDS` (default `0`, meaning uncapped) is the
+  ceiling that stops the growth; set it whenever the multiplier is above `1`,
+  since otherwise the window grows without bound as the streak grows. The
+  streak counts consecutive refusals **for that `(device, source)` pair** and
+  is read from the decision history, so an approval — or a request that merely
+  expired because nobody answered — ends it: only an explicit "no" escalates,
+  and the source is never permanently banned. The default multiplier of `1`
+  reproduces the fixed window exactly, so a deployment that sets neither
+  variable keeps the behaviour it had.
 - Access-timeline rows read `pending_approval` on request, `denied_approval`
   when the owner refuses, and `granted` when the claim succeeds. Approving or
   denying is also written to the admin audit trail (it is an admission
