@@ -97,6 +97,7 @@ func main() {
 			&models.Webhook{},
 			&models.UserNotificationChannel{},
 			&models.NotificationDelivery{},
+			&models.NotificationQuietHours{},
 			&models.DeviceOfflineAlertRule{},
 			&models.ScheduledTask{},
 			&models.InstanceLogEntry{},
@@ -168,6 +169,10 @@ func main() {
 		}
 	}
 	notificationDeliveryService := service.NewNotificationDeliveryService(db)
+	notificationQuietHoursService := service.NewNotificationQuietHoursService(db)
+	// The worker asks the setting before every post, so a snooze or a
+	// maintenance window holds alerts instead of delivering them late.
+	notificationDeliveryService.WithQuietHours(notificationQuietHoursService)
 	if cfg.Notification.ArchiveDir != "" {
 		notificationDeliveryService.WithArchiveDir(cfg.Notification.ArchiveDir)
 	}
@@ -340,6 +345,8 @@ func main() {
 	meHandler := handler.NewMeHandler(userService, tokenService, smsService, bus)
 	deviceHandler := handler.NewDeviceHandler(deviceService, favoriteService, connectionService, presenceService, deviceAccessService, bus, db)
 	notificationChannelHandler := handler.NewNotificationChannelHandler(notificationChannelService, notificationDeliveryService)
+	notificationQuietHoursHandler := handler.NewNotificationQuietHoursHandler(
+		notificationQuietHoursService, notificationDeliveryService)
 	deviceAccessPolicyHandler := handler.NewDeviceAccessPolicyHandler(deviceService, deviceAccessPolicyService, bus)
 	deviceOfflineAlertHandler := handler.NewDeviceOfflineAlertHandler(deviceService, deviceOfflineAlertService)
 	scheduledTaskHandler := handler.NewScheduledTaskHandler(scheduledTaskService)
@@ -511,6 +518,10 @@ func main() {
 			me.POST("/notification-channels/:id/deliveries/:deliveryId/ack", notificationChannelHandler.AcknowledgeDelivery)
 			me.POST("/notification-channels/:id/deliveries:retry-failed", notificationChannelHandler.RetryFailedDeliveries)
 			me.POST("/notification-channels:retry-failed", notificationChannelHandler.RetryFailedDeliveriesForUser)
+			// Per-user "do not page me": the delivery worker holds alerts while
+			// this is active instead of sending them into the quiet period.
+			me.GET("/notification-quiet-hours", notificationQuietHoursHandler.Get)
+			me.PUT("/notification-quiet-hours", notificationQuietHoursHandler.Put)
 
 			me.GET("/scheduled-tasks", scheduledTaskHandler.List)
 			me.POST("/scheduled-tasks", scheduledTaskHandler.Create)

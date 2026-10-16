@@ -85,10 +85,23 @@ type NotificationDeliveryService struct {
 	// folds later occurrences of the same (channel, event type, device) into
 	// it. 0 keeps the historical one-row-per-event behaviour.
 	aggregateWindow time.Duration
+	// quiet, when set, answers "is this user asking not to be paged right now".
+	// Nil means never quiet, which is what every deployment had before the
+	// setting existed.
+	quiet *NotificationQuietHoursService
 }
 
 func NewNotificationDeliveryService(db *gorm.DB) *NotificationDeliveryService {
 	return &NotificationDeliveryService{db: db}
+}
+
+// WithQuietHours wires the per-user quiet-hours setting. It is optional on
+// purpose: the delivery service is constructed in tests and in tools that have
+// no reason to know about the setting, and a nil quiet service means "deliver
+// as usual".
+func (s *NotificationDeliveryService) WithQuietHours(q *NotificationQuietHoursService) *NotificationDeliveryService {
+	s.quiet = q
+	return s
 }
 
 // WithArchiveDir enables archive-before-delete for retention: expired terminal
@@ -395,8 +408,99 @@ func (s *NotificationDeliveryService) DrainOnce(ctx context.Context) {
 		return
 	}
 	for _, row := range claimed {
+		if until, hold := s.quietUntil(ctx, row); hold {
+			s.holdDelivery(ctx, row, until)
+			continue
+		}
 		s.deliver(ctx, row)
 	}
+}
+
+// quietUntil asks the quiet-hours setting whether this row's owner is asking
+// not to be paged right now.
+//
+// A lookup failure fails *open*: the alert is delivered and the error is
+// logged. That is the deliberate direction - the alternative is a database
+// hiccup turning into "your alerts were silently held" - and a hold is only
+// ever applied on a positive answer.
+func (s *NotificationDeliveryService) quietUntil(
+	ctx context.Context,
+	row models.NotificationDelivery,
+) (time.Time, bool) {
+	if s.quiet == nil {
+		return time.Time{}, false
+	}
+	quiet, until, err := s.quiet.QuietUntil(ctx, row.UserID, time.Now().UTC())
+	if err != nil {
+		log.Printf("[notification] quiet-hours lookup for user %d failed: %v", row.UserID, err)
+		return time.Time{}, false
+	}
+	if !quiet {
+		return time.Time{}, false
+	}
+	return until, true
+}
+
+// holdDelivery puts a claimed row back to pending, due when the quiet period
+// ends. `attempts` and `last_status` are deliberately untouched: a hold is the
+// sender's decision, not a failed attempt by the endpoint, and counting it
+// would eventually park a healthy channel's rows as `failed` for a reason the
+// endpoint never caused.
+func (s *NotificationDeliveryService) holdDelivery(
+	ctx context.Context,
+	row models.NotificationDelivery,
+	until time.Time,
+) {
+	if until.IsZero() || !until.After(time.Now().UTC()) {
+		// No usable deadline (a window that lapsed between the check and here):
+		// come back on the next tick rather than losing the row in the past.
+		until = time.Now().UTC().Add(notificationWorkerInterval)
+	}
+	if err := s.db.WithContext(ctx).Model(&models.NotificationDelivery{}).
+		Where("id = ? AND status = ?", row.ID, DeliveryStatusDelivering).
+		Updates(map[string]interface{}{
+			"status":          DeliveryStatusPending,
+			"next_attempt_at": until,
+			"held_until":      until,
+			"updated_at":      time.Now().UTC(),
+		}).Error; err != nil {
+		log.Printf("[notification] holding delivery %d failed: %v", row.ID, err)
+	}
+}
+
+// ReclockHeld moves this user's currently held rows to the new truth after the
+// quiet-hours setting changed, and reports how many moved.
+//
+// Only rows that are *held* are touched - `held_until IS NOT NULL` - so a row
+// waiting out a delivery backoff keeps its schedule. That distinction is the
+// point of the column: without it, "clear the snooze" would also silently
+// shortcut every retry the endpoint was backing off from.
+//
+// stillHeld selects the two modes: true re-points the hold at a new (earlier)
+// quiet-period end, false releases the rows so the worker picks them up now.
+func (s *NotificationDeliveryService) ReclockHeld(
+	ctx context.Context,
+	userID uint,
+	at time.Time,
+	stillHeld bool,
+) (int64, error) {
+	at = at.UTC()
+	updates := map[string]interface{}{
+		"next_attempt_at": at,
+		"updated_at":      time.Now().UTC(),
+		"held_until":      nil,
+	}
+	if stillHeld {
+		updates["held_until"] = at
+	}
+	res := s.db.WithContext(ctx).Model(&models.NotificationDelivery{}).
+		Where("user_id = ? AND status = ? AND held_until IS NOT NULL AND next_attempt_at > ?",
+			userID, DeliveryStatusPending, at).
+		Updates(updates)
+	if res.Error != nil {
+		return 0, res.Error
+	}
+	return res.RowsAffected, nil
 }
 
 // claimChannelRow is the single-column projection phase 1 needs: which

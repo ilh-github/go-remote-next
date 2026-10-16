@@ -417,6 +417,22 @@ CREATE INDEX IF NOT EXISTS idx_user_notification_channels_user_id
     ON user_notification_channels (user_id);
 
 -- ---------------------------------------------------------------
+-- Per-user quiet hours ("do not page me")
+-- One row per user, current state only. `snoozed_until` is the one-shot form
+-- and `windows` a JSON array of recurring {days, start, end} periods evaluated
+-- in `timezone`. The delivery worker holds a due alert while either is active
+-- and posts it once the period ends; nothing is dropped.
+-- ---------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS notification_quiet_hours (
+    user_id       BIGINT PRIMARY KEY,
+    snoozed_until TIMESTAMPTZ,
+    windows       TEXT        NOT NULL DEFAULT '',
+    timezone      VARCHAR(64) NOT NULL DEFAULT '',
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- ---------------------------------------------------------------
 -- Notification delivery outbox (durable, at-least-once webhook retries)
 -- One row per (event, channel). The delivery worker claims due rows with
 -- SELECT ... FOR UPDATE SKIP LOCKED and retries with exponential backoff
@@ -470,6 +486,13 @@ ALTER TABLE notification_deliveries
 -- Rows written before this column existed are unconfirmed (NULL).
 ALTER TABLE notification_deliveries
     ADD COLUMN IF NOT EXISTS acked_at TIMESTAMPTZ;
+
+-- Quiet hours park a due alert instead of sending it: held_until marks "this
+-- row is waiting for the owner's quiet period to end", which is a different
+-- state from a retry backoff and has to be released the moment the setting
+-- changes. NULL means "not held".
+ALTER TABLE notification_deliveries
+    ADD COLUMN IF NOT EXISTS held_until TIMESTAMPTZ;
 
 -- ---------------------------------------------------------------
 -- Per-device offline alerts ("tell me when this stays offline")

@@ -40,6 +40,12 @@ type NotificationDelivery struct {
 	// that answers 200 into a void is exactly the failure this column makes
 	// visible. Exactly one of the two can be set without the other.
 	AckedAt *time.Time `json:"acked_at"`
+	// HeldUntil, when set, means the row is currently parked by the owner's
+	// quiet hours rather than waiting on a backoff: it will not be attempted
+	// before that instant. It is cleared when the hold is released, so it is a
+	// current fact and not a history - the deliveries list can therefore answer
+	// "why is this alert still pending" without guessing from timestamps.
+	HeldUntil *time.Time `json:"held_until"`
 
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`

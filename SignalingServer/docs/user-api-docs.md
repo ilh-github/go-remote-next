@@ -455,11 +455,13 @@ user-owned webhook endpoint that receives that user's own device events.
 | `PATCH` | `/v1/me/notification-channels/:id` | same as create | Omit `enabled` to keep the current state; omit `secret` to keep the stored one. |
 | `DELETE` | `/v1/me/notification-channels/:id` | — | Owner-scoped. |
 | `POST` | `/v1/me/notification-channels/:id/test` | — | Fires a synthetic `test` event so the endpoint can be verified without waiting for device traffic. |
-| `GET` | `/v1/me/notification-channels/:id/deliveries?limit=` | — | Delivery history for the channel (newest first, default 50, max 200), as `{items, unacked}`. `unacked` counts this channel's rows that were delivered (2xx) and never confirmed. Owner-scoped. |
+| `GET` | `/v1/me/notification-channels/:id/deliveries?limit=` | — | Delivery history for the channel (newest first, default 50, max 200), as `{items, unacked}`. `unacked` counts this channel's rows that were delivered (2xx) and never confirmed; a row with `held_until` is parked by the owner's quiet hours rather than waiting on a retry. Owner-scoped. |
 | `POST` | `/v1/me/notification-channels/:id/deliveries/:deliveryId/retry` | — | Re-arms a parked `failed` delivery (dead-letter replay). Returns `400` for rows that are not `failed`. Owner-scoped. |
 | `POST` | `/v1/me/notification-channels/:id/deliveries/:deliveryId/ack` | — | Records that somebody confirmed the delivery (`acked_at`). Idempotent — the first ack owns the timestamp and later ones return the same row. `409` for a row that is still `pending`/`delivering`, `404` when the id does not belong to that channel. Owner-scoped. |
 | `POST` | `/v1/me/notification-channels/:id/deliveries:retry-failed` | optional body | Re-arms parked `failed` deliveries for the channel. Owner-scoped. |
 | `POST` | `/v1/me/notification-channels:retry-failed` | optional body | Re-arms parked `failed` deliveries the caller owns, **across all of their channels** (one call after an outage that hit several endpoints). |
+| `GET` | `/v1/me/notification-quiet-hours` | — | The caller's quiet hours: `{snoozed_until, quiet_hours, timezone, active, active_until}`. A user who never saved one gets the documented defaults (`snoozed_until: null`, empty `quiet_hours`, `active: false`). |
+| `PUT` | `/v1/me/notification-quiet-hours` | `{snoozed_until?, quiet_hours: [{"days":[0-6],"start":"HH:MM","end":"HH:MM"}], timezone?}` | Full replace: omitting a field clears it, so `{}` turns quiet hours off. `quiet_hours` is capped at 20 windows, `timezone` is an IANA zone (empty = the server's local zone). Malformed input is a `400` and nothing is written. |
 
 The two bulk-replay endpoints take the same optional body. Omitting it replays
 everything in scope, which is how they behaved before filters existed.
@@ -519,6 +521,31 @@ The number to watch is `unacked` from the deliveries list (and `unacked` /
 `200` into a void shows up there and nowhere else. Every other counter — status
 counts, last HTTP status, attempt counts — looks perfectly healthy in that
 case.
+
+**Quiet hours hold alerts instead of dropping them.** `snoozed_until` is the
+one-shot form ("not tonight") and `quiet_hours` the recurring one (a backup
+window, a night shift, a holiday), both evaluated in the setting's own
+timezone. While either is active the delivery worker does not post: a due row
+goes back to `pending` with `held_until` set to when the quiet period ends, and
+the row is attempted normally once that moment passes. Three consequences are
+worth knowing:
+
+- **A hold is not an attempt.** `attempts` and `last_status` are untouched, so
+  a quiet night cannot consume a healthy channel's retry budget or park its
+  rows as `failed` for something the endpoint never did.
+- **Changing the setting moves what it was holding.** Clearing the snooze
+  releases the held rows immediately (`held_until` cleared, due now) rather
+  than leaving them asleep until a deadline that no longer exists; shortening a
+  recurring window pulls them forward. Rows waiting on a delivery *backoff* are
+  untouched — that is why `held_until` exists as a separate marker.
+- **`held_until` answers "why is this alert still pending".** It is a current
+  fact, not history: it is set when the row is held and cleared when the hold
+  is released.
+
+A recurring window is re-checked every five minutes rather than computing the
+exact boundary of the window, so an alert held by one is delivered at most five
+minutes after the window ends. A snooze is an exact instant and is honoured to
+the second.
 
 Supported events today: `device.access.denied`, `device.access.granted`,
 `device.access.session_started`, `device.online.changed`,
