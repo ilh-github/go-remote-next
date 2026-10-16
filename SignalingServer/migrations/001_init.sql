@@ -464,6 +464,13 @@ CREATE INDEX IF NOT EXISTS idx_notification_deliveries_device_id
 ALTER TABLE notification_deliveries
     ADD COLUMN IF NOT EXISTS occurrence_count INTEGER NOT NULL DEFAULT 1;
 
+-- Delivery acknowledgement: when a human confirmed they saw a delivery, as
+-- opposed to an endpoint accepting it with a 2xx. Kept beside delivered_at
+-- rather than derived from it - the whole point is that the two can disagree.
+-- Rows written before this column existed are unconfirmed (NULL).
+ALTER TABLE notification_deliveries
+    ADD COLUMN IF NOT EXISTS acked_at TIMESTAMPTZ;
+
 -- ---------------------------------------------------------------
 -- Per-device offline alerts ("tell me when this stays offline")
 -- The row carries the evaluator's episode state because presence only answers
