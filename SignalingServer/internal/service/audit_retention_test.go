@@ -117,3 +117,93 @@ func TestAuditPurgeBeforeArchiveFailureDeletesNothing(t *testing.T) {
 		t.Fatalf("table holds %d rows, want the row kept because the archive failed", count)
 	}
 }
+
+// The row cap is the age-independent second bound: it must keep exactly the
+// newest N rows (by id) and drop the oldest, whatever their timestamps say.
+func TestAuditCapRowsKeepsNewest(t *testing.T) {
+	db := newAuditTestDB(t)
+	ctx := context.Background()
+	svc := NewAuditService(db)
+
+	for _, action := range []string{"cap.r1", "cap.r2", "cap.r3", "cap.r4", "cap.r5"} {
+		seedAuditRowAt(t, db, action, time.Now())
+	}
+
+	removed, err := svc.CapRows(ctx, 3)
+	if err != nil {
+		t.Fatalf("cap: %v", err)
+	}
+	if removed != 2 {
+		t.Fatalf("removed %d rows, want 2", removed)
+	}
+	var remaining []models.AuditLog
+	if err := db.Order("id").Find(&remaining).Error; err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(remaining) != 3 {
+		t.Fatalf("table holds %d rows, want 3", len(remaining))
+	}
+	if remaining[0].Action != "cap.r3" || remaining[2].Action != "cap.r5" {
+		t.Fatalf("kept %q..%q, want the newest three rows",
+			remaining[0].Action, remaining[2].Action)
+	}
+}
+
+// A cap that is already satisfied, or a cap of 0 (disabled), must delete
+// nothing - the "off" switch is not a "keep zero" switch.
+func TestAuditCapRowsNoopWhenUnderOrUnset(t *testing.T) {
+	db := newAuditTestDB(t)
+	ctx := context.Background()
+	svc := NewAuditService(db)
+	seedAuditRowAt(t, db, "cap.a", time.Now())
+	seedAuditRowAt(t, db, "cap.b", time.Now())
+
+	if removed, err := svc.CapRows(ctx, 5); err != nil || removed != 0 {
+		t.Fatalf("under-cap CapRows(5) = %d,%v, want 0,nil", removed, err)
+	}
+	if removed, err := svc.CapRows(ctx, 0); err != nil || removed != 0 {
+		t.Fatalf("disabled CapRows(0) = %d,%v, want 0,nil", removed, err)
+	}
+	if count := auditRowCount(t, db); count != 2 {
+		t.Fatalf("table holds %d rows, want both kept", count)
+	}
+}
+
+// The row cap must respect the same archive-before-delete rule as age
+// retention: the trimmed rows have to land on disk before they disappear.
+func TestAuditCapRowsArchivesBeforeDeleting(t *testing.T) {
+	db := newAuditTestDB(t)
+	archiveDir := t.TempDir()
+	svc := NewAuditService(db).WithArchiveDir(archiveDir)
+	ctx := context.Background()
+
+	for _, action := range []string{"cap.old1", "cap.old2", "cap.new"} {
+		seedAuditRowAt(t, db, action, time.Now())
+	}
+
+	removed, err := svc.CapRows(ctx, 1)
+	if err != nil {
+		t.Fatalf("cap: %v", err)
+	}
+	if removed != 2 {
+		t.Fatalf("removed %d rows, want 2", removed)
+	}
+	if count := auditRowCount(t, db); count != 1 {
+		t.Fatalf("table holds %d rows after cap, want only the newest", count)
+	}
+
+	matches, _ := filepath.Glob(filepath.Join(archiveDir, "*.jsonl"))
+	if len(matches) != 1 {
+		t.Fatalf("archive files = %v, want exactly one daily file", matches)
+	}
+	body, err := os.ReadFile(matches[0])
+	if err != nil {
+		t.Fatalf("read archive: %v", err)
+	}
+	if !strings.Contains(string(body), "cap.old1") || !strings.Contains(string(body), "cap.old2") {
+		t.Fatalf("archive is missing a capped row:\n%s", body)
+	}
+	if strings.Contains(string(body), "cap.new") {
+		t.Fatalf("archive holds a row that should have been kept:\n%s", body)
+	}
+}

@@ -18,10 +18,11 @@ import (
 type AdminAuditHandler struct {
 	audit         *service.AuditService
 	retentionDays int
+	maxRows       int
 }
 
-func NewAdminAuditHandler(a *service.AuditService, retentionDays int) *AdminAuditHandler {
-	return &AdminAuditHandler{audit: a, retentionDays: retentionDays}
+func NewAdminAuditHandler(a *service.AuditService, retentionDays, maxRows int) *AdminAuditHandler {
+	return &AdminAuditHandler{audit: a, retentionDays: retentionDays, maxRows: maxRows}
 }
 
 func (h *AdminAuditHandler) List(c *gin.Context) {
@@ -75,11 +76,12 @@ func parseActorUserID(raw string) (uint, error) {
 	return uint(parsed), nil
 }
 
-// auditSweepReq lets an operator run one purge with a different window than the
-// configured retention, which is how retention is exercised without changing
-// config and restarting.
+// auditSweepReq lets an operator run one purge with a different window or row
+// cap than the configured retention, which is how either bound is exercised
+// without changing config and restarting.
 type auditSweepReq struct {
 	OlderThanDays *int `json:"older_than_days"`
+	MaxRows       *int `json:"max_rows"`
 }
 
 // Sweep handles POST /v1/admin/audit-logs:sweep.
@@ -105,37 +107,63 @@ func (h *AdminAuditHandler) Sweep(c *gin.Context) {
 	if req.OlderThanDays != nil {
 		days = *req.OlderThanDays
 	}
-	if days <= 0 {
+	maxRows := h.maxRows
+	if req.MaxRows != nil {
+		maxRows = *req.MaxRows
+	}
+	if days <= 0 && maxRows <= 0 {
 		ProblemBadRequest(c, ProblemCodeInvalidRequest,
-			"retention is not configured; set AUDIT_RETENTION_DAYS or pass older_than_days")
+			"retention is not configured; set AUDIT_RETENTION_DAYS / AUDIT_MAX_ROWS or pass older_than_days / max_rows")
 		return
 	}
 
-	cutoff := time.Now().UTC().AddDate(0, 0, -days)
 	var purged int64
-	for {
-		removed, err := h.audit.PurgeBefore(c.Request.Context(), cutoff)
-		if err != nil {
-			// An archive failure lands here: nothing was deleted, so say so.
-			ProblemInternal(c, "purge failed, nothing deleted: "+err.Error())
-			return
+	cutoff := ""
+	if days > 0 {
+		cut := time.Now().UTC().AddDate(0, 0, -days)
+		cutoff = cut.Format(time.RFC3339)
+		for {
+			removed, err := h.audit.PurgeBefore(c.Request.Context(), cut)
+			if err != nil {
+				// An archive failure lands here: nothing was deleted, so say so.
+				ProblemInternal(c, "purge failed, nothing deleted: "+err.Error())
+				return
+			}
+			purged += removed
+			if removed == 0 {
+				break
+			}
 		}
-		purged += removed
-		if removed == 0 {
-			break
+	}
+	// The row cap is a second, age-independent bound; it runs after the age
+	// purge so a row that both rules would drop is only counted once.
+	var capRemoved int64
+	if maxRows > 0 {
+		for {
+			removed, err := h.audit.CapRows(c.Request.Context(), maxRows)
+			if err != nil {
+				ProblemInternal(c, "row cap failed, nothing deleted: "+err.Error())
+				return
+			}
+			capRemoved += removed
+			if removed == 0 {
+				break
+			}
 		}
 	}
 	if h.audit != nil {
 		h.audit.Log(c.Request.Context(), middleware.MustAdminID(c), "", "audit.sweep",
 			"audit_log", "",
-			fmt.Sprintf("older_than_days=%d cutoff=%s purged=%d archive=%s",
-				days, cutoff.Format(time.RFC3339), purged, h.audit.ArchiveDir()),
+			fmt.Sprintf("older_than_days=%d cutoff=%s purged=%d max_rows=%d cap_removed=%d archive=%s",
+				days, cutoff, purged, maxRows, capRemoved, h.audit.ArchiveDir()),
 			c.ClientIP())
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"purged":          purged,
 		"older_than_days": days,
-		"cutoff":          cutoff.Format(time.RFC3339),
+		"cutoff":          cutoff,
+		"max_rows":        maxRows,
+		"cap_removed":     capRemoved,
 		"archive_dir":     h.audit.ArchiveDir(),
 	})
 }

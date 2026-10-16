@@ -134,6 +134,12 @@ type NotificationConfig struct {
 type AuditConfig struct {
 	RetentionDays    int
 	SweepIntervalMin int
+	// MaxRows, when positive, is a hard row cap independent of age: the sweep
+	// trims the oldest rows until at most this many remain. It exists because a
+	// quiet deployment can still accumulate rows faster than any single age
+	// window implies, and because the age window alone cannot answer "how big
+	// is this table allowed to get". 0 = no cap.
+	MaxRows int
 	// ArchiveDir, when set, makes retention append expired rows to a daily
 	// JSONL file there before deleting them. Empty = plain delete. Audit rows
 	// are evidence, so an operator turning retention on should normally set it.
@@ -272,6 +278,9 @@ func Load() *Config {
 	viper.SetDefault("AUDIT_RETENTION_DAYS", 0)
 	viper.SetDefault("AUDIT_SWEEP_INTERVAL_MINUTES", 60)
 	viper.SetDefault("AUDIT_ARCHIVE_DIR", "")
+	// Hard row cap, independent of the age window: the sweep trims the oldest
+	// rows until at most this many remain. 0 = no cap.
+	viper.SetDefault("AUDIT_MAX_ROWS", 0)
 
 	// Background evaluator for per-device offline alerts. 0 disables it.
 	viper.SetDefault("OFFLINE_ALERT_INTERVAL_SECONDS", 30)
@@ -375,6 +384,7 @@ func Load() *Config {
 	cfg.Audit = AuditConfig{
 		RetentionDays:    viper.GetInt("AUDIT_RETENTION_DAYS"),
 		SweepIntervalMin: viper.GetInt("AUDIT_SWEEP_INTERVAL_MINUTES"),
+		MaxRows:          viper.GetInt("AUDIT_MAX_ROWS"),
 		ArchiveDir:       viper.GetString("AUDIT_ARCHIVE_DIR"),
 	}
 	cfg.OfflineAlert = OfflineAlertConfig{

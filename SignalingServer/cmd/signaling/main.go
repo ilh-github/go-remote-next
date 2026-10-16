@@ -205,18 +205,19 @@ func main() {
 	presenceService.Start(context.Background())
 	smsService := service.NewSmsService(redisClient, settingsService)
 	auditService := service.NewAuditService(db).WithArchiveDir(cfg.Audit.ArchiveDir)
-	if cfg.Audit.SweepIntervalMin > 0 && cfg.Audit.RetentionDays > 0 {
+	if cfg.Audit.SweepIntervalMin > 0 && (cfg.Audit.RetentionDays > 0 || cfg.Audit.MaxRows > 0) {
 		go auditService.RunRetention(
 			context.Background(),
 			time.Duration(cfg.Audit.SweepIntervalMin)*time.Minute,
 			cfg.Audit.RetentionDays,
+			cfg.Audit.MaxRows,
 		)
 		archive := cfg.Audit.ArchiveDir
 		if archive == "" {
 			archive = "(delete, no archive)"
 		}
-		log.Printf("Audit retention: retention_days=%d sweep_interval=%dm archive=%s",
-			cfg.Audit.RetentionDays, cfg.Audit.SweepIntervalMin, archive)
+		log.Printf("Audit retention: retention_days=%d max_rows=%d sweep_interval=%dm archive=%s",
+			cfg.Audit.RetentionDays, cfg.Audit.MaxRows, cfg.Audit.SweepIntervalMin, archive)
 	}
 	webhookService := service.NewWebhookService(db)
 	groupService := service.NewDeviceGroupService(groupRepo)
@@ -318,7 +319,7 @@ func main() {
 	adminDevicesHandler := handler.NewAdminDevicesHandler(deviceService, presenceService, bus, auditService, db)
 	adminSettingsHandler := handler.NewAdminSettingsHandler(settingsService, bus, auditService)
 	adminPresetHandler := handler.NewAdminPresetHandler(presetService, auditService)
-	adminAuditHandler := handler.NewAdminAuditHandler(auditService, cfg.Audit.RetentionDays)
+	adminAuditHandler := handler.NewAdminAuditHandler(auditService, cfg.Audit.RetentionDays, cfg.Audit.MaxRows)
 	adminSessionRecordingHandler := handler.NewAdminSessionRecordingHandler(
 		sessionRecordingService, auditService, recordingLifecycle,
 		cfg.Recording.RetentionDays, cfg.Recording.StaleMinutes)

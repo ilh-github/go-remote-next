@@ -88,6 +88,58 @@ func (s *AuditService) PurgeBefore(ctx context.Context, cutoff time.Time) (int64
 	return res.RowsAffected, res.Error
 }
 
+// CapRows trims the oldest audit rows until at most maxRows remain, and reports
+// how many it removed. It is the second, age-independent bound on the table:
+// retention answers "how long do we keep rows", the cap answers "how big is
+// the table allowed to get". A caller loops until it returns 0 because each
+// call removes at most auditPurgeBatch rows.
+//
+// When an archive directory is configured the rows are appended to the daily
+// JSONL file first and only deleted once that write is fsynced, exactly like
+// age retention - the cap must never be the step that destroys the only copy.
+func (s *AuditService) CapRows(ctx context.Context, maxRows int) (int64, error) {
+	if maxRows <= 0 {
+		return 0, nil
+	}
+	var total int64
+	if err := s.db.WithContext(ctx).Model(&models.AuditLog{}).Count(&total).Error; err != nil {
+		return 0, err
+	}
+	overflow := int(total) - maxRows
+	if overflow <= 0 {
+		return 0, nil
+	}
+	if overflow > auditPurgeBatch {
+		overflow = auditPurgeBatch
+	}
+
+	if s.archiveDir == "" {
+		// Oldest `overflow` ids by id ASC. id tracks insertion order, so this
+		// drops the oldest rows without needing a second ordering column.
+		res := s.db.WithContext(ctx).Exec(
+			"DELETE FROM audit_logs WHERE id IN (SELECT id FROM audit_logs ORDER BY id ASC LIMIT ?)",
+			overflow)
+		return res.RowsAffected, res.Error
+	}
+
+	var rows []models.AuditLog
+	if err := s.db.WithContext(ctx).Order("id ASC").Limit(overflow).Find(&rows).Error; err != nil {
+		return 0, err
+	}
+	if len(rows) == 0 {
+		return 0, nil
+	}
+	if err := s.archiveRows(rows); err != nil {
+		return 0, fmt.Errorf("archive audit logs before row-cap purge: %w", err)
+	}
+	ids := make([]uint, 0, len(rows))
+	for _, row := range rows {
+		ids = append(ids, row.ID)
+	}
+	res := s.db.WithContext(ctx).Where("id IN ?", ids).Delete(&models.AuditLog{})
+	return res.RowsAffected, res.Error
+}
+
 // archiveRows appends one JSON object per row to the day's archive file and
 // fsyncs it, so the bytes are durable before the caller deletes them.
 func (s *AuditService) archiveRows(rows []models.AuditLog) error {
@@ -116,11 +168,18 @@ func (s *AuditService) archiveRows(rows []models.AuditLog) error {
 }
 
 // RunRetention sweeps expired rows on a ticker until ctx is cancelled.
-// retentionDays <= 0 or interval <= 0 keeps history forever, matching the
-// recording and notification retention settings, so the default is
-// "never delete an audit row".
-func (s *AuditService) RunRetention(ctx context.Context, interval time.Duration, retentionDays int) {
-	if retentionDays <= 0 || interval <= 0 {
+//
+// Two independent bounds are enforced, and either one alone is enough to make
+// the sweep run: `retentionDays` deletes rows older than the window, and
+// `maxRows` trims the oldest rows so at most that many remain whatever their
+// age. Keeping them separate matters - a deployment may want "keep 30 days OR
+// 100k rows, whichever bites first" and must be able to set either to 0 to
+// disable that bound without disabling the other.
+//
+// interval <= 0, retentionDays <= 0 and maxRows <= 0 together mean "keep every
+// audit row forever", matching the recording and notification defaults.
+func (s *AuditService) RunRetention(ctx context.Context, interval time.Duration, retentionDays, maxRows int) {
+	if interval <= 0 || (retentionDays <= 0 && maxRows <= 0) {
 		return
 	}
 	ticker := time.NewTicker(interval)
@@ -130,25 +189,44 @@ func (s *AuditService) RunRetention(ctx context.Context, interval time.Duration,
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			cutoff := time.Now().UTC().AddDate(0, 0, -retentionDays)
-			total := int64(0)
-			// Archive-then-delete only handles one batch per call, so loop
-			// until a pass removes nothing. The plain-delete path could do it
-			// in one statement, but one loop keeps both paths identical.
-			for {
-				removed, err := s.PurgeBefore(ctx, cutoff)
-				if err != nil {
-					log.Printf("[audit] retention sweep failed: %v", err)
-					break
+			if retentionDays > 0 {
+				cutoff := time.Now().UTC().AddDate(0, 0, -retentionDays)
+				total := int64(0)
+				// Archive-then-delete only handles one batch per call, so loop
+				// until a pass removes nothing. The plain-delete path could do
+				// it in one statement, but one loop keeps both paths identical.
+				for {
+					removed, err := s.PurgeBefore(ctx, cutoff)
+					if err != nil {
+						log.Printf("[audit] retention sweep failed: %v", err)
+						break
+					}
+					total += removed
+					if removed == 0 {
+						break
+					}
 				}
-				total += removed
-				if removed == 0 {
-					break
+				if total > 0 {
+					log.Printf("[audit] retention purged %d audit rows older than %s",
+						total, cutoff.Format(time.RFC3339))
 				}
 			}
-			if total > 0 {
-				log.Printf("[audit] retention purged %d audit rows older than %s",
-					total, cutoff.Format(time.RFC3339))
+			if maxRows > 0 {
+				total := int64(0)
+				for {
+					removed, err := s.CapRows(ctx, maxRows)
+					if err != nil {
+						log.Printf("[audit] row-cap sweep failed: %v", err)
+						break
+					}
+					total += removed
+					if removed == 0 {
+						break
+					}
+				}
+				if total > 0 {
+					log.Printf("[audit] row cap removed %d audit rows over %d", total, maxRows)
+				}
 			}
 		}
 	}
