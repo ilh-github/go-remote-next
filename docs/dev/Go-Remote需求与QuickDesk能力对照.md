@@ -72,7 +72,7 @@ QuickDesk 已经覆盖了远程控制最核心、最难实现的画面、输入�
 | 移动端 | 手机控制 | Android 客户端已有，iOS 未承诺 | 部分 | Android 保留，iOS 暂不做 |
 | Linux | Linux 被控端 | README 标注计划中 | 缺失 | Linux 暂不做，Windows/macOS 优先 |
 | P2P | 直连降低延迟 | WebRTC ICE，P2P 优先、TURN 回退 | 已有 | 不重写，做自托管压测 |
-| TURN | NAT 失败时中继 | coturn 自托管方案 | 已有 | 保留；容量/带宽已压测（第 25 节），还缺长稳与 TLS |
+| TURN | NAT 失败时中继 | coturn 自托管方案 | 已有 | 保留；容量/带宽/长稳/TLS/**DTLS 与 CA 证书轮换**都已实测（第 25、28、29、39 节），还缺小时级 soak 与公网 CA 自动续期 |
 | RDP | 系统远程桌面 | 不依赖 RDP，避免锁屏 | 已有替代 | 不做 RDP |
 | 日志聚合 | 集中日志和告警 | 有系统日志、审计和应用日志 | 部分 | 增加聚合、告警和日志面板 |
 | Prometheus | 监控指标 | 后端有 metrics，管理后台有统计 | 部分 | 按业务指标扩展 |
@@ -150,7 +150,9 @@ QuickDesk 已经覆盖了远程控制最核心、最难实现的画面、输入�
    突发/轮转两种模式，含并发上限断言与连接延迟分位，见第 19 节）；**TURN 容量与中继质量也已压测**
    （`scripts/e2e/turn-capacity.mjs`：800 并发 allocation 零失败零泄漏、1200B 中继零丢包，见第 25 节），
    **长稳与带宽上限也测了**（300s soak 零丢包 9/9 续期；限速在 coturn `max-bps`，见第 28 节）；
-   **TURN over TLS 已打通**（`turns:` 全链路 + 信令凭证，见第 29 节）；还缺小时级 soak、DTLS 与真实证书。
+   **TURN over TLS 已打通**（`turns:` 全链路 + 信令凭证，见第 29 节）；
+   **DTLS 与 CA 证书轮换已打通**（见第 39 节：coturn 4.18 需显式 `dtls`，
+   本机 CA 签发 + 真校验 + 换 leaf 客户端无需改动、换 CA 立即被发现）；还缺小时级 soak 与公网 CA 自动续期。
 
 ### P2：业务扩展
 
