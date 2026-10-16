@@ -35,13 +35,16 @@ scripts/sdk/check-generated-sdk.sh python   # fails when sdk/python is stale
 scripts/sdk/check-generated-sdk.sh java     # fails when sdk/java is stale
 ```
 
-The Go and Python clients each carry one hand-written `examples/` directory -
-`sdk/go/examples` and `sdk/python/examples/login_and_list_devices.py` - that
-logs in and lists devices with the generated client. CI runs both against the
-smoke server; the freshness check excludes those directories for exactly that
-reason. The Java client is compiled with Maven in CI (`mvn -DskipTests
-package`). The generated trees are otherwise untouched, so regenerating after a
-spec change is the whole maintenance story.
+The Go and Python clients each carry hand-written `examples/` code -
+`sdk/go/examples`, `sdk/python/examples/login_and_list_devices.py` - and the Go
+client has a second one under `sdk/go/examples/recordinglifecycle` that runs a
+whole business workflow: create a recording, upload the media, patch the row,
+find it in the index, mint a playback ticket, read the bytes back through that
+ticket (the route a `<video>` tag uses, with no Authorization header) and delete
+the row. CI runs all three against the smoke server, which is why the freshness
+check excludes those directories. The Java client is compiled with Maven in CI
+(`mvn -DskipTests package`). The generated trees are otherwise untouched, so
+regenerating after a spec change is the whole maintenance story.
 
 The generator applies the normalisations the templates get wrong for a nested
 module: the Go client's `go.mod` module path is pinned to

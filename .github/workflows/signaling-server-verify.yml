@@ -255,6 +255,14 @@ jobs:
         # this proves the generated Go code can actually talk to it.
         working-directory: sdk/go
         run: go run ./examples
+      - name: Run a business workflow through the generated Go client
+        # Logging in proves the client can reach the server; this runs an actual
+        # write path - create a recording, upload the media, patch it, find it in
+        # the index, mint a playback ticket, read the bytes back through that
+        # ticket and delete the row - so a break in a business route fails here
+        # rather than in someone's integration.
+        working-directory: sdk/go
+        run: go run ./examples/recordinglifecycle
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
