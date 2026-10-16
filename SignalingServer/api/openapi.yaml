@@ -391,6 +391,45 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+  /v1/me/devices/{device_id}/access-approvals:summary:
+    parameters:
+      - $ref: '#/components/parameters/DeviceId'
+    get:
+      tags: [devices]
+      summary: Aggregated view of a device's approval queue
+      operationId: getAccessApprovalSummary
+      description: |
+        The row list shows requests one at a time; this is what makes "one
+        address has been refused six times this afternoon" legible. The window
+        is keyed on `created_at` for every count.
+      parameters:
+        - name: since
+          in: query
+          required: false
+          description: RFC3339 start of the window; defaults to the last 24 hours.
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          required: false
+          description: How many refused sources to list (default 5, capped at 10).
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        '200':
+          description: The window's counts and refused sources.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalSummary'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
 components:
   securitySchemes:
     ApiKeyAuth:
@@ -900,6 +939,56 @@ components:
         created_at:
           type: string
           format: date-time
+    ApprovalSummary:
+      type: object
+      required: [since, total, by_status, denied_sources, denial_cooldown_seconds]
+      properties:
+        since:
+          type: string
+          format: date-time
+          description: Inclusive start of the window the counts cover.
+        total:
+          type: integer
+          format: int64
+          description: Every request created inside the window, whatever its outcome.
+        by_status:
+          type: object
+          description: Always carries all five states, zeroes included.
+          required: [pending, approved, denied, expired, consumed]
+          properties:
+            pending:
+              type: integer
+              format: int64
+            approved:
+              type: integer
+              format: int64
+            denied:
+              type: integer
+              format: int64
+            expired:
+              type: integer
+              format: int64
+            consumed:
+              type: integer
+              format: int64
+        denied_sources:
+          type: array
+          description: Refused sources inside the window, most refusals first.
+          items:
+            type: object
+            required: [client_ip, denials]
+            properties:
+              client_ip:
+                type: string
+              denials:
+                type: integer
+                format: int64
+              last_denied_at:
+                type: [string, 'null']
+                format: date-time
+        denial_cooldown_seconds:
+          type: integer
+          description: The live APPROVAL_DENIAL_COOLDOWN_SECONDS, so an owner can tell "refused right now" from "refused a while ago".
     Problem:
       type: object
       description: RFC 7807 problem details, served as `application/problem+json`.

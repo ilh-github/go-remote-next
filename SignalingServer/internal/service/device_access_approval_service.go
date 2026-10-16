@@ -327,6 +327,123 @@ func (s *DeviceAccessApprovalService) List(
 	return rows, err
 }
 
+// Bounds for the owner-facing summary view.
+const (
+	// ApprovalSummaryDefaultWindow is how far back the summary looks when the
+	// caller does not say.
+	ApprovalSummaryDefaultWindow = 24 * time.Hour
+	// ApprovalSummaryMaxSources caps how many refused sources come back. The
+	// view exists to spot a source hammering the owner, not to export the table.
+	ApprovalSummaryMaxSources = 10
+	// approvalSummaryDefaultSources is the default cap when none is given.
+	approvalSummaryDefaultSources = 5
+)
+
+// ApprovalDeniedSource is one refused source, aggregated.
+type ApprovalDeniedSource struct {
+	ClientIP string `json:"client_ip"`
+	Denials  int64  `json:"denials"`
+	// LastDeniedAt is when that source was most recently refused.
+	LastDeniedAt *time.Time `json:"last_denied_at,omitempty"`
+}
+
+// ApprovalSummary answers "what has this device's approval queue been doing",
+// which the row list cannot: a list shows individual requests, so the owner has
+// to count them by eye to notice that one address has been refused five times
+// this afternoon.
+type ApprovalSummary struct {
+	// Since is the inclusive start of the window the counts cover.
+	Since time.Time `json:"since"`
+	// Total is every request created inside the window, whatever its outcome.
+	Total    int64            `json:"total"`
+	ByStatus map[string]int64 `json:"by_status"`
+	// DeniedSources is the refused sources inside the window, most refusals
+	// first. It is what makes "someone keeps trying" visible.
+	DeniedSources []ApprovalDeniedSource `json:"denied_sources"`
+	// DenialCooldownSeconds echoes the configured cooldown so the owner can
+	// tell "this source is being refused right now" from "it was refused a
+	// while ago".
+	DenialCooldownSeconds int `json:"denial_cooldown_seconds"`
+}
+
+// Summary aggregates this device's approvals inside a window. The window is
+// keyed on `created_at` for every count, so "requests that arrived in this
+// window" is the one definition: a denial of a request from before the window
+// is not counted, even if the decision happened after it started.
+func (s *DeviceAccessApprovalService) Summary(
+	ctx context.Context,
+	deviceID string,
+	since time.Time,
+	limit int,
+) (ApprovalSummary, error) {
+	if err := s.ExpireOverdue(ctx, deviceID); err != nil {
+		return ApprovalSummary{}, err
+	}
+	if limit <= 0 {
+		limit = approvalSummaryDefaultSources
+	}
+	if limit > ApprovalSummaryMaxSources {
+		limit = ApprovalSummaryMaxSources
+	}
+	out := ApprovalSummary{
+		Since: since,
+		// Every state is present even at zero, so a client never has to guess
+		// whether a missing key means "none" or "unknown".
+		ByStatus: map[string]int64{
+			models.ApprovalPending:  0,
+			models.ApprovalApproved: 0,
+			models.ApprovalDenied:   0,
+			models.ApprovalExpired:  0,
+			models.ApprovalConsumed: 0,
+		},
+		DeniedSources:         []ApprovalDeniedSource{},
+		DenialCooldownSeconds: int(s.denialCooldown.Seconds()),
+	}
+
+	type statusRow struct {
+		Status string
+		Total  int64
+	}
+	var statusRows []statusRow
+	if err := s.db.WithContext(ctx).
+		Model(&models.DeviceAccessApproval{}).
+		Select("status, count(*) AS total").
+		Where("device_id = ? AND created_at >= ?", deviceID, since).
+		Group("status").
+		Scan(&statusRows).Error; err != nil {
+		return out, err
+	}
+	for _, r := range statusRows {
+		out.ByStatus[r.Status] = r.Total
+		out.Total += r.Total
+	}
+
+	type sourceRow struct {
+		ClientIP     string
+		Denials      int64
+		LastDeniedAt *time.Time
+	}
+	var sourceRows []sourceRow
+	if err := s.db.WithContext(ctx).
+		Model(&models.DeviceAccessApproval{}).
+		Select("client_ip, count(*) AS denials, max(decided_at) AS last_denied_at").
+		Where("device_id = ? AND status = ? AND created_at >= ?", deviceID, models.ApprovalDenied, since).
+		Group("client_ip").
+		Order("denials DESC, last_denied_at DESC").
+		Limit(limit).
+		Scan(&sourceRows).Error; err != nil {
+		return out, err
+	}
+	for _, r := range sourceRows {
+		out.DeniedSources = append(out.DeniedSources, ApprovalDeniedSource{
+			ClientIP:     r.ClientIP,
+			Denials:      r.Denials,
+			LastDeniedAt: r.LastDeniedAt,
+		})
+	}
+	return out, nil
+}
+
 // ExpireOverdue flips this device's unanswered, past-deadline rows to
 // `expired`. It is safe to call repeatedly and is the only way a pending row
 // changes without an owner action.

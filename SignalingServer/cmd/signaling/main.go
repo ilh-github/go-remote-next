@@ -429,6 +429,7 @@ func main() {
 			me.POST("/devices/:device_id/access-grants", deviceAccessGrantHandler.Create)
 			me.DELETE("/devices/:device_id/access-grants/:grant_id", deviceAccessGrantHandler.Delete)
 			me.GET("/devices/:device_id/access-approvals", deviceAccessApprovalHandler.List)
+			me.GET("/devices/:device_id/access-approvals:summary", deviceAccessApprovalHandler.Summary)
 			me.POST("/devices/:device_id/access-approvals/:approval_id/approve", deviceAccessApprovalHandler.Approve)
 			me.POST("/devices/:device_id/access-approvals/:approval_id/deny", deviceAccessApprovalHandler.Deny)
 			me.PATCH("/devices/:device_id", deviceHandler.Patch)

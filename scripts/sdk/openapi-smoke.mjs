@@ -192,6 +192,24 @@ if (Array.isArray(approvalItems) && approvalItems.length > 0) {
 const badStatus = await call('GET', `/v1/me/devices/${deviceId}/access-approvals?status=nope`, { token, expect: 400 });
 problemShape(badStatus.json, 'GET access-approvals (unknown status)');
 
+// 9. GET /v1/me/devices/{device_id}/access-approvals:summary
+const summary = await call('GET', `/v1/me/devices/${deviceId}/access-approvals:summary`, { token, expect: 200 });
+field(summary.json, 'since', 'string', 'GET access-approvals:summary');
+field(summary.json, 'total', 'number', 'GET access-approvals:summary');
+field(summary.json, 'denial_cooldown_seconds', 'number', 'GET access-approvals:summary');
+const byStatus = field(summary.json, 'by_status', 'object', 'GET access-approvals:summary');
+for (const state of ['pending', 'approved', 'denied', 'expired', 'consumed']) {
+  field(byStatus, state, 'number', 'AccessApprovalSummary.by_status');
+}
+const deniedSources = field(summary.json, 'denied_sources', 'object', 'GET access-approvals:summary');
+check(Array.isArray(deniedSources), 'GET access-approvals:summary: denied_sources is not an array');
+if (Array.isArray(deniedSources) && deniedSources.length > 0) {
+  field(deniedSources[0], 'client_ip', 'string', 'AccessApprovalSummary.denied_sources[]');
+  field(deniedSources[0], 'denials', 'number', 'AccessApprovalSummary.denied_sources[]');
+}
+const badSince = await call('GET', `/v1/me/devices/${deviceId}/access-approvals:summary?since=nope`, { token, expect: 400 });
+problemShape(badSince.json, 'GET access-approvals:summary (bad since)');
+
 if (smokeDevice) {
   // 6. PUT the rule back unchanged, then restore the prior state exactly.
   const putBody = {

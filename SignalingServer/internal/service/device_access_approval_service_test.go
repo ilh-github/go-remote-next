@@ -448,3 +448,98 @@ func TestApprovalDenialCooldownOffByDefault(t *testing.T) {
 		t.Fatalf("with the cooldown disabled a denial must not block: %v", err)
 	}
 }
+
+// The row list cannot show "one address has been refused six times this
+// afternoon" without the owner counting rows, which is what the summary is for.
+func TestApprovalSummaryAggregatesStatusesAndDeniedSources(t *testing.T) {
+	db := newApprovalTestDB(t)
+	cooldown := 5 * time.Minute
+	svc := NewDeviceAccessApprovalService(db).WithDenialCooldown(cooldown)
+	ctx := context.Background()
+	const deviceID = "D6666666"
+	now := time.Now().UTC()
+
+	seed := func(status, ip string, created time.Time, decided *time.Time) {
+		t.Helper()
+		row := models.DeviceAccessApproval{
+			DeviceID:  deviceID,
+			OwnerID:   1,
+			ClientIP:  ip,
+			Source:    models.ApprovalSourceDeviceCode,
+			Status:    status,
+			ExpiresAt: now.Add(time.Hour),
+			CreatedAt: created,
+			UpdatedAt: created,
+			DecidedAt: decided,
+		}
+		if err := db.Create(&row).Error; err != nil {
+			t.Fatalf("seed %s/%s: %v", status, ip, err)
+		}
+	}
+	deniedAt := now.Add(-10 * time.Minute)
+	// Three denials from one source (the abuse shape), one from another.
+	seed(models.ApprovalDenied, "198.51.100.10", now.Add(-30*time.Minute), &deniedAt)
+	seed(models.ApprovalDenied, "198.51.100.10", now.Add(-25*time.Minute), &deniedAt)
+	seed(models.ApprovalDenied, "198.51.100.10", now.Add(-20*time.Minute), &deniedAt)
+	seed(models.ApprovalDenied, "198.51.100.11", now.Add(-15*time.Minute), &deniedAt)
+	// One approved, one still pending inside its TTL.
+	seed(models.ApprovalApproved, "198.51.100.12", now.Add(-5*time.Minute), &deniedAt)
+	seed(models.ApprovalPending, "198.51.100.13", now.Add(-time.Minute), nil)
+	// Outside the window: must not be counted.
+	seed(models.ApprovalDenied, "198.51.100.10", now.Add(-48*time.Hour), &deniedAt)
+
+	summary, err := svc.Summary(ctx, deviceID, now.Add(-time.Hour), 0)
+	if err != nil {
+		t.Fatalf("summary: %v", err)
+	}
+	if summary.Total != 6 {
+		t.Fatalf("total = %d, want 6 (the 48h-old row is outside the window)", summary.Total)
+	}
+	want := map[string]int64{
+		models.ApprovalPending:  1,
+		models.ApprovalApproved: 1,
+		models.ApprovalDenied:   4,
+		models.ApprovalExpired:  0,
+		models.ApprovalConsumed: 0,
+	}
+	for status, n := range want {
+		if summary.ByStatus[status] != n {
+			t.Fatalf("by_status[%s] = %d, want %d (zeroes must be present too)",
+				status, summary.ByStatus[status], n)
+		}
+	}
+	if len(summary.ByStatus) != 5 {
+		t.Fatalf("by_status has %d keys, want all five states", len(summary.ByStatus))
+	}
+	if len(summary.DeniedSources) != 2 {
+		t.Fatalf("denied_sources = %+v, want two sources", summary.DeniedSources)
+	}
+	top := summary.DeniedSources[0]
+	if top.ClientIP != "198.51.100.10" || top.Denials != 3 {
+		t.Fatalf("top refused source = %+v, want 198.51.100.10 with 3 denials", top)
+	}
+	if top.LastDeniedAt == nil {
+		t.Fatal("top refused source has no last_denied_at")
+	}
+	if got := summary.DenialCooldownSeconds; got != int(cooldown.Seconds()) {
+		t.Fatalf("denial_cooldown_seconds = %d, want %d", got, int(cooldown.Seconds()))
+	}
+
+	// The source cap is bounded even when the caller asks for more.
+	summary, err = svc.Summary(ctx, deviceID, now.Add(-time.Hour), 999)
+	if err != nil {
+		t.Fatalf("summary with a large limit: %v", err)
+	}
+	if len(summary.DeniedSources) > ApprovalSummaryMaxSources {
+		t.Fatalf("returned %d sources, over the %d cap", len(summary.DeniedSources), ApprovalSummaryMaxSources)
+	}
+
+	// Another device's history must not leak into this one.
+	other, err := svc.Summary(ctx, "D7777777", now.Add(-time.Hour), 0)
+	if err != nil {
+		t.Fatalf("summary for another device: %v", err)
+	}
+	if other.Total != 0 || len(other.DeniedSources) != 0 {
+		t.Fatalf("another device's summary = %+v, want empty", other)
+	}
+}

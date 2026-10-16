@@ -128,6 +128,46 @@ func (h *DeviceAccessApprovalHandler) List(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"items": views})
 }
 
+// Summary answers `GET /v1/me/devices/:device_id/access-approvals:summary`.
+//
+//	?since=   RFC3339 start of the window (default: the last 24 hours)
+//	&limit=   how many refused sources to list (default 5, clamped to 10)
+//
+// The list endpoint shows individual requests; this is the view that makes
+// "one address has been refused six times this afternoon" legible without the
+// owner counting rows by hand.
+func (h *DeviceAccessApprovalHandler) Summary(c *gin.Context) {
+	deviceID, ok := h.ownedDeviceID(c)
+	if !ok {
+		return
+	}
+	since := time.Now().UTC().Add(-service.ApprovalSummaryDefaultWindow)
+	if raw := strings.TrimSpace(c.Query("since")); raw != "" {
+		parsed, err := time.Parse(time.RFC3339, raw)
+		if err != nil {
+			ProblemBadRequest(c, ProblemCodeInvalidRequest,
+				"since must be RFC3339, e.g. 2026-10-16T00:00:00Z")
+			return
+		}
+		since = parsed.UTC()
+	}
+	limit := 0
+	if raw := strings.TrimSpace(c.Query("limit")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed <= 0 {
+			ProblemBadRequest(c, ProblemCodeInvalidRequest, "limit must be a positive integer")
+			return
+		}
+		limit = parsed
+	}
+	summary, err := h.approvals.Summary(c.Request.Context(), deviceID, since, limit)
+	if err != nil {
+		ProblemInternal(c, err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, summary)
+}
+
 func (h *DeviceAccessApprovalHandler) Approve(c *gin.Context) { h.decide(c, true) }
 func (h *DeviceAccessApprovalHandler) Deny(c *gin.Context)    { h.decide(c, false) }
 

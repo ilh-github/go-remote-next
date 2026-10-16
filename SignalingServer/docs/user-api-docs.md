@@ -725,9 +725,24 @@ The flow:
 | Method | Path | Auth | Body / notes |
 |---|---|---|---|
 | `GET` | `/v1/me/devices/:device_id/access-approvals` | user token | `?status=pending&limit=50`. `status` is a comma-separated subset of `pending,approved,denied,expired,consumed` and defaults to `pending`. Returns `{items: [...]}` newest first. |
+| `GET` | `/v1/me/devices/:device_id/access-approvals:summary` | user token | `?since=` (RFC3339, default the last 24 hours) and `&limit=` (how many refused sources, default 5, capped at 10). Returns `{since, total, by_status, denied_sources, denial_cooldown_seconds}` — see below. |
 | `POST` | `/v1/me/devices/:device_id/access-approvals/:approval_id/approve` | user token | Optional `{reason}`. `200` with the updated row. A request that was already decided (or timed out) returns `409` with the current `status` instead of silently flipping it. |
 | `POST` | `/v1/me/devices/:device_id/access-approvals/:approval_id/deny` | user token | Optional `{reason}`. Same `200` / `409` shape. |
 | `POST` | `/v1/devices/:device_id/access-approvals:claim` | `X-API-Key` | `{approval_id, secret}` from step 2. `202` while pending, `200` with a signal token once approved, `403` when denied or expired, `404` for an unknown id *or* a wrong secret (they are deliberately indistinguishable), `409` when the approval was already used. |
+
+**The summary is the answer to "is somebody hammering me".** The row list shows
+requests one at a time, so noticing that a single address has been refused six
+times this afternoon means counting by eye. `access-approvals:summary`
+aggregates a window into `{since, total, by_status, denied_sources,
+denial_cooldown_seconds}`: `by_status` always carries all five states (zeroes
+included, so a missing key never has to mean "unknown"), and `denied_sources`
+lists the refused sources most-refusals-first with each one's
+`last_denied_at`. The window is keyed on `created_at` for every count — "the
+requests that arrived in this window" — so a denial of an older request does not
+appear even if the decision happened after the window opened.
+`denial_cooldown_seconds` echoes the live `APPROVAL_DENIAL_COOLDOWN_SECONDS`
+(§5.3.5 rules below), which is what lets an owner tell "this source is being
+refused right now" from "it was refused a while ago".
 
 Rules that matter:
 
