@@ -71,6 +71,10 @@ type NotificationDeliveryService struct {
 	// archiveDir, when set, makes retention append expired rows to a JSONL file
 	// before deleting them. Empty means the old behaviour: hard delete.
 	archiveDir string
+	// aggregateWindow, when positive, holds a new delivery for that long and
+	// folds later occurrences of the same (channel, event type, device) into
+	// it. 0 keeps the historical one-row-per-event behaviour.
+	aggregateWindow time.Duration
 }
 
 func NewNotificationDeliveryService(db *gorm.DB) *NotificationDeliveryService {
@@ -83,6 +87,28 @@ func NewNotificationDeliveryService(db *gorm.DB) *NotificationDeliveryService {
 func (s *NotificationDeliveryService) WithArchiveDir(dir string) *NotificationDeliveryService {
 	s.archiveDir = strings.TrimSpace(dir)
 	return s
+}
+
+// WithAggregateWindow enables burst collapsing for noise reduction. When set,
+// a delivery is held for that long before its first attempt, and another event
+// with the same (channel, event type, device) that arrives during the hold
+// increments the row's occurrence count instead of creating a second row. The
+// trade-off is a deliberate delay of up to the window before anything is sent;
+// 0 (the default) keeps immediate delivery and one row per event.
+func (s *NotificationDeliveryService) WithAggregateWindow(d time.Duration) *NotificationDeliveryService {
+	if d < 0 {
+		d = 0
+	}
+	s.aggregateWindow = d
+	return s
+}
+
+// AggregateWindow reports the configured collapse window (0 = disabled).
+func (s *NotificationDeliveryService) AggregateWindow() time.Duration {
+	if s == nil {
+		return 0
+	}
+	return s.aggregateWindow
 }
 
 // ArchiveDir reports the configured archive directory ("" = plain delete).
@@ -124,6 +150,18 @@ func (s *NotificationDeliveryService) Enqueue(ctx context.Context, ch models.Use
 	if err != nil {
 		return err
 	}
+	now := time.Now().UTC()
+	if s.aggregateWindow > 0 {
+		merged, mergeErr := s.mergeIntoHeldDelivery(ctx, ch.ID, eventType, deviceID, now)
+		if mergeErr != nil {
+			// Aggregation is best-effort. Falling back to a new row only means
+			// the receiver hears about the event more often than it had to,
+			// never that it is lost.
+			log.Printf("[notification] aggregate merge for channel %d failed: %v", ch.ID, mergeErr)
+		} else if merged {
+			return nil
+		}
+	}
 	row := &models.NotificationDelivery{
 		ChannelID:     ch.ID,
 		UserID:        ch.UserID,
@@ -131,9 +169,47 @@ func (s *NotificationDeliveryService) Enqueue(ctx context.Context, ch models.Use
 		DeviceID:      deviceID,
 		Payload:       string(encoded),
 		Status:        DeliveryStatusPending,
-		NextAttemptAt: time.Now().UTC(),
+		NextAttemptAt: now,
+	}
+	if s.aggregateWindow > 0 {
+		// Hold the row so a burst has time to collapse into it. The hold is
+		// fixed rather than extended on every merge, so the worst-case delay a
+		// receiver sees is the window, not the length of the burst.
+		row.NextAttemptAt = now.Add(s.aggregateWindow)
 	}
 	return s.db.WithContext(ctx).Create(row).Error
+}
+
+// mergeIntoHeldDelivery folds one more occurrence into the newest still-held
+// row for the same (channel, event type, device) and reports whether it did.
+//
+// "Held" means the row is still `pending` *and* its next_attempt_at is in the
+// future: once the hold lapses the worker is free to claim it, and mutating a
+// row that is about to be sent (or is already `delivering`) would either lose
+// the increment or send a body that no longer matches its count. Because the
+// subquery and the update are one statement, two concurrent enqueues both see
+// the same snapshot and exactly one row is incremented per statement.
+func (s *NotificationDeliveryService) mergeIntoHeldDelivery(
+	ctx context.Context,
+	channelID uint,
+	eventType, deviceID string,
+	now time.Time,
+) (bool, error) {
+	res := s.db.WithContext(ctx).Exec(`
+		UPDATE notification_deliveries
+		SET occurrence_count = occurrence_count + 1, updated_at = ?
+		WHERE id = (
+			SELECT id FROM notification_deliveries
+			WHERE channel_id = ? AND event_type = ? AND device_id = ?
+			  AND status = ? AND next_attempt_at > ?
+			ORDER BY id DESC
+			LIMIT 1
+		)`,
+		now, channelID, eventType, deviceID, DeliveryStatusPending, now)
+	if res.Error != nil {
+		return false, res.Error
+	}
+	return res.RowsAffected > 0, nil
 }
 
 // Run polls the outbox until ctx is cancelled.
@@ -354,6 +430,12 @@ func (s *NotificationDeliveryService) deliver(ctx context.Context, row models.No
 	if err := json.Unmarshal([]byte(row.Payload), &payload); err != nil {
 		s.finishDelivery(ctx, row.ID, channel.ID, DeliveryStatusFailed, 0, "payload is not valid JSON")
 		return
+	}
+	// A collapsed burst posts the first event's body plus how many occurrences
+	// it stands for. The stored payload stays untouched, so the delivery log
+	// still shows the event that started the burst.
+	if row.OccurrenceCount > 1 {
+		payload["aggregated_count"] = row.OccurrenceCount
 	}
 
 	status, err := postWebhookOnce(channel.URL, channel.Secret, payload, notificationWebhookHeaders(row.ID, payload))

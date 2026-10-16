@@ -21,6 +21,13 @@ type NotificationDelivery struct {
 	Status string `gorm:"size:16;not null;index" json:"status"`
 	// Attempts counts finished delivery attempts (not claims).
 	Attempts int `gorm:"not null;default:0" json:"attempts"`
+	// OccurrenceCount is how many matching events this one row represents. It
+	// is 1 unless notification aggregation is enabled and a burst of the same
+	// (channel, event type, device) collapsed into this row while it was still
+	// waiting out its hold. The worker adds it to the posted body as
+	// `aggregated_count` when it is greater than 1, so a receiver can tell
+	// "this happened once" from "this happened 40 times".
+	OccurrenceCount int `gorm:"not null;default:1" json:"occurrence_count"`
 	// NextAttemptAt is when the worker may pick the row up again.
 	NextAttemptAt time.Time `gorm:"not null;index" json:"next_attempt_at"`
 

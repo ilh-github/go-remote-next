@@ -494,6 +494,19 @@ aborts with an error and the rows stay, so retention can never be the step that
 destroys the only copy of a delivery history. Leave it empty for the plain
 delete.
 
+**Aggregation is opt-in noise reduction.** `NOTIFICATION_AGGREGATE_SECONDS`
+defaults to `0`, which keeps the behaviour above: one row per event, delivered
+on the next worker tick. A positive value holds each new delivery for that many
+seconds before its first attempt and folds later events with the same
+`(channel, event type, device)` into it; the merged row keeps the first event's
+body and gains `occurrence_count` in the delivery log, and the POST carries
+`aggregated_count` so a receiver can tell one occurrence from forty. The hold
+is fixed rather than extended by each merge, so the worst-case delay is the
+window and not the length of the burst — the price of aggregation is promptness,
+which is why it is off by default. Only rows still `pending` inside their hold
+are merged, so a row the worker is about to send (or has already claimed) is
+never mutated.
+
 ### 5.3.3 Device access policy (who is allowed to connect)
 
 The access log records who *tried*; the policy decides who *may*. The owner of

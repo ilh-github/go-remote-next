@@ -156,6 +156,12 @@ func main() {
 	if cfg.Notification.ArchiveDir != "" {
 		notificationDeliveryService.WithArchiveDir(cfg.Notification.ArchiveDir)
 	}
+	if cfg.Notification.AggregateSeconds > 0 {
+		notificationDeliveryService.WithAggregateWindow(
+			time.Duration(cfg.Notification.AggregateSeconds) * time.Second)
+		log.Printf("Notification aggregation: window=%ds (delivery is held up to this long)",
+			cfg.Notification.AggregateSeconds)
+	}
 	notificationChannelService := service.NewNotificationChannelService(db, notificationDeliveryService)
 	sessionRecordingService := service.NewSessionRecordingService(db)
 	recordingLifecycle := service.NewRecordingLifecycle(

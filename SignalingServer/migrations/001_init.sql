@@ -458,6 +458,12 @@ ALTER TABLE notification_deliveries
 CREATE INDEX IF NOT EXISTS idx_notification_deliveries_device_id
     ON notification_deliveries (device_id);
 
+-- Notification aggregation: one row can stand for several occurrences of the
+-- same (channel, event type, device) when NOTIFICATION_AGGREGATE_SECONDS is
+-- set. Rows written before this column existed are single occurrences.
+ALTER TABLE notification_deliveries
+    ADD COLUMN IF NOT EXISTS occurrence_count INTEGER NOT NULL DEFAULT 1;
+
 -- ---------------------------------------------------------------
 -- Per-device offline alerts ("tell me when this stays offline")
 -- The row carries the evaluator's episode state because presence only answers
