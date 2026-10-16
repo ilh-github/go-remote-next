@@ -24,6 +24,14 @@
 //   # ...) verifies against a specific certificate instead. QD_TURN_URL also
 //   # selects the endpoint when credentials come from the signaling server.
 //
+// ChannelData path (what a real client switches to after the first packet):
+//   QD_TURN_QUALITY=1 QD_TURN_CHANNEL=1 node turn-capacity.mjs
+//   # Binds a channel per direction and relays with ChannelData framing
+//   # instead of Send/Data indications. In soak mode the bindings are
+//   # re-sent on the refresh timer, because a binding only lasts 600s.
+//   # Note the receive path has to tell the two framings apart: ChannelData is
+//   # not a STUN message, so a parser that assumes STUN drops it silently.
+//
 // Credentials come from QD_TURN_SECRET (minted locally) or, if unset, from the
 // signaling server's GET /v1/ice-config (QD_SIGNALING_URL + QD_API_KEY).
 //
@@ -37,6 +45,11 @@ import fs from 'node:fs';
 import crypto from 'node:crypto';
 
 const MAGIC_COOKIE = 0x2112a442;
+
+// Channel numbers are one per peer binding on an allocation; any value in
+// 0x4000..0x7FFF works and the two directions are independent.
+const CHANNEL_AB = 0x4000;
+const CHANNEL_BA = 0x4001;
 
 // Counts allocations that had to be retried because coturn still had the
 // previous 5-tuple in a closing state (see allocate()).
@@ -53,6 +66,8 @@ const T = {
   CreatePermission: 0x0008,
   CreatePermissionSuccess: 0x0108,
   CreatePermissionError: 0x0118,
+  ChannelBind: 0x0009,
+  ChannelBindSuccess: 0x0109,
   RefreshSuccess: 0x0104,
 };
 
@@ -64,6 +79,7 @@ const A = {
   Nonce: 0x0015,
   XorRelayed: 0x0016,
   XorPeer: 0x0012,
+  ChannelNumber: 0x000c,
   Data: 0x0013,
   RequestedTransport: 0x0019,
   XorMapped: 0x0020,
@@ -129,6 +145,34 @@ function u32(value) {
   const b = Buffer.alloc(4);
   b.writeUInt32BE(value >>> 0, 0);
   return b;
+}
+
+function u16(value) {
+  const b = Buffer.alloc(2);
+  b.writeUInt16BE(value & 0xffff, 0);
+  return b;
+}
+
+// ChannelData frames are not STUN messages: RFC 5766 sets the first two bits of
+// the first byte to 01, so the channel number lands in 0x4000..0x7FFF. That is
+// the path real WebRTC clients use once a binding exists, and it is also why a
+// harness that only exercises Send/Data indications can pass while a client
+// still fails.
+function isChannelDataFrame(buf) {
+  return buf.length >= 4 && buf[0] >= 0x40 && buf[0] <= 0x7f;
+}
+
+// `padded` is true for TCP/TLS, where each frame is 4-byte aligned; over UDP
+// the datagram boundary already delimits the frame.
+function channelDataFrameLength(buf, padded) {
+  const length = buf.readUInt16BE(2);
+  return 4 + length + (padded ? (4 - (length % 4)) % 4 : 0);
+}
+
+function parseChannelDataFrame(buf, padded) {
+  const channel = buf.readUInt16BE(0);
+  const length = buf.readUInt16BE(2);
+  return { channelData: true, channel, data: buf.subarray(4, 4 + length) };
 }
 
 /** Long-term credential key: MD5(username ":" realm ":" password). */
@@ -234,10 +278,22 @@ class TurnSocket {
     this.waiters = new Map();
     this.indications = [];
     this.indicationHandlers = [];
+    // UDP datagrams delimit themselves; TCP/TLS frames are 4-byte aligned.
+    this.paddedFraming = false;
     this.socket.on('message', (buf) => this.#onMessage(buf));
   }
 
   #onMessage(buf) {
+    // ChannelData arrives as a raw frame, not a STUN message, so it has to be
+    // recognised before parseMessage() throws on it.
+    if (isChannelDataFrame(buf)) {
+      const frame = parseChannelDataFrame(buf, false);
+      this.indications.push(frame);
+      for (const h of this.indicationHandlers) {
+        h(frame);
+      }
+      return;
+    }
     let msg;
     try {
       msg = parseMessage(buf);
@@ -321,6 +377,7 @@ class TurnStreamSocket {
     this.waiters = new Map();
     this.indications = [];
     this.indicationHandlers = [];
+    this.paddedFraming = true;
   }
 
   connect() {
@@ -362,7 +419,27 @@ class TurnStreamSocket {
 
   #onData(chunk) {
     this.rx = Buffer.concat([this.rx, chunk]);
-    while (this.rx.length >= 20) {
+    while (this.rx.length >= 4) {
+      // A stream carries both ChannelData (4-byte header, 4-byte aligned
+      // payload) and STUN messages (20-byte header), so the framing has to be
+      // decided per frame.
+      if (isChannelDataFrame(this.rx)) {
+        const total = channelDataFrameLength(this.rx, true);
+        if (this.rx.length < total) {
+          break;
+        }
+        const frame = this.rx.subarray(0, total);
+        this.rx = this.rx.subarray(total);
+        const parsed = parseChannelDataFrame(frame, true);
+        this.indications.push(parsed);
+        for (const h of this.indicationHandlers) {
+          h(parsed);
+        }
+        continue;
+      }
+      if (this.rx.length < 20) {
+        break;
+      }
       const length = this.rx.readUInt16BE(2);
       const total = 20 + length;
       if (this.rx.length < total) {
@@ -584,6 +661,56 @@ function sendDataNoWait(alloc, peer, payload) {
 }
 
 /**
+ * Bind a peer to a channel number so payload can be relayed with the compact
+ * ChannelData framing instead of Send/Data indications. This is the path real
+ * clients use after the first packet, so exercising only indications can miss
+ * a broken channel path entirely. A binding lives 600s and is refreshed by
+ * re-sending ChannelBind.
+ */
+async function channelBind(alloc, peer, channel) {
+  const reply = await authedRequest(
+    alloc,
+    T.ChannelBind,
+    [attr(A.ChannelNumber, u16(channel)), xorAddressAttr(A.XorPeer, peer)],
+    T.ChannelBindSuccess,
+  );
+  if (reply.type !== T.ChannelBindSuccess) {
+    const err = errorCode(reply);
+    throw new Error(`channel-bind failed: ${err ? `${err.code} ${err.reason}` : `type 0x${reply.type.toString(16)}`}`);
+  }
+  return reply;
+}
+
+function buildChannelData(channel, payload, padded) {
+  const padding = padded ? (4 - (payload.length % 4)) % 4 : 0;
+  const buf = Buffer.alloc(4 + payload.length + padding);
+  buf.writeUInt16BE(channel, 0);
+  buf.writeUInt16BE(payload.length, 2);
+  payload.copy(buf, 4);
+  return buf;
+}
+
+function sendChannelData(alloc, channel, payload) {
+  return alloc.socket.send(buildChannelData(channel, payload, alloc.socket.paddedFraming));
+}
+
+function sendChannelDataNoWait(alloc, channel, payload) {
+  alloc.socket.sendNoWait(buildChannelData(channel, payload, alloc.socket.paddedFraming));
+}
+
+/**
+ * The relayed bytes, whichever framing delivered them. Data indications carry
+ * them in a DATA attribute; ChannelData frames carry them bare after a 4-byte
+ * header.
+ */
+function relayedPayload(msg) {
+  if (msg.channelData) {
+    return msg.data;
+  }
+  return findAttr(msg, A.Data)?.value ?? null;
+}
+
+/**
  * Refresh an allocation's lifetime. coturn grants a finite lifetime (600s by
  * default) and drops the allocation when it expires, so a long session must
  * refresh; a soak that never refreshes only proves the first minute works.
@@ -704,8 +831,15 @@ async function runCapacity(conn, credFor) {
 async function runQuality(conn, credFor) {
   const packets = Number(process.env.QD_TURN_PACKETS ?? 200);
   const payloadSize = Number(process.env.QD_TURN_PAYLOAD ?? 1024);
+  // Indications are the default; QD_TURN_CHANNEL=1 exercises the ChannelData
+  // path instead, which is what a real client switches to after the first
+  // packet.
+  const useChannel = process.env.QD_TURN_CHANNEL === '1';
 
-  console.log(`relay-quality run: ${packets} packets x ${payloadSize} B between two allocations`);
+  console.log(
+    `relay-quality run: ${packets} packets x ${payloadSize} B between two allocations ` +
+      `(path: ${useChannel ? 'ChannelData' : 'Send/Data indications'})`,
+  );
   const a = await allocate({ ...conn, ...credFor(0) });
   const b = await allocate({ ...conn, ...credFor(1) });
   console.log(`A relayed ${a.relayed.address}:${a.relayed.port}  B relayed ${b.relayed.address}:${b.relayed.port}`);
@@ -713,19 +847,27 @@ async function runQuality(conn, credFor) {
   // Each side must permit the other's relayed address.
   await createPermission(a, b.relayed);
   await createPermission(b, a.relayed);
+  if (useChannel) {
+    await channelBind(a, b.relayed, CHANNEL_AB);
+    await channelBind(b, a.relayed, CHANNEL_BA);
+  }
 
   let received = 0;
   let bytes = 0;
   b.socket.indicationHandlers.push((msg) => {
-    const data = findAttr(msg, A.Data);
+    const data = relayedPayload(msg);
     if (data) {
       received += 1;
-      bytes += data.value.length;
+      bytes += data.length;
     }
   });
 
   // Prime: some stacks drop the first datagram before the permission settles.
-  await sendData(a, b.relayed, Buffer.from('prime'));
+  if (useChannel) {
+    await sendChannelData(a, CHANNEL_AB, Buffer.from('prime'));
+  } else {
+    await sendData(a, b.relayed, Buffer.from('prime'));
+  }
   await new Promise((r) => setTimeout(r, 50));
 
   b.socket.indications.length = 0;
@@ -736,7 +878,11 @@ async function runQuality(conn, credFor) {
   for (let i = 0; i < packets; i += 1) {
     const payload = Buffer.alloc(payloadSize);
     payload.writeUInt32BE(i, 0);
-    await sendData(a, b.relayed, payload);
+    if (useChannel) {
+      await sendChannelData(a, CHANNEL_AB, payload);
+    } else {
+      await sendData(a, b.relayed, payload);
+    }
     if (i % 20 === 0) {
       await new Promise((r) => setTimeout(r, 2));
     }
@@ -779,6 +925,7 @@ async function runSoak(conn, credFor) {
   const payloadSize = Number(process.env.QD_TURN_PAYLOAD ?? 1200);
   const refreshEverySec = Number(process.env.QD_TURN_SOAK_REFRESH_SECONDS ?? 30);
   const reportEverySec = Number(process.env.QD_TURN_SOAK_REPORT_SECONDS ?? 15);
+  const useChannel = process.env.QD_TURN_CHANNEL === '1';
   // 0 = send as fast as the event loop allows. Set it (above the expected cap)
   // to pace the sender, which is how a bandwidth cap is measured cleanly.
   const sendKbps = Number(process.env.QD_TURN_SEND_KBPS ?? 0);
@@ -790,7 +937,8 @@ async function runSoak(conn, credFor) {
 
   console.log(
     `soak: ${payloadSize} B datagrams for ${seconds}s, refresh every ${refreshEverySec}s, ` +
-      `send rate ${sendKbps > 0 ? `${sendKbps} kbps` : 'unthrottled'}`,
+      `send rate ${sendKbps > 0 ? `${sendKbps} kbps` : 'unthrottled'}, ` +
+      `path ${useChannel ? 'ChannelData' : 'Send/Data indications'}`,
   );
   const a = await allocate({ ...conn, ...credFor(0) });
   const b = await allocate({ ...conn, ...credFor(1) });
@@ -798,20 +946,28 @@ async function runSoak(conn, credFor) {
 
   await createPermission(a, b.relayed);
   await createPermission(b, a.relayed);
+  if (useChannel) {
+    await channelBind(a, b.relayed, CHANNEL_AB);
+    await channelBind(b, a.relayed, CHANNEL_BA);
+  }
 
   let sent = 0;
   let received = 0;
   let bytes = 0;
   b.socket.indicationHandlers.push((msg) => {
-    const data = findAttr(msg, A.Data);
+    const data = relayedPayload(msg);
     if (data) {
       received += 1;
-      bytes += data.value.length;
+      bytes += data.length;
     }
   });
 
   // Warm the permission/relay path before measuring.
-  sendDataNoWait(a, b.relayed, Buffer.from('prime'));
+  if (useChannel) {
+    sendChannelDataNoWait(a, CHANNEL_AB, Buffer.from('prime'));
+  } else {
+    sendDataNoWait(a, b.relayed, Buffer.from('prime'));
+  }
   await sleep(100);
   b.socket.indications.length = 0;
   sent = 0;
@@ -822,6 +978,8 @@ async function runSoak(conn, credFor) {
   let refreshesFailed = 0;
   let permsOK = 0;
   let permsFailed = 0;
+  let bindsOK = 0;
+  let bindsFailed = 0;
   let lastError = '';
   const started = Date.now();
   let lastReport = started;
@@ -834,7 +992,11 @@ async function runSoak(conn, credFor) {
   while (Date.now() - started < seconds * 1000) {
     for (let i = 0; i < perTick; i += 1) {
       payload.writeUInt32BE(sent & 0xffffffff, 0);
-      sendDataNoWait(a, b.relayed, payload);
+      if (useChannel) {
+        sendChannelDataNoWait(a, CHANNEL_AB, payload);
+      } else {
+        sendDataNoWait(a, b.relayed, payload);
+      }
       sent += 1;
     }
     await sleep(tickMs);
@@ -867,6 +1029,19 @@ async function runSoak(conn, credFor) {
         permsFailed += 1;
         lastError = `permission: ${String(err.message ?? err)}`;
       }
+      // A channel binding lasts 600s and, like a permission, is only extended
+      // by re-sending ChannelBind. Refresh it on the same timer when the
+      // ChannelData path is in use.
+      if (useChannel) {
+        try {
+          await channelBind(a, b.relayed, CHANNEL_AB);
+          await channelBind(b, a.relayed, CHANNEL_BA);
+          bindsOK += 1;
+        } catch (err) {
+          bindsFailed += 1;
+          lastError = `channel-bind: ${String(err.message ?? err)}`;
+        }
+      }
     }
 
     if (now - lastReport >= reportEverySec * 1000) {
@@ -877,7 +1052,8 @@ async function runSoak(conn, credFor) {
       console.log(
         `  t+${Math.round((now - started) / 1000)}s  relayed ${instKbps.toFixed(0)} kbps  ` +
           `loss ${windowLoss.toFixed(1)}%  refreshes ok/fail ${refreshesOK}/${refreshesFailed}  ` +
-          `permissions ok/fail ${permsOK}/${permsFailed}`,
+          `permissions ok/fail ${permsOK}/${permsFailed}` +
+          (useChannel ? `  channel-binds ok/fail ${bindsOK}/${bindsFailed}` : ''),
       );
       lastReport = now;
       lastSent = sent;
@@ -900,6 +1076,9 @@ async function runSoak(conn, credFor) {
   console.log(`sustained goodput: ~${sustainedKbps.toFixed(0)} kbps`);
   console.log(`allocations refreshed: ok ${refreshesOK}, failed ${refreshesFailed}${lastError ? ` (${lastError})` : ''}`);
   console.log(`permissions re-issued: ok ${permsOK}, failed ${permsFailed}`);
+  if (useChannel) {
+    console.log(`channel bindings refreshed: ok ${bindsOK}, failed ${bindsFailed}`);
+  }
   console.log(`A integrity: ${a.integrityOK}  B integrity: ${b.integrityOK}`);
 
   await Promise.all([deallocate(a), deallocate(b)]);
@@ -914,6 +1093,10 @@ async function runSoak(conn, credFor) {
   }
   if (permsFailed > 0) {
     console.error(`FAIL: ${permsFailed} permission refresh cycle(s) failed`);
+    return 2;
+  }
+  if (bindsFailed > 0) {
+    console.error(`FAIL: ${bindsFailed} channel-bind refresh cycle(s) failed`);
     return 2;
   }
 

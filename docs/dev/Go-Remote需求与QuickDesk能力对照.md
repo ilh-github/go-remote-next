@@ -72,7 +72,7 @@ QuickDesk 已经覆盖了远程控制最核心、最难实现的画面、输入�
 | 移动端 | 手机控制 | Android 客户端已有，iOS 未承诺 | 部分 | Android 保留，iOS 暂不做 |
 | Linux | Linux 被控端 | README 标注计划中 | 缺失 | Linux 暂不做，Windows/macOS 优先 |
 | P2P | 直连降低延迟 | WebRTC ICE，P2P 优先、TURN 回退 | 已有 | 不重写，做自托管压测 |
-| TURN | NAT 失败时中继 | coturn 自托管方案 | 已有 | 保留；容量/带宽/TLS/**DTLS**/**CA 证书轮换**/**小时级 soak** 都已实测（第 25、28、29、39、41 节），还缺安全传输上的小时级 soak、公网 CA 自动续期与多天回归 |
+| TURN | NAT 失败时中继 | coturn 自托管方案 | 已有 | 保留；容量/带宽/TLS/**DTLS**/**CA 证书轮换**/**小时级 soak（UDP 与 TLS）**/**ChannelData 路径** 都已实测（第 25、28、29、39、41、42 节），还缺 DTLS 上的小时级、公网 CA 自动续期与多天回归 |
 | RDP | 系统远程桌面 | 不依赖 RDP，避免锁屏 | 已有替代 | 不做 RDP |
 | 日志聚合 | 集中日志和告警 | 有系统日志、审计和应用日志 | 部分 | 增加聚合、告警和日志面板 |
 | Prometheus | 监控指标 | 后端有 metrics，管理后台有统计 | 部分 | 按业务指标扩展 |
@@ -156,7 +156,9 @@ QuickDesk 已经覆盖了远程控制最核心、最难实现的画面、输入�
    本机 CA 签发 + 真校验 + 换 leaf 客户端无需改动、换 CA 立即被发现）；
    **小时级 soak 已完成**（见第 41 节：3600s、328196 包 / 394MB、0 丢包、119/119 续期与 permission 重发、
    allocation 计数归零；这次长跑还暴露并修掉了 harness 不刷新 permission 导致的 300 秒假通过）。
-   还缺安全传输（TLS/DTLS）上的小时级 soak、公网 CA 自动续期与多天回归。
+   **TLS 上的小时级 soak 与 ChannelData 路径也已完成**（见第 42 节：3600s TLS 0 丢包；
+   ChannelBind + ChannelData 分帧在 UDP/TLS 上实测，700s soak 跨过 600 秒绑定寿命）。
+   还缺 DTLS 上的小时级 soak、公网 CA 自动续期与多天回归。
 
 ### P2：业务扩展
 
