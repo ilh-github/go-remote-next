@@ -107,6 +107,7 @@ type Config struct {
 	Audit         AuditConfig
 	OfflineAlert  OfflineAlertConfig
 	ScheduledTask ScheduledTaskConfig
+	Approval      ApprovalConfig
 	Holiday       HolidayConfig
 	Sms           SmsConfig
 	Runtime       RuntimeConfig
@@ -155,6 +156,15 @@ type OfflineAlertConfig struct {
 // anything.
 type ScheduledTaskConfig struct {
 	IntervalSeconds int
+}
+
+// ApprovalConfig tunes the second-factor approval queue.
+type ApprovalConfig struct {
+	// DenialCooldownSeconds is how long a source whose request the owner denied
+	// must wait before asking the same device again. 0 disables it, letting a
+	// denial be followed by another request immediately - the historical
+	// behaviour, and the abuse the cooldown exists to close.
+	DenialCooldownSeconds int
 }
 
 type RuntimeConfig struct {
@@ -271,6 +281,12 @@ func Load() *Config {
 	// indexed query per tick when no task is due.
 	viper.SetDefault("SCHEDULED_TASK_INTERVAL_SECONDS", 30)
 
+	// Second-factor approval: after the owner denies a request, the same source
+	// waits this long before it may ask the same device again. The default is
+	// non-zero because a denial that clears the way for the next request is
+	// what turns a correct access code into a way to keep paging the owner.
+	viper.SetDefault("APPROVAL_DENIAL_COOLDOWN_SECONDS", 300)
+
 	// Statutory holiday calendar used by device access policies. Empty keeps
 	// the year(s) embedded in the binary; point it at a directory of
 	// holiday-cn style YYYY.json files to add years without a rebuild.
@@ -366,6 +382,9 @@ func Load() *Config {
 	}
 	cfg.ScheduledTask = ScheduledTaskConfig{
 		IntervalSeconds: viper.GetInt("SCHEDULED_TASK_INTERVAL_SECONDS"),
+	}
+	cfg.Approval = ApprovalConfig{
+		DenialCooldownSeconds: viper.GetInt("APPROVAL_DENIAL_COOLDOWN_SECONDS"),
 	}
 	cfg.Holiday = HolidayConfig{
 		Dir: viper.GetString("HOLIDAY_CALENDAR_DIR"),

@@ -743,12 +743,20 @@ Rules that matter:
   gets `429 RATE_LIMITED` with `Retry-After` until its pending request expires,
   and a device never accumulates more than 5 unanswered requests from any mix
   of sources (the sixth is `429` too). Both refusals mean "wait", not "wrong
-  code" — the code was right. Once the pending request expires or the owner
-  decides, the same client may ask again.
+  code" — the code was right. Once the pending request expires, the same client
+  may ask again.
   The per-source half keys on the address the server saw, which is the
   `X-Forwarded-For`-derived client IP — see the trusted-proxy caveat in
   §5.3.3: behind a proxy that does not strip or overwrite the header, a client
   can choose its own `client_ip`.
+- **A denial is followed by a cooldown.** Otherwise "no" would just clear the
+  pending slot and the same source could ask again on the next tick, turning a
+  correct access code into a way to keep paging the owner. After the owner
+  denies, that source is refused for `APPROVAL_DENIAL_COOLDOWN_SECONDS`
+  (default `300`; `0` disables it) with `429 RATE_LIMITED` and a `Retry-After`
+  that says exactly when the block lifts. The window is per `(device, source)`,
+  so one stranger's denial cannot lock out anybody else, and it is keyed on the
+  same `client_ip` as the per-source guard above.
 - Access-timeline rows read `pending_approval` on request, `denied_approval`
   when the owner refuses, and `granted` when the claim succeeds. Approving or
   denying is also written to the admin audit trail (it is an admission

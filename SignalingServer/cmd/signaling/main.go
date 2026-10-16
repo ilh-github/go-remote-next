@@ -153,6 +153,11 @@ func main() {
 	deviceAccessPolicyService := service.NewDeviceAccessPolicyService(db)
 	deviceAccessGrantService := service.NewDeviceAccessGrantService(db)
 	deviceAccessApprovalService := service.NewDeviceAccessApprovalService(db)
+	if cfg.Approval.DenialCooldownSeconds > 0 {
+		deviceAccessApprovalService.WithDenialCooldown(
+			time.Duration(cfg.Approval.DenialCooldownSeconds) * time.Second)
+		log.Printf("Approval denial cooldown: %ds", cfg.Approval.DenialCooldownSeconds)
+	}
 	notificationDeliveryService := service.NewNotificationDeliveryService(db)
 	if cfg.Notification.ArchiveDir != "" {
 		notificationDeliveryService.WithArchiveDir(cfg.Notification.ArchiveDir)

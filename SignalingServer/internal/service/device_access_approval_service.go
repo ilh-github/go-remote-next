@@ -43,6 +43,11 @@ const (
 	ApprovalRefusedAlreadyPending = "already_pending"
 	// ApprovalRefusedQueueFull means the device's decision queue is full.
 	ApprovalRefusedQueueFull = "queue_full"
+	// ApprovalRefusedDeniedRecently means this source's last request for this
+	// device was denied by the owner inside the cooldown window. Without it a
+	// denial clears the way for the next request, so a client holding a correct
+	// code can page the owner again the moment they say no.
+	ApprovalRefusedDeniedRecently = "denied_recently"
 )
 
 // PendingApprovalError reports that no approval was created because one is
@@ -58,6 +63,9 @@ type PendingApprovalError struct {
 func (e *PendingApprovalError) Error() string {
 	if e.Reason == ApprovalRefusedQueueFull {
 		return "too many access requests are already waiting for the owner"
+	}
+	if e.Reason == ApprovalRefusedDeniedRecently {
+		return "access was recently denied for this client; wait before asking again"
 	}
 	return "an access request from this client is already waiting for the owner"
 }
@@ -88,10 +96,33 @@ const (
 // DeviceAccessApprovalService issues and resolves second-factor approvals.
 type DeviceAccessApprovalService struct {
 	db *gorm.DB
+	// denialCooldown, when positive, refuses a new request from a source whose
+	// last request for the same device was denied inside the window. 0 disables
+	// it, which is the historical behaviour: a denial immediately frees the
+	// source to ask again.
+	denialCooldown time.Duration
 }
 
 func NewDeviceAccessApprovalService(db *gorm.DB) *DeviceAccessApprovalService {
 	return &DeviceAccessApprovalService{db: db}
+}
+
+// WithDenialCooldown sets how long a denied source must wait before it may ask
+// the same device again. Negative values are treated as "disabled".
+func (s *DeviceAccessApprovalService) WithDenialCooldown(d time.Duration) *DeviceAccessApprovalService {
+	if d < 0 {
+		d = 0
+	}
+	s.denialCooldown = d
+	return s
+}
+
+// DenialCooldown reports the configured window (0 = disabled).
+func (s *DeviceAccessApprovalService) DenialCooldown() time.Duration {
+	if s == nil {
+		return 0
+	}
+	return s.denialCooldown
 }
 
 // CreateDeviceAccessApprovalInput is one pending request.
@@ -204,6 +235,32 @@ func (s *DeviceAccessApprovalService) guardPendingRequests(
 			return &PendingApprovalError{
 				Reason:     ApprovalRefusedAlreadyPending,
 				RetryAfter: time.Until(existing.ExpiresAt),
+			}
+		case !errors.Is(err, gorm.ErrRecordNotFound):
+			return err
+		}
+	}
+
+	// A denial has to mean something. Without this, "no" merely clears the
+	// pending slot and the same source can ask again on the next tick, turning
+	// a correct access code into a way to keep paging the owner. The window is
+	// per (device, source), so one stranger's denial cannot lock out anybody
+	// else, and the retry hint is honest about when the block lifts.
+	if ip := strings.TrimSpace(in.ClientIP); ip != "" && s.denialCooldown > 0 {
+		var denied models.DeviceAccessApproval
+		err := tx.Where("device_id = ? AND client_ip = ? AND status = ? AND decided_at > ?",
+			in.DeviceID, ip, models.ApprovalDenied, now.Add(-s.denialCooldown)).
+			Order("id DESC").
+			First(&denied).Error
+		switch {
+		case err == nil:
+			retry := time.Duration(0)
+			if denied.DecidedAt != nil {
+				retry = time.Until(denied.DecidedAt.Add(s.denialCooldown))
+			}
+			return &PendingApprovalError{
+				Reason:     ApprovalRefusedDeniedRecently,
+				RetryAfter: retry,
 			}
 		case !errors.Is(err, gorm.ErrRecordNotFound):
 			return err

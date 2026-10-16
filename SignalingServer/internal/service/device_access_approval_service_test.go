@@ -345,3 +345,106 @@ func TestApprovalQueueCapPerDevice(t *testing.T) {
 		t.Fatalf("another device must not inherit the full queue: %v", err)
 	}
 }
+
+// A denial has to mean something: otherwise the same source can ask again the
+// moment the owner says no, and a correct access code becomes a way to keep
+// paging the owner.
+func TestApprovalDenialCooldownRefusesSameSource(t *testing.T) {
+	db := newApprovalTestDB(t)
+	const cooldown = 5 * time.Minute
+	svc := NewDeviceAccessApprovalService(db).WithDenialCooldown(cooldown)
+	ctx := context.Background()
+
+	first, _, err := svc.Create(ctx, CreateDeviceAccessApprovalInput{
+		DeviceID: "D4444444",
+		OwnerID:  1,
+		ClientID: "controller-1",
+		ClientIP: "203.0.113.44",
+		TTL:      time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("first create: %v", err)
+	}
+	if _, _, err := svc.Decide(ctx, "D4444444", first.ID, false, 1, "not now"); err != nil {
+		t.Fatalf("deny: %v", err)
+	}
+
+	_, _, err = svc.Create(ctx, CreateDeviceAccessApprovalInput{
+		DeviceID: "D4444444",
+		OwnerID:  1,
+		ClientID: "controller-1",
+		ClientIP: "203.0.113.44",
+		TTL:      time.Minute,
+	})
+	var pending *PendingApprovalError
+	if !errors.As(err, &pending) {
+		t.Fatalf("re-request after a denial = %v, want PendingApprovalError", err)
+	}
+	if pending.Reason != ApprovalRefusedDeniedRecently {
+		t.Fatalf("reason = %q, want %q", pending.Reason, ApprovalRefusedDeniedRecently)
+	}
+	if pending.RetryAfter <= 0 || pending.RetryAfter > cooldown {
+		t.Fatalf("RetryAfter = %s, want a positive hint inside the cooldown", pending.RetryAfter)
+	}
+
+	// The window is per source: another client is not tarred with the same
+	// brush, which is what keeps one stranger from locking everyone out.
+	if _, _, err := svc.Create(ctx, CreateDeviceAccessApprovalInput{
+		DeviceID: "D4444444",
+		OwnerID:  1,
+		ClientID: "controller-2",
+		ClientIP: "203.0.113.45",
+		TTL:      time.Minute,
+	}); err != nil {
+		t.Fatalf("a different source must not inherit the cooldown: %v", err)
+	}
+
+	// Once the window lapses the source may ask again. Age the decision rather
+	// than sleeping for the configured window.
+	if err := db.Model(&models.DeviceAccessApproval{}).
+		Where("id = ?", first.ID).
+		Update("decided_at", time.Now().Add(-(cooldown + time.Minute))).Error; err != nil {
+		t.Fatalf("age the decision: %v", err)
+	}
+	if _, _, err := svc.Create(ctx, CreateDeviceAccessApprovalInput{
+		DeviceID: "D4444444",
+		OwnerID:  1,
+		ClientID: "controller-1",
+		ClientIP: "203.0.113.44",
+		TTL:      time.Minute,
+	}); err != nil {
+		t.Fatalf("after the cooldown the source must be allowed again: %v", err)
+	}
+}
+
+// 0 keeps the historical behaviour, so the cooldown is not a surprise for a
+// deployment that does not ask for it.
+func TestApprovalDenialCooldownOffByDefault(t *testing.T) {
+	db := newApprovalTestDB(t)
+	svc := NewDeviceAccessApprovalService(db)
+	if svc.DenialCooldown() != 0 {
+		t.Fatalf("default denial cooldown = %s, want 0", svc.DenialCooldown())
+	}
+	ctx := context.Background()
+
+	first, _, err := svc.Create(ctx, CreateDeviceAccessApprovalInput{
+		DeviceID: "D5555555",
+		OwnerID:  1,
+		ClientIP: "203.0.113.55",
+		TTL:      time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("first create: %v", err)
+	}
+	if _, _, err := svc.Decide(ctx, "D5555555", first.ID, false, 1, "no"); err != nil {
+		t.Fatalf("deny: %v", err)
+	}
+	if _, _, err := svc.Create(ctx, CreateDeviceAccessApprovalInput{
+		DeviceID: "D5555555",
+		OwnerID:  1,
+		ClientIP: "203.0.113.55",
+		TTL:      time.Minute,
+	}); err != nil {
+		t.Fatalf("with the cooldown disabled a denial must not block: %v", err)
+	}
+}
