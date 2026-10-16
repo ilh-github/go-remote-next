@@ -71,6 +71,9 @@ type NotificationDeliveryService struct {
 	// archiveDir, when set, makes retention append expired rows to a JSONL file
 	// before deleting them. Empty means the old behaviour: hard delete.
 	archiveDir string
+	// archiveColdDir, when set, moves expired archive files there instead of
+	// deleting them. Empty keeps the old delete-on-rotation behavior.
+	archiveColdDir string
 	// aggregateWindow, when positive, holds a new delivery for that long and
 	// folds later occurrences of the same (channel, event type, device) into
 	// it. 0 keeps the historical one-row-per-event behaviour.
@@ -114,6 +117,21 @@ func (s *NotificationDeliveryService) AggregateWindow() time.Duration {
 // ArchiveDir reports the configured archive directory ("" = plain delete).
 func (s *NotificationDeliveryService) ArchiveDir() string {
 	return s.archiveDir
+}
+
+// WithArchiveColdDir makes archive rotation move expired files into dir rather
+// than deleting them. Returns the receiver so it can be chained.
+func (s *NotificationDeliveryService) WithArchiveColdDir(dir string) *NotificationDeliveryService {
+	s.archiveColdDir = strings.TrimSpace(dir)
+	return s
+}
+
+// ArchiveColdDir reports the configured cold archive directory ("" = delete).
+func (s *NotificationDeliveryService) ArchiveColdDir() string {
+	if s == nil {
+		return ""
+	}
+	return s.archiveColdDir
 }
 
 // CountByStatus returns one count per delivery status, including zeroes, so an
@@ -307,10 +325,16 @@ func terminalDeliveryStatuses() []string {
 // reports how many it removed. 0 means "keep the archives forever"; a
 // deployment with no archive directory simply has nothing to sweep.
 func (s *NotificationDeliveryService) SweepArchive(archiveRetentionDays int) (int, error) {
+	result, err := s.SweepArchiveDetailed(archiveRetentionDays)
+	return result.Removed, err
+}
+
+// SweepArchiveDetailed is SweepArchive with the moved/deleted breakdown.
+func (s *NotificationDeliveryService) SweepArchiveDetailed(archiveRetentionDays int) (ArchiveSweepResult, error) {
 	if s == nil {
-		return 0, nil
+		return ArchiveSweepResult{}, nil
 	}
-	return sweepArchiveDir(s.archiveDir, "notification-deliveries", archiveRetentionDays, time.Now().UTC())
+	return sweepArchiveDirDetailed(s.archiveDir, "notification-deliveries", archiveRetentionDays, time.Now().UTC(), s.archiveColdDir)
 }
 
 // RunRetention sweeps expired terminal rows on a ticker until ctx is

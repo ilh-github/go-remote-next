@@ -232,29 +232,30 @@ func (h *AdminAuditHandler) Sweep(c *gin.Context) {
 			}
 		}
 	}
-	// The archive files are a third, independent bound: rows may be kept
-	// forever while the JSONL they were purged into is not.
-	var archiveRemoved int
+	// The archive files are an independent bound: rows may be kept forever
+	// while the JSONL they were purged into is not.
+	var archiveResult service.ArchiveSweepResult
 	if archiveDays > 0 {
 		if h.audit.ArchiveDir() == "" {
 			ProblemBadRequest(c, ProblemCodeInvalidRequest,
 				"archive retention was requested but AUDIT_ARCHIVE_DIR is not configured")
 			return
 		}
-		removed, err := h.audit.SweepArchive(archiveDays)
+		result, err := h.audit.SweepArchiveDetailed(archiveDays)
 		if err != nil {
 			ProblemInternal(c, "archive sweep failed: "+err.Error())
 			return
 		}
-		archiveRemoved = removed
+		archiveResult = result
 	}
 	if h.audit != nil {
 		h.audit.Log(c.Request.Context(), middleware.MustAdminID(c), "", "audit.sweep",
 			"audit_log", "",
-			fmt.Sprintf("older_than_days=%d cutoff=%s purged=%d max_rows=%d cap_removed=%d max_rows_per_actor=%d actor_cap_removed=%d max_rows_per_device=%d device_cap_removed=%d max_rows_per_action=%d action_cap_removed=%d archive_retention_days=%d archive_removed=%d archive=%s",
+			fmt.Sprintf("older_than_days=%d cutoff=%s purged=%d max_rows=%d cap_removed=%d max_rows_per_actor=%d actor_cap_removed=%d max_rows_per_device=%d device_cap_removed=%d max_rows_per_action=%d action_cap_removed=%d archive_retention_days=%d archive_removed=%d archive_moved=%d archive_deleted=%d archive=%s cold_archive=%s",
 				days, cutoff, purged, maxRows, capRemoved, maxRowsPerActor, actorCapRemoved,
 				maxRowsPerDevice, deviceCapRemoved, maxRowsPerAction, actionCapRemoved,
-				archiveDays, archiveRemoved, h.audit.ArchiveDir()),
+				archiveDays, archiveResult.Removed, archiveResult.Moved, archiveResult.Deleted,
+				h.audit.ArchiveDir(), h.audit.ArchiveColdDir()),
 			c.ClientIP())
 	}
 	c.JSON(http.StatusOK, gin.H{
@@ -270,8 +271,11 @@ func (h *AdminAuditHandler) Sweep(c *gin.Context) {
 		"max_rows_per_action":    maxRowsPerAction,
 		"action_cap_removed":     actionCapRemoved,
 		"archive_retention_days": archiveDays,
-		"archive_removed":        archiveRemoved,
+		"archive_removed":        archiveResult.Removed,
+		"archive_moved":          archiveResult.Moved,
+		"archive_deleted":        archiveResult.Deleted,
 		"archive_dir":            h.audit.ArchiveDir(),
+		"archive_cold_dir":       h.audit.ArchiveColdDir(),
 	})
 }
 

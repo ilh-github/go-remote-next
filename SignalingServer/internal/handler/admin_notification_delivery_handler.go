@@ -118,25 +118,26 @@ func (h *AdminNotificationDeliveryHandler) Sweep(c *gin.Context) {
 	archiveDir := h.deliveries.ArchiveDir()
 	// The daily archive files are a second, independent bound: rows may be kept
 	// forever while the JSONL they were purged into is not.
-	var archiveRemoved int
+	var archiveResult service.ArchiveSweepResult
 	if archiveDays > 0 {
 		if archiveDir == "" {
 			ProblemBadRequest(c, ProblemCodeInvalidRequest,
 				"archive retention was requested but NOTIFICATION_ARCHIVE_DIR is not configured")
 			return
 		}
-		removed, err := h.deliveries.SweepArchive(archiveDays)
+		result, err := h.deliveries.SweepArchiveDetailed(archiveDays)
 		if err != nil {
 			ProblemInternal(c, "archive sweep failed: "+err.Error())
 			return
 		}
-		archiveRemoved = removed
+		archiveResult = result
 	}
 	if h.audit != nil {
 		h.audit.Log(c.Request.Context(), middleware.MustAdminID(c), "", "notification_delivery.sweep",
 			"notification_delivery", "",
-			fmt.Sprintf("older_than_days=%d cutoff=%s purged=%d archive_retention_days=%d archive_removed=%d archive=%s",
-				days, cutoff, purged, archiveDays, archiveRemoved, archiveDir),
+			fmt.Sprintf("older_than_days=%d cutoff=%s purged=%d archive_retention_days=%d archive_removed=%d archive_moved=%d archive_deleted=%d archive=%s cold_archive=%s",
+				days, cutoff, purged, archiveDays, archiveResult.Removed,
+				archiveResult.Moved, archiveResult.Deleted, archiveDir, h.deliveries.ArchiveColdDir()),
 			c.ClientIP())
 	}
 	c.JSON(http.StatusOK, gin.H{
@@ -144,7 +145,10 @@ func (h *AdminNotificationDeliveryHandler) Sweep(c *gin.Context) {
 		"older_than_days":        days,
 		"cutoff":                 cutoff,
 		"archive_retention_days": archiveDays,
-		"archive_removed":        archiveRemoved,
+		"archive_removed":        archiveResult.Removed,
+		"archive_moved":          archiveResult.Moved,
+		"archive_deleted":        archiveResult.Deleted,
 		"archive_dir":            archiveDir,
+		"archive_cold_dir":       h.deliveries.ArchiveColdDir(),
 	})
 }

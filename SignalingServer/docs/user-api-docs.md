@@ -558,13 +558,15 @@ delete.
 The archive directory is bounded too. `NOTIFICATION_ARCHIVE_RETENTION_DAYS`
 (default `0` = keep the archives forever) deletes daily archive files older than
 the window on the same timer, and `{"archive_retention_days": N}` on the sweep
-endpoint does it on demand; `archive_removed` reports how many files went. Only
-files named `notification-deliveries-YYYY-MM-DD.jsonl` are candidates, so a
-shared archive directory can also hold the audit archives without this sweep
-touching them. Asking for archive retention while `NOTIFICATION_ARCHIVE_DIR` is
-unset is a `400` rather than a silent no-op. The default is "keep forever" on
-purpose: the archive exists so a purged delivery stays recoverable, so deleting
-it has to be requested.
+endpoint does it on demand; `archive_removed` reports how many files left the
+hot directory. Set `NOTIFICATION_ARCHIVE_COLD_DIR` to **move** expired files
+there instead of deleting them; `archive_moved` and `archive_deleted` report the
+split. Only files named `notification-deliveries-YYYY-MM-DD.jsonl` are
+candidates, so a shared archive directory can also hold the audit archives
+without this sweep touching them. Asking for archive retention while
+`NOTIFICATION_ARCHIVE_DIR` is unset is a `400` rather than a silent no-op. The
+default is "keep forever" on purpose: the archive exists so a purged delivery
+stays recoverable, so deleting it has to be requested.
 
 **Aggregation is opt-in noise reduction.** `NOTIFICATION_AGGREGATE_SECONDS`
 defaults to `0`, which keeps the behaviour above: one row per event, delivered
@@ -1477,7 +1479,7 @@ request shapes; this section documents only the route table.
 | `GET` | `/v1/admin/activity` |
 | `GET` | `/v1/admin/trends?range=24h\|7d\|30d` |
 | `GET` | `/v1/admin/audit-logs` (filters `action` / `admin` / `actor_user_id` / `date_from` / `date_to`; a non-numeric `actor_user_id` is `400` rather than a filter that quietly matches everything) |
-| `POST` | `/v1/admin/audit-logs:sweep` — run the audit-retention purge now. Optional body `{older_than_days: N}` overrides the configured age window, `{max_rows: N}` the table-wide row cap, `{max_rows_per_actor: N}` the per-actor row cap, `{max_rows_per_device: N}` the per-device row cap, `{max_rows_per_action: N}` the per-action row cap and `{archive_retention_days: N}` how long the daily archive files are kept; any combination may be passed. Returns `{purged, older_than_days, cutoff, max_rows, cap_removed, max_rows_per_actor, actor_cap_removed, max_rows_per_device, device_cap_removed, max_rows_per_action, action_cap_removed, archive_retention_days, archive_removed, archive_dir}` and audits `audit.sweep`. `400` when none of the config or body supplies any bound (`AUDIT_RETENTION_DAYS` / `AUDIT_MAX_ROWS` / `AUDIT_MAX_ROWS_PER_ACTOR` / `AUDIT_MAX_ROWS_PER_DEVICE` / `AUDIT_MAX_ROWS_PER_ACTION` / `AUDIT_ARCHIVE_RETENTION_DAYS` or the matching body fields), and `400` when archive retention is asked for while `AUDIT_ARCHIVE_DIR` is unset; when `AUDIT_ARCHIVE_DIR` is set an archive write failure deletes nothing |
+| `POST` | `/v1/admin/audit-logs:sweep` — run the audit-retention purge now. Optional body `{older_than_days: N}` overrides the configured age window, `{max_rows: N}` the table-wide row cap, `{max_rows_per_actor: N}` the per-actor row cap, `{max_rows_per_device: N}` the per-device row cap, `{max_rows_per_action: N}` the per-action row cap and `{archive_retention_days: N}` how long the daily archive files are kept; any combination may be passed. Returns `{purged, older_than_days, cutoff, max_rows, cap_removed, max_rows_per_actor, actor_cap_removed, max_rows_per_device, device_cap_removed, max_rows_per_action, action_cap_removed, archive_retention_days, archive_removed, archive_moved, archive_deleted, archive_dir, archive_cold_dir}` and audits `audit.sweep`. `400` when none of the config or body supplies any bound (`AUDIT_RETENTION_DAYS` / `AUDIT_MAX_ROWS` / `AUDIT_MAX_ROWS_PER_ACTOR` / `AUDIT_MAX_ROWS_PER_DEVICE` / `AUDIT_MAX_ROWS_PER_ACTION` / `AUDIT_ARCHIVE_RETENTION_DAYS` or the matching body fields), and `400` when archive retention is asked for while `AUDIT_ARCHIVE_DIR` is unset; when `AUDIT_ARCHIVE_DIR` is set an archive write failure deletes nothing |
 | `GET` | `/v1/admin/audit-archive:search` — read back a day's archive that retention wrote. `?date=` (`YYYY-MM-DD`, default today in UTC), `&q=` (case-insensitive substring over action/resource/details/ip/admin), `&action=` (exact), `&admin=` (substring), `&actor_user_id=` (positive integer), `&limit=` (default 50, clamped to 500). Returns `{items, count, date, file, scanned_bytes, scanned_lines, truncated, has_more, archive_dir}` newest first and audits `audit.archive.search`. `400` when `AUDIT_ARCHIVE_DIR` is unset or `date`/`limit`/`actor_user_id` is malformed; `404` when that day has no archive file |
 | `GET` `DELETE` | `/v1/admin/recordings[/:id]` (list filters `user_id` / `device_id` / `status` / `q`; delete writes audit action `recording.delete`) |
 | `GET` | `/v1/admin/recordings/:id/artifact` (cross-user download; audit action `recording.download`) |
@@ -1485,7 +1487,7 @@ request shapes; this section documents only the route table.
 | `GET` | `/v1/admin/recordings:storage` — `{artifact_count, total_bytes, retention_days, stale_after_minutes}` |
 | `POST` | `/v1/admin/recordings:sweep` — runs the stale + retention + orphan pass now; returns `{stale_marked_failed, artifacts_purged, bytes_freed, orphans_removed}` and audits `recording.sweep` |
 | `GET` | `/v1/admin/notification-deliveries:stats` — `{total, by_status, retention_days, archive_retention_days, archive_dir}`; `by_status` always carries all four states (`pending`/`delivering`/`delivered`/`failed`), zeroes included |
-| `POST` | `/v1/admin/notification-deliveries:sweep` — runs the outbox retention pass now. Optional body `{older_than_days: N}` overrides the configured window and `{archive_retention_days: N}` overrides how long the daily archive files are kept; either or both may be passed. Returns `{purged, older_than_days, cutoff, archive_retention_days, archive_removed, archive_dir}` and audits `notification_delivery.sweep`. `400` when none of the config or body supplies a bound (`NOTIFICATION_RETENTION_DAYS` / `NOTIFICATION_ARCHIVE_RETENTION_DAYS` or the matching body fields) and `400` when archive retention is asked for with `NOTIFICATION_ARCHIVE_DIR` unset; on an archive write failure nothing is deleted and the response is an error |
+| `POST` | `/v1/admin/notification-deliveries:sweep` — runs the outbox retention pass now. Optional body `{older_than_days: N}` overrides the configured window and `{archive_retention_days: N}` overrides how long the daily archive files are kept; either or both may be passed. Returns `{purged, older_than_days, cutoff, archive_retention_days, archive_removed, archive_moved, archive_deleted, archive_dir, archive_cold_dir}` and audits `notification_delivery.sweep`. `400` when none of the config or body supplies a bound (`NOTIFICATION_RETENTION_DAYS` / `NOTIFICATION_ARCHIVE_RETENTION_DAYS` or the matching body fields) and `400` when archive retention is asked for with `NOTIFICATION_ARCHIVE_DIR` unset; on an archive write failure nothing is deleted and the response is an error |
 | `GET` `PUT` | `/v1/admin/preset` |
 | `GET` `PUT` | `/v1/admin/settings` |
 | `GET` `POST` `PATCH` `DELETE` | `/v1/admin/webhooks[/:id]` |
@@ -1579,13 +1581,16 @@ Archiving keeps a purged row recoverable, but the daily files themselves only
 ever grew. `AUDIT_ARCHIVE_RETENTION_DAYS` (default `0` = keep them forever)
 deletes archive files older than the window on the same timer, and
 `{"archive_retention_days": N}` on the sweep endpoint does it on demand;
-`archive_removed` reports how many files went. Only files named
-`audit-logs-YYYY-MM-DD.jsonl` are candidates - anything else in the directory
-(a README, a hand-rotated copy) is left alone, because the directory belongs to
-the operator as much as to this server. Asking for archive retention without an
-`AUDIT_ARCHIVE_DIR` is a `400` rather than a silent no-op. The default is "keep
-forever" on purpose: archiving exists so a purged row stays recoverable, so
-deleting the archives has to be asked for explicitly.
+`archive_removed` reports how many files left the hot directory. Set
+`AUDIT_ARCHIVE_COLD_DIR` to **move** expired files there instead of deleting
+them; `archive_moved` and `archive_deleted` report the split. A move that cannot
+create the cold directory stops the sweep and leaves the hot file in place.
+Only files named `audit-logs-YYYY-MM-DD.jsonl` are candidates - anything else in
+the directory (a README, a hand-rotated copy) is left alone, because the
+directory belongs to the operator as much as to this server. Asking for archive
+retention without an `AUDIT_ARCHIVE_DIR` is a `400` rather than a silent no-op.
+The default is "keep forever" on purpose: archiving exists so a purged row
+stays recoverable, so deleting the archives has to be asked for explicitly.
 
 **The archive is searchable, not write-only.**
 `GET /v1/admin/audit-archive:search` reads a day's JSONL archive back with the

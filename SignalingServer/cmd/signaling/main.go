@@ -163,6 +163,9 @@ func main() {
 	if cfg.Notification.ArchiveDir != "" {
 		notificationDeliveryService.WithArchiveDir(cfg.Notification.ArchiveDir)
 	}
+	if cfg.Notification.ArchiveColdDir != "" {
+		notificationDeliveryService.WithArchiveColdDir(cfg.Notification.ArchiveColdDir)
+	}
 	if cfg.Notification.AggregateSeconds > 0 {
 		notificationDeliveryService.WithAggregateWindow(
 			time.Duration(cfg.Notification.AggregateSeconds) * time.Second)
@@ -196,9 +199,9 @@ func main() {
 		if archive == "" {
 			archive = "(delete, no archive)"
 		}
-		log.Printf("Notification retention: retention_days=%d archive_retention_days=%d sweep_interval=%dm archive=%s",
+		log.Printf("Notification retention: retention_days=%d archive_retention_days=%d sweep_interval=%dm archive=%s cold_archive=%s",
 			cfg.Notification.RetentionDays, cfg.Notification.ArchiveRetentionDays,
-			cfg.Notification.SweepIntervalMin, archive)
+			cfg.Notification.SweepIntervalMin, archive, cfg.Notification.ArchiveColdDir)
 	}
 	tokenService := service.NewTokenService(redisClient)
 	rateLimitService := service.NewRateLimitService(redisClient)
@@ -224,7 +227,9 @@ func main() {
 			service.DefaultInstanceLogBufferLines, instanceID)
 	}
 	smsService := service.NewSmsService(redisClient, settingsService)
-	auditService := service.NewAuditService(db).WithArchiveDir(cfg.Audit.ArchiveDir)
+	auditService := service.NewAuditService(db).
+		WithArchiveDir(cfg.Audit.ArchiveDir).
+		WithArchiveColdDir(cfg.Audit.ArchiveColdDir)
 	if cfg.Audit.SweepIntervalMin > 0 &&
 		(cfg.Audit.RetentionDays > 0 || cfg.Audit.MaxRows > 0 ||
 			cfg.Audit.MaxRowsPerActor > 0 || cfg.Audit.MaxRowsPerDevice > 0 ||
@@ -243,10 +248,10 @@ func main() {
 		if archive == "" {
 			archive = "(delete, no archive)"
 		}
-		log.Printf("Audit retention: retention_days=%d max_rows=%d max_rows_per_actor=%d max_rows_per_device=%d max_rows_per_action=%d archive_retention_days=%d sweep_interval=%dm archive=%s",
+		log.Printf("Audit retention: retention_days=%d max_rows=%d max_rows_per_actor=%d max_rows_per_device=%d max_rows_per_action=%d archive_retention_days=%d sweep_interval=%dm archive=%s cold_archive=%s",
 			cfg.Audit.RetentionDays, cfg.Audit.MaxRows, cfg.Audit.MaxRowsPerActor,
 			cfg.Audit.MaxRowsPerDevice, cfg.Audit.MaxRowsPerAction, cfg.Audit.ArchiveRetentionDays,
-			cfg.Audit.SweepIntervalMin, archive)
+			cfg.Audit.SweepIntervalMin, archive, cfg.Audit.ArchiveColdDir)
 	}
 	webhookService := service.NewWebhookService(db)
 	groupService := service.NewDeviceGroupService(groupRepo)

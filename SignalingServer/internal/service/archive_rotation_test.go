@@ -100,6 +100,98 @@ func TestSweepArchiveDirDisabledOrMissing(t *testing.T) {
 	}
 }
 
+// Cold storage changes rotation from "delete the only copy" to "move it out of
+// the hot directory"; the result must report both the total and the move.
+func TestSweepArchiveDirMovesToColdStorage(t *testing.T) {
+	hot := t.TempDir()
+	cold := t.TempDir()
+	writeFile(t, hot, "audit-logs-2026-10-16.jsonl")
+	writeFile(t, hot, "audit-logs-2026-10-01.jsonl")
+	now := time.Date(2026, 10, 16, 7, 0, 0, 0, time.UTC)
+
+	result, err := sweepArchiveDirDetailed(hot, "audit-logs", 3, now, cold)
+	if err != nil {
+		t.Fatalf("sweep: %v", err)
+	}
+	if result.Removed != 1 || result.Moved != 1 || result.Deleted != 0 {
+		t.Fatalf("result = %+v, want removed=1 moved=1 deleted=0", result)
+	}
+	if got, want := remainingFiles(t, hot), []string{"audit-logs-2026-10-16.jsonl"}; !equalStrings(got, want) {
+		t.Fatalf("hot remaining = %v, want %v", got, want)
+	}
+	if got, want := remainingFiles(t, cold), []string{"audit-logs-2026-10-01.jsonl"}; !equalStrings(got, want) {
+		t.Fatalf("cold files = %v, want %v", got, want)
+	}
+}
+
+// A name collision in cold storage must not overwrite the existing copy; the
+// moved file gets a suffix and the original cold file keeps its bytes.
+func TestSweepArchiveDirColdCollisionGetsSuffix(t *testing.T) {
+	hot := t.TempDir()
+	cold := t.TempDir()
+	const name = "audit-logs-2000-01-01.jsonl"
+	writeFile(t, hot, name)
+	if err := os.WriteFile(filepath.Join(cold, name), []byte("existing\n"), 0o644); err != nil {
+		t.Fatalf("seed cold collision: %v", err)
+	}
+
+	result, err := sweepArchiveDirDetailed(hot, "audit-logs", 1,
+		time.Date(2026, 10, 16, 7, 0, 0, 0, time.UTC), cold)
+	if err != nil {
+		t.Fatalf("sweep: %v", err)
+	}
+	if result.Moved != 1 || result.Removed != 1 {
+		t.Fatalf("result = %+v, want one move", result)
+	}
+	got := remainingFiles(t, cold)
+	want := []string{name, name + ".1"}
+	if !equalStrings(got, want) {
+		t.Fatalf("cold files = %v, want %v", got, want)
+	}
+	body, err := os.ReadFile(filepath.Join(cold, name))
+	if err != nil {
+		t.Fatalf("read existing cold file: %v", err)
+	}
+	if string(body) != "existing\n" {
+		t.Fatalf("existing cold file was overwritten: %q", body)
+	}
+}
+
+// If the cold directory cannot be created, the hot file must remain in place
+// and the sweep must return an error instead of pretending the move happened.
+func TestSweepArchiveDirColdFailureLeavesSource(t *testing.T) {
+	hot := t.TempDir()
+	blocker := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
+		t.Fatalf("write blocker: %v", err)
+	}
+	writeFile(t, hot, "audit-logs-2000-01-01.jsonl")
+
+	_, err := sweepArchiveDirDetailed(hot, "audit-logs", 1,
+		time.Date(2026, 10, 16, 7, 0, 0, 0, time.UTC), filepath.Join(blocker, "cold"))
+	if err == nil {
+		t.Fatal("sweep reported success with an unusable cold directory")
+	}
+	if got, want := remainingFiles(t, hot), []string{"audit-logs-2000-01-01.jsonl"}; !equalStrings(got, want) {
+		t.Fatalf("hot remaining = %v, want %v", got, want)
+	}
+}
+
+// Pointing cold storage at the hot archive directory would turn a move into a
+// no-op and then an irreversible delete; reject that configuration.
+func TestSweepArchiveDirColdMustDiffer(t *testing.T) {
+	hot := t.TempDir()
+	writeFile(t, hot, "audit-logs-2000-01-01.jsonl")
+	_, err := sweepArchiveDirDetailed(hot, "audit-logs", 1,
+		time.Date(2026, 10, 16, 7, 0, 0, 0, time.UTC), hot)
+	if err == nil {
+		t.Fatal("sweep accepted the same directory for cold storage")
+	}
+	if got := remainingFiles(t, hot); len(got) != 1 {
+		t.Fatalf("hot remaining = %v, want the source untouched", got)
+	}
+}
+
 func equalStrings(a, b []string) bool {
 	if len(a) != len(b) {
 		return false

@@ -22,6 +22,10 @@ type AuditService struct {
 	// JSONL file before deleting them. Audit rows are evidence, so this is the
 	// recommended posture once retention is switched on. Empty = plain delete.
 	archiveDir string
+	// archiveColdDir, when set, moves expired archive files there instead of
+	// deleting them. It is independent of archiveDir; empty keeps the old
+	// delete-on-rotation behavior.
+	archiveColdDir string
 }
 
 func NewAuditService(db *gorm.DB) *AuditService {
@@ -41,6 +45,21 @@ func (s *AuditService) ArchiveDir() string {
 		return ""
 	}
 	return s.archiveDir
+}
+
+// WithArchiveColdDir makes archive rotation move expired files into dir rather
+// than deleting them. Returns the receiver so it can be chained.
+func (s *AuditService) WithArchiveColdDir(dir string) *AuditService {
+	s.archiveColdDir = strings.TrimSpace(dir)
+	return s
+}
+
+// ArchiveColdDir reports the configured cold archive directory ("" = delete).
+func (s *AuditService) ArchiveColdDir() string {
+	if s == nil {
+		return ""
+	}
+	return s.archiveColdDir
 }
 
 // auditPurgeBatch bounds how many rows one archive-then-delete pass reads into
@@ -435,10 +454,16 @@ func (s *AuditService) archiveRows(rows []models.AuditLog) error {
 // reports how many it removed. 0 means "keep the archives forever"; a
 // deployment with no archive directory simply has nothing to sweep.
 func (s *AuditService) SweepArchive(archiveRetentionDays int) (int, error) {
+	result, err := s.SweepArchiveDetailed(archiveRetentionDays)
+	return result.Removed, err
+}
+
+// SweepArchiveDetailed is SweepArchive with the moved/deleted breakdown.
+func (s *AuditService) SweepArchiveDetailed(archiveRetentionDays int) (ArchiveSweepResult, error) {
 	if s == nil {
-		return 0, nil
+		return ArchiveSweepResult{}, nil
 	}
-	return sweepArchiveDir(s.archiveDir, "audit-logs", archiveRetentionDays, time.Now().UTC())
+	return sweepArchiveDirDetailed(s.archiveDir, "audit-logs", archiveRetentionDays, time.Now().UTC(), s.archiveColdDir)
 }
 
 // RunRetention sweeps expired rows on a ticker until ctx is cancelled.

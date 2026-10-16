@@ -146,6 +146,9 @@ type NotificationConfig struct {
 	// ArchiveDir, when set, makes retention append expired rows to a daily
 	// JSONL file there before deleting them. Empty = plain delete.
 	ArchiveDir string
+	// ArchiveColdDir, when set, moves expired daily archive files there instead
+	// of deleting them. Empty keeps the old delete-on-rotation behavior.
+	ArchiveColdDir string
 	// ArchiveRetentionDays bounds how long those archive files themselves are
 	// kept. 0 = keep them forever (the safe default: the archive exists so a
 	// purged delivery stays recoverable, so deleting it has to be asked for).
@@ -189,6 +192,9 @@ type AuditConfig struct {
 	// JSONL file there before deleting them. Empty = plain delete. Audit rows
 	// are evidence, so an operator turning retention on should normally set it.
 	ArchiveDir string
+	// ArchiveColdDir, when set, moves expired daily archive files there instead
+	// of deleting them. Empty keeps the old delete-on-rotation behavior.
+	ArchiveColdDir string
 	// ArchiveRetentionDays bounds how long those archive files themselves are
 	// kept. 0 = keep them forever (the safe default: archiving exists so a
 	// purged row stays recoverable, so deleting the archives has to be asked
@@ -319,6 +325,8 @@ func Load() *Config {
 	// When set, expired delivery rows are appended to a daily JSONL file here
 	// before being deleted, so retention never destroys the only copy.
 	viper.SetDefault("NOTIFICATION_ARCHIVE_DIR", "")
+	// When set, expired daily archive files are moved here instead of deleted.
+	viper.SetDefault("NOTIFICATION_ARCHIVE_COLD_DIR", "")
 	// How long those daily archive files themselves are kept. 0 = forever.
 	viper.SetDefault("NOTIFICATION_ARCHIVE_RETENTION_DAYS", 0)
 	// Notification aggregation. 0 (the default) delivers every event as its own
@@ -333,6 +341,8 @@ func Load() *Config {
 	viper.SetDefault("AUDIT_RETENTION_DAYS", 0)
 	viper.SetDefault("AUDIT_SWEEP_INTERVAL_MINUTES", 60)
 	viper.SetDefault("AUDIT_ARCHIVE_DIR", "")
+	// When set, expired daily archive files are moved here instead of deleted.
+	viper.SetDefault("AUDIT_ARCHIVE_COLD_DIR", "")
 	// How long the daily archive files themselves are kept. 0 = forever.
 	viper.SetDefault("AUDIT_ARCHIVE_RETENTION_DAYS", 0)
 	// Hard row cap, independent of the age window: the sweep trims the oldest
@@ -455,6 +465,7 @@ func Load() *Config {
 		RetentionDays:        viper.GetInt("NOTIFICATION_RETENTION_DAYS"),
 		SweepIntervalMin:     viper.GetInt("NOTIFICATION_SWEEP_INTERVAL_MINUTES"),
 		ArchiveDir:           viper.GetString("NOTIFICATION_ARCHIVE_DIR"),
+		ArchiveColdDir:       viper.GetString("NOTIFICATION_ARCHIVE_COLD_DIR"),
 		ArchiveRetentionDays: viper.GetInt("NOTIFICATION_ARCHIVE_RETENTION_DAYS"),
 		AggregateSeconds:     viper.GetInt("NOTIFICATION_AGGREGATE_SECONDS"),
 	}
@@ -466,6 +477,7 @@ func Load() *Config {
 		MaxRowsPerDevice:     viper.GetInt("AUDIT_MAX_ROWS_PER_DEVICE"),
 		MaxRowsPerAction:     viper.GetInt("AUDIT_MAX_ROWS_PER_ACTION"),
 		ArchiveDir:           viper.GetString("AUDIT_ARCHIVE_DIR"),
+		ArchiveColdDir:       viper.GetString("AUDIT_ARCHIVE_COLD_DIR"),
 		ArchiveRetentionDays: viper.GetInt("AUDIT_ARCHIVE_RETENTION_DAYS"),
 	}
 
