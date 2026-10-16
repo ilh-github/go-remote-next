@@ -16,6 +16,14 @@
 //   # add QD_TURN_SEND_KBPS=1000 and QD_TURN_EXPECT_KBPS_MAX=400 to verify a
 //   # coturn `max-bps` cap, or QD_TURN_MAX_LOSS_PERCENT=5 to gate on loss.
 //
+// TURN over TLS (any mode; the URL scheme picks the transport):
+//   QD_TURN_URL=turns:127.0.0.1:5349 QD_TURN_INSECURE=1 QD_TURN_QUALITY=1 \
+//   node turn-capacity.mjs
+//   # verification is ON by default; QD_TURN_INSECURE only suits a local
+//   # self-signed server. QD_TURN_CA=<pem path> (with QD_TURN_URL=turns:localhost:
+//   # ...) verifies against a specific certificate instead. QD_TURN_URL also
+//   # selects the endpoint when credentials come from the signaling server.
+//
 // Credentials come from QD_TURN_SECRET (minted locally) or, if unset, from the
 // signaling server's GET /v1/ice-config (QD_SIGNALING_URL + QD_API_KEY).
 //
@@ -23,6 +31,9 @@
 // 4 = could not reach the TURN server.
 
 import dgram from 'node:dgram';
+import net from 'node:net';
+import tls from 'node:tls';
+import fs from 'node:fs';
 import crypto from 'node:crypto';
 
 const MAGIC_COOKIE = 0x2112a442;
@@ -90,10 +101,15 @@ async function credentialFromSignaling() {
 }
 
 function turnEndpoint(url) {
-  // turn:host:port?transport=udp
-  const withoutScheme = url.replace(/^turns?:/, '').split('?')[0];
-  const [host, port] = withoutScheme.split(':');
-  return { host, port: Number(port ?? 3478) };
+  // turn:host:port?transport=udp|tcp  |  turns:host:port?transport=tcp
+  const secure = /^turns:/i.test(url);
+  const [authority, query = ''] = url.replace(/^turns?:/i, '').split('?');
+  const [host, port] = authority.split(':');
+  const params = new URLSearchParams(query);
+  // `turns:` is TLS over TCP by definition; plain `turn:` defaults to UDP and
+  // only uses TCP when the URL asks for it.
+  const transport = secure ? 'tls' : (params.get('transport') ?? 'udp').toLowerCase();
+  return { host, port: Number(port ?? (secure ? 5349 : 3478)), transport };
 }
 
 // ---------------------------------------------------------------------------
@@ -283,6 +299,147 @@ class TurnSocket {
   }
 }
 
+/**
+ * TURN over TCP or TLS.
+ *
+ * NOTE: RFC 5389 describes a 2-byte length prefix for STUN over TCP/TLS, but
+ * coturn 4.18 does NOT accept that framing - it treats the stream as a sequence
+ * of self-delimiting STUN messages, reading the 20-byte header (magic cookie +
+ * length) to find each message boundary. Sending the RFC prefix made coturn
+ * accept the TLS connection but never parse a message (log: "TLS/TCP socket
+ * buffer operation error"); sending unframed messages works and matches what
+ * coturn's own turnutils_uclient does.
+ */
+class TurnStreamSocket {
+  constructor({ host, port, secure, tlsOptions }) {
+    this.host = host;
+    this.port = port;
+    this.secure = secure;
+    this.tlsOptions = tlsOptions ?? {};
+    this.socket = null;
+    this.rx = Buffer.alloc(0);
+    this.waiters = new Map();
+    this.indications = [];
+    this.indicationHandlers = [];
+  }
+
+  connect() {
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const socket = this.secure
+        ? tls.connect({
+            host: this.host,
+            port: this.port,
+            servername: this.tlsOptions.servername ?? this.host,
+            rejectUnauthorized: this.tlsOptions.rejectUnauthorized ?? true,
+            ca: this.tlsOptions.ca,
+          })
+        : net.connect({ host: this.host, port: this.port });
+      this.socket = socket;
+
+      const fail = (err) => {
+        for (const waiter of this.waiters.values()) {
+          clearTimeout(waiter.timer);
+          waiter.reject(err);
+        }
+        this.waiters.clear();
+        if (!settled) {
+          settled = true;
+          reject(err);
+        }
+      };
+      socket.on('error', fail);
+      socket.on('close', () => fail(new Error('stream closed')));
+      socket.on('data', (chunk) => this.#onData(chunk));
+      socket.once(this.secure ? 'secureConnect' : 'connect', () => {
+        if (!settled) {
+          settled = true;
+          resolve();
+        }
+      });
+    });
+  }
+
+  #onData(chunk) {
+    this.rx = Buffer.concat([this.rx, chunk]);
+    while (this.rx.length >= 20) {
+      const length = this.rx.readUInt16BE(2);
+      const total = 20 + length;
+      if (this.rx.length < total) {
+        break;
+      }
+      const msg = this.rx.subarray(0, total);
+      this.rx = this.rx.subarray(total);
+      let parsed;
+      try {
+        parsed = parseMessage(msg);
+      } catch {
+        continue;
+      }
+      if (parsed.type === T.DataInd) {
+        this.indications.push(parsed);
+        for (const h of this.indicationHandlers) {
+          h(parsed);
+        }
+        continue;
+      }
+      const key = parsed.txId.toString('hex');
+      const waiter = this.waiters.get(key);
+      if (waiter) {
+        this.waiters.delete(key);
+        clearTimeout(waiter.timer);
+        waiter.resolve(parsed);
+      }
+    }
+  }
+
+  send(buf) {
+    return new Promise((resolve, reject) => {
+      this.socket.write(buf, (err) => (err ? reject(err) : resolve()));
+    });
+  }
+
+  sendNoWait(buf) {
+    this.socket.write(buf);
+  }
+
+  request(type, attrs, key, timeoutMs) {
+    const txId = crypto.randomBytes(12);
+    const buf = buildMessage(type, txId, attrs, key);
+    const idHex = txId.toString('hex');
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.waiters.delete(idHex);
+        reject(new Error(`timeout waiting for reply to 0x${type.toString(16)}`));
+      }, timeoutMs);
+      this.waiters.set(idHex, { resolve, timer });
+      this.send(buf).catch((err) => {
+        clearTimeout(timer);
+        this.waiters.delete(idHex);
+        reject(err);
+      });
+    });
+  }
+
+  close() {
+    try {
+      this.socket?.destroy();
+    } catch {
+      /* already closed */
+    }
+  }
+}
+
+/** Open the transport named by the TURN URL (UDP unless TCP/TLS was asked for). */
+async function openTurnSocket({ host, port, transport, tlsOptions }) {
+  if (transport === 'tcp' || transport === 'tls') {
+    const sock = new TurnStreamSocket({ host, port, secure: transport === 'tls', tlsOptions });
+    await sock.connect();
+    return sock;
+  }
+  return new TurnSocket(host, port);
+}
+
 function errorCode(msg) {
   const e = findAttr(msg, A.ErrorCode);
   if (!e) {
@@ -295,8 +452,9 @@ function errorCode(msg) {
 // Operations
 // ---------------------------------------------------------------------------
 
-async function allocate({ host, port, username, password }, timeoutMs = 4000, attempt = 1) {
-  const sock = new TurnSocket(host, port);
+async function allocate(params, timeoutMs = 4000, attempt = 1) {
+  const { username, password } = params;
+  const sock = await openTurnSocket(params);
   const started = process.hrtime.bigint();
 
   // 1. Unauthenticated Allocate -> expects 401 with REALM + NONCE.
@@ -316,7 +474,7 @@ async function allocate({ host, port, username, password }, timeoutMs = 4000, at
     if (err?.code === 437 && attempt < 4) {
       transientRetries += 1;
       await new Promise((r) => setTimeout(r, 40));
-      return allocate({ host, port, username, password }, timeoutMs, attempt + 1);
+      return allocate(params, timeoutMs, attempt + 1);
     }
     throw new Error(
       `expected 401 challenge, got type 0x${challenge.type.toString(16)}${err ? ` (${err.code} ${err.reason})` : ''}`,
@@ -472,18 +630,18 @@ function percentile(sorted, p) {
 // Runs
 // ---------------------------------------------------------------------------
 
-async function runCapacity({ host, port }, credFor) {
+async function runCapacity(conn, credFor) {
   const clients = Number(process.env.QD_TURN_CLIENTS ?? 50);
   const expectAllocated = process.env.QD_TURN_EXPECT_ALLOCATED
     ? Number(process.env.QD_TURN_EXPECT_ALLOCATED)
     : null;
 
-  process.stdout.write(`opening ${clients} concurrent TURN allocations at ${host}:${port}\n`);
+  process.stdout.write(`opening ${clients} concurrent TURN allocations at ${conn.host}:${conn.port}\n`);
   const started = Date.now();
   const results = await Promise.allSettled(
     // A real deployment mints one credential per device; issuing a distinct
     // username per client keeps coturn's per-user quota out of the measurement.
-    Array.from({ length: clients }, (_, i) => allocate({ host, port, ...credFor(i) })),
+    Array.from({ length: clients }, (_, i) => allocate({ ...conn, ...credFor(i) })),
   );
   const wallMs = Date.now() - started;
 
@@ -543,13 +701,13 @@ async function runCapacity({ host, port }, credFor) {
   return 0;
 }
 
-async function runQuality({ host, port }, credFor) {
+async function runQuality(conn, credFor) {
   const packets = Number(process.env.QD_TURN_PACKETS ?? 200);
   const payloadSize = Number(process.env.QD_TURN_PAYLOAD ?? 1024);
 
   console.log(`relay-quality run: ${packets} packets x ${payloadSize} B between two allocations`);
-  const a = await allocate({ host, port, ...credFor(0) });
-  const b = await allocate({ host, port, ...credFor(1) });
+  const a = await allocate({ ...conn, ...credFor(0) });
+  const b = await allocate({ ...conn, ...credFor(1) });
   console.log(`A relayed ${a.relayed.address}:${a.relayed.port}  B relayed ${b.relayed.address}:${b.relayed.port}`);
 
   // Each side must permit the other's relayed address.
@@ -616,7 +774,7 @@ async function runQuality({ host, port }, credFor) {
  * goodput the relay actually delivers - which is also how a coturn `max-bps`
  * cap is verified.
  */
-async function runSoak({ host, port }, credFor) {
+async function runSoak(conn, credFor) {
   const seconds = Number(process.env.QD_TURN_SOAK_SECONDS ?? 120);
   const payloadSize = Number(process.env.QD_TURN_PAYLOAD ?? 1200);
   const refreshEverySec = Number(process.env.QD_TURN_SOAK_REFRESH_SECONDS ?? 30);
@@ -634,8 +792,8 @@ async function runSoak({ host, port }, credFor) {
     `soak: ${payloadSize} B datagrams for ${seconds}s, refresh every ${refreshEverySec}s, ` +
       `send rate ${sendKbps > 0 ? `${sendKbps} kbps` : 'unthrottled'}`,
   );
-  const a = await allocate({ host, port, ...credFor(0) });
-  const b = await allocate({ host, port, ...credFor(1) });
+  const a = await allocate({ ...conn, ...credFor(0) });
+  const b = await allocate({ ...conn, ...credFor(1) });
   console.log(`A relayed ${a.relayed.address}:${a.relayed.port}  B relayed ${b.relayed.address}:${b.relayed.port}`);
 
   await createPermission(a, b.relayed);
@@ -771,7 +929,11 @@ async function main() {
       return 3;
     }
   }
-  const { host, port } = turnEndpoint(creds.url);
+  // QD_TURN_URL selects the endpoint even when the credentials came from the
+  // signaling server, so a `turns:` deployment can be tested with real
+  // server-issued credentials instead of a locally minted pair.
+  const endpointUrl = process.env.QD_TURN_URL ?? creds.url;
+  const { host, port, transport } = turnEndpoint(endpointUrl);
   const credFor = (i) => {
     if (!secret) {
       return { username: creds.username, password: creds.credential };
@@ -779,7 +941,29 @@ async function main() {
     const c = mintCredential(secret, `client-${i}`);
     return { username: c.username, password: c.credential };
   };
-  const opts = { host, port };
+  // A production `turns:` endpoint should present a certificate the client
+  // trusts; QD_TURN_INSECURE only exists for the local self-signed test server
+  // and QD_TURN_CA / QD_TURN_SERVERNAME cover the trusted-cert cases.
+  let ca;
+  if (process.env.QD_TURN_CA) {
+    try {
+      // tls.connect wants PEM content, not a path.
+      ca = fs.readFileSync(process.env.QD_TURN_CA);
+    } catch (err) {
+      console.error(`cannot read QD_TURN_CA ${process.env.QD_TURN_CA}: ${err.message}`);
+      return 3;
+    }
+  }
+  const tlsOptions = {
+    rejectUnauthorized: !process.env.QD_TURN_INSECURE,
+    ca,
+    servername: process.env.QD_TURN_SERVERNAME,
+  };
+  const opts = { host, port, transport, tlsOptions };
+  console.log(
+    `transport: ${transport} -> ${host}:${port}` +
+      (transport === 'tls' && !tlsOptions.rejectUnauthorized ? ' (certificate verification disabled)' : ''),
+  );
   console.log(`credentials: user=${creds.username} (secret ${secret ? 'minted locally' : 'from signaling'})`);
 
   try {

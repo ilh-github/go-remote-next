@@ -140,7 +140,7 @@ QuickDesk 已经覆盖了远程控制最核心、最难实现的画面、输入�
    突发/轮转两种模式，含并发上限断言与连接延迟分位，见第 19 节）；**TURN 容量与中继质量也已压测**
    （`scripts/e2e/turn-capacity.mjs`：800 并发 allocation 零失败零泄漏、1200B 中继零丢包，见第 25 节），
    **长稳与带宽上限也测了**（300s soak 零丢包 9/9 续期；限速在 coturn `max-bps`，见第 28 节）；
-   还缺小时级 soak 与 TURN over TLS。
+   **TURN over TLS 已打通**（`turns:` 全链路 + 信令凭证，见第 29 节）；还缺小时级 soak、DTLS 与真实证书。
 
 ### P2：业务扩展
 

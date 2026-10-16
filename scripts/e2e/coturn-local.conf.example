@@ -35,6 +35,17 @@ allow-loopback-peers
 # log section 28. Leave it commented out for an uncapped local test.
 # max-bps=50000
 
+# TURN over TLS/DTLS. Providing a certificate is what makes coturn open its TLS
+# listener; for a local test a self-signed cert is enough. Real clients verify
+# the certificate, so a public deployment needs one they already trust (see E2E
+# log section 29 for the harness flags and the canary that verification is real).
+#   openssl req -x509 -newkey rsa:2048 -nodes \
+#     -keyout /tmp/qd-turn-pkey.pem -out /tmp/qd-turn-cert.pem -days 365 \
+#     -subj "/CN=localhost" -addext "subjectAltName=DNS:localhost,IP:127.0.0.1"
+# cert=/tmp/qd-turn-cert.pem
+# pkey=/tmp/qd-turn-pkey.pem
+# tls-listening-port=5349
+
 # Local test convenience; drop these for a real deployment.
 simple-log
 log-file=/tmp/qd-turn.log
