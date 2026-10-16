@@ -23,9 +23,10 @@
 | `notification-receiver.mjs` | 本地 webhook 接收器：打印每一条投递并校验 `X-Webhook-Signature` 的 HMAC，收满 `QD_EXPECT` 条就退出（签名不对退 4、超时退 3），用来验证用户级通知通道 |
 | `signal-client-probe.mjs` | 开一条控制端信令连接并报告服务端的裁决：退 0 = `auth_ok`，退 3 = 收到 `error`（例如 `SESSION_LIMIT_REACHED`），退 4 = 没等到 auth_ok 就断开；`QD_HOLD_MS` 可以让连上的 socket 占住名额，用来测并发上限 |
 | `signal-load.mjs` | 信令层并发压测台：`QD_CLIENTS`/`QD_ROUNDS` 控制突发与轮转，`QD_HOLD_MS` 占住会话，`QD_EXPECT_ACCEPTED`/`QD_EXPECT_REJECTED` 可直接断言并发上限；输出连接延迟 p50/p95/max 与拒绝码分布（不符合预期退 3，传输错误退 4） |
-| `turn-capacity.mjs` | coturn 压测台：容量（并发 allocation）、中继质量（两路 allocation 真发数据）、soak（长稳 + 定期 refresh）三种模式；URL scheme 决定传输（`turn:` = UDP/TCP，`turns:` = TLS），凭据可本地用共享密钥签或从 `/v1/ice-config` 取。`QD_TURN_CHANNEL=1` 走真实客户端用的 **ChannelData** 路径（ChannelBind + 4 字节分帧；soak 会按 600 秒寿命重发绑定），默认仍是 Send/Data indication。TLS 默认做证书校验，`QD_TURN_CA` 指定 CA，`QD_TURN_INSECURE=1` 只给本地自签用 |
+| `turn-capacity.mjs` | coturn 压测台：容量（并发 allocation）、中继质量（两路 allocation 真发数据）、soak（长稳 + 定期 refresh）三种模式；URL scheme 决定传输（`turn:` = UDP/TCP，`turns:` = TLS），凭据可本地用共享密钥签或从 `/v1/ice-config` 取。`QD_TURN_CHANNEL=1` 走真实客户端用的 **ChannelData** 路径（ChannelBind + 4 字节分帧；soak 会按 600 秒寿命重发绑定），默认仍是 Send/Data indication。TLS 默认做证书校验，`QD_TURN_CA` 指定 CA，`QD_TURN_INSECURE=1` 只给本地自签用。端口池耗尽可以用 `QD_TURN_EXPECT_FAILURES` + `QD_TURN_EXPECT_ERROR` 断言（默认会因"没有全部成功"判 FAIL），`QD_TURN_POOL_RECYCLE=1` 则测"池排空后多久能再用" |
 | `turn-dtls.sh` | DTLS/TLS 冒烟：coturn 自带的 `turnutils_uclient` 跑 `-S`（无 `-t` 即 DTLS over UDP，加 `-t` 即 TLS over TCP），断言两个 leg 都 0 丢包。**Node 没有 DTLS 栈**（`node:tls` 只做 TCP 上的 TLS），所以 DTLS 只能这么验；脚本注释里也写了为什么 |
 | `coturn-local.conf.example` | 本地 coturn 配置示例：`use-auth-secret` 模式、可选 `max-bps` 限速、TLS/DTLS 证书与端口。注意 coturn 4.18 必须显式写 `dtls`，否则只开 TLS/TCP，日志会说 "DTLS listeners are not started" |
+| `coturn-tiny-pool.conf.example` | 第二个 coturn 实例，中继端口池故意只留 4 个（`min-port`/`max-port`），与主实例共用 `static-auth-secret`。用来验两件事：同一份 `/v1/ice-config` 凭据能同时认证到两个实例；以及端口池排空时的真实行为（`508`，reason 为空串） |
 | `guest-uia-invoke.ps1` | 用 UI Automation 的 `InvokePattern` 点按钮（比合成鼠标可靠）：`-Hwnd` 指定顶层窗口，`-Name` 或 `-AutomationIdSuffix` 定位元素 |
 | `guest-uia-buttons.ps1` | 列出 QuickDesk 主窗口里所有按钮/分组元素的 `AutomationId`、名称和屏幕坐标，用来找没有名字的 QML 按钮 |
 | `guest-uia-setedit.ps1` | 按顺序设置某个顶层窗口里的第 N 个输入框（QML 输入框没有可访问名字） |

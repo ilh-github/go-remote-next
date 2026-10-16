@@ -32,6 +32,17 @@
 //   # Note the receive path has to tell the two framings apart: ChannelData is
 //   # not a STUN message, so a parser that assumes STUN drops it silently.
 //
+// Relay-pool exhaustion and recycle (a small relay pool, filled on purpose):
+//   QD_TURN_URL=turn:127.0.0.1:3479 QD_TURN_CLIENTS=8 \
+//   QD_TURN_EXPECT_FAILURES=4 QD_TURN_EXPECT_ERROR=508 node turn-capacity.mjs
+//   # `QD_TURN_EXPECT_FAILURES` turns "some allocations must be rejected" into
+//   # an assertion (with `QD_TURN_EXPECT_ERROR` pinning the TURN error code),
+//   # instead of a run that can only ever report failure.
+//
+//   QD_TURN_URL=turn:127.0.0.1:3479 QD_TURN_POOL_RECYCLE=1 node turn-capacity.mjs
+//   # Fills the pool, releases everything, then polls until one allocation
+//   # fits again, reporting how long the pool took to recycle.
+//
 // Credentials come from QD_TURN_SECRET (minted locally) or, if unset, from the
 // signaling server's GET /v1/ice-config (QD_SIGNALING_URL + QD_API_KEY).
 //
@@ -762,6 +773,14 @@ async function runCapacity(conn, credFor) {
   const expectAllocated = process.env.QD_TURN_EXPECT_ALLOCATED
     ? Number(process.env.QD_TURN_EXPECT_ALLOCATED)
     : null;
+  // An exhaustion run asks for failures on purpose, so it needs to assert the
+  // *shape* of the failure (how many, and with what error) instead of only
+  // printing it. Without these two the run can only ever report FAIL, which is
+  // useless as a regression gate.
+  const expectFailures = process.env.QD_TURN_EXPECT_FAILURES
+    ? Number(process.env.QD_TURN_EXPECT_FAILURES)
+    : null;
+  const expectError = process.env.QD_TURN_EXPECT_ERROR ?? null;
 
   process.stdout.write(`opening ${clients} concurrent TURN allocations at ${conn.host}:${conn.port}\n`);
   const started = Date.now();
@@ -815,6 +834,24 @@ async function runCapacity(conn, credFor) {
   if (released !== ok.length) {
     console.error(`FAIL: ${ok.length - released} allocations were not released; later runs will collide`);
     return 2;
+  }
+  if (expectFailures !== null) {
+    if (clients - ok.length !== expectFailures) {
+      console.error(`FAIL: expected ${expectFailures} rejections, got ${clients - ok.length}`);
+      return 2;
+    }
+    if (expectError) {
+      const unmatched = [...failures.entries()].filter(([reason]) => !reason.includes(expectError));
+      if (unmatched.length > 0) {
+        console.error(`FAIL: expected every rejection to mention "${expectError}", but saw:`);
+        for (const [reason, count] of unmatched) {
+          console.error(`  ${count}x ${reason}`);
+        }
+        return 2;
+      }
+    }
+    console.log(`PASS (${expectFailures} expected rejection(s))`);
+    return 0;
   }
   if (expectAllocated !== null && ok.length !== expectAllocated) {
     console.error(`FAIL: expected ${expectAllocated} allocations, got ${ok.length}`);
@@ -920,6 +957,84 @@ async function runQuality(conn, credFor) {
  * goodput the relay actually delivers - which is also how a coturn `max-bps`
  * cap is verified.
  */
+// Relay-pool recycle run.
+//
+// A drained pool is not an instant-recovery situation: releasing an allocation
+// returns its relay port only after coturn finishes tearing the socket down,
+// so a burst that exhausts a small pool leaves the next burst rejected for a
+// while even though every client did release cleanly. The number that matters
+// for sizing is how long "a while" is, and that is what this mode measures:
+// fill the pool, release everything, then poll until one allocation fits.
+//
+// The measurement only means something against an idle server, so the fill
+// phase waits QD_TURN_SETTLE_MS (default 1500 ms) first. That default is not
+// arbitrary: a probe against a just-drained pool is rejected instantly with
+// 508, and a client that does not retry sees a hard failure rather than a
+// short delay.
+async function runPoolRecycle(conn, credFor) {
+  const fill = Number(process.env.QD_TURN_CLIENTS ?? 8);
+  const pollMs = Number(process.env.QD_TURN_POLL_MS ?? 500);
+  const maxWaitMs = Number(process.env.QD_TURN_MAX_WAIT_MS ?? 120000);
+  const settleMs = Number(process.env.QD_TURN_SETTLE_MS ?? 1500);
+
+  if (settleMs > 0) {
+    await new Promise((r) => setTimeout(r, settleMs));
+  }
+
+  process.stdout.write(`filling the relay pool with ${fill} concurrent allocations\n`);
+  const opened = [];
+  const rejections = [];
+  const filled = await Promise.allSettled(
+    Array.from({ length: fill }, (_, i) => allocate({ ...conn, ...credFor(i) })),
+  );
+  for (const r of filled) {
+    if (r.status === 'fulfilled') {
+      opened.push(r.value);
+    } else {
+      rejections.push(String(r.reason?.message ?? r.reason));
+    }
+  }
+  console.log(`pool fill:   ${opened.length}/${fill} allocated, ${rejections.length} rejected`);
+  for (const reason of [...new Set(rejections)]) {
+    console.log(`  rejection: ${reason}`);
+  }
+  if (opened.length === 0) {
+    console.error('FAIL: nothing allocated, so there was no pool to drain');
+    return 2;
+  }
+
+  const released = (await Promise.all(opened.map(deallocate))).filter(Boolean).length;
+  console.log(`released:    ${released}/${opened.length}`);
+  if (released !== opened.length) {
+    console.error(`FAIL: ${opened.length - released} allocations were not released`);
+    return 2;
+  }
+
+  const started = Date.now();
+  let attempts = 0;
+  for (;;) {
+    const elapsed = Date.now() - started;
+    if (elapsed > maxWaitMs) {
+      console.error(`FAIL: pool still drained ${elapsed} ms after every allocation was released`);
+      return 2;
+    }
+    attempts += 1;
+    try {
+      const probe = await allocate({ ...conn, ...credFor(0) }, 2000);
+      const probeReleased = await deallocate(probe);
+      console.log(`recycled:    ~${Date.now() - started} ms after release (${attempts} probe(s))`);
+      if (!probeReleased) {
+        console.error('FAIL: the probe allocation could not be released');
+        return 2;
+      }
+      console.log('PASS');
+      return 0;
+    } catch {
+      await new Promise((r) => setTimeout(r, pollMs));
+    }
+  }
+}
+
 async function runSoak(conn, credFor) {
   const seconds = Number(process.env.QD_TURN_SOAK_SECONDS ?? 120);
   const payloadSize = Number(process.env.QD_TURN_PAYLOAD ?? 1200);
@@ -1173,6 +1288,9 @@ async function main() {
   try {
     if (process.env.QD_TURN_SOAK) {
       return await runSoak(opts, credFor);
+    }
+    if (process.env.QD_TURN_POOL_RECYCLE) {
+      return await runPoolRecycle(opts, credFor);
     }
     return process.env.QD_TURN_QUALITY
       ? await runQuality(opts, credFor)
