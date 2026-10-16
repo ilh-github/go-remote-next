@@ -183,18 +183,21 @@ func main() {
 			cfg.Recording.StaleMinutes, cfg.Recording.RetentionDays, cfg.Recording.SweepIntervalMin)
 	}
 	go notificationDeliveryService.Run(context.Background())
-	if cfg.Notification.SweepIntervalMin > 0 && cfg.Notification.RetentionDays > 0 {
+	if cfg.Notification.SweepIntervalMin > 0 &&
+		(cfg.Notification.RetentionDays > 0 || cfg.Notification.ArchiveRetentionDays > 0) {
 		go notificationDeliveryService.RunRetention(
 			context.Background(),
 			time.Duration(cfg.Notification.SweepIntervalMin)*time.Minute,
 			cfg.Notification.RetentionDays,
+			cfg.Notification.ArchiveRetentionDays,
 		)
 		archive := cfg.Notification.ArchiveDir
 		if archive == "" {
 			archive = "(delete, no archive)"
 		}
-		log.Printf("Notification retention: retention_days=%d sweep_interval=%dm archive=%s",
-			cfg.Notification.RetentionDays, cfg.Notification.SweepIntervalMin, archive)
+		log.Printf("Notification retention: retention_days=%d archive_retention_days=%d sweep_interval=%dm archive=%s",
+			cfg.Notification.RetentionDays, cfg.Notification.ArchiveRetentionDays,
+			cfg.Notification.SweepIntervalMin, archive)
 	}
 	tokenService := service.NewTokenService(redisClient)
 	rateLimitService := service.NewRateLimitService(redisClient)
@@ -328,7 +331,8 @@ func main() {
 		sessionRecordingService, auditService, recordingLifecycle,
 		cfg.Recording.RetentionDays, cfg.Recording.StaleMinutes)
 	adminNotificationDeliveryHandler := handler.NewAdminNotificationDeliveryHandler(
-		notificationDeliveryService, auditService, cfg.Notification.RetentionDays)
+		notificationDeliveryService, auditService,
+		cfg.Notification.RetentionDays, cfg.Notification.ArchiveRetentionDays)
 	adminLogsHandler := handler.NewAdminLogsHandler(
 		auditService,
 		db,

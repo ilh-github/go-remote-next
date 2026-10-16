@@ -54,3 +54,33 @@ func TestMessageFor(t *testing.T) {
 		t.Errorf("messageFor(503) = %q, want HTTP 503", got)
 	}
 }
+
+// The outbox archive can live in the same directory as the audit archive, so
+// its rotation must only ever consider its own files. A shared `archives/`
+// folder is a realistic deployment, and deleting the other family's files
+// would be silent evidence loss.
+func TestNotificationSweepArchiveOnlyTouchesItsOwnFiles(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Now().UTC()
+	today := now.Format("2006-01-02")
+	old := now.AddDate(0, 0, -40).Format("2006-01-02")
+	writeFile(t, dir, "notification-deliveries-"+today+".jsonl")
+	writeFile(t, dir, "notification-deliveries-"+old+".jsonl")
+	writeFile(t, dir, "audit-logs-"+old+".jsonl")
+
+	svc := NewNotificationDeliveryService(nil).WithArchiveDir(dir)
+	removed, err := svc.SweepArchive(7)
+	if err != nil {
+		t.Fatalf("sweep: %v", err)
+	}
+	if removed != 1 {
+		t.Fatalf("removed %d files, want only the old outbox archive", removed)
+	}
+	want := []string{
+		"audit-logs-" + old + ".jsonl",
+		"notification-deliveries-" + today + ".jsonl",
+	}
+	if got := remainingFiles(t, dir); !equalStrings(got, want) {
+		t.Fatalf("remaining = %v, want %v", got, want)
+	}
+}

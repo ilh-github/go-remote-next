@@ -21,20 +21,22 @@ import (
 // an operator can run the purge on demand (and see what it did) instead of
 // waiting for the next tick.
 type AdminNotificationDeliveryHandler struct {
-	deliveries    *service.NotificationDeliveryService
-	audit         *service.AuditService
-	retentionDays int
+	deliveries           *service.NotificationDeliveryService
+	audit                *service.AuditService
+	retentionDays        int
+	archiveRetentionDays int
 }
 
 func NewAdminNotificationDeliveryHandler(
 	deliveries *service.NotificationDeliveryService,
 	audit *service.AuditService,
-	retentionDays int,
+	retentionDays, archiveRetentionDays int,
 ) *AdminNotificationDeliveryHandler {
 	return &AdminNotificationDeliveryHandler{
-		deliveries:    deliveries,
-		audit:         audit,
-		retentionDays: retentionDays,
+		deliveries:           deliveries,
+		audit:                audit,
+		retentionDays:        retentionDays,
+		archiveRetentionDays: archiveRetentionDays,
 	}
 }
 
@@ -54,17 +56,19 @@ func (h *AdminNotificationDeliveryHandler) Stats(c *gin.Context) {
 		total += n
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"total":          total,
-		"by_status":      counts,
-		"retention_days": h.retentionDays,
-		"archive_dir":    h.deliveries.ArchiveDir(),
+		"total":                  total,
+		"by_status":              counts,
+		"retention_days":         h.retentionDays,
+		"archive_retention_days": h.archiveRetentionDays,
+		"archive_dir":            h.deliveries.ArchiveDir(),
 	})
 }
 
 // notificationSweepReq lets an operator run one purge with a different window
 // than the configured retention (handy for testing without changing config).
 type notificationSweepReq struct {
-	OlderThanDays *int `json:"older_than_days"`
+	OlderThanDays        *int `json:"older_than_days"`
+	ArchiveRetentionDays *int `json:"archive_retention_days"`
 }
 
 // Sweep runs the retention pass on demand.
@@ -87,32 +91,60 @@ func (h *AdminNotificationDeliveryHandler) Sweep(c *gin.Context) {
 	if req.OlderThanDays != nil {
 		days = *req.OlderThanDays
 	}
-	if days <= 0 {
+	archiveDays := h.archiveRetentionDays
+	if req.ArchiveRetentionDays != nil {
+		archiveDays = *req.ArchiveRetentionDays
+	}
+	if days <= 0 && archiveDays <= 0 {
 		ProblemBadRequest(c, ProblemCodeInvalidRequest,
-			"retention is not configured; set NOTIFICATION_RETENTION_DAYS or pass older_than_days")
+			"retention is not configured; set NOTIFICATION_RETENTION_DAYS / NOTIFICATION_ARCHIVE_RETENTION_DAYS or pass older_than_days / archive_retention_days")
 		return
 	}
 
-	cutoff := time.Now().UTC().AddDate(0, 0, -days)
-	purged, err := h.deliveries.PurgeTerminal(c.Request.Context(), cutoff)
-	if err != nil {
-		// An archive failure lands here: nothing was deleted, so say so.
-		ProblemInternal(c, "purge failed, nothing deleted: "+err.Error())
-		return
+	var purged int64
+	cutoff := ""
+	if days > 0 {
+		cut := time.Now().UTC().AddDate(0, 0, -days)
+		cutoff = cut.Format(time.RFC3339)
+		removed, err := h.deliveries.PurgeTerminal(c.Request.Context(), cut)
+		if err != nil {
+			// An archive failure lands here: nothing was deleted, so say so.
+			ProblemInternal(c, "purge failed, nothing deleted: "+err.Error())
+			return
+		}
+		purged = removed
 	}
 
 	archiveDir := h.deliveries.ArchiveDir()
+	// The daily archive files are a second, independent bound: rows may be kept
+	// forever while the JSONL they were purged into is not.
+	var archiveRemoved int
+	if archiveDays > 0 {
+		if archiveDir == "" {
+			ProblemBadRequest(c, ProblemCodeInvalidRequest,
+				"archive retention was requested but NOTIFICATION_ARCHIVE_DIR is not configured")
+			return
+		}
+		removed, err := h.deliveries.SweepArchive(archiveDays)
+		if err != nil {
+			ProblemInternal(c, "archive sweep failed: "+err.Error())
+			return
+		}
+		archiveRemoved = removed
+	}
 	if h.audit != nil {
 		h.audit.Log(c.Request.Context(), middleware.MustAdminID(c), "", "notification_delivery.sweep",
 			"notification_delivery", "",
-			fmt.Sprintf("older_than_days=%d cutoff=%s purged=%d archive=%s",
-				days, cutoff.Format(time.RFC3339), purged, archiveDir),
+			fmt.Sprintf("older_than_days=%d cutoff=%s purged=%d archive_retention_days=%d archive_removed=%d archive=%s",
+				days, cutoff, purged, archiveDays, archiveRemoved, archiveDir),
 			c.ClientIP())
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"purged":          purged,
-		"older_than_days": days,
-		"cutoff":          cutoff.Format(time.RFC3339),
-		"archive_dir":     archiveDir,
+		"purged":                 purged,
+		"older_than_days":        days,
+		"cutoff":                 cutoff,
+		"archive_retention_days": archiveDays,
+		"archive_removed":        archiveRemoved,
+		"archive_dir":            archiveDir,
 	})
 }

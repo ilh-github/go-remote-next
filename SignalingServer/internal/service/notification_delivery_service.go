@@ -303,11 +303,26 @@ func terminalDeliveryStatuses() []string {
 	return []string{DeliveryStatusDelivered, DeliveryStatusFailed}
 }
 
+// SweepArchive deletes daily archive files older than archiveRetentionDays and
+// reports how many it removed. 0 means "keep the archives forever"; a
+// deployment with no archive directory simply has nothing to sweep.
+func (s *NotificationDeliveryService) SweepArchive(archiveRetentionDays int) (int, error) {
+	if s == nil {
+		return 0, nil
+	}
+	return sweepArchiveDir(s.archiveDir, "notification-deliveries", archiveRetentionDays, time.Now().UTC())
+}
+
 // RunRetention sweeps expired terminal rows on a ticker until ctx is
-// cancelled. retentionDays <= 0 keeps history forever, like the recording
-// retention setting, so the outbox can be audited indefinitely if needed.
-func (s *NotificationDeliveryService) RunRetention(ctx context.Context, interval time.Duration, retentionDays int) {
-	if retentionDays <= 0 || interval <= 0 {
+// cancelled. Two independent bounds are enforced: `retentionDays` deletes
+// terminal rows older than the window, and `archiveRetentionDays` deletes the
+// daily archive files that window wrote. Either one alone is enough to make the
+// sweep run, so a deployment can bound the archive without re-purging rows.
+//
+// Both default to 0, which keeps the outbox and its archives forever, matching
+// the recording retention setting.
+func (s *NotificationDeliveryService) RunRetention(ctx context.Context, interval time.Duration, retentionDays, archiveRetentionDays int) {
+	if interval <= 0 || (retentionDays <= 0 && archiveRetentionDays <= 0) {
 		return
 	}
 	ticker := time.NewTicker(interval)
@@ -317,15 +332,24 @@ func (s *NotificationDeliveryService) RunRetention(ctx context.Context, interval
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			cutoff := time.Now().UTC().AddDate(0, 0, -retentionDays)
-			removed, err := s.PurgeTerminal(ctx, cutoff)
-			if err != nil {
-				log.Printf("[notification] retention sweep failed: %v", err)
-				continue
+			if retentionDays > 0 {
+				cutoff := time.Now().UTC().AddDate(0, 0, -retentionDays)
+				removed, err := s.PurgeTerminal(ctx, cutoff)
+				if err != nil {
+					log.Printf("[notification] retention sweep failed: %v", err)
+				} else if removed > 0 {
+					log.Printf("[notification] retention purged %d terminal deliveries older than %s",
+						removed, cutoff.Format(time.RFC3339))
+				}
 			}
-			if removed > 0 {
-				log.Printf("[notification] retention purged %d terminal deliveries older than %s",
-					removed, cutoff.Format(time.RFC3339))
+			if archiveRetentionDays > 0 {
+				removed, err := s.SweepArchive(archiveRetentionDays)
+				if err != nil {
+					log.Printf("[notification] archive sweep failed: %v", err)
+				} else if removed > 0 {
+					log.Printf("[notification] archive sweep removed %d file(s) older than %d day(s)",
+						removed, archiveRetentionDays)
+				}
 			}
 		}
 	}

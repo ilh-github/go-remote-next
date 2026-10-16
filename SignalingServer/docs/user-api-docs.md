@@ -521,6 +521,17 @@ aborts with an error and the rows stay, so retention can never be the step that
 destroys the only copy of a delivery history. Leave it empty for the plain
 delete.
 
+The archive directory is bounded too. `NOTIFICATION_ARCHIVE_RETENTION_DAYS`
+(default `0` = keep the archives forever) deletes daily archive files older than
+the window on the same timer, and `{"archive_retention_days": N}` on the sweep
+endpoint does it on demand; `archive_removed` reports how many files went. Only
+files named `notification-deliveries-YYYY-MM-DD.jsonl` are candidates, so a
+shared archive directory can also hold the audit archives without this sweep
+touching them. Asking for archive retention while `NOTIFICATION_ARCHIVE_DIR` is
+unset is a `400` rather than a silent no-op. The default is "keep forever" on
+purpose: the archive exists so a purged delivery stays recoverable, so deleting
+it has to be requested.
+
 **Aggregation is opt-in noise reduction.** `NOTIFICATION_AGGREGATE_SECONDS`
 defaults to `0`, which keeps the behaviour above: one row per event, delivered
 on the next worker tick. A positive value holds each new delivery for that many
@@ -1355,8 +1366,8 @@ request shapes; this section documents only the route table.
 | `GET` | `/v1/admin/recordings/:id/thumbnail` (cross-user preview; audit action `recording.thumbnail.download`) |
 | `GET` | `/v1/admin/recordings:storage` — `{artifact_count, total_bytes, retention_days, stale_after_minutes}` |
 | `POST` | `/v1/admin/recordings:sweep` — runs the stale + retention + orphan pass now; returns `{stale_marked_failed, artifacts_purged, bytes_freed, orphans_removed}` and audits `recording.sweep` |
-| `GET` | `/v1/admin/notification-deliveries:stats` — `{total, by_status, retention_days, archive_dir}`; `by_status` always carries all four states (`pending`/`delivering`/`delivered`/`failed`), zeroes included |
-| `POST` | `/v1/admin/notification-deliveries:sweep` — runs the outbox retention pass now. Optional body `{older_than_days: N}` overrides the configured window. Returns `{purged, older_than_days, cutoff, archive_dir}` and audits `notification_delivery.sweep`. `400` when neither the config nor the body supplies a window; on an archive write failure nothing is deleted and the response is an error |
+| `GET` | `/v1/admin/notification-deliveries:stats` — `{total, by_status, retention_days, archive_retention_days, archive_dir}`; `by_status` always carries all four states (`pending`/`delivering`/`delivered`/`failed`), zeroes included |
+| `POST` | `/v1/admin/notification-deliveries:sweep` — runs the outbox retention pass now. Optional body `{older_than_days: N}` overrides the configured window and `{archive_retention_days: N}` overrides how long the daily archive files are kept; either or both may be passed. Returns `{purged, older_than_days, cutoff, archive_retention_days, archive_removed, archive_dir}` and audits `notification_delivery.sweep`. `400` when none of the config or body supplies a bound (`NOTIFICATION_RETENTION_DAYS` / `NOTIFICATION_ARCHIVE_RETENTION_DAYS` or the matching body fields) and `400` when archive retention is asked for with `NOTIFICATION_ARCHIVE_DIR` unset; on an archive write failure nothing is deleted and the response is an error |
 | `GET` `PUT` | `/v1/admin/preset` |
 | `GET` `PUT` | `/v1/admin/settings` |
 | `GET` `POST` `PATCH` `DELETE` | `/v1/admin/webhooks[/:id]` |

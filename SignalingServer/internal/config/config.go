@@ -121,6 +121,10 @@ type NotificationConfig struct {
 	// ArchiveDir, when set, makes retention append expired rows to a daily
 	// JSONL file there before deleting them. Empty = plain delete.
 	ArchiveDir string
+	// ArchiveRetentionDays bounds how long those archive files themselves are
+	// kept. 0 = keep them forever (the safe default: the archive exists so a
+	// purged delivery stays recoverable, so deleting it has to be asked for).
+	ArchiveRetentionDays int
 	// AggregateSeconds collapses bursts: a delivery is held for this long and
 	// matching events that arrive during the hold increment its occurrence
 	// count instead of becoming their own rows. 0 disables it, which keeps the
@@ -271,6 +275,8 @@ func Load() *Config {
 	// When set, expired delivery rows are appended to a daily JSONL file here
 	// before being deleted, so retention never destroys the only copy.
 	viper.SetDefault("NOTIFICATION_ARCHIVE_DIR", "")
+	// How long those daily archive files themselves are kept. 0 = forever.
+	viper.SetDefault("NOTIFICATION_ARCHIVE_RETENTION_DAYS", 0)
 	// Notification aggregation. 0 (the default) delivers every event as its own
 	// row immediately; a positive value holds a delivery for that many seconds
 	// and folds matching events into it, trading promptness for fewer messages.
@@ -383,10 +389,11 @@ func Load() *Config {
 		SweepIntervalMin: viper.GetInt("RECORDING_SWEEP_INTERVAL_MINUTES"),
 	}
 	cfg.Notification = NotificationConfig{
-		RetentionDays:    viper.GetInt("NOTIFICATION_RETENTION_DAYS"),
-		SweepIntervalMin: viper.GetInt("NOTIFICATION_SWEEP_INTERVAL_MINUTES"),
-		ArchiveDir:       viper.GetString("NOTIFICATION_ARCHIVE_DIR"),
-		AggregateSeconds: viper.GetInt("NOTIFICATION_AGGREGATE_SECONDS"),
+		RetentionDays:        viper.GetInt("NOTIFICATION_RETENTION_DAYS"),
+		SweepIntervalMin:     viper.GetInt("NOTIFICATION_SWEEP_INTERVAL_MINUTES"),
+		ArchiveDir:           viper.GetString("NOTIFICATION_ARCHIVE_DIR"),
+		ArchiveRetentionDays: viper.GetInt("NOTIFICATION_ARCHIVE_RETENTION_DAYS"),
+		AggregateSeconds:     viper.GetInt("NOTIFICATION_AGGREGATE_SECONDS"),
 	}
 	cfg.Audit = AuditConfig{
 		RetentionDays:        viper.GetInt("AUDIT_RETENTION_DAYS"),
