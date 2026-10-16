@@ -41,10 +41,12 @@ info:
     `scripts/sdk/generate-client.sh sdk/python python` and
     `scripts/sdk/generate-client.sh sdk/java java` (a pinned openapi-generator
     jar, so local and CI output are byte-identical); the script takes the
-    language as its last argument. The Go and Python clients each carry a
-    hand-written `examples/` directory that the CI smoke job runs against a live
-    server, and those directories are excluded from the freshness comparison;
-    the Java client is compiled by Maven in CI. For a fifth language, use the
+    language as its last argument. All four clients carry a hand-written
+    `examples/` entry that the CI smoke job runs against a live server: Go runs
+    the recording and approval workflows, while Python, TypeScript and Java each
+    run the approval workflow through their own generated client. The
+    `examples/` directories are excluded from the freshness comparison, so they
+    are the only hand-written code under `sdk/`. For a fifth language, use the
     generator directly, for example:
 
         npx @openapitools/openapi-generator-cli generate \
@@ -1487,7 +1489,11 @@ components:
           description: Legacy switch kept for older clients; prefer `approval_mode`.
         approval_mode:
           type: string
-          enum: [off, always, grant, untrusted_ip]
+          # `off` is quoted on purpose: YAML 1.1 resolves a bare `off` to the
+          # boolean false, which is how the generated clients ended up with an
+          # enum of `false` and could not deserialize the server's default
+          # policy. Same trap below for `holiday_day`.
+          enum: ['off', always, grant, untrusted_ip]
           description: When the owner must approve a correct code before a session starts.
         approval_trusted_ips:
           type: array
@@ -1551,7 +1557,7 @@ components:
           description: A statutory holiday name from the server's calendar, e.g. 春节.
         holiday_day:
           type: string
-          enum: [off, work]
+          enum: ['off', work]
           description: Which dates of the holiday an entry covers (default `off`).
         lunar_month:
           type: integer

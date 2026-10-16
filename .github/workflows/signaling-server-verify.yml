@@ -206,6 +206,15 @@ jobs:
           # 22 for the built-in WebSocket the realtime smoke uses; the HTTP
           # smoke and the generated client do not care either way.
           node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          # The Java approval example builds the generated client below.
+          cache: maven
       - name: Provide the embedded admin UI directory
         working-directory: SignalingServer
         run: |
@@ -254,6 +263,32 @@ jobs:
         # the approval for a signal token.
         working-directory: sdk/go
         run: go run ./examples/approvalflow
+      - name: Run the approval workflow through the generated Python client
+        # Same flow, same live server, different generated client. Python maps
+        # the 202 answers to their own classes (AccessCodeApprovalPending /
+        # ApprovalClaimPending), so this is the check that the shared `status`
+        # field survives a generator that switches types per status code.
+        working-directory: sdk/python
+        run: |
+          pip install --quiet .
+          python examples/approval_flow.py
+      - name: Run the approval workflow through the generated TypeScript client
+        # The example is hand-written JavaScript against the compiled client
+        # (dist/), so it adds no dependency beyond the client's own devDeps and
+        # still exercises the generated request/response types.
+        working-directory: sdk/ts
+        run: |
+          npm install --no-audit --no-fund
+          npm run build
+          node examples/approval-flow.js
+      - name: Run the approval workflow through the generated Java client
+        working-directory: sdk/java
+        run: |
+          mvn -B -q --no-transfer-progress -DskipTests compile
+          mvn -B -q --no-transfer-progress dependency:build-classpath \
+            -Dmdep.outputFile=/tmp/qd-java-classpath.txt
+          java -cp "target/classes:$(cat /tmp/qd-java-classpath.txt)" \
+            org.openapitools.client.examples.ApprovalFlow
       - name: Run the conformance smoke
         run: node scripts/sdk/openapi-smoke.mjs
       - name: Run the realtime conformance smoke
@@ -274,9 +309,6 @@ jobs:
         # rather than in someone's integration.
         working-directory: sdk/go
         run: go run ./examples/recordinglifecycle
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
       - name: Run the generated Python client
         # Same argument as the Go client: the freshness check proves the tree
         # matches the spec, only a real call proves it can talk to the server.

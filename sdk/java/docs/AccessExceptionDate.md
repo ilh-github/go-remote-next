@@ -41,7 +41,7 @@ Exactly one of `date` (+ optional `end_date`), `holiday`, or `repeat: \"lunar\"`
 
 | Name | Value |
 |---- | -----|
-| FALSE | &quot;false&quot; |
+| OFF | &quot;off&quot; |
 | WORK | &quot;work&quot; |
 
 

@@ -41,10 +41,12 @@ regenerated client fails the build. Regenerate them with
 `scripts/sdk/generate-client.sh sdk/python python` and
 `scripts/sdk/generate-client.sh sdk/java java` (a pinned openapi-generator
 jar, so local and CI output are byte-identical); the script takes the
-language as its last argument. The Go and Python clients each carry a
-hand-written `examples/` directory that the CI smoke job runs against a live
-server, and those directories are excluded from the freshness comparison;
-the Java client is compiled by Maven in CI. For a fifth language, use the
+language as its last argument. All four clients carry a hand-written
+`examples/` entry that the CI smoke job runs against a live server: Go runs
+the recording and approval workflows, while Python, TypeScript and Java each
+run the approval workflow through their own generated client. The
+`examples/` directories are excluded from the freshness comparison, so they
+are the only hand-written code under `sdk/`. For a fifth language, use the
 generator directly, for example:
 
     npx @openapitools/openapi-generator-cli generate \\

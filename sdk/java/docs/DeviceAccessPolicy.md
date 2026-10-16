@@ -25,7 +25,7 @@
 
 | Name | Value |
 |---- | -----|
-| FALSE | &quot;false&quot; |
+| OFF | &quot;off&quot; |
 | ALWAYS | &quot;always&quot; |
 | GRANT | &quot;grant&quot; |
 | UNTRUSTED_IP | &quot;untrusted_ip&quot; |

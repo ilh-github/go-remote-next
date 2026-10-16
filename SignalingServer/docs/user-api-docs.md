@@ -35,17 +35,22 @@ scripts/sdk/check-generated-sdk.sh python   # fails when sdk/python is stale
 scripts/sdk/check-generated-sdk.sh java     # fails when sdk/java is stale
 ```
 
-The Go and Python clients each carry hand-written `examples/` code -
-`sdk/go/examples`, `sdk/python/examples/login_and_list_devices.py` - and the Go
-client has two more: `sdk/go/examples/recordinglifecycle` runs a whole write
-workflow (create a recording, upload the media, patch the row, find it in the
-index, mint a playback ticket, read the bytes back through that ticket - the
-route a `<video>` tag uses, with no Authorization header - and delete the row),
-and `sdk/go/examples/approvalflow` drives the second-factor flow end to end
-(require approval, receive the pending answer, poll a claim while it waits, see
-it in the owner's list, approve, exchange it for a signal token, restore the
-policy). CI runs all four against the smoke server, which is why the freshness
-check excludes those directories. The Java client is compiled with Maven in CI
+All four clients carry hand-written `examples/` code, and the smoke job runs
+each against a live server before the conformance smoke takes its device
+offline. `sdk/go/examples/recordinglifecycle` runs a whole write workflow
+(create a recording, upload the media, patch the row, find it in the index, mint
+a playback ticket, read the bytes back through that ticket - the route a
+`<video>` tag uses, with no Authorization header - and delete the row).
+`sdk/go/examples/approvalflow`, `sdk/python/examples/approval_flow.py`,
+`sdk/ts/examples/approval-flow.js` and
+`sdk/java/src/main/java/org/openapitools/client/examples/ApprovalFlow.java` all
+drive the same second-factor flow through their own generated client: require
+approval, receive the pending answer, poll a claim while it waits, see it in the
+owner's list, approve, exchange it for a signal token, and restore the policy.
+The Python example is also the one that caught the spec's unquoted `off` enum
+(YAML read it as boolean `false`, so strict clients could not deserialize the
+server's default policy). The freshness check excludes those `examples/`
+directories; the Java client is otherwise compiled with Maven in CI
 (`mvn -DskipTests package`). The generated trees are otherwise untouched, so
 regenerating after a spec change is the whole maintenance story.
 
