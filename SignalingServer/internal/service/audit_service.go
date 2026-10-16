@@ -1,7 +1,14 @@
 package service
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
+	"log"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"quickdesk/signaling/internal/models"
@@ -11,10 +18,140 @@ import (
 
 type AuditService struct {
 	db *gorm.DB
+	// archiveDir, when set, makes retention append expired rows to a daily
+	// JSONL file before deleting them. Audit rows are evidence, so this is the
+	// recommended posture once retention is switched on. Empty = plain delete.
+	archiveDir string
 }
 
 func NewAuditService(db *gorm.DB) *AuditService {
 	return &AuditService{db: db}
+}
+
+// WithArchiveDir enables archive-before-delete for retention. Returns the
+// receiver so it can be chained onto the constructor.
+func (s *AuditService) WithArchiveDir(dir string) *AuditService {
+	s.archiveDir = strings.TrimSpace(dir)
+	return s
+}
+
+// ArchiveDir reports the configured archive directory ("" = plain delete).
+func (s *AuditService) ArchiveDir() string {
+	if s == nil {
+		return ""
+	}
+	return s.archiveDir
+}
+
+// auditPurgeBatch bounds how many rows one archive-then-delete pass reads into
+// memory. The periodic worker repeats until a pass comes back empty.
+const auditPurgeBatch = 1000
+
+// PurgeBefore deletes audit rows created before cutoff and reports how many
+// went. When an archive directory is configured the rows are appended to a
+// daily JSONL file first and only deleted once that write has been fsynced, so
+// retention can never be the step that silently destroys the only copy of a
+// trail.
+func (s *AuditService) PurgeBefore(ctx context.Context, cutoff time.Time) (int64, error) {
+	cutoff = cutoff.UTC()
+	if s.archiveDir == "" {
+		res := s.db.WithContext(ctx).
+			Where("created_at < ?", cutoff).
+			Delete(&models.AuditLog{})
+		return res.RowsAffected, res.Error
+	}
+
+	var rows []models.AuditLog
+	if err := s.db.WithContext(ctx).
+		Where("created_at < ?", cutoff).
+		Order("id").
+		Limit(auditPurgeBatch).
+		Find(&rows).Error; err != nil {
+		return 0, err
+	}
+	if len(rows) == 0 {
+		return 0, nil
+	}
+	if err := s.archiveRows(rows); err != nil {
+		return 0, fmt.Errorf("archive audit logs before purge: %w", err)
+	}
+	ids := make([]uint, 0, len(rows))
+	for _, row := range rows {
+		ids = append(ids, row.ID)
+	}
+	// Re-apply the cutoff in the delete so a row cannot be removed by the
+	// archive path if it was somehow re-dated between the read and the delete.
+	res := s.db.WithContext(ctx).
+		Where("id IN ?", ids).
+		Where("created_at < ?", cutoff).
+		Delete(&models.AuditLog{})
+	return res.RowsAffected, res.Error
+}
+
+// archiveRows appends one JSON object per row to the day's archive file and
+// fsyncs it, so the bytes are durable before the caller deletes them.
+func (s *AuditService) archiveRows(rows []models.AuditLog) error {
+	if err := os.MkdirAll(s.archiveDir, 0o755); err != nil {
+		return err
+	}
+	name := fmt.Sprintf("audit-logs-%s.jsonl", time.Now().UTC().Format("2006-01-02"))
+	path := filepath.Join(s.archiveDir, name)
+
+	var buf bytes.Buffer
+	encoder := json.NewEncoder(&buf)
+	for _, row := range rows {
+		if err := encoder.Encode(row); err != nil {
+			return err
+		}
+	}
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	if _, err := file.Write(buf.Bytes()); err != nil {
+		return err
+	}
+	return file.Sync()
+}
+
+// RunRetention sweeps expired rows on a ticker until ctx is cancelled.
+// retentionDays <= 0 or interval <= 0 keeps history forever, matching the
+// recording and notification retention settings, so the default is
+// "never delete an audit row".
+func (s *AuditService) RunRetention(ctx context.Context, interval time.Duration, retentionDays int) {
+	if retentionDays <= 0 || interval <= 0 {
+		return
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			cutoff := time.Now().UTC().AddDate(0, 0, -retentionDays)
+			total := int64(0)
+			// Archive-then-delete only handles one batch per call, so loop
+			// until a pass removes nothing. The plain-delete path could do it
+			// in one statement, but one loop keeps both paths identical.
+			for {
+				removed, err := s.PurgeBefore(ctx, cutoff)
+				if err != nil {
+					log.Printf("[audit] retention sweep failed: %v", err)
+					break
+				}
+				total += removed
+				if removed == 0 {
+					break
+				}
+			}
+			if total > 0 {
+				log.Printf("[audit] retention purged %d audit rows older than %s",
+					total, cutoff.Format(time.RFC3339))
+			}
+		}
+	}
 }
 
 func (s *AuditService) Log(ctx context.Context, adminID uint, adminUsername, action, resourceType, resourceID, details, ip string) {

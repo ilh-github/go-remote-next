@@ -1239,6 +1239,7 @@ request shapes; this section documents only the route table.
 | `GET` | `/v1/admin/activity` |
 | `GET` | `/v1/admin/trends?range=24h\|7d\|30d` |
 | `GET` | `/v1/admin/audit-logs` (filters `action` / `admin` / `actor_user_id` / `date_from` / `date_to`; a non-numeric `actor_user_id` is `400` rather than a filter that quietly matches everything) |
+| `POST` | `/v1/admin/audit-logs:sweep` — run the audit-retention purge now. Optional body `{older_than_days: N}` overrides the configured window. Returns `{purged, older_than_days, cutoff, archive_dir}` and audits `audit.sweep`. `400` when neither the config nor the body supplies a window; when `AUDIT_ARCHIVE_DIR` is set an archive write failure deletes nothing |
 | `GET` `DELETE` | `/v1/admin/recordings[/:id]` (list filters `user_id` / `device_id` / `status` / `q`; delete writes audit action `recording.delete`) |
 | `GET` | `/v1/admin/recordings/:id/artifact` (cross-user download; audit action `recording.download`) |
 | `GET` | `/v1/admin/recordings/:id/thumbnail` (cross-user preview; audit action `recording.thumbnail.download`) |
@@ -1270,6 +1271,19 @@ admin path fills, so the trail answers "from where" regardless of who acted.
 The CSV export (`/v1/admin/audit-logs:export?format=csv`) carries
 `actor_user_id` as its own column; without it a mixed export could not tell an
 owner's deletion from an administrator's.
+
+**Audit retention is opt-in and off by default.** `audit_logs` has no terminal
+state, so without retention it only ever grows. `AUDIT_RETENTION_DAYS` (default
+`0` = keep everything) deletes rows older than the window on a timer
+(`AUDIT_SWEEP_INTERVAL_MINUTES`, default `60`), and
+`POST /v1/admin/audit-logs:sweep` runs the same pass on demand - with an
+optional `{"older_than_days": N}` so a window can be exercised without changing
+configuration. Set `AUDIT_ARCHIVE_DIR` and expired rows are appended to a daily
+JSONL file, fsynced, and only then deleted; if that write fails nothing is
+removed and the endpoint reports the error, because an audit trail is evidence
+and retention must not be the step that destroys the only copy. A sweep with no
+configured retention and no `older_than_days` is a `400` rather than a silent
+no-op or a "keep zero days".
 
 **`logs:search` reads the log backwards.** The application log is a rotating
 file (`signaling.log`, `signaling.log.1`, …), so the newest line is at the end

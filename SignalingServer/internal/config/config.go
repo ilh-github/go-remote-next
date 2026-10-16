@@ -104,6 +104,7 @@ type Config struct {
 	Security     SecurityConfig
 	Recording    RecordingConfig
 	Notification NotificationConfig
+	Audit        AuditConfig
 	OfflineAlert OfflineAlertConfig
 	Holiday      HolidayConfig
 	Sms          SmsConfig
@@ -117,6 +118,18 @@ type NotificationConfig struct {
 	SweepIntervalMin int
 	// ArchiveDir, when set, makes retention append expired rows to a daily
 	// JSONL file there before deleting them. Empty = plain delete.
+	ArchiveDir string
+}
+
+// AuditConfig controls how long the `audit_logs` table keeps entries. The table
+// only ever grows otherwise - it has no natural terminal state - so retention is
+// the only thing that bounds it. RetentionDays = 0 keeps every row forever.
+type AuditConfig struct {
+	RetentionDays    int
+	SweepIntervalMin int
+	// ArchiveDir, when set, makes retention append expired rows to a daily
+	// JSONL file there before deleting them. Empty = plain delete. Audit rows
+	// are evidence, so an operator turning retention on should normally set it.
 	ArchiveDir string
 }
 
@@ -224,6 +237,14 @@ func Load() *Config {
 	// before being deleted, so retention never destroys the only copy.
 	viper.SetDefault("NOTIFICATION_ARCHIVE_DIR", "")
 
+	// Audit-log retention. 0 keeps every entry forever; any positive value
+	// deletes rows older than the window. AUDIT_ARCHIVE_DIR, when set, appends
+	// them to a daily JSONL file first, which is the recommended posture for a
+	// trail that exists to be evidence.
+	viper.SetDefault("AUDIT_RETENTION_DAYS", 0)
+	viper.SetDefault("AUDIT_SWEEP_INTERVAL_MINUTES", 60)
+	viper.SetDefault("AUDIT_ARCHIVE_DIR", "")
+
 	// Background evaluator for per-device offline alerts. 0 disables it.
 	viper.SetDefault("OFFLINE_ALERT_INTERVAL_SECONDS", 30)
 
@@ -310,6 +331,11 @@ func Load() *Config {
 		RetentionDays:    viper.GetInt("NOTIFICATION_RETENTION_DAYS"),
 		SweepIntervalMin: viper.GetInt("NOTIFICATION_SWEEP_INTERVAL_MINUTES"),
 		ArchiveDir:       viper.GetString("NOTIFICATION_ARCHIVE_DIR"),
+	}
+	cfg.Audit = AuditConfig{
+		RetentionDays:    viper.GetInt("AUDIT_RETENTION_DAYS"),
+		SweepIntervalMin: viper.GetInt("AUDIT_SWEEP_INTERVAL_MINUTES"),
+		ArchiveDir:       viper.GetString("AUDIT_ARCHIVE_DIR"),
 	}
 	cfg.OfflineAlert = OfflineAlertConfig{
 		IntervalSeconds: viper.GetInt("OFFLINE_ALERT_INTERVAL_SECONDS"),
