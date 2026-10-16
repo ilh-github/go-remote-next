@@ -1225,7 +1225,7 @@ request shapes; this section documents only the route table.
 | `GET` | `/v1/admin/connections` |
 | `GET` | `/v1/admin/activity` |
 | `GET` | `/v1/admin/trends?range=24h\|7d\|30d` |
-| `GET` | `/v1/admin/audit-logs` (filters `date_from` / `date_to` / `q`) |
+| `GET` | `/v1/admin/audit-logs` (filters `action` / `admin` / `actor_user_id` / `date_from` / `date_to`; a non-numeric `actor_user_id` is `400` rather than a filter that quietly matches everything) |
 | `GET` `DELETE` | `/v1/admin/recordings[/:id]` (list filters `user_id` / `device_id` / `status` / `q`; delete writes audit action `recording.delete`) |
 | `GET` | `/v1/admin/recordings/:id/artifact` (cross-user download; audit action `recording.download`) |
 | `GET` | `/v1/admin/recordings/:id/thumbnail` (cross-user preview; audit action `recording.thumbnail.download`) |
@@ -1247,6 +1247,16 @@ unanswerable. The action name is shared where the same fact can be caused by
 either party — a recording deletion is `recording.delete` whether the owner or
 an admin did it, and the actor columns are what tell them apart, so one filter
 shows every deletion.
+
+Both actor columns are filterable, so the two questions an incident asks are
+both answerable: `?admin=` narrows to an administrator and `?actor_user_id=`
+narrows to an end user (`recording.delete` rows written by owners carry
+`actor_user_id`, so filtering on it is how "what did this user do" is asked).
+User-side rows also record the actor's observed client IP, the same column the
+admin path fills, so the trail answers "from where" regardless of who acted.
+The CSV export (`/v1/admin/audit-logs:export?format=csv`) carries
+`actor_user_id` as its own column; without it a mixed export could not tell an
+owner's deletion from an administrator's.
 
 **`logs:search` reads the log backwards.** The application log is a rotating
 file (`signaling.log`, `signaling.log.1`, …), so the newest line is at the end

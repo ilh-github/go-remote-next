@@ -230,9 +230,12 @@ func (h *AdminLogsHandler) ExportAudit(c *gin.Context) {
 	c.Header("Content-Type", "text/csv; charset=utf-8")
 	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%q", "audit-logs-"+stamp+".csv"))
 	writer := csv.NewWriter(c.Writer)
-	_ = writer.Write([]string{"id", "admin_id", "admin_username", "action", "resource_type", "resource_id", "details", "ip", "created_at"})
+	// actor_user_id belongs in the export for the same reason it exists in the
+	// table: `recording.delete` is written by owners and admins alike, and
+	// without this column the CSV cannot tell the two apart.
+	_ = writer.Write([]string{"id", "admin_id", "admin_username", "actor_user_id", "action", "resource_type", "resource_id", "details", "ip", "created_at"})
 	for _, entry := range logs {
-		_ = writer.Write([]string{fmt.Sprint(entry.ID), fmt.Sprint(entry.AdminID), entry.AdminUsername, entry.Action, entry.ResourceType, entry.ResourceID, entry.Details, entry.IP, entry.CreatedAt.UTC().Format(time.RFC3339)})
+		_ = writer.Write([]string{fmt.Sprint(entry.ID), fmt.Sprint(entry.AdminID), entry.AdminUsername, fmt.Sprint(entry.ActorUserID), entry.Action, entry.ResourceType, entry.ResourceID, entry.Details, entry.IP, entry.CreatedAt.UTC().Format(time.RFC3339)})
 	}
 	writer.Flush()
 }

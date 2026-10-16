@@ -236,7 +236,9 @@ func (h *SessionRecordingHandler) Delete(c *gin.Context) {
 		h.bus.Publish(c.Request.Context(), service.Event{
 			Type:   service.EventRecordingDeleted,
 			UserID: uid,
-			Data:   map[string]interface{}{"recording_id": uint(id)},
+			// `ip` is the actor's observed address; the audit subscriber lifts
+			// it onto the row so a deletion can be explained by who and where.
+			Data: map[string]interface{}{"recording_id": uint(id), "ip": c.ClientIP()},
 		})
 	}
 	c.Status(http.StatusNoContent)

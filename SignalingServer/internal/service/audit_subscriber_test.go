@@ -121,3 +121,77 @@ func TestAuditSubscriberIgnoresNonAuditedEvents(t *testing.T) {
 		t.Fatalf("wrote %d audit rows for non-audited events, want 0", count)
 	}
 }
+
+// A user-side row has to answer "from where" the same way the admin path does:
+// the producer puts the observed address in the event data and the subscriber
+// lifts it onto the row. A missing or non-string value must stay empty rather
+// than being stringified into something meaningless.
+func TestAuditSubscriberRecordsActorIP(t *testing.T) {
+	db := newAuditTestDB(t)
+	sub := NewAuditSubscriber(NewAuditService(db))
+	ctx := context.Background()
+
+	sub.HandleEvent(ctx, Event{
+		Type:   EventRecordingDeleted,
+		UserID: 7,
+		Data:   map[string]interface{}{"recording_id": uint(1), "ip": "203.0.113.9"},
+	})
+	if row := loadAuditRow(t, db); row.IP != "203.0.113.9" {
+		t.Fatalf("ip = %q, want the actor's observed address", row.IP)
+	}
+
+	// No ip in the payload: the column stays empty, and the row is still written.
+	sub.HandleEvent(ctx, Event{
+		Type:   EventRecordingDeleted,
+		UserID: 7,
+		Data:   map[string]interface{}{"recording_id": uint(2)},
+	})
+	if row := loadAuditRow(t, db); row.IP != "" {
+		t.Fatalf("ip = %q, want empty when the producer had no address", row.IP)
+	}
+
+	// A non-string ip must not be stringified into `map[]`/`7`.
+	sub.HandleEvent(ctx, Event{
+		Type:   EventRecordingDeleted,
+		UserID: 7,
+		Data:   map[string]interface{}{"recording_id": uint(3), "ip": 7},
+	})
+	if row := loadAuditRow(t, db); row.IP != "" {
+		t.Fatalf("ip = %q, want empty for a non-string value", row.IP)
+	}
+}
+
+// Both columns exist so "which admin" and "which user" stay answerable; the
+// filter has to be able to ask the second question.
+func TestAuditListFiltersByActorUserID(t *testing.T) {
+	db := newAuditTestDB(t)
+	svc := NewAuditService(db)
+	ctx := context.Background()
+
+	svc.LogActor(ctx, 7, "recording.delete", "session_recording", "11", "size=1", "198.51.100.7")
+	svc.LogActor(ctx, 8, "recording.delete", "session_recording", "12", "size=2", "198.51.100.8")
+	// An admin action has actor_user_id 0 and must never match a user filter.
+	svc.Log(ctx, 1, "admin", "recording.delete", "session_recording", "13", "", "198.51.100.1")
+
+	rows, total, err := svc.List(ctx, AuditListParams{ActorUserID: 7, Limit: 10})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if total != 1 || len(rows) != 1 {
+		t.Fatalf("filter returned total=%d rows=%d, want exactly the one row for user 7", total, len(rows))
+	}
+	if rows[0].ActorUserID != 7 || rows[0].ResourceID != "11" {
+		t.Fatalf("wrong row for the actor filter: %+v", rows[0])
+	}
+	if rows[0].IP != "198.51.100.7" {
+		t.Fatalf("ip = %q, want the address stored by LogActor", rows[0].IP)
+	}
+
+	// No filter still returns everything, so the admin activity view is unchanged.
+	if _, total, err = svc.List(ctx, AuditListParams{Limit: 10}); err != nil {
+		t.Fatalf("unfiltered list: %v", err)
+	}
+	if total != 3 {
+		t.Fatalf("unfiltered total = %d, want 3", total)
+	}
+}

@@ -189,6 +189,10 @@ func (h *DeviceAccessApprovalHandler) decide(c *gin.Context, approve bool) {
 				"source":      row.Source,
 				"client_id":   row.ClientID,
 				"reason":      row.Reason,
+				// The deciding owner's observed address, matching the other
+				// audited user actions; the audit subscriber lifts it onto the
+				// row.
+				"ip": c.ClientIP(),
 			},
 		})
 	}

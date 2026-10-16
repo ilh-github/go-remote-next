@@ -87,10 +87,22 @@ func (s *auditSubscriber) HandleEvent(ctx context.Context, evt Event) {
 	action := auditAction(evt)
 	resourceType, resourceID := auditResource(evt)
 	if actor := auditActorUserID(evt); actor != 0 {
-		s.audit.LogActor(ctx, actor, action, resourceType, resourceID, string(details))
+		s.audit.LogActor(ctx, actor, action, resourceType, resourceID, string(details), eventClientIP(evt))
 		return
 	}
 	s.audit.Log(ctx, 0, "", action, resourceType, resourceID, string(details), "")
+}
+
+// eventClientIP pulls the actor's observed address out of the event data.
+// Producers that attribute an event to a user put `ip` there so the audit row
+// can answer "from where" the same way the admin path does. A missing or
+// non-string value yields "" rather than a stringified map, because an audit
+// row that says `ip="map[]"` is worse than one that says nothing.
+func eventClientIP(evt Event) string {
+	if v, ok := evt.Data["ip"].(string); ok {
+		return v
+	}
+	return ""
 }
 
 // auditAction is the name written to the trail. It defaults to the event type,

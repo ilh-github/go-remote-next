@@ -160,6 +160,9 @@ func (h *DeviceAccessGrantHandler) publishGrantChange(c *gin.Context, deviceID s
 			"expires_at": row.ExpiresAt.UTC().Format(time.RFC3339),
 			"max_uses":   row.MaxUses,
 			"uses":       row.Uses,
+			// The actor's observed address; the audit subscriber lifts it onto
+			// the row (the grant code itself never travels in an event).
+			"ip": c.ClientIP(),
 		},
 	})
 }

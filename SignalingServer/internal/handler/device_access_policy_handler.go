@@ -124,6 +124,9 @@ func (h *DeviceAccessPolicyHandler) Put(c *gin.Context) {
 				"approval_required":    policy.ApprovalRequired,
 				"approval_mode":        service.EffectiveApprovalMode(policy),
 				"approval_trusted_ips": decodeAllowIPsForEvent(policy.ApprovalTrustedIPs),
+				// The actor's observed address, lifted onto the audit row by
+				// the audit subscriber.
+				"ip": c.ClientIP(),
 			},
 		})
 	}
