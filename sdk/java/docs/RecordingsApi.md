@@ -22,11 +22,11 @@ All URIs are relative to *https://your-signaling-host*
 
 <a id="appendRecordingArtifact"></a>
 # **appendRecordingArtifact**
-> SessionRecording appendRecordingArtifact(ext, uploadOffset, recordingId, uploadLength, uploadComplete, body)
+> SessionRecording appendRecordingArtifact(ext, uploadOffset, recordingId, uploadLength, uploadComplete, uploadProbe, body)
 
 Append one chunk of a resumable recording upload
 
-The resumable half of the upload contract, for a capture that does not fit in one request body or a connection that drops halfway. The client sends chunks; the server answers with the offset it actually holds in the &#x60;Upload-Offset&#x60; response header, so a retry resumes from that number instead of starting over.  Three headers drive it. &#x60;Upload-Offset&#x60; (required) is where the chunk starts and must equal the bytes already staged; otherwise the answer is &#x60;409&#x60; with the authoritative offset in the same header and the client resyncs. &#x60;Upload-Length&#x60; (optional, &#x60;*&#x60; while unknown) declares the total size, which lets the server finish by itself when the last byte lands and lets it refuse a chunk that would overshoot. &#x60;Upload-Complete: 1&#x60; says this chunk ends the upload, which is how a client finishes without ever declaring a total.  An empty body with a valid offset is a status probe: it stages nothing and answers &#x60;202&#x60; with the current offset, so a client that crashed can re-learn where it stopped without a second endpoint.  The staging file (&#x60;&lt;artifact-path&gt;.part&#x60;) is subject to the same size limit as the single-shot upload, an empty artifact is refused on every path, and the recording lifecycle deletes a staging file that has been untouched for six hours. 
+The resumable half of the upload contract, for a capture that does not fit in one request body or a connection that drops halfway. The client sends chunks; the server answers with the offset it actually holds in the &#x60;Upload-Offset&#x60; response header, so a retry resumes from that number instead of starting over.  Three headers drive it. &#x60;Upload-Offset&#x60; (required) is where the chunk starts and must equal the bytes already staged; otherwise the answer is &#x60;409&#x60; with the authoritative offset in the same header and the client resyncs. &#x60;Upload-Length&#x60; (optional, &#x60;*&#x60; while unknown) declares the total size, which lets the server finish by itself when the last byte lands and lets it refuse a chunk that would overshoot. &#x60;Upload-Complete: 1&#x60; says this chunk ends the upload, which is how a client finishes without ever declaring a total.  A status probe asks where the upload stands without staging bytes. Send &#x60;Upload-Probe: 1&#x60; with a valid &#x60;Upload-Offset&#x60; and no body; the answer is &#x60;202&#x60; with the current offset, so a client that crashed can re-learn where it stopped without a second endpoint. An empty body with a valid offset does the same thing for raw-HTTP callers, but a generated client cannot send a zero-length body, which is why the explicit header exists.  The staging file (&#x60;&lt;artifact-path&gt;.part&#x60;) is subject to the same size limit as the single-shot upload, an empty artifact is refused on every path, and the recording lifecycle deletes a staging file that has been untouched for six hours. 
 
 ### Example
 ```java
@@ -59,9 +59,10 @@ public class Example {
     Long recordingId = 56L; // Long | The numeric id from a recording index row.
     String uploadLength = "uploadLength_example"; // String | The total size of the artifact, or `*` while it is unknown.
     String uploadComplete = "0"; // String | Set to `1` when this chunk ends the upload.
+    String uploadProbe = "0"; // String | Set to `1` to ask for the current offset without staging any bytes. The generated clients use this instead of an empty body.
     File body = new File("/path/to/file"); // File | 
     try {
-      SessionRecording result = apiInstance.appendRecordingArtifact(ext, uploadOffset, recordingId, uploadLength, uploadComplete, body);
+      SessionRecording result = apiInstance.appendRecordingArtifact(ext, uploadOffset, recordingId, uploadLength, uploadComplete, uploadProbe, body);
       System.out.println(result);
     } catch (ApiException e) {
       System.err.println("Exception when calling RecordingsApi#appendRecordingArtifact");
@@ -83,6 +84,7 @@ public class Example {
 | **recordingId** | **Long**| The numeric id from a recording index row. | |
 | **uploadLength** | **String**| The total size of the artifact, or &#x60;*&#x60; while it is unknown. | [optional] |
 | **uploadComplete** | **String**| Set to &#x60;1&#x60; when this chunk ends the upload. | [optional] [enum: 0, 1] |
+| **uploadProbe** | **String**| Set to &#x60;1&#x60; to ask for the current offset without staging any bytes. The generated clients use this instead of an empty body. | [optional] [enum: 0, 1] |
 | **body** | **File**|  | [optional] |
 
 ### Return type
@@ -102,7 +104,7 @@ public class Example {
 | Status code | Description | Response headers |
 |-------------|-------------|------------------|
 | **200** | The final chunk; the recording now carries the stored artifact. |  * Upload-Offset - Bytes staged, which for a finished upload is the artifact size. <br>  |
-| **202** | The chunk was staged and more are expected. |  * Upload-Offset - Bytes staged, which for a finished upload is the artifact size. <br>  |
+| **202** | The chunk was staged and more are expected. The authoritative offset is the &#x60;Upload-Offset&#x60; response header. The body is the recording row - the same &#x60;SessionRecording&#x60; schema as the &#x60;200&#x60; - because a generated client declares one success type per operation and would otherwise fail to decode a staging-only body.  |  * Upload-Offset - Bytes staged, which for a finished upload is the artifact size. <br>  |
 | **400** | The request was malformed or failed validation. |  -  |
 | **401** | Missing or expired credentials. |  -  |
 | **404** | The addressed resource does not exist. |  -  |

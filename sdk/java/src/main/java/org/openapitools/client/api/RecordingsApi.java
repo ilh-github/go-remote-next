@@ -27,7 +27,6 @@ import com.google.gson.reflect.TypeToken;
 import java.io.IOException;
 
 
-import org.openapitools.client.model.ArtifactUploadState;
 import java.io.File;
 import org.openapitools.client.model.PlaybackTicket;
 import org.openapitools.client.model.Problem;
@@ -86,6 +85,7 @@ public class RecordingsApi {
      * @param recordingId The numeric id from a recording index row. (required)
      * @param uploadLength The total size of the artifact, or &#x60;*&#x60; while it is unknown. (optional)
      * @param uploadComplete Set to &#x60;1&#x60; when this chunk ends the upload. (optional)
+     * @param uploadProbe Set to &#x60;1&#x60; to ask for the current offset without staging any bytes. The generated clients use this instead of an empty body. (optional)
      * @param body  (optional)
      * @param _callback Callback for upload/download progress
      * @return Call to execute
@@ -95,14 +95,14 @@ public class RecordingsApi {
        <caption>Response Details</caption>
         <tr><td> Status Code </td><td> Description </td><td> Response Headers </td></tr>
         <tr><td> 200 </td><td> The final chunk; the recording now carries the stored artifact. </td><td>  * Upload-Offset - Bytes staged, which for a finished upload is the artifact size. <br>  </td></tr>
-        <tr><td> 202 </td><td> The chunk was staged and more are expected. </td><td>  * Upload-Offset - Bytes staged, which for a finished upload is the artifact size. <br>  </td></tr>
+        <tr><td> 202 </td><td> The chunk was staged and more are expected. The authoritative offset is the &#x60;Upload-Offset&#x60; response header. The body is the recording row - the same &#x60;SessionRecording&#x60; schema as the &#x60;200&#x60; - because a generated client declares one success type per operation and would otherwise fail to decode a staging-only body.  </td><td>  * Upload-Offset - Bytes staged, which for a finished upload is the artifact size. <br>  </td></tr>
         <tr><td> 400 </td><td> The request was malformed or failed validation. </td><td>  -  </td></tr>
         <tr><td> 401 </td><td> Missing or expired credentials. </td><td>  -  </td></tr>
         <tr><td> 404 </td><td> The addressed resource does not exist. </td><td>  -  </td></tr>
         <tr><td> 409 </td><td> &#x60;Upload-Offset&#x60; did not match the bytes already staged. The header carries the authoritative offset, so the client can resume from it.  </td><td>  * Upload-Offset - Bytes staged, which for a finished upload is the artifact size. <br>  </td></tr>
      </table>
      */
-    public okhttp3.Call appendRecordingArtifactCall(@javax.annotation.Nonnull String ext, @javax.annotation.Nonnull Long uploadOffset, @javax.annotation.Nonnull Long recordingId, @javax.annotation.Nullable String uploadLength, @javax.annotation.Nullable String uploadComplete, @javax.annotation.Nullable File body, final ApiCallback _callback) throws ApiException {
+    public okhttp3.Call appendRecordingArtifactCall(@javax.annotation.Nonnull String ext, @javax.annotation.Nonnull Long uploadOffset, @javax.annotation.Nonnull Long recordingId, @javax.annotation.Nullable String uploadLength, @javax.annotation.Nullable String uploadComplete, @javax.annotation.Nullable String uploadProbe, @javax.annotation.Nullable File body, final ApiCallback _callback) throws ApiException {
         String basePath = null;
         // Operation Servers
         String[] localBasePaths = new String[] {  };
@@ -164,12 +164,17 @@ public class RecordingsApi {
         }
 
 
+        if (uploadProbe != null) {
+            localVarHeaderParams.put("Upload-Probe", localVarApiClient.parameterToString(uploadProbe));
+        }
+
+
         String[] localVarAuthNames = new String[] { "ApiKeyAuth", "BearerAuth" };
         return localVarApiClient.buildCall(basePath, localVarPath, "PATCH", localVarQueryParams, localVarCollectionQueryParams, localVarPostBody, localVarHeaderParams, localVarCookieParams, localVarFormParams, localVarAuthNames, _callback);
     }
 
     @SuppressWarnings("rawtypes")
-    private okhttp3.Call appendRecordingArtifactValidateBeforeCall(@javax.annotation.Nonnull String ext, @javax.annotation.Nonnull Long uploadOffset, @javax.annotation.Nonnull Long recordingId, @javax.annotation.Nullable String uploadLength, @javax.annotation.Nullable String uploadComplete, @javax.annotation.Nullable File body, final ApiCallback _callback) throws ApiException {
+    private okhttp3.Call appendRecordingArtifactValidateBeforeCall(@javax.annotation.Nonnull String ext, @javax.annotation.Nonnull Long uploadOffset, @javax.annotation.Nonnull Long recordingId, @javax.annotation.Nullable String uploadLength, @javax.annotation.Nullable String uploadComplete, @javax.annotation.Nullable String uploadProbe, @javax.annotation.Nullable File body, final ApiCallback _callback) throws ApiException {
         // verify the required parameter 'ext' is set
         if (ext == null) {
             throw new ApiException("Missing the required parameter 'ext' when calling appendRecordingArtifact(Async)");
@@ -185,18 +190,19 @@ public class RecordingsApi {
             throw new ApiException("Missing the required parameter 'recordingId' when calling appendRecordingArtifact(Async)");
         }
 
-        return appendRecordingArtifactCall(ext, uploadOffset, recordingId, uploadLength, uploadComplete, body, _callback);
+        return appendRecordingArtifactCall(ext, uploadOffset, recordingId, uploadLength, uploadComplete, uploadProbe, body, _callback);
 
     }
 
     /**
      * Append one chunk of a resumable recording upload
-     * The resumable half of the upload contract, for a capture that does not fit in one request body or a connection that drops halfway. The client sends chunks; the server answers with the offset it actually holds in the &#x60;Upload-Offset&#x60; response header, so a retry resumes from that number instead of starting over.  Three headers drive it. &#x60;Upload-Offset&#x60; (required) is where the chunk starts and must equal the bytes already staged; otherwise the answer is &#x60;409&#x60; with the authoritative offset in the same header and the client resyncs. &#x60;Upload-Length&#x60; (optional, &#x60;*&#x60; while unknown) declares the total size, which lets the server finish by itself when the last byte lands and lets it refuse a chunk that would overshoot. &#x60;Upload-Complete: 1&#x60; says this chunk ends the upload, which is how a client finishes without ever declaring a total.  An empty body with a valid offset is a status probe: it stages nothing and answers &#x60;202&#x60; with the current offset, so a client that crashed can re-learn where it stopped without a second endpoint.  The staging file (&#x60;&lt;artifact-path&gt;.part&#x60;) is subject to the same size limit as the single-shot upload, an empty artifact is refused on every path, and the recording lifecycle deletes a staging file that has been untouched for six hours. 
+     * The resumable half of the upload contract, for a capture that does not fit in one request body or a connection that drops halfway. The client sends chunks; the server answers with the offset it actually holds in the &#x60;Upload-Offset&#x60; response header, so a retry resumes from that number instead of starting over.  Three headers drive it. &#x60;Upload-Offset&#x60; (required) is where the chunk starts and must equal the bytes already staged; otherwise the answer is &#x60;409&#x60; with the authoritative offset in the same header and the client resyncs. &#x60;Upload-Length&#x60; (optional, &#x60;*&#x60; while unknown) declares the total size, which lets the server finish by itself when the last byte lands and lets it refuse a chunk that would overshoot. &#x60;Upload-Complete: 1&#x60; says this chunk ends the upload, which is how a client finishes without ever declaring a total.  A status probe asks where the upload stands without staging bytes. Send &#x60;Upload-Probe: 1&#x60; with a valid &#x60;Upload-Offset&#x60; and no body; the answer is &#x60;202&#x60; with the current offset, so a client that crashed can re-learn where it stopped without a second endpoint. An empty body with a valid offset does the same thing for raw-HTTP callers, but a generated client cannot send a zero-length body, which is why the explicit header exists.  The staging file (&#x60;&lt;artifact-path&gt;.part&#x60;) is subject to the same size limit as the single-shot upload, an empty artifact is refused on every path, and the recording lifecycle deletes a staging file that has been untouched for six hours. 
      * @param ext The artifact extension, allow-listed exactly like the raw-body POST shape. (required)
      * @param uploadOffset The byte offset this chunk starts at. (required)
      * @param recordingId The numeric id from a recording index row. (required)
      * @param uploadLength The total size of the artifact, or &#x60;*&#x60; while it is unknown. (optional)
      * @param uploadComplete Set to &#x60;1&#x60; when this chunk ends the upload. (optional)
+     * @param uploadProbe Set to &#x60;1&#x60; to ask for the current offset without staging any bytes. The generated clients use this instead of an empty body. (optional)
      * @param body  (optional)
      * @return SessionRecording
      * @throws ApiException If fail to call the API, e.g. server error or cannot deserialize the response body
@@ -205,26 +211,27 @@ public class RecordingsApi {
        <caption>Response Details</caption>
         <tr><td> Status Code </td><td> Description </td><td> Response Headers </td></tr>
         <tr><td> 200 </td><td> The final chunk; the recording now carries the stored artifact. </td><td>  * Upload-Offset - Bytes staged, which for a finished upload is the artifact size. <br>  </td></tr>
-        <tr><td> 202 </td><td> The chunk was staged and more are expected. </td><td>  * Upload-Offset - Bytes staged, which for a finished upload is the artifact size. <br>  </td></tr>
+        <tr><td> 202 </td><td> The chunk was staged and more are expected. The authoritative offset is the &#x60;Upload-Offset&#x60; response header. The body is the recording row - the same &#x60;SessionRecording&#x60; schema as the &#x60;200&#x60; - because a generated client declares one success type per operation and would otherwise fail to decode a staging-only body.  </td><td>  * Upload-Offset - Bytes staged, which for a finished upload is the artifact size. <br>  </td></tr>
         <tr><td> 400 </td><td> The request was malformed or failed validation. </td><td>  -  </td></tr>
         <tr><td> 401 </td><td> Missing or expired credentials. </td><td>  -  </td></tr>
         <tr><td> 404 </td><td> The addressed resource does not exist. </td><td>  -  </td></tr>
         <tr><td> 409 </td><td> &#x60;Upload-Offset&#x60; did not match the bytes already staged. The header carries the authoritative offset, so the client can resume from it.  </td><td>  * Upload-Offset - Bytes staged, which for a finished upload is the artifact size. <br>  </td></tr>
      </table>
      */
-    public SessionRecording appendRecordingArtifact(@javax.annotation.Nonnull String ext, @javax.annotation.Nonnull Long uploadOffset, @javax.annotation.Nonnull Long recordingId, @javax.annotation.Nullable String uploadLength, @javax.annotation.Nullable String uploadComplete, @javax.annotation.Nullable File body) throws ApiException {
-        ApiResponse<SessionRecording> localVarResp = appendRecordingArtifactWithHttpInfo(ext, uploadOffset, recordingId, uploadLength, uploadComplete, body);
+    public SessionRecording appendRecordingArtifact(@javax.annotation.Nonnull String ext, @javax.annotation.Nonnull Long uploadOffset, @javax.annotation.Nonnull Long recordingId, @javax.annotation.Nullable String uploadLength, @javax.annotation.Nullable String uploadComplete, @javax.annotation.Nullable String uploadProbe, @javax.annotation.Nullable File body) throws ApiException {
+        ApiResponse<SessionRecording> localVarResp = appendRecordingArtifactWithHttpInfo(ext, uploadOffset, recordingId, uploadLength, uploadComplete, uploadProbe, body);
         return localVarResp.getData();
     }
 
     /**
      * Append one chunk of a resumable recording upload
-     * The resumable half of the upload contract, for a capture that does not fit in one request body or a connection that drops halfway. The client sends chunks; the server answers with the offset it actually holds in the &#x60;Upload-Offset&#x60; response header, so a retry resumes from that number instead of starting over.  Three headers drive it. &#x60;Upload-Offset&#x60; (required) is where the chunk starts and must equal the bytes already staged; otherwise the answer is &#x60;409&#x60; with the authoritative offset in the same header and the client resyncs. &#x60;Upload-Length&#x60; (optional, &#x60;*&#x60; while unknown) declares the total size, which lets the server finish by itself when the last byte lands and lets it refuse a chunk that would overshoot. &#x60;Upload-Complete: 1&#x60; says this chunk ends the upload, which is how a client finishes without ever declaring a total.  An empty body with a valid offset is a status probe: it stages nothing and answers &#x60;202&#x60; with the current offset, so a client that crashed can re-learn where it stopped without a second endpoint.  The staging file (&#x60;&lt;artifact-path&gt;.part&#x60;) is subject to the same size limit as the single-shot upload, an empty artifact is refused on every path, and the recording lifecycle deletes a staging file that has been untouched for six hours. 
+     * The resumable half of the upload contract, for a capture that does not fit in one request body or a connection that drops halfway. The client sends chunks; the server answers with the offset it actually holds in the &#x60;Upload-Offset&#x60; response header, so a retry resumes from that number instead of starting over.  Three headers drive it. &#x60;Upload-Offset&#x60; (required) is where the chunk starts and must equal the bytes already staged; otherwise the answer is &#x60;409&#x60; with the authoritative offset in the same header and the client resyncs. &#x60;Upload-Length&#x60; (optional, &#x60;*&#x60; while unknown) declares the total size, which lets the server finish by itself when the last byte lands and lets it refuse a chunk that would overshoot. &#x60;Upload-Complete: 1&#x60; says this chunk ends the upload, which is how a client finishes without ever declaring a total.  A status probe asks where the upload stands without staging bytes. Send &#x60;Upload-Probe: 1&#x60; with a valid &#x60;Upload-Offset&#x60; and no body; the answer is &#x60;202&#x60; with the current offset, so a client that crashed can re-learn where it stopped without a second endpoint. An empty body with a valid offset does the same thing for raw-HTTP callers, but a generated client cannot send a zero-length body, which is why the explicit header exists.  The staging file (&#x60;&lt;artifact-path&gt;.part&#x60;) is subject to the same size limit as the single-shot upload, an empty artifact is refused on every path, and the recording lifecycle deletes a staging file that has been untouched for six hours. 
      * @param ext The artifact extension, allow-listed exactly like the raw-body POST shape. (required)
      * @param uploadOffset The byte offset this chunk starts at. (required)
      * @param recordingId The numeric id from a recording index row. (required)
      * @param uploadLength The total size of the artifact, or &#x60;*&#x60; while it is unknown. (optional)
      * @param uploadComplete Set to &#x60;1&#x60; when this chunk ends the upload. (optional)
+     * @param uploadProbe Set to &#x60;1&#x60; to ask for the current offset without staging any bytes. The generated clients use this instead of an empty body. (optional)
      * @param body  (optional)
      * @return ApiResponse&lt;SessionRecording&gt;
      * @throws ApiException If fail to call the API, e.g. server error or cannot deserialize the response body
@@ -233,27 +240,28 @@ public class RecordingsApi {
        <caption>Response Details</caption>
         <tr><td> Status Code </td><td> Description </td><td> Response Headers </td></tr>
         <tr><td> 200 </td><td> The final chunk; the recording now carries the stored artifact. </td><td>  * Upload-Offset - Bytes staged, which for a finished upload is the artifact size. <br>  </td></tr>
-        <tr><td> 202 </td><td> The chunk was staged and more are expected. </td><td>  * Upload-Offset - Bytes staged, which for a finished upload is the artifact size. <br>  </td></tr>
+        <tr><td> 202 </td><td> The chunk was staged and more are expected. The authoritative offset is the &#x60;Upload-Offset&#x60; response header. The body is the recording row - the same &#x60;SessionRecording&#x60; schema as the &#x60;200&#x60; - because a generated client declares one success type per operation and would otherwise fail to decode a staging-only body.  </td><td>  * Upload-Offset - Bytes staged, which for a finished upload is the artifact size. <br>  </td></tr>
         <tr><td> 400 </td><td> The request was malformed or failed validation. </td><td>  -  </td></tr>
         <tr><td> 401 </td><td> Missing or expired credentials. </td><td>  -  </td></tr>
         <tr><td> 404 </td><td> The addressed resource does not exist. </td><td>  -  </td></tr>
         <tr><td> 409 </td><td> &#x60;Upload-Offset&#x60; did not match the bytes already staged. The header carries the authoritative offset, so the client can resume from it.  </td><td>  * Upload-Offset - Bytes staged, which for a finished upload is the artifact size. <br>  </td></tr>
      </table>
      */
-    public ApiResponse<SessionRecording> appendRecordingArtifactWithHttpInfo(@javax.annotation.Nonnull String ext, @javax.annotation.Nonnull Long uploadOffset, @javax.annotation.Nonnull Long recordingId, @javax.annotation.Nullable String uploadLength, @javax.annotation.Nullable String uploadComplete, @javax.annotation.Nullable File body) throws ApiException {
-        okhttp3.Call localVarCall = appendRecordingArtifactValidateBeforeCall(ext, uploadOffset, recordingId, uploadLength, uploadComplete, body, null);
+    public ApiResponse<SessionRecording> appendRecordingArtifactWithHttpInfo(@javax.annotation.Nonnull String ext, @javax.annotation.Nonnull Long uploadOffset, @javax.annotation.Nonnull Long recordingId, @javax.annotation.Nullable String uploadLength, @javax.annotation.Nullable String uploadComplete, @javax.annotation.Nullable String uploadProbe, @javax.annotation.Nullable File body) throws ApiException {
+        okhttp3.Call localVarCall = appendRecordingArtifactValidateBeforeCall(ext, uploadOffset, recordingId, uploadLength, uploadComplete, uploadProbe, body, null);
         Type localVarReturnType = new TypeToken<SessionRecording>(){}.getType();
         return localVarApiClient.execute(localVarCall, localVarReturnType);
     }
 
     /**
      * Append one chunk of a resumable recording upload (asynchronously)
-     * The resumable half of the upload contract, for a capture that does not fit in one request body or a connection that drops halfway. The client sends chunks; the server answers with the offset it actually holds in the &#x60;Upload-Offset&#x60; response header, so a retry resumes from that number instead of starting over.  Three headers drive it. &#x60;Upload-Offset&#x60; (required) is where the chunk starts and must equal the bytes already staged; otherwise the answer is &#x60;409&#x60; with the authoritative offset in the same header and the client resyncs. &#x60;Upload-Length&#x60; (optional, &#x60;*&#x60; while unknown) declares the total size, which lets the server finish by itself when the last byte lands and lets it refuse a chunk that would overshoot. &#x60;Upload-Complete: 1&#x60; says this chunk ends the upload, which is how a client finishes without ever declaring a total.  An empty body with a valid offset is a status probe: it stages nothing and answers &#x60;202&#x60; with the current offset, so a client that crashed can re-learn where it stopped without a second endpoint.  The staging file (&#x60;&lt;artifact-path&gt;.part&#x60;) is subject to the same size limit as the single-shot upload, an empty artifact is refused on every path, and the recording lifecycle deletes a staging file that has been untouched for six hours. 
+     * The resumable half of the upload contract, for a capture that does not fit in one request body or a connection that drops halfway. The client sends chunks; the server answers with the offset it actually holds in the &#x60;Upload-Offset&#x60; response header, so a retry resumes from that number instead of starting over.  Three headers drive it. &#x60;Upload-Offset&#x60; (required) is where the chunk starts and must equal the bytes already staged; otherwise the answer is &#x60;409&#x60; with the authoritative offset in the same header and the client resyncs. &#x60;Upload-Length&#x60; (optional, &#x60;*&#x60; while unknown) declares the total size, which lets the server finish by itself when the last byte lands and lets it refuse a chunk that would overshoot. &#x60;Upload-Complete: 1&#x60; says this chunk ends the upload, which is how a client finishes without ever declaring a total.  A status probe asks where the upload stands without staging bytes. Send &#x60;Upload-Probe: 1&#x60; with a valid &#x60;Upload-Offset&#x60; and no body; the answer is &#x60;202&#x60; with the current offset, so a client that crashed can re-learn where it stopped without a second endpoint. An empty body with a valid offset does the same thing for raw-HTTP callers, but a generated client cannot send a zero-length body, which is why the explicit header exists.  The staging file (&#x60;&lt;artifact-path&gt;.part&#x60;) is subject to the same size limit as the single-shot upload, an empty artifact is refused on every path, and the recording lifecycle deletes a staging file that has been untouched for six hours. 
      * @param ext The artifact extension, allow-listed exactly like the raw-body POST shape. (required)
      * @param uploadOffset The byte offset this chunk starts at. (required)
      * @param recordingId The numeric id from a recording index row. (required)
      * @param uploadLength The total size of the artifact, or &#x60;*&#x60; while it is unknown. (optional)
      * @param uploadComplete Set to &#x60;1&#x60; when this chunk ends the upload. (optional)
+     * @param uploadProbe Set to &#x60;1&#x60; to ask for the current offset without staging any bytes. The generated clients use this instead of an empty body. (optional)
      * @param body  (optional)
      * @param _callback The callback to be executed when the API call finishes
      * @return The request call
@@ -263,16 +271,16 @@ public class RecordingsApi {
        <caption>Response Details</caption>
         <tr><td> Status Code </td><td> Description </td><td> Response Headers </td></tr>
         <tr><td> 200 </td><td> The final chunk; the recording now carries the stored artifact. </td><td>  * Upload-Offset - Bytes staged, which for a finished upload is the artifact size. <br>  </td></tr>
-        <tr><td> 202 </td><td> The chunk was staged and more are expected. </td><td>  * Upload-Offset - Bytes staged, which for a finished upload is the artifact size. <br>  </td></tr>
+        <tr><td> 202 </td><td> The chunk was staged and more are expected. The authoritative offset is the &#x60;Upload-Offset&#x60; response header. The body is the recording row - the same &#x60;SessionRecording&#x60; schema as the &#x60;200&#x60; - because a generated client declares one success type per operation and would otherwise fail to decode a staging-only body.  </td><td>  * Upload-Offset - Bytes staged, which for a finished upload is the artifact size. <br>  </td></tr>
         <tr><td> 400 </td><td> The request was malformed or failed validation. </td><td>  -  </td></tr>
         <tr><td> 401 </td><td> Missing or expired credentials. </td><td>  -  </td></tr>
         <tr><td> 404 </td><td> The addressed resource does not exist. </td><td>  -  </td></tr>
         <tr><td> 409 </td><td> &#x60;Upload-Offset&#x60; did not match the bytes already staged. The header carries the authoritative offset, so the client can resume from it.  </td><td>  * Upload-Offset - Bytes staged, which for a finished upload is the artifact size. <br>  </td></tr>
      </table>
      */
-    public okhttp3.Call appendRecordingArtifactAsync(@javax.annotation.Nonnull String ext, @javax.annotation.Nonnull Long uploadOffset, @javax.annotation.Nonnull Long recordingId, @javax.annotation.Nullable String uploadLength, @javax.annotation.Nullable String uploadComplete, @javax.annotation.Nullable File body, final ApiCallback<SessionRecording> _callback) throws ApiException {
+    public okhttp3.Call appendRecordingArtifactAsync(@javax.annotation.Nonnull String ext, @javax.annotation.Nonnull Long uploadOffset, @javax.annotation.Nonnull Long recordingId, @javax.annotation.Nullable String uploadLength, @javax.annotation.Nullable String uploadComplete, @javax.annotation.Nullable String uploadProbe, @javax.annotation.Nullable File body, final ApiCallback<SessionRecording> _callback) throws ApiException {
 
-        okhttp3.Call localVarCall = appendRecordingArtifactValidateBeforeCall(ext, uploadOffset, recordingId, uploadLength, uploadComplete, body, _callback);
+        okhttp3.Call localVarCall = appendRecordingArtifactValidateBeforeCall(ext, uploadOffset, recordingId, uploadLength, uploadComplete, uploadProbe, body, _callback);
         Type localVarReturnType = new TypeToken<SessionRecording>(){}.getType();
         localVarApiClient.executeAsync(localVarCall, localVarReturnType, _callback);
         return localVarCall;

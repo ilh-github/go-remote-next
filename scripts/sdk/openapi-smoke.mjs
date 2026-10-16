@@ -524,12 +524,11 @@ if (smokeDevice) {
   const afterFirst = headerNumber(firstChunk, 'Upload-Offset', 'PATCH artifact (first chunk)');
   check(afterFirst === chunk1.length,
     `first chunk left the offset at ${afterFirst}, want ${chunk1.length}`);
-  field(firstChunk.json, 'recording_id', 'number', 'PATCH artifact (first chunk)');
-  const reportedOffset = field(firstChunk.json, 'upload_offset', 'number', 'PATCH artifact (first chunk)');
-  check(reportedOffset === chunk1.length,
-    `upload_offset=${reportedOffset} in the body, want ${chunk1.length} like the header`);
-  field(firstChunk.json, 'upload_length', 'number', 'PATCH artifact (first chunk)');
-  field(firstChunk.json, 'ext', 'string', 'PATCH artifact (first chunk)');
+  // The 202 body is the recording row, not a staging-only shape: a generated
+  // client declares one success type, so both statuses share SessionRecording
+  // and the authoritative offset travels in the Upload-Offset header.
+  check(firstChunk.json.id === recordingId,
+    `PATCH artifact (first chunk) body id=${firstChunk.json.id}, want the row ${recordingId}`);
 
   // An empty body is a probe: it must not stage anything, and it is how a client
   // that lost its own bookkeeping re-learns the offset.
@@ -542,6 +541,22 @@ if (smokeDevice) {
   });
   check(headerNumber(probe, 'Upload-Offset', 'PATCH artifact (probe)') === chunk1.length,
     'the probe changed the staged offset');
+
+  // The generated clients cannot send a zero-length body, so the same probe is
+  // reachable through an explicit header.
+  const headerProbe = await call('PATCH', `/v1/me/recordings/${recordingId}/artifact?ext=.mp4`, {
+    token,
+    rawBody: new Uint8Array([]),
+    contentType: 'application/octet-stream',
+    extraHeaders: {
+      'Upload-Offset': String(chunk1.length),
+      'Upload-Length': String(media.length),
+      'Upload-Probe': '1',
+    },
+    expect: 202,
+  });
+  check(headerNumber(headerProbe, 'Upload-Offset', 'PATCH artifact (header probe)') === chunk1.length,
+    'the Upload-Probe header changed the staged offset');
 
   // A chunk that starts somewhere else is refused, and the answer carries the
   // offset the server actually holds so the client can resume from it.

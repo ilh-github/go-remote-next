@@ -19,7 +19,6 @@ docs/ApprovalSummary.md
 docs/ApprovalSummaryByStatus.md
 docs/ApprovalSummaryDeniedSourcesInner.md
 docs/ApproveAccessApprovalRequest.md
-docs/ArtifactUploadState.md
 docs/AuthApi.md
 docs/AuthSessionRequest.md
 docs/AuthSessionResponse.md
@@ -76,7 +75,6 @@ quickdesk_signaling/models/approval_summary.py
 quickdesk_signaling/models/approval_summary_by_status.py
 quickdesk_signaling/models/approval_summary_denied_sources_inner.py
 quickdesk_signaling/models/approve_access_approval_request.py
-quickdesk_signaling/models/artifact_upload_state.py
 quickdesk_signaling/models/auth_session_request.py
 quickdesk_signaling/models/auth_session_response.py
 quickdesk_signaling/models/device.py
@@ -121,7 +119,6 @@ test/test_approval_summary.py
 test/test_approval_summary_by_status.py
 test/test_approval_summary_denied_sources_inner.py
 test/test_approve_access_approval_request.py
-test/test_artifact_upload_state.py
 test/test_auth_api.py
 test/test_auth_session_request.py
 test/test_auth_session_response.py

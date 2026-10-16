@@ -13,27 +13,32 @@ func TestParseArtifactUploadHeaders(t *testing.T) {
 		offset      string
 		length      string
 		complete    string
+		probe       string
 		wantOffset  int64
 		wantLength  int64
 		wantDone    bool
+		wantProbe   bool
 		wantFailure bool
 	}{
-		{"offset alone is a chunk with no declared total", "0", "", "", 0, 0, false, false},
-		{"a declared total is kept", "0", "4096", "", 0, 4096, false, false},
-		{"star means the total is unknown", "1024", "*", "", 1024, 0, false, false},
-		{"the complete flag is honoured", "1024", "", "1", 1024, 0, true, false},
-		{"true and yes mean complete too", "0", "", "TRUE", 0, 0, true, false},
-		{"an explicit zero is not complete", "0", "", "0", 0, 0, false, false},
-		{"a missing offset is refused", "", "10", "", 0, 0, false, true},
-		{"a negative offset is refused", "-1", "", "", 0, 0, false, true},
-		{"a non-numeric offset is refused", "abc", "", "", 0, 0, false, true},
-		{"a zero total is refused", "0", "0", "", 0, 0, false, true},
-		{"a total behind the offset is refused", "2048", "1024", "", 0, 0, false, true},
-		{"a nonsense complete flag is refused", "0", "", "maybe", 0, 0, false, true},
+		{"offset alone is a chunk with no declared total", "0", "", "", "", 0, 0, false, false, false},
+		{"a declared total is kept", "0", "4096", "", "", 0, 4096, false, false, false},
+		{"star means the total is unknown", "1024", "*", "", "", 1024, 0, false, false, false},
+		{"the complete flag is honoured", "1024", "", "1", "", 1024, 0, true, false, false},
+		{"true and yes mean complete too", "0", "", "TRUE", "", 0, 0, true, false, false},
+		{"an explicit zero is not complete", "0", "", "0", "", 0, 0, false, false, false},
+		{"the probe flag is honoured", "1024", "4096", "", "1", 1024, 4096, false, true, false},
+		{"a probe can be spelled true", "1024", "", "", "true", 1024, 0, false, true, false},
+		{"a missing offset is refused", "", "10", "", "", 0, 0, false, false, true},
+		{"a negative offset is refused", "-1", "", "", "", 0, 0, false, false, true},
+		{"a non-numeric offset is refused", "abc", "", "", "", 0, 0, false, false, true},
+		{"a zero total is refused", "0", "0", "", "", 0, 0, false, false, true},
+		{"a total behind the offset is refused", "2048", "1024", "", "", 0, 0, false, false, true},
+		{"a nonsense complete flag is refused", "0", "", "maybe", "", 0, 0, false, false, true},
+		{"a nonsense probe flag is refused", "0", "", "", "maybe", 0, 0, false, false, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := parseArtifactUploadHeaders(tc.offset, tc.length, tc.complete)
+			got, err := parseArtifactUploadHeaders(tc.offset, tc.length, tc.complete, tc.probe)
 			if tc.wantFailure {
 				if err == nil {
 					t.Fatalf("parsed %+v, want an error", got)
@@ -43,9 +48,10 @@ func TestParseArtifactUploadHeaders(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
-			if got.Offset != tc.wantOffset || got.Length != tc.wantLength || got.Complete != tc.wantDone {
-				t.Fatalf("parsed %+v, want offset=%d length=%d complete=%v",
-					got, tc.wantOffset, tc.wantLength, tc.wantDone)
+			if got.Offset != tc.wantOffset || got.Length != tc.wantLength ||
+				got.Complete != tc.wantDone || got.Probe != tc.wantProbe {
+				t.Fatalf("parsed %+v, want offset=%d length=%d complete=%v probe=%v",
+					got, tc.wantOffset, tc.wantLength, tc.wantDone, tc.wantProbe)
 			}
 		})
 	}

@@ -309,6 +309,13 @@ jobs:
         # rather than in someone's integration.
         working-directory: sdk/go
         run: go run ./examples/recordinglifecycle
+      - name: Run a resumable upload through the generated Go client
+        # The recording lifecycle above covers the single-shot POST. This one
+        # stages two chunks, probes with Upload-Probe, resyncs after a 409, lets
+        # the declared total finish the upload, and reads the bytes back through
+        # a playback ticket.
+        working-directory: sdk/go
+        run: go run ./examples/resumableupload
       - name: Run the generated Python client
         # Same argument as the Go client: the freshness check proves the tree
         # matches the spec, only a real call proves it can talk to the server.

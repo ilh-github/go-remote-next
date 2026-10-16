@@ -431,9 +431,12 @@ paths:
         this chunk ends the upload, which is how a client finishes without ever
         declaring a total.
 
-        An empty body with a valid offset is a status probe: it stages nothing
-        and answers `202` with the current offset, so a client that crashed can
-        re-learn where it stopped without a second endpoint.
+        A status probe asks where the upload stands without staging bytes. Send
+        `Upload-Probe: 1` with a valid `Upload-Offset` and no body; the answer is
+        `202` with the current offset, so a client that crashed can re-learn
+        where it stopped without a second endpoint. An empty body with a valid
+        offset does the same thing for raw-HTTP callers, but a generated client
+        cannot send a zero-length body, which is why the explicit header exists.
 
         The staging file (`<artifact-path>.part`) is subject to the same size
         limit as the single-shot upload, an empty artifact is refused on every
@@ -468,6 +471,13 @@ paths:
           schema:
             type: string
             enum: ['0', '1']
+        - name: Upload-Probe
+          in: header
+          required: false
+          description: Set to `1` to ask for the current offset without staging any bytes. The generated clients use this instead of an empty body.
+          schema:
+            type: string
+            enum: ['0', '1']
       requestBody:
         required: false
         content:
@@ -489,7 +499,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/SessionRecording'
         '202':
-          description: The chunk was staged and more are expected.
+          description: |
+            The chunk was staged and more are expected. The authoritative offset
+            is the `Upload-Offset` response header. The body is the recording
+            row - the same `SessionRecording` schema as the `200` - because a
+            generated client declares one success type per operation and would
+            otherwise fail to decode a staging-only body.
           headers:
             Upload-Offset:
               description: Bytes staged so far; a client resumes from this number.
@@ -499,7 +514,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ArtifactUploadState'
+                $ref: '#/components/schemas/SessionRecording'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -1719,25 +1734,6 @@ components:
         denial_cooldown_max_seconds:
           type: integer
           description: The live APPROVAL_DENIAL_COOLDOWN_MAX_SECONDS, the ceiling the escalation cannot pass; 0 means uncapped.
-    ArtifactUploadState:
-      type: object
-      description: How much of a resumable recording upload the server currently holds.
-      required: [recording_id, upload_offset, upload_length, ext]
-      properties:
-        recording_id:
-          type: integer
-          format: int64
-        upload_offset:
-          type: integer
-          format: int64
-          description: Bytes staged so far; the `Upload-Offset` response header carries the same number.
-        upload_length:
-          type: [integer, 'null']
-          format: int64
-          description: The total the client declared, or null when it declared none.
-        ext:
-          type: string
-          description: The extension the upload is being staged as.
     Problem:
       type: object
       description: RFC 7807 problem details, served as `application/problem+json`.

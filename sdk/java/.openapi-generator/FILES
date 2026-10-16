@@ -21,7 +21,6 @@ docs/ApprovalSummary.md
 docs/ApprovalSummaryByStatus.md
 docs/ApprovalSummaryDeniedSourcesInner.md
 docs/ApproveAccessApprovalRequest.md
-docs/ArtifactUploadState.md
 docs/AuthApi.md
 docs/AuthSessionRequest.md
 docs/AuthSessionResponse.md
@@ -96,7 +95,6 @@ src/main/java/org/openapitools/client/model/ApprovalSummary.java
 src/main/java/org/openapitools/client/model/ApprovalSummaryByStatus.java
 src/main/java/org/openapitools/client/model/ApprovalSummaryDeniedSourcesInner.java
 src/main/java/org/openapitools/client/model/ApproveAccessApprovalRequest.java
-src/main/java/org/openapitools/client/model/ArtifactUploadState.java
 src/main/java/org/openapitools/client/model/AuthSessionRequest.java
 src/main/java/org/openapitools/client/model/AuthSessionResponse.java
 src/main/java/org/openapitools/client/model/Device.java
@@ -139,7 +137,6 @@ src/test/java/org/openapitools/client/model/ApprovalSummaryByStatusTest.java
 src/test/java/org/openapitools/client/model/ApprovalSummaryDeniedSourcesInnerTest.java
 src/test/java/org/openapitools/client/model/ApprovalSummaryTest.java
 src/test/java/org/openapitools/client/model/ApproveAccessApprovalRequestTest.java
-src/test/java/org/openapitools/client/model/ArtifactUploadStateTest.java
 src/test/java/org/openapitools/client/model/AuthSessionRequestTest.java
 src/test/java/org/openapitools/client/model/AuthSessionResponseTest.java
 src/test/java/org/openapitools/client/model/DeviceAccessPolicyInputTest.java

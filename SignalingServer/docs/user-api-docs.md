@@ -41,6 +41,10 @@ offline. `sdk/go/examples/recordinglifecycle` runs a whole write workflow
 (create a recording, upload the media, patch the row, find it in the index, mint
 a playback ticket, read the bytes back through that ticket - the route a
 `<video>` tag uses, with no Authorization header - and delete the row).
+`sdk/go/examples/resumableupload` covers the chunked half of the same contract:
+two PATCH chunks with a declared total, an `Upload-Probe` offset probe, a 409
+resynchronisation, server-side finalisation, and a byte-identical read back
+through a ticket.
 `sdk/go/examples/approvalflow`, `sdk/python/examples/approval_flow.py`,
 `sdk/ts/examples/approval-flow.js` and
 `sdk/java/src/main/java/org/openapitools/client/examples/ApprovalFlow.java` all
@@ -1139,7 +1143,7 @@ one alert for it.
 | `PATCH` | `/v1/me/recordings/:id` | `{status?, format?, artifact_path?, artifact_url?, thumbnail_path?, duration_seconds?, size_bytes?, ended_at?}` |
 | `DELETE` | `/v1/me/recordings/:id` | Deletes the row **and the stored media/preview files** it points at. |
 | `POST` | `/v1/me/recordings/:id/artifact` | Media bytes. `multipart/form-data` with a `file` part, or a raw body plus `?ext=.mp4\|.mkv\|.webm\|.h264\|.grf`. |
-| `PATCH` | `/v1/me/recordings/:id/artifact?ext=.mp4` | Resumable upload: one chunk per request, positioned by the `Upload-Offset` header and optionally bounded by `Upload-Length` (total, or `*` while unknown). `202` stages the chunk and returns `{recording_id, upload_offset, upload_length, ext}` plus the same offset in the `Upload-Offset` response header; `200` means this chunk finished the upload and returns the row; `409` means the offset did not match and the header carries the offset the server actually holds; an empty body with a valid offset is a status probe that stages nothing. |
+| `PATCH` | `/v1/me/recordings/:id/artifact?ext=.mp4` | Resumable upload: one chunk per request, positioned by the `Upload-Offset` header and optionally bounded by `Upload-Length` (total, or `*` while unknown). `202` stages the chunk and returns the recording row with the authoritative offset in the `Upload-Offset` response header; `200` means this chunk finished the upload and returns the finalized row. Both success statuses use the same `SessionRecording` schema because a generated client declares one success type per operation. `409` means the offset did not match and the header carries the offset the server actually holds. A status probe asks where the upload stands without staging anything: send `Upload-Probe: 1` with a valid offset, and the server ignores the body (the generated clients use this because they cannot send a zero-length body). |
 | `GET` | `/v1/me/recordings/:id/artifact` | Streams the stored media back. Owner only. |
 | `POST` | `/v1/me/recordings/:id/artifact-ticket` | Mints `{url, expires_at}` for playback without an `Authorization` header. |
 | `POST` | `/v1/me/recordings/:id/thumbnail` | Preview image (JPEG or PNG) for the recordings list. `multipart/form-data` with a `file` part, or a raw body plus `?ext=.jpg\|.jpeg\|.png`. |

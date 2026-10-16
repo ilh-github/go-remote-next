@@ -48,7 +48,6 @@ __all__ = [
     "ApprovalSummaryByStatus",
     "ApprovalSummaryDeniedSourcesInner",
     "ApproveAccessApprovalRequest",
-    "ArtifactUploadState",
     "AuthSessionRequest",
     "AuthSessionResponse",
     "Device",
@@ -107,7 +106,6 @@ from quickdesk_signaling.models.approval_summary import ApprovalSummary as Appro
 from quickdesk_signaling.models.approval_summary_by_status import ApprovalSummaryByStatus as ApprovalSummaryByStatus
 from quickdesk_signaling.models.approval_summary_denied_sources_inner import ApprovalSummaryDeniedSourcesInner as ApprovalSummaryDeniedSourcesInner
 from quickdesk_signaling.models.approve_access_approval_request import ApproveAccessApprovalRequest as ApproveAccessApprovalRequest
-from quickdesk_signaling.models.artifact_upload_state import ArtifactUploadState as ArtifactUploadState
 from quickdesk_signaling.models.auth_session_request import AuthSessionRequest as AuthSessionRequest
 from quickdesk_signaling.models.auth_session_response import AuthSessionResponse as AuthSessionResponse
 from quickdesk_signaling.models.device import Device as Device

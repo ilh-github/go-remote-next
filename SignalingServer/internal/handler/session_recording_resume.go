@@ -57,12 +57,16 @@ type artifactUploadRequest struct {
 	Length int64
 	// Complete is the client's promise that this chunk ends the upload.
 	Complete bool
+	// Probe asks for the current offset without staging bytes. A generated
+	// client cannot send a zero-length body, so this is the reachable form of
+	// the status probe.
+	Probe bool
 }
 
-// parseArtifactUploadHeaders reads the three resume headers. The messages are
+// parseArtifactUploadHeaders reads the resume headers. The messages are
 // what the client sees in the 400 problem body, so they name the header at
 // fault instead of saying "invalid request".
-func parseArtifactUploadHeaders(offsetRaw, lengthRaw, completeRaw string) (artifactUploadRequest, error) {
+func parseArtifactUploadHeaders(offsetRaw, lengthRaw, completeRaw, probeRaw string) (artifactUploadRequest, error) {
 	var out artifactUploadRequest
 
 	offsetRaw = strings.TrimSpace(offsetRaw)
@@ -96,6 +100,14 @@ func parseArtifactUploadHeaders(offsetRaw, lengthRaw, completeRaw string) (artif
 		out.Complete = true
 	default:
 		return out, errors.New("Upload-Complete must be 1 or 0")
+	}
+
+	switch strings.ToLower(strings.TrimSpace(probeRaw)) {
+	case "", "0", "false", "no":
+	case "1", "true", "yes":
+		out.Probe = true
+	default:
+		return out, errors.New("Upload-Probe must be 1 or 0")
 	}
 	return out, nil
 }
@@ -179,8 +191,12 @@ func (h *SessionRecordingHandler) AppendArtifact(c *gin.Context) {
 		ProblemBadRequest(c, ProblemCodeInvalidRequest, "invalid recording id")
 		return
 	}
-	// Ownership before bytes, exactly like the single-shot path.
-	if _, err := h.recordings.Get(c.Request.Context(), uid, uint(id)); err != nil {
+	// Ownership before bytes, exactly like the single-shot path. The row is kept
+	// so the 202 answer can return it: the resumable route uses one success
+	// schema (SessionRecording) for both statuses, and the staged offset travels
+	// in the Upload-Offset response header.
+	row, err := h.recordings.Get(c.Request.Context(), uid, uint(id))
+	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			ProblemNotFound(c, ProblemCodeNotFound, "Recording not found")
 			return
@@ -196,7 +212,11 @@ func (h *SessionRecordingHandler) AppendArtifact(c *gin.Context) {
 		return
 	}
 	req, err := parseArtifactUploadHeaders(
-		c.GetHeader("Upload-Offset"), c.GetHeader("Upload-Length"), c.GetHeader("Upload-Complete"))
+		c.GetHeader("Upload-Offset"),
+		c.GetHeader("Upload-Length"),
+		c.GetHeader("Upload-Complete"),
+		c.GetHeader("Upload-Probe"),
+	)
 	if err != nil {
 		ProblemBadRequest(c, ProblemCodeInvalidRequest, err.Error())
 		return
@@ -259,7 +279,9 @@ func (h *SessionRecordingHandler) AppendArtifact(c *gin.Context) {
 	}
 
 	written := int64(0)
-	if c.Request.ContentLength != 0 {
+	// A probe never reads the body: the whole point is to ask where the upload
+	// stands without staging bytes.
+	if !req.Probe && c.Request.ContentLength != 0 {
 		out, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o640)
 		if err != nil {
 			ProblemInternal(c, err.Error())
@@ -313,16 +335,11 @@ func (h *SessionRecordingHandler) AppendArtifact(c *gin.Context) {
 	c.Header("Upload-Offset", strconv.FormatInt(newSize, 10))
 
 	if !finish {
-		c.JSON(http.StatusAccepted, gin.H{
-			"recording_id":  id,
-			"upload_offset": newSize,
-			"upload_length": nullableLength(req.Length),
-			"ext":           ext,
-		})
+		c.JSON(http.StatusAccepted, row)
 		return
 	}
 
-	row, err := h.finalizeArtifact(c, uid, uint(id), tmp, dest, ext, newSize)
+	finalized, err := h.finalizeArtifact(c, uid, uint(id), tmp, dest, ext, newSize)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			ProblemNotFound(c, ProblemCodeNotFound, "Recording not found")
@@ -331,16 +348,7 @@ func (h *SessionRecordingHandler) AppendArtifact(c *gin.Context) {
 		ProblemInternal(c, err.Error())
 		return
 	}
-	c.JSON(http.StatusOK, row)
-}
-
-// nullableLength keeps "the client never declared a total" distinguishable from
-// a total of zero, which the schema forbids.
-func nullableLength(length int64) interface{} {
-	if length <= 0 {
-		return nil
-	}
-	return length
+	c.JSON(http.StatusOK, finalized)
 }
 
 // isBodyTooLarge spots the MaxBytesReader error without importing net/http's

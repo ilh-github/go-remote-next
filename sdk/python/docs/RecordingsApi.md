@@ -21,7 +21,7 @@ Method | HTTP request | Description
 
 
 # **append_recording_artifact**
-> SessionRecording append_recording_artifact(ext, upload_offset, recording_id, upload_length=upload_length, upload_complete=upload_complete, body=body)
+> SessionRecording append_recording_artifact(ext, upload_offset, recording_id, upload_length=upload_length, upload_complete=upload_complete, upload_probe=upload_probe, body=body)
 
 Append one chunk of a resumable recording upload
 
@@ -40,9 +40,12 @@ lets it refuse a chunk that would overshoot. `Upload-Complete: 1` says
 this chunk ends the upload, which is how a client finishes without ever
 declaring a total.
 
-An empty body with a valid offset is a status probe: it stages nothing
-and answers `202` with the current offset, so a client that crashed can
-re-learn where it stopped without a second endpoint.
+A status probe asks where the upload stands without staging bytes. Send
+`Upload-Probe: 1` with a valid `Upload-Offset` and no body; the answer is
+`202` with the current offset, so a client that crashed can re-learn
+where it stopped without a second endpoint. An empty body with a valid
+offset does the same thing for raw-HTTP callers, but a generated client
+cannot send a zero-length body, which is why the explicit header exists.
 
 The staging file (`<artifact-path>.part`) is subject to the same size
 limit as the single-shot upload, an empty artifact is refused on every
@@ -92,11 +95,12 @@ with quickdesk_signaling.ApiClient(configuration) as api_client:
     recording_id = 56 # int | The numeric id from a recording index row.
     upload_length = 'upload_length_example' # str | The total size of the artifact, or `*` while it is unknown. (optional)
     upload_complete = 'upload_complete_example' # str | Set to `1` when this chunk ends the upload. (optional)
+    upload_probe = 'upload_probe_example' # str | Set to `1` to ask for the current offset without staging any bytes. The generated clients use this instead of an empty body. (optional)
     body = None # bytearray |  (optional)
 
     try:
         # Append one chunk of a resumable recording upload
-        api_response = api_instance.append_recording_artifact(ext, upload_offset, recording_id, upload_length=upload_length, upload_complete=upload_complete, body=body)
+        api_response = api_instance.append_recording_artifact(ext, upload_offset, recording_id, upload_length=upload_length, upload_complete=upload_complete, upload_probe=upload_probe, body=body)
         print("The response of RecordingsApi->append_recording_artifact:\n")
         pprint(api_response)
     except Exception as e:
@@ -115,6 +119,7 @@ Name | Type | Description  | Notes
  **recording_id** | **int**| The numeric id from a recording index row. | 
  **upload_length** | **str**| The total size of the artifact, or &#x60;*&#x60; while it is unknown. | [optional] 
  **upload_complete** | **str**| Set to &#x60;1&#x60; when this chunk ends the upload. | [optional] 
+ **upload_probe** | **str**| Set to &#x60;1&#x60; to ask for the current offset without staging any bytes. The generated clients use this instead of an empty body. | [optional] 
  **body** | **bytearray**|  | [optional] 
 
 ### Return type
@@ -135,7 +140,7 @@ Name | Type | Description  | Notes
 | Status code | Description | Response headers |
 |-------------|-------------|------------------|
 **200** | The final chunk; the recording now carries the stored artifact. |  * Upload-Offset - Bytes staged, which for a finished upload is the artifact size. <br>  |
-**202** | The chunk was staged and more are expected. |  * Upload-Offset - Bytes staged, which for a finished upload is the artifact size. <br>  |
+**202** | The chunk was staged and more are expected. The authoritative offset is the &#x60;Upload-Offset&#x60; response header. The body is the recording row - the same &#x60;SessionRecording&#x60; schema as the &#x60;200&#x60; - because a generated client declares one success type per operation and would otherwise fail to decode a staging-only body.  |  * Upload-Offset - Bytes staged, which for a finished upload is the artifact size. <br>  |
 **400** | The request was malformed or failed validation. |  -  |
 **401** | Missing or expired credentials. |  -  |
 **404** | The addressed resource does not exist. |  -  |

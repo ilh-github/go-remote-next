@@ -23,7 +23,7 @@ Method | HTTP request | Description
 
 ## AppendRecordingArtifact
 
-> SessionRecording AppendRecordingArtifact(ctx, recordingId).Ext(ext).UploadOffset(uploadOffset).UploadLength(uploadLength).UploadComplete(uploadComplete).Body(body).Execute()
+> SessionRecording AppendRecordingArtifact(ctx, recordingId).Ext(ext).UploadOffset(uploadOffset).UploadLength(uploadLength).UploadComplete(uploadComplete).UploadProbe(uploadProbe).Body(body).Execute()
 
 Append one chunk of a resumable recording upload
 
@@ -47,11 +47,12 @@ func main() {
 	recordingId := int64(789) // int64 | The numeric id from a recording index row.
 	uploadLength := "uploadLength_example" // string | The total size of the artifact, or `*` while it is unknown. (optional)
 	uploadComplete := "uploadComplete_example" // string | Set to `1` when this chunk ends the upload. (optional)
+	uploadProbe := "uploadProbe_example" // string | Set to `1` to ask for the current offset without staging any bytes. The generated clients use this instead of an empty body. (optional)
 	body := os.NewFile(1234, "some_file") // *os.File |  (optional)
 
 	configuration := openapiclient.NewConfiguration()
 	apiClient := openapiclient.NewAPIClient(configuration)
-	resp, r, err := apiClient.RecordingsAPI.AppendRecordingArtifact(context.Background(), recordingId).Ext(ext).UploadOffset(uploadOffset).UploadLength(uploadLength).UploadComplete(uploadComplete).Body(body).Execute()
+	resp, r, err := apiClient.RecordingsAPI.AppendRecordingArtifact(context.Background(), recordingId).Ext(ext).UploadOffset(uploadOffset).UploadLength(uploadLength).UploadComplete(uploadComplete).UploadProbe(uploadProbe).Body(body).Execute()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error when calling `RecordingsAPI.AppendRecordingArtifact``: %v\n", err)
 		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
@@ -81,6 +82,7 @@ Name | Type | Description  | Notes
 
  **uploadLength** | **string** | The total size of the artifact, or &#x60;*&#x60; while it is unknown. | 
  **uploadComplete** | **string** | Set to &#x60;1&#x60; when this chunk ends the upload. | 
+ **uploadProbe** | **string** | Set to &#x60;1&#x60; to ask for the current offset without staging any bytes. The generated clients use this instead of an empty body. | 
  **body** | ***os.File** |  | 
 
 ### Return type

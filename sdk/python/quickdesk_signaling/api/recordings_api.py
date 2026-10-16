@@ -51,6 +51,7 @@ class RecordingsApi:
         recording_id: Annotated[int, Field(strict=True, ge=1, description="The numeric id from a recording index row.")],
         upload_length: Annotated[Optional[StrictStr], Field(description="The total size of the artifact, or `*` while it is unknown.")] = None,
         upload_complete: Annotated[Optional[StrictStr], Field(description="Set to `1` when this chunk ends the upload.")] = None,
+        upload_probe: Annotated[Optional[StrictStr], Field(description="Set to `1` to ask for the current offset without staging any bytes. The generated clients use this instead of an empty body.")] = None,
         body: Optional[Union[StrictBytes, StrictStr, Tuple[StrictStr, StrictBytes]]] = None,
         _request_timeout: Union[
             None,
@@ -67,7 +68,7 @@ class RecordingsApi:
     ) -> SessionRecording:
         """Append one chunk of a resumable recording upload
 
-        The resumable half of the upload contract, for a capture that does not fit in one request body or a connection that drops halfway. The client sends chunks; the server answers with the offset it actually holds in the `Upload-Offset` response header, so a retry resumes from that number instead of starting over.  Three headers drive it. `Upload-Offset` (required) is where the chunk starts and must equal the bytes already staged; otherwise the answer is `409` with the authoritative offset in the same header and the client resyncs. `Upload-Length` (optional, `*` while unknown) declares the total size, which lets the server finish by itself when the last byte lands and lets it refuse a chunk that would overshoot. `Upload-Complete: 1` says this chunk ends the upload, which is how a client finishes without ever declaring a total.  An empty body with a valid offset is a status probe: it stages nothing and answers `202` with the current offset, so a client that crashed can re-learn where it stopped without a second endpoint.  The staging file (`<artifact-path>.part`) is subject to the same size limit as the single-shot upload, an empty artifact is refused on every path, and the recording lifecycle deletes a staging file that has been untouched for six hours. 
+        The resumable half of the upload contract, for a capture that does not fit in one request body or a connection that drops halfway. The client sends chunks; the server answers with the offset it actually holds in the `Upload-Offset` response header, so a retry resumes from that number instead of starting over.  Three headers drive it. `Upload-Offset` (required) is where the chunk starts and must equal the bytes already staged; otherwise the answer is `409` with the authoritative offset in the same header and the client resyncs. `Upload-Length` (optional, `*` while unknown) declares the total size, which lets the server finish by itself when the last byte lands and lets it refuse a chunk that would overshoot. `Upload-Complete: 1` says this chunk ends the upload, which is how a client finishes without ever declaring a total.  A status probe asks where the upload stands without staging bytes. Send `Upload-Probe: 1` with a valid `Upload-Offset` and no body; the answer is `202` with the current offset, so a client that crashed can re-learn where it stopped without a second endpoint. An empty body with a valid offset does the same thing for raw-HTTP callers, but a generated client cannot send a zero-length body, which is why the explicit header exists.  The staging file (`<artifact-path>.part`) is subject to the same size limit as the single-shot upload, an empty artifact is refused on every path, and the recording lifecycle deletes a staging file that has been untouched for six hours. 
 
         :param ext: The artifact extension, allow-listed exactly like the raw-body POST shape. (required)
         :type ext: str
@@ -79,6 +80,8 @@ class RecordingsApi:
         :type upload_length: str
         :param upload_complete: Set to `1` when this chunk ends the upload.
         :type upload_complete: str
+        :param upload_probe: Set to `1` to ask for the current offset without staging any bytes. The generated clients use this instead of an empty body.
+        :type upload_probe: str
         :param body:
         :type body: bytearray
         :param _request_timeout: timeout setting for this request. If one
@@ -109,6 +112,7 @@ class RecordingsApi:
             recording_id=recording_id,
             upload_length=upload_length,
             upload_complete=upload_complete,
+            upload_probe=upload_probe,
             body=body,
             _request_auth=_request_auth,
             _content_type=_content_type,
@@ -118,7 +122,7 @@ class RecordingsApi:
 
         _response_types_map: Dict[str, Optional[str]] = {
             '200': "SessionRecording",
-            '202': "ArtifactUploadState",
+            '202': "SessionRecording",
             '400': "Problem",
             '401': "Problem",
             '404': "Problem",
@@ -143,6 +147,7 @@ class RecordingsApi:
         recording_id: Annotated[int, Field(strict=True, ge=1, description="The numeric id from a recording index row.")],
         upload_length: Annotated[Optional[StrictStr], Field(description="The total size of the artifact, or `*` while it is unknown.")] = None,
         upload_complete: Annotated[Optional[StrictStr], Field(description="Set to `1` when this chunk ends the upload.")] = None,
+        upload_probe: Annotated[Optional[StrictStr], Field(description="Set to `1` to ask for the current offset without staging any bytes. The generated clients use this instead of an empty body.")] = None,
         body: Optional[Union[StrictBytes, StrictStr, Tuple[StrictStr, StrictBytes]]] = None,
         _request_timeout: Union[
             None,
@@ -159,7 +164,7 @@ class RecordingsApi:
     ) -> ApiResponse[SessionRecording]:
         """Append one chunk of a resumable recording upload
 
-        The resumable half of the upload contract, for a capture that does not fit in one request body or a connection that drops halfway. The client sends chunks; the server answers with the offset it actually holds in the `Upload-Offset` response header, so a retry resumes from that number instead of starting over.  Three headers drive it. `Upload-Offset` (required) is where the chunk starts and must equal the bytes already staged; otherwise the answer is `409` with the authoritative offset in the same header and the client resyncs. `Upload-Length` (optional, `*` while unknown) declares the total size, which lets the server finish by itself when the last byte lands and lets it refuse a chunk that would overshoot. `Upload-Complete: 1` says this chunk ends the upload, which is how a client finishes without ever declaring a total.  An empty body with a valid offset is a status probe: it stages nothing and answers `202` with the current offset, so a client that crashed can re-learn where it stopped without a second endpoint.  The staging file (`<artifact-path>.part`) is subject to the same size limit as the single-shot upload, an empty artifact is refused on every path, and the recording lifecycle deletes a staging file that has been untouched for six hours. 
+        The resumable half of the upload contract, for a capture that does not fit in one request body or a connection that drops halfway. The client sends chunks; the server answers with the offset it actually holds in the `Upload-Offset` response header, so a retry resumes from that number instead of starting over.  Three headers drive it. `Upload-Offset` (required) is where the chunk starts and must equal the bytes already staged; otherwise the answer is `409` with the authoritative offset in the same header and the client resyncs. `Upload-Length` (optional, `*` while unknown) declares the total size, which lets the server finish by itself when the last byte lands and lets it refuse a chunk that would overshoot. `Upload-Complete: 1` says this chunk ends the upload, which is how a client finishes without ever declaring a total.  A status probe asks where the upload stands without staging bytes. Send `Upload-Probe: 1` with a valid `Upload-Offset` and no body; the answer is `202` with the current offset, so a client that crashed can re-learn where it stopped without a second endpoint. An empty body with a valid offset does the same thing for raw-HTTP callers, but a generated client cannot send a zero-length body, which is why the explicit header exists.  The staging file (`<artifact-path>.part`) is subject to the same size limit as the single-shot upload, an empty artifact is refused on every path, and the recording lifecycle deletes a staging file that has been untouched for six hours. 
 
         :param ext: The artifact extension, allow-listed exactly like the raw-body POST shape. (required)
         :type ext: str
@@ -171,6 +176,8 @@ class RecordingsApi:
         :type upload_length: str
         :param upload_complete: Set to `1` when this chunk ends the upload.
         :type upload_complete: str
+        :param upload_probe: Set to `1` to ask for the current offset without staging any bytes. The generated clients use this instead of an empty body.
+        :type upload_probe: str
         :param body:
         :type body: bytearray
         :param _request_timeout: timeout setting for this request. If one
@@ -201,6 +208,7 @@ class RecordingsApi:
             recording_id=recording_id,
             upload_length=upload_length,
             upload_complete=upload_complete,
+            upload_probe=upload_probe,
             body=body,
             _request_auth=_request_auth,
             _content_type=_content_type,
@@ -210,7 +218,7 @@ class RecordingsApi:
 
         _response_types_map: Dict[str, Optional[str]] = {
             '200': "SessionRecording",
-            '202': "ArtifactUploadState",
+            '202': "SessionRecording",
             '400': "Problem",
             '401': "Problem",
             '404': "Problem",
@@ -235,6 +243,7 @@ class RecordingsApi:
         recording_id: Annotated[int, Field(strict=True, ge=1, description="The numeric id from a recording index row.")],
         upload_length: Annotated[Optional[StrictStr], Field(description="The total size of the artifact, or `*` while it is unknown.")] = None,
         upload_complete: Annotated[Optional[StrictStr], Field(description="Set to `1` when this chunk ends the upload.")] = None,
+        upload_probe: Annotated[Optional[StrictStr], Field(description="Set to `1` to ask for the current offset without staging any bytes. The generated clients use this instead of an empty body.")] = None,
         body: Optional[Union[StrictBytes, StrictStr, Tuple[StrictStr, StrictBytes]]] = None,
         _request_timeout: Union[
             None,
@@ -251,7 +260,7 @@ class RecordingsApi:
     ) -> RESTResponseType:
         """Append one chunk of a resumable recording upload
 
-        The resumable half of the upload contract, for a capture that does not fit in one request body or a connection that drops halfway. The client sends chunks; the server answers with the offset it actually holds in the `Upload-Offset` response header, so a retry resumes from that number instead of starting over.  Three headers drive it. `Upload-Offset` (required) is where the chunk starts and must equal the bytes already staged; otherwise the answer is `409` with the authoritative offset in the same header and the client resyncs. `Upload-Length` (optional, `*` while unknown) declares the total size, which lets the server finish by itself when the last byte lands and lets it refuse a chunk that would overshoot. `Upload-Complete: 1` says this chunk ends the upload, which is how a client finishes without ever declaring a total.  An empty body with a valid offset is a status probe: it stages nothing and answers `202` with the current offset, so a client that crashed can re-learn where it stopped without a second endpoint.  The staging file (`<artifact-path>.part`) is subject to the same size limit as the single-shot upload, an empty artifact is refused on every path, and the recording lifecycle deletes a staging file that has been untouched for six hours. 
+        The resumable half of the upload contract, for a capture that does not fit in one request body or a connection that drops halfway. The client sends chunks; the server answers with the offset it actually holds in the `Upload-Offset` response header, so a retry resumes from that number instead of starting over.  Three headers drive it. `Upload-Offset` (required) is where the chunk starts and must equal the bytes already staged; otherwise the answer is `409` with the authoritative offset in the same header and the client resyncs. `Upload-Length` (optional, `*` while unknown) declares the total size, which lets the server finish by itself when the last byte lands and lets it refuse a chunk that would overshoot. `Upload-Complete: 1` says this chunk ends the upload, which is how a client finishes without ever declaring a total.  A status probe asks where the upload stands without staging bytes. Send `Upload-Probe: 1` with a valid `Upload-Offset` and no body; the answer is `202` with the current offset, so a client that crashed can re-learn where it stopped without a second endpoint. An empty body with a valid offset does the same thing for raw-HTTP callers, but a generated client cannot send a zero-length body, which is why the explicit header exists.  The staging file (`<artifact-path>.part`) is subject to the same size limit as the single-shot upload, an empty artifact is refused on every path, and the recording lifecycle deletes a staging file that has been untouched for six hours. 
 
         :param ext: The artifact extension, allow-listed exactly like the raw-body POST shape. (required)
         :type ext: str
@@ -263,6 +272,8 @@ class RecordingsApi:
         :type upload_length: str
         :param upload_complete: Set to `1` when this chunk ends the upload.
         :type upload_complete: str
+        :param upload_probe: Set to `1` to ask for the current offset without staging any bytes. The generated clients use this instead of an empty body.
+        :type upload_probe: str
         :param body:
         :type body: bytearray
         :param _request_timeout: timeout setting for this request. If one
@@ -293,6 +304,7 @@ class RecordingsApi:
             recording_id=recording_id,
             upload_length=upload_length,
             upload_complete=upload_complete,
+            upload_probe=upload_probe,
             body=body,
             _request_auth=_request_auth,
             _content_type=_content_type,
@@ -302,7 +314,7 @@ class RecordingsApi:
 
         _response_types_map: Dict[str, Optional[str]] = {
             '200': "SessionRecording",
-            '202': "ArtifactUploadState",
+            '202': "SessionRecording",
             '400': "Problem",
             '401': "Problem",
             '404': "Problem",
@@ -322,6 +334,7 @@ class RecordingsApi:
         recording_id,
         upload_length,
         upload_complete,
+        upload_probe,
         body,
         _request_auth,
         _content_type,
@@ -358,6 +371,8 @@ class RecordingsApi:
             _header_params['Upload-Length'] = upload_length
         if upload_complete is not None:
             _header_params['Upload-Complete'] = upload_complete
+        if upload_probe is not None:
+            _header_params['Upload-Probe'] = upload_probe
         # process the form parameters
         # process the body parameter
         if body is not None:

@@ -32,6 +32,7 @@ type ApiAppendRecordingArtifactRequest struct {
 	recordingId int64
 	uploadLength *string
 	uploadComplete *string
+	uploadProbe *string
 	body *os.File
 }
 
@@ -56,6 +57,12 @@ func (r ApiAppendRecordingArtifactRequest) UploadLength(uploadLength string) Api
 // Set to &#x60;1&#x60; when this chunk ends the upload.
 func (r ApiAppendRecordingArtifactRequest) UploadComplete(uploadComplete string) ApiAppendRecordingArtifactRequest {
 	r.uploadComplete = &uploadComplete
+	return r
+}
+
+// Set to &#x60;1&#x60; to ask for the current offset without staging any bytes. The generated clients use this instead of an empty body.
+func (r ApiAppendRecordingArtifactRequest) UploadProbe(uploadProbe string) ApiAppendRecordingArtifactRequest {
+	r.uploadProbe = &uploadProbe
 	return r
 }
 
@@ -86,9 +93,12 @@ lets it refuse a chunk that would overshoot. `Upload-Complete: 1` says
 this chunk ends the upload, which is how a client finishes without ever
 declaring a total.
 
-An empty body with a valid offset is a status probe: it stages nothing
-and answers `202` with the current offset, so a client that crashed can
-re-learn where it stopped without a second endpoint.
+A status probe asks where the upload stands without staging bytes. Send
+`Upload-Probe: 1` with a valid `Upload-Offset` and no body; the answer is
+`202` with the current offset, so a client that crashed can re-learn
+where it stopped without a second endpoint. An empty body with a valid
+offset does the same thing for raw-HTTP callers, but a generated client
+cannot send a zero-length body, which is why the explicit header exists.
 
 The staging file (`<artifact-path>.part`) is subject to the same size
 limit as the single-shot upload, an empty artifact is refused on every
@@ -166,6 +176,9 @@ func (a *RecordingsAPIService) AppendRecordingArtifactExecute(r ApiAppendRecordi
 	}
 	if r.uploadComplete != nil {
 		parameterAddToHeaderOrQuery(localVarHeaderParams, "Upload-Complete", r.uploadComplete, "simple", "")
+	}
+	if r.uploadProbe != nil {
+		parameterAddToHeaderOrQuery(localVarHeaderParams, "Upload-Probe", r.uploadProbe, "simple", "")
 	}
 	// body params
 	localVarPostBody = r.body

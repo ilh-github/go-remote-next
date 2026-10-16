@@ -15,7 +15,6 @@
 
 import * as runtime from '../runtime';
 import type {
-  ArtifactUploadState,
   PlaybackTicket,
   Problem,
   SessionRecording,
@@ -24,8 +23,6 @@ import type {
   SessionRecordingPatch,
 } from '../models/index';
 import {
-    ArtifactUploadStateFromJSON,
-    ArtifactUploadStateToJSON,
     PlaybackTicketFromJSON,
     PlaybackTicketToJSON,
     ProblemFromJSON,
@@ -46,6 +43,7 @@ export interface AppendRecordingArtifactRequest {
     recordingId: number;
     uploadLength?: string;
     uploadComplete?: AppendRecordingArtifactUploadCompleteEnum;
+    uploadProbe?: AppendRecordingArtifactUploadProbeEnum;
     body?: Blob;
 }
 
@@ -115,7 +113,7 @@ export interface UploadRecordingThumbnailRequest {
 export class RecordingsApi extends runtime.BaseAPI {
 
     /**
-     * The resumable half of the upload contract, for a capture that does not fit in one request body or a connection that drops halfway. The client sends chunks; the server answers with the offset it actually holds in the `Upload-Offset` response header, so a retry resumes from that number instead of starting over.  Three headers drive it. `Upload-Offset` (required) is where the chunk starts and must equal the bytes already staged; otherwise the answer is `409` with the authoritative offset in the same header and the client resyncs. `Upload-Length` (optional, `*` while unknown) declares the total size, which lets the server finish by itself when the last byte lands and lets it refuse a chunk that would overshoot. `Upload-Complete: 1` says this chunk ends the upload, which is how a client finishes without ever declaring a total.  An empty body with a valid offset is a status probe: it stages nothing and answers `202` with the current offset, so a client that crashed can re-learn where it stopped without a second endpoint.  The staging file (`<artifact-path>.part`) is subject to the same size limit as the single-shot upload, an empty artifact is refused on every path, and the recording lifecycle deletes a staging file that has been untouched for six hours. 
+     * The resumable half of the upload contract, for a capture that does not fit in one request body or a connection that drops halfway. The client sends chunks; the server answers with the offset it actually holds in the `Upload-Offset` response header, so a retry resumes from that number instead of starting over.  Three headers drive it. `Upload-Offset` (required) is where the chunk starts and must equal the bytes already staged; otherwise the answer is `409` with the authoritative offset in the same header and the client resyncs. `Upload-Length` (optional, `*` while unknown) declares the total size, which lets the server finish by itself when the last byte lands and lets it refuse a chunk that would overshoot. `Upload-Complete: 1` says this chunk ends the upload, which is how a client finishes without ever declaring a total.  A status probe asks where the upload stands without staging bytes. Send `Upload-Probe: 1` with a valid `Upload-Offset` and no body; the answer is `202` with the current offset, so a client that crashed can re-learn where it stopped without a second endpoint. An empty body with a valid offset does the same thing for raw-HTTP callers, but a generated client cannot send a zero-length body, which is why the explicit header exists.  The staging file (`<artifact-path>.part`) is subject to the same size limit as the single-shot upload, an empty artifact is refused on every path, and the recording lifecycle deletes a staging file that has been untouched for six hours. 
      * Append one chunk of a resumable recording upload
      */
     async appendRecordingArtifactRaw(requestParameters: AppendRecordingArtifactRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<SessionRecording>> {
@@ -162,6 +160,10 @@ export class RecordingsApi extends runtime.BaseAPI {
             headerParameters['Upload-Complete'] = String(requestParameters['uploadComplete']);
         }
 
+        if (requestParameters['uploadProbe'] != null) {
+            headerParameters['Upload-Probe'] = String(requestParameters['uploadProbe']);
+        }
+
         if (this.configuration && this.configuration.apiKey) {
             headerParameters["X-API-Key"] = await this.configuration.apiKey("X-API-Key"); // ApiKeyAuth authentication
         }
@@ -190,7 +192,7 @@ export class RecordingsApi extends runtime.BaseAPI {
     }
 
     /**
-     * The resumable half of the upload contract, for a capture that does not fit in one request body or a connection that drops halfway. The client sends chunks; the server answers with the offset it actually holds in the `Upload-Offset` response header, so a retry resumes from that number instead of starting over.  Three headers drive it. `Upload-Offset` (required) is where the chunk starts and must equal the bytes already staged; otherwise the answer is `409` with the authoritative offset in the same header and the client resyncs. `Upload-Length` (optional, `*` while unknown) declares the total size, which lets the server finish by itself when the last byte lands and lets it refuse a chunk that would overshoot. `Upload-Complete: 1` says this chunk ends the upload, which is how a client finishes without ever declaring a total.  An empty body with a valid offset is a status probe: it stages nothing and answers `202` with the current offset, so a client that crashed can re-learn where it stopped without a second endpoint.  The staging file (`<artifact-path>.part`) is subject to the same size limit as the single-shot upload, an empty artifact is refused on every path, and the recording lifecycle deletes a staging file that has been untouched for six hours. 
+     * The resumable half of the upload contract, for a capture that does not fit in one request body or a connection that drops halfway. The client sends chunks; the server answers with the offset it actually holds in the `Upload-Offset` response header, so a retry resumes from that number instead of starting over.  Three headers drive it. `Upload-Offset` (required) is where the chunk starts and must equal the bytes already staged; otherwise the answer is `409` with the authoritative offset in the same header and the client resyncs. `Upload-Length` (optional, `*` while unknown) declares the total size, which lets the server finish by itself when the last byte lands and lets it refuse a chunk that would overshoot. `Upload-Complete: 1` says this chunk ends the upload, which is how a client finishes without ever declaring a total.  A status probe asks where the upload stands without staging bytes. Send `Upload-Probe: 1` with a valid `Upload-Offset` and no body; the answer is `202` with the current offset, so a client that crashed can re-learn where it stopped without a second endpoint. An empty body with a valid offset does the same thing for raw-HTTP callers, but a generated client cannot send a zero-length body, which is why the explicit header exists.  The staging file (`<artifact-path>.part`) is subject to the same size limit as the single-shot upload, an empty artifact is refused on every path, and the recording lifecycle deletes a staging file that has been untouched for six hours. 
      * Append one chunk of a resumable recording upload
      */
     async appendRecordingArtifact(requestParameters: AppendRecordingArtifactRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<SessionRecording> {
@@ -982,6 +984,14 @@ export const AppendRecordingArtifactUploadCompleteEnum = {
     _1: '1'
 } as const;
 export type AppendRecordingArtifactUploadCompleteEnum = typeof AppendRecordingArtifactUploadCompleteEnum[keyof typeof AppendRecordingArtifactUploadCompleteEnum];
+/**
+ * @export
+ */
+export const AppendRecordingArtifactUploadProbeEnum = {
+    _0: '0',
+    _1: '1'
+} as const;
+export type AppendRecordingArtifactUploadProbeEnum = typeof AppendRecordingArtifactUploadProbeEnum[keyof typeof AppendRecordingArtifactUploadProbeEnum];
 /**
  * @export
  */

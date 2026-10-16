@@ -25,7 +25,6 @@ docs/ApprovalSummary.md
 docs/ApprovalSummaryByStatus.md
 docs/ApprovalSummaryDeniedSourcesInner.md
 docs/ApproveAccessApprovalRequest.md
-docs/ArtifactUploadState.md
 docs/AuthAPI.md
 docs/AuthSessionRequest.md
 docs/AuthSessionResponse.md
@@ -71,7 +70,6 @@ model_approval_summary.go
 model_approval_summary_by_status.go
 model_approval_summary_denied_sources_inner.go
 model_approve_access_approval_request.go
-model_artifact_upload_state.go
 model_auth_session_request.go
 model_auth_session_response.go
 model_device.go

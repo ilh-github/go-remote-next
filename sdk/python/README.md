@@ -196,7 +196,6 @@ Class | Method | HTTP request | Description
  - [ApprovalSummaryByStatus](docs/ApprovalSummaryByStatus.md)
  - [ApprovalSummaryDeniedSourcesInner](docs/ApprovalSummaryDeniedSourcesInner.md)
  - [ApproveAccessApprovalRequest](docs/ApproveAccessApprovalRequest.md)
- - [ArtifactUploadState](docs/ArtifactUploadState.md)
  - [AuthSessionRequest](docs/AuthSessionRequest.md)
  - [AuthSessionResponse](docs/AuthSessionResponse.md)
  - [Device](docs/Device.md)

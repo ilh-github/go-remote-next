@@ -25,7 +25,6 @@ src/models/ApprovalSummary.ts
 src/models/ApprovalSummaryByStatus.ts
 src/models/ApprovalSummaryDeniedSourcesInner.ts
 src/models/ApproveAccessApprovalRequest.ts
-src/models/ArtifactUploadState.ts
 src/models/AuthSessionRequest.ts
 src/models/AuthSessionResponse.ts
 src/models/Device.ts
