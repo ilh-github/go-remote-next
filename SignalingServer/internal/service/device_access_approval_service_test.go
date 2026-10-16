@@ -74,7 +74,7 @@ func newApprovalTestDB(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	if err := db.AutoMigrate(&models.DeviceAccessApproval{}); err != nil {
+	if err := db.AutoMigrate(&models.DeviceAccessApproval{}, &models.Device{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	if err := db.Exec("TRUNCATE device_access_approvals").Error; err != nil {

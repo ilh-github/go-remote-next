@@ -98,7 +98,10 @@ func TestOfflineAlertStateMachine(t *testing.T) {
 
 	svc := NewDeviceOfflineAlertService(db, presence, bus)
 	ctx := context.Background()
-	start := time.Now().UTC()
+	// Truncated to microseconds: these timestamps round-trip through Postgres,
+	// which keeps microseconds, so a nanosecond-precision now() would never
+	// compare equal to what comes back.
+	start := time.Now().UTC().Truncate(time.Microsecond)
 
 	if _, err := svc.Upsert(ctx, deviceID, 1, UpsertOfflineAlertInput{Enabled: true, AfterMinutes: 10}); err != nil {
 		t.Fatalf("upsert: %v", err)
@@ -194,7 +197,10 @@ func TestOfflineAlertSkipsLoggedOutDevices(t *testing.T) {
 	presence := &fakePresence{online: map[string]bool{deviceID: false}}
 	svc := NewDeviceOfflineAlertService(db, presence, NewEventBus(nil))
 	ctx := context.Background()
-	start := time.Now().UTC()
+	// Truncated to microseconds: these timestamps round-trip through Postgres,
+	// which keeps microseconds, so a nanosecond-precision now() would never
+	// compare equal to what comes back.
+	start := time.Now().UTC().Truncate(time.Microsecond)
 
 	if _, err := svc.Upsert(ctx, deviceID, 1, UpsertOfflineAlertInput{Enabled: true, AfterMinutes: 1}); err != nil {
 		t.Fatalf("upsert: %v", err)
@@ -252,7 +258,10 @@ func TestOfflineAlertUpsertValidationAndDisable(t *testing.T) {
 	}
 
 	// Start an episode, then switch the rule off.
-	start := time.Now().UTC()
+	// Truncated to microseconds: these timestamps round-trip through Postgres,
+	// which keeps microseconds, so a nanosecond-precision now() would never
+	// compare equal to what comes back.
+	start := time.Now().UTC().Truncate(time.Microsecond)
 	if _, err := svc.EvaluateOnce(ctx, start); err != nil {
 		t.Fatalf("evaluate: %v", err)
 	}
@@ -313,7 +322,10 @@ func TestOfflineAlertRepeatAndSnooze(t *testing.T) {
 
 	svc := NewDeviceOfflineAlertService(db, presence, bus)
 	ctx := context.Background()
-	start := time.Now().UTC()
+	// Truncated to microseconds: these timestamps round-trip through Postgres,
+	// which keeps microseconds, so a nanosecond-precision now() would never
+	// compare equal to what comes back.
+	start := time.Now().UTC().Truncate(time.Microsecond)
 
 	if _, err := svc.Upsert(ctx, deviceID, 1, UpsertOfflineAlertInput{
 		Enabled: true, AfterMinutes: 1, RepeatMinutes: 5,

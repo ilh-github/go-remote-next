@@ -142,7 +142,10 @@ func TestInstanceLogSinkRetentionPurgesOnlyExpiredRows(t *testing.T) {
 	ctx := context.Background()
 	sink := NewInstanceLogSink(db, "inst-a")
 
-	fresh := time.Now().UTC()
+	// Truncated to microseconds: logged_at round-trips through Postgres, which
+	// keeps microseconds, so a nanosecond-precision now() would never equal what
+	// comes back out.
+	fresh := time.Now().UTC().Truncate(time.Microsecond)
 	old := fresh.AddDate(0, 0, -10)
 	for _, at := range []time.Time{old.Add(-time.Minute), old, fresh} {
 		if err := db.Create(&models.InstanceLogEntry{
