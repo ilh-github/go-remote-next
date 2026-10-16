@@ -64,7 +64,7 @@ QuickDesk 已经覆盖了远程控制最核心、最难实现的画面、输入�
 | 权限角色 | 多角色、租户、权限 | 有 admin 角色，但没有我们的租户模型 | 部分 | 后续按业务需要扩展 |
 | 2FA | 管理员双因素 | Admin TOTP 已有 | 已有 | 保留 |
 | SSO | 企业单点登录 | 未发现完整接入 | 缺失 | 明确暂不做，后续评估 |
-| 通知 | 设备上下线、异常、任务 | 管理端 webhook 已有；**用户级通知通道已完成**（`/v1/me/notification-channels`，订阅访问拒绝/会话开始/设备上下线等事件，HMAC 签名 + 持久 outbox、至少一次投递、投递公平（按通道份额领取，第 43 节）、单条/按通道/跨通道死信重放（可按事件类型/设备筛选、支持 dry-run、批量上限与重投限速）、保留策略含先归档再删），管理端有 `notification-deliveries:stats|sweep`；**设备离线持续告警已完成**（`/v1/me/devices/:id/offline-alert`，阈值 1 分钟~7 天，越过阈值发 `device.offline.sustained`，恢复后自动重新武装，支持 `repeat_minutes` 重复提醒和 `snoozed_until` 静默窗口，见第 44 节） | 部分 | 投递链路、运维入口与第一类规则（离线时长，含提醒/静默）已具备；还缺指标型规则（CPU 等，需被控端上报）、周期性维护窗口与聚合降噪，WebClient 的通道/规则管理页面仍缺 |
+| 通知 | 设备上下线、异常、任务 | 管理端 webhook 已有；**用户级通知通道已完成**（`/v1/me/notification-channels`，订阅访问拒绝/会话开始/设备上下线等事件，HMAC 签名 + 持久 outbox、至少一次投递、投递公平（按通道份额领取，第 43 节）、单条/按通道/跨通道死信重放（可按事件类型/设备/通道筛选、按入队时间的闭区间窗口、支持 dry-run、批量上限与重投限速，见第 40/43/46 节）、保留策略含先归档再删），管理端有 `notification-deliveries:stats|sweep`；**设备离线持续告警已完成**（`/v1/me/devices/:id/offline-alert`，阈值 1 分钟~7 天，越过阈值发 `device.offline.sustained`，恢复后自动重新武装，支持 `repeat_minutes` 重复提醒和 `snoozed_until` 静默窗口，见第 44 节） | 部分 | 投递链路、运维入口与第一类规则（离线时长，含提醒/静默）已具备；还缺指标型规则（CPU 等，需被控端上报）、周期性维护窗口与聚合降噪，WebClient 的通道/规则管理页面仍缺 |
 | 设备策略 | 限制设备、会话策略 | 设备配额、管理端 IP 白名单有基础；**设备级访问策略已完成**（`/v1/me/devices/:id/access-policy`：远程访问开关 + 来访 IP/CIDR 白名单 + 允许时段 + 例外日（固定日/区间/年度重复/法定节假日日历/农历重复），在 `access-code:verify` 前置拦截；`max_sessions` 并发上限在控制端 `auth_ok` 之前拦截），**临时授权已完成**（`/v1/me/devices/:id/access-grants`：限时/限次/可撤销的访客码 + `bound_client_id`/`bound_ips` 绑定 + 记录实际兑换者，策略仍优先），**二次审批已完成**（`approval_mode` = off/always/grant/untrusted_ip 决定何时要批，房主侧 `/v1/me/devices/:id/access-approvals` 批准/拒绝，控制端 claim 单次换 token） | 部分 | 还缺策略变更的多端同步；节假日日历只内置 2026，年度更新靠放文件（无自动拉取）；`bound_client_id` 只是客户端自述，真正的身份证明未做 |
 | 计划任务 | 定时连接、批量运维 | MCP/工作流可扩展，但无完整调度 | 缺失 | 放到 P2 |
 | 开放 API | 业务系统集成 | Signaling API 和管理 API 已有 | 部分 | 补稳定的业务 API 和 SDK |
@@ -134,7 +134,9 @@ QuickDesk 已经覆盖了远程控制最核心、最难实现的画面、输入�
    （见第 21-24 节）；**重投运维也已补齐**（见第 40 节：按事件类型/设备筛选、`limit` 按最老优先、
    `dry_run` 预演）；**投递公平与限速也已补齐**（见第 43 节：两阶段按通道公平领取，杜绝一条通道
    的积压饿死其他通道；`spread_over_minutes` 把批量重投拆成约 20 个桶错开发送，端点刚恢复不会再被
-   整个积压砸一遍）；**第一类告警规则也已落地**（见第 44 节：`/v1/me/devices/:id/offline-alert`
+   整个积压砸一遍）；**重投的作用域也补齐了**（见第 46 节：`channel_ids` 只动指定通道，
+   `created_after` / `created_before` 按入队时间取闭区间窗口，窗口可回答"只重投最近一小时入队的积压"）；
+   **第一类告警规则也已落地**（见第 44 节：`/v1/me/devices/:id/offline-alert`
    按"离线超过 N 分钟"发 `device.offline.sustained`，一次掉线只发一条、恢复后重新武装，可选
    `repeat_minutes` 重复提醒与 `snoozed_until` 静默窗口，投递复用上面的 outbox）；还缺 WebClient
    管理页面、指标型规则（CPU 等，需被控端上报）、周期性维护窗口与聚合降噪。

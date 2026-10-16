@@ -462,6 +462,11 @@ func (s *NotificationDeliveryService) Retry(ctx context.Context, channelID, deli
 // arm an unbounded batch.
 const MaxRetryFailedLimit = 1000
 
+// MaxRetryFailedChannelIDs bounds RetryFailedFilters.ChannelIDs. The list is a
+// narrowing filter, not a bulk-ingest surface, so a handful of endpoints is
+// the realistic size and anything much larger is a caller mistake.
+const MaxRetryFailedChannelIDs = 50
+
 // MaxRetryFailedSpreadMinutes bounds RetryFailedFilters.SpreadOverMinutes. A
 // day is plenty: the point of a spread replay is to smooth a burst, not to
 // schedule a backlog for later.
@@ -493,6 +498,17 @@ type RetryFailedFilters struct {
 	// (everything due immediately); the handler clamps anything above
 	// MaxRetryFailedSpreadMinutes.
 	SpreadOverMinutes int
+	// ChannelIDs limits the replay to specific channels - the cross-channel
+	// endpoint's answer to "one of my five endpoints is broken, leave the
+	// others alone". Empty means every channel in scope. On the per-channel
+	// endpoint this can only narrow further, never widen.
+	ChannelIDs []uint
+	// CreatedAfter / CreatedBefore bound the replay by when the event was
+	// queued. Both are inclusive. created_at is used rather than updated_at on
+	// purpose: updated_at moves on every attempt, so a window over it would
+	// mean something different each time it is evaluated.
+	CreatedAfter  *time.Time
+	CreatedBefore *time.Time
 }
 
 // RetryFailedResult reports what a bulk replay matched and what it did.
@@ -514,6 +530,15 @@ func retryFailedQuery(ctx context.Context, db *gorm.DB, scopeColumn string, scop
 	}
 	if d := strings.TrimSpace(f.DeviceID); d != "" {
 		q = q.Where("device_id = ?", d)
+	}
+	if len(f.ChannelIDs) > 0 {
+		q = q.Where("channel_id IN ?", f.ChannelIDs)
+	}
+	if f.CreatedAfter != nil {
+		q = q.Where("created_at >= ?", f.CreatedAfter.UTC())
+	}
+	if f.CreatedBefore != nil {
+		q = q.Where("created_at <= ?", f.CreatedBefore.UTC())
 	}
 	return q
 }

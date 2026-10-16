@@ -390,14 +390,17 @@ everything in scope, which is how they behaved before filters existed.
 | `device_id` | only rows about this device. Rows written before the `device_id` column existed have an empty value and only match an unfiltered replay |
 | `limit` | re-arm at most this many rows, **oldest first**, so repeated calls drain the backlog deterministically. `0` = no cap; anything above `1000` is clamped to `1000` and the response reports the effective value; negative is a `400` |
 | `spread_over_minutes` | pace the replay across this many minutes instead of making the whole backlog due at once. `0` = everything due immediately (the default); anything above `1440` is clamped and the response reports the effective value; negative is a `400` |
+| `channel_ids` | only these channels — the cross-channel endpoint's answer to "one of my endpoints is broken, leave the others alone". At most 50 ids, all positive; on the per-channel endpoint it can only narrow, never widen |
+| `created_after` / `created_before` | **inclusive** bounds on when the event was queued (RFC3339). A window selects what the backlog *was* at a point in time, so it is deliberately read from `created_at` rather than `updated_at` (which moves on every attempt). `created_after` later than `created_before` is a `400` rather than an empty result |
 | `dry_run` | count what *would* be re-armed and change nothing |
 
 Response: `{success, matched, requeued, dry_run, limit, spread_over_minutes,
-filters}`. `matched` is how many parked rows satisfy the filters before
-`limit`; `requeued` is how many were actually re-armed (always `0` on a dry
-run). The dry run exists because re-arming wakes the delivery worker
-immediately, and "replay everything" is rarely the right first move when one
-endpoint is broken and another is healthy.
+filters}`, where `filters` echoes back `event_type`, `device_id`, `channel_ids`
+and the window bounds that were actually applied. `matched` is how many parked
+rows satisfy the filters before `limit`; `requeued` is how many were actually
+re-armed (always `0` on a dry run). The dry run exists because re-arming wakes
+the delivery worker immediately, and "replay everything" is rarely the right
+first move when one endpoint is broken and another is healthy.
 
 `spread_over_minutes` is the tool for the other half of that problem: after an
 outage the whole backlog is due at once, which can knock the endpoint over again

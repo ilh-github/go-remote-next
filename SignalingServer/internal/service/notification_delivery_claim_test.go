@@ -845,3 +845,109 @@ func TestRetryFailedSpreadStaggersReplay(t *testing.T) {
 		t.Fatalf("%d rows kept their attempt count, want the budget reset", stillExhausted)
 	}
 }
+
+// TestRetryFailedWindowAndChannelFilters covers the two scoping filters an
+// operator reaches for after a partial outage: "only what queued inside this
+// window" and "only these endpoints".
+//
+// The window is over created_at, not updated_at, and that is the property
+// worth pinning: updated_at moves on every delivery attempt, so a window over
+// it would select a different set each time it was evaluated.
+func TestRetryFailedWindowAndChannelFilters(t *testing.T) {
+	db := newPurgeTestDB(t)
+	svc := NewNotificationDeliveryService(db)
+	ctx := context.Background()
+
+	// Whole seconds keep Go's nanosecond timestamps and Postgres' microsecond
+	// storage in agreement, so the inclusive bounds below are exact.
+	now := time.Now().UTC().Truncate(time.Second)
+	const (
+		denied = "device.access.denied"
+		online = "device.online.changed"
+	)
+	failed := func(ch uint, at time.Time, eventType, device string, userID uint) models.NotificationDelivery {
+		return models.NotificationDelivery{
+			ChannelID: ch, UserID: userID, EventType: eventType, DeviceID: device,
+			Payload: "{}", Status: DeliveryStatusFailed, Attempts: 8,
+			NextAttemptAt: at, CreatedAt: at,
+		}
+	}
+	seed := []models.NotificationDelivery{
+		failed(42, now.Add(-3*time.Hour), denied, "dev-A", 1),
+		failed(42, now.Add(-2*time.Hour), denied, "dev-A", 1),
+		failed(42, now.Add(-1*time.Hour), online, "dev-B", 1),
+		failed(44, now.Add(-30*time.Minute), denied, "dev-A", 1),
+		failed(44, now.Add(-10*time.Minute), denied, "dev-B", 1),
+		failed(45, now.Add(-5*time.Minute), denied, "dev-A", 1),
+		// Another user's backlog, as a scope control.
+		failed(46, now.Add(-30*time.Minute), denied, "dev-A", 2),
+	}
+	if err := db.Create(&seed).Error; err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	twoHoursAgo := now.Add(-2 * time.Hour)
+	hourAgo := now.Add(-1 * time.Hour)
+	twentyMinAgo := now.Add(-20 * time.Minute)
+	cases := []struct {
+		name    string
+		filters RetryFailedFilters
+		want    int64
+	}{
+		{"no filter", RetryFailedFilters{}, 6},
+		{"created_after only", RetryFailedFilters{CreatedAfter: &twoHoursAgo}, 5},
+		{"created_before only", RetryFailedFilters{CreatedBefore: &hourAgo}, 3},
+		{"both bounds inclusive", RetryFailedFilters{CreatedAfter: &twoHoursAgo, CreatedBefore: &hourAgo}, 2},
+		{"window then narrow", RetryFailedFilters{CreatedAfter: &twentyMinAgo}, 2},
+		{"channel ids", RetryFailedFilters{ChannelIDs: []uint{44, 45}}, 3},
+		{"channel ids plus event type", RetryFailedFilters{ChannelIDs: []uint{44}, EventType: denied}, 2},
+		{"window and channels together", RetryFailedFilters{CreatedAfter: &twentyMinAgo, ChannelIDs: []uint{45}}, 1},
+		{"unknown channel", RetryFailedFilters{ChannelIDs: []uint{999}}, 0},
+	}
+	for _, tc := range cases {
+		res, err := svc.RetryFailedForUser(ctx, 1, tc.filters, true)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if res.Matched != tc.want {
+			t.Fatalf("%s: matched %d, want %d", tc.name, res.Matched, tc.want)
+		}
+		if res.Requeued != 0 {
+			t.Fatalf("%s: dry run re-armed %d rows", tc.name, res.Requeued)
+		}
+	}
+
+	// On the per-channel endpoint the channel filter can only narrow further.
+	res, err := svc.RetryFailedForChannel(ctx, 42, RetryFailedFilters{ChannelIDs: []uint{44}}, true)
+	if err != nil {
+		t.Fatalf("per-channel with a foreign channel id: %v", err)
+	}
+	if res.Matched != 0 {
+		t.Fatalf("per-channel replay matched %d rows of another channel, want 0", res.Matched)
+	}
+
+	// A real replay with a window only moves its own slice.
+	res, err = svc.RetryFailedForUser(ctx, 1, RetryFailedFilters{CreatedAfter: &twentyMinAgo}, false)
+	if err != nil {
+		t.Fatalf("windowed replay: %v", err)
+	}
+	if res.Matched != 2 || res.Requeued != 2 {
+		t.Fatalf("windowed replay = %+v, want matched 2 / requeued 2", res)
+	}
+	var pending int64
+	if err := db.Model(&models.NotificationDelivery{}).
+		Where("user_id = ? AND status = ?", 1, DeliveryStatusPending).Count(&pending).Error; err != nil {
+		t.Fatalf("count pending: %v", err)
+	}
+	if pending != 2 {
+		t.Fatalf("%d rows were re-armed, want exactly the 2 inside the window", pending)
+	}
+	var untouchedOtherUser int64
+	if err := db.Model(&models.NotificationDelivery{}).
+		Where("user_id = ? AND status = ?", 2, DeliveryStatusFailed).Count(&untouchedOtherUser).Error; err != nil {
+		t.Fatalf("count other user: %v", err)
+	}
+	if untouchedOtherUser != 1 {
+		t.Fatalf("other user's backlog changed: %d failed rows, want 1", untouchedOtherUser)
+	}
+}

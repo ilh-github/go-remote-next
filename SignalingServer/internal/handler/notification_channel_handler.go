@@ -2,9 +2,11 @@ package handler
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"quickdesk/signaling/internal/middleware"
 	"quickdesk/signaling/internal/service"
@@ -229,6 +231,12 @@ type retryFailedReq struct {
 	// due at once, which matters when the outage that parked it also means the
 	// endpoint is fragile right now.
 	SpreadOverMinutes int `json:"spread_over_minutes"`
+	// ChannelIDs narrows a cross-channel replay to specific channels.
+	ChannelIDs []uint `json:"channel_ids"`
+	// CreatedAfter / CreatedBefore bound the replay by when the event was
+	// queued (inclusive). RFC3339.
+	CreatedAfter  string `json:"created_after"`
+	CreatedBefore string `json:"created_before"`
 }
 
 // parseRetryFailedRequest reads the optional body and clamps the batch cap.
@@ -249,6 +257,33 @@ func parseRetryFailedRequest(c *gin.Context) (service.RetryFailedFilters, bool, 
 		ProblemBadRequest(c, ProblemCodeInvalidRequest, "spread_over_minutes must be zero (no pacing) or positive")
 		return service.RetryFailedFilters{}, false, false
 	}
+	if len(req.ChannelIDs) > service.MaxRetryFailedChannelIDs {
+		ProblemBadRequest(c, ProblemCodeInvalidRequest,
+			fmt.Sprintf("channel_ids accepts at most %d entries", service.MaxRetryFailedChannelIDs))
+		return service.RetryFailedFilters{}, false, false
+	}
+	for _, id := range req.ChannelIDs {
+		if id == 0 {
+			ProblemBadRequest(c, ProblemCodeInvalidRequest, "channel_ids must all be positive")
+			return service.RetryFailedFilters{}, false, false
+		}
+	}
+	createdAfter, err := parseOptionalRFC3339("created_after", req.CreatedAfter)
+	if err != nil {
+		ProblemBadRequest(c, ProblemCodeInvalidRequest, err.Error())
+		return service.RetryFailedFilters{}, false, false
+	}
+	createdBefore, err := parseOptionalRFC3339("created_before", req.CreatedBefore)
+	if err != nil {
+		ProblemBadRequest(c, ProblemCodeInvalidRequest, err.Error())
+		return service.RetryFailedFilters{}, false, false
+	}
+	if createdAfter != nil && createdBefore != nil && createdAfter.After(*createdBefore) {
+		// An empty window is a caller mistake, not an empty result: answering
+		// "matched: 0" would send them looking for rows that cannot exist.
+		ProblemBadRequest(c, ProblemCodeInvalidRequest, "created_after must not be later than created_before")
+		return service.RetryFailedFilters{}, false, false
+	}
 	limit := req.Limit
 	if limit > service.MaxRetryFailedLimit {
 		// Clamp rather than reject: the caller asked to drain the backlog, and
@@ -264,11 +299,40 @@ func parseRetryFailedRequest(c *gin.Context) (service.RetryFailedFilters, bool, 
 		DeviceID:          strings.TrimSpace(req.DeviceID),
 		Limit:             limit,
 		SpreadOverMinutes: spread,
+		ChannelIDs:        req.ChannelIDs,
+		CreatedAfter:      createdAfter,
+		CreatedBefore:     createdBefore,
 	}
 	return filters, req.DryRun, true
 }
 
+// parseOptionalRFC3339 reads one of the replay window bounds. Empty means "no
+// bound"; anything else has to be a real timestamp, because silently ignoring
+// an unparseable window would replay more than the caller asked for.
+func parseOptionalRFC3339(field, raw string) (*time.Time, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return nil, nil
+	}
+	parsed, err := time.Parse(time.RFC3339, trimmed)
+	if err != nil {
+		return nil, fmt.Errorf("%s must be an RFC3339 timestamp", field)
+	}
+	return &parsed, nil
+}
+
 func retryFailedResponse(filters service.RetryFailedFilters, dryRun bool, res service.RetryFailedResult) gin.H {
+	filterView := gin.H{
+		"event_type":  filters.EventType,
+		"device_id":   filters.DeviceID,
+		"channel_ids": filters.ChannelIDs,
+	}
+	if filters.CreatedAfter != nil {
+		filterView["created_after"] = filters.CreatedAfter.UTC().Format(time.RFC3339)
+	}
+	if filters.CreatedBefore != nil {
+		filterView["created_before"] = filters.CreatedBefore.UTC().Format(time.RFC3339)
+	}
 	return gin.H{
 		"success":             true,
 		"matched":             res.Matched,
@@ -276,10 +340,7 @@ func retryFailedResponse(filters service.RetryFailedFilters, dryRun bool, res se
 		"dry_run":             dryRun,
 		"limit":               filters.Limit,
 		"spread_over_minutes": filters.SpreadOverMinutes,
-		"filters": gin.H{
-			"event_type": filters.EventType,
-			"device_id":  filters.DeviceID,
-		},
+		"filters":             filterView,
 	}
 }
 
