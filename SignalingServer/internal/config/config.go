@@ -33,6 +33,13 @@ type SecurityConfig struct {
 	AllowedOrigins []string // Allowed Origin domains for WebClient; empty means disabled
 }
 
+// HolidayConfig points device access policies at the statutory holiday
+// calendar they resolve `holiday` exception entries against. Empty Dir keeps
+// the calendar embedded in the binary.
+type HolidayConfig struct {
+	Dir string
+}
+
 // RecordingConfig controls where uploaded session-recording artifacts land and
 // how large a single upload may be. The directory is deliberately separate from
 // the log directory and is never mounted as a static site.
@@ -63,6 +70,7 @@ type Config struct {
 	Security     SecurityConfig
 	Recording    RecordingConfig
 	Notification NotificationConfig
+	Holiday      HolidayConfig
 	Sms          SmsConfig
 	Runtime      RuntimeConfig
 }
@@ -168,6 +176,11 @@ func Load() *Config {
 	// before being deleted, so retention never destroys the only copy.
 	viper.SetDefault("NOTIFICATION_ARCHIVE_DIR", "")
 
+	// Statutory holiday calendar used by device access policies. Empty keeps
+	// the year(s) embedded in the binary; point it at a directory of
+	// holiday-cn style YYYY.json files to add years without a rebuild.
+	viper.SetDefault("HOLIDAY_CALENDAR_DIR", "")
+
 	// Aliyun SMS (optional – leave empty to disable phone features)
 	viper.SetDefault("ALIYUN_SMS_ACCESS_KEY_ID", "")
 	viper.SetDefault("ALIYUN_SMS_ACCESS_KEY_SECRET", "")
@@ -245,6 +258,9 @@ func Load() *Config {
 		RetentionDays:    viper.GetInt("NOTIFICATION_RETENTION_DAYS"),
 		SweepIntervalMin: viper.GetInt("NOTIFICATION_SWEEP_INTERVAL_MINUTES"),
 		ArchiveDir:       viper.GetString("NOTIFICATION_ARCHIVE_DIR"),
+	}
+	cfg.Holiday = HolidayConfig{
+		Dir: viper.GetString("HOLIDAY_CALENDAR_DIR"),
 	}
 
 	// Aliyun SMS – enabled only when all four fields are set

@@ -377,3 +377,164 @@ func TestEvaluateDeviceAccessPolicyWithYearlyExceptionRange(t *testing.T) {
 		t.Fatalf("a March weekday should stay allowed, got %q", reason)
 	}
 }
+
+// Named statutory holidays let a policy say "放假期间别连我机器" without
+// re-listing the dates every year - the calendar data carries the span.
+func TestAccessExceptionMatchHolidayCalendar(t *testing.T) {
+	shanghai := mustLoad(t, "Asia/Shanghai")
+	denyFestival := []AccessExceptionDate{{Holiday: "春节", Mode: "deny"}}
+
+	// The Spring Festival break, 2026-02-15 .. 02-23.
+	for _, ymd := range []string{"2026-02-15", "2026-02-17", "2026-02-23"} {
+		d := mustDate(t, shanghai, ymd)
+		matched, allowed, reason := AccessExceptionMatch(denyFestival, shanghai, d)
+		if !matched || allowed || reason == "" {
+			t.Fatalf("%s should be blocked by the festival, got matched=%v allowed=%v reason=%q",
+				ymd, matched, allowed, reason)
+		}
+	}
+	// A day just outside the break must not be swept up by the name match.
+	if matched, _, _ := AccessExceptionMatch(denyFestival, shanghai, mustDate(t, shanghai, "2026-02-24")); matched {
+		t.Fatal("2026-02-24 is a normal working day and must not match the festival")
+	}
+	// The make-up workdays are a separate selector, so a plain holiday entry
+	// does not silently cover them.
+	if matched, _, _ := AccessExceptionMatch(denyFestival, shanghai, mustDate(t, shanghai, "2026-02-14")); matched {
+		t.Fatal("a '-off' holiday entry must not cover a make-up workday")
+	}
+
+	// The 调休 workday can be allowed explicitly, which is the "周六但要开工"
+	// case that a weekly window would otherwise block.
+	allowMakeup := []AccessExceptionDate{
+		{Holiday: "春节", HolidayDay: AccessExceptionHolidayDayWork, Mode: "allow"},
+	}
+	if matched, allowed, _ := AccessExceptionMatch(allowMakeup, shanghai, mustDate(t, shanghai, "2026-02-14")); !matched || !allowed {
+		t.Fatalf("the 春节 make-up workday should be allowed, got matched=%v allowed=%v", matched, allowed)
+	}
+	if matched, _, _ := AccessExceptionMatch(allowMakeup, shanghai, mustDate(t, shanghai, "2026-02-17")); matched {
+		t.Fatal("a '-work' entry must not cover the days off")
+	}
+}
+
+// A lunar entry resolves to a different solar date every year, so 春节/端午/中秋
+// never need an annual edit. The multi-year lookup also has to handle dates
+// that belong to the previous lunar year (everything before 春节).
+func TestAccessExceptionMatchLunar(t *testing.T) {
+	shanghai := mustLoad(t, "Asia/Shanghai")
+
+	dragonBoat := []AccessExceptionDate{{
+		Repeat: AccessExceptionRepeatLunar, LunarMonth: 5, LunarDay: 5, Mode: "deny",
+	}}
+	for _, ymd := range []string{"2026-06-19", "2027-06-09", "2028-05-28"} {
+		d := mustDate(t, shanghai, ymd)
+		if matched, allowed, _ := AccessExceptionMatch(dragonBoat, shanghai, d); !matched || allowed {
+			t.Fatalf("端午 %s should be denied, got matched=%v allowed=%v", ymd, matched, allowed)
+		}
+	}
+	if matched, _, _ := AccessExceptionMatch(dragonBoat, shanghai, mustDate(t, shanghai, "2026-06-20")); matched {
+		t.Fatal("the day after 端午 must not match")
+	}
+
+	// 除夕: the 29th of the 12th lunar month, which lands in solar February of
+	// the *following* year - exactly the case a naive day.Year() lookup breaks.
+	newYearsEve := []AccessExceptionDate{{
+		Repeat: AccessExceptionRepeatLunar, LunarMonth: 12, LunarDay: 29, Mode: "deny",
+	}}
+	// Solar 2027 is lunar 2026 for the 除夕 date, so the solar year and the
+	// lunar year differ here; 2026-02-16 is the same day of the previous lunar
+	// year, and both must match.
+	for _, ymd := range []string{"2027-02-05", "2026-02-16"} {
+		if matched, allowed, _ := AccessExceptionMatch(newYearsEve, shanghai, mustDate(t, shanghai, ymd)); !matched || allowed {
+			t.Fatalf("除夕 %s should be denied, got matched=%v allowed=%v", ymd, matched, allowed)
+		}
+	}
+	// The days either side of 除夕 are not the 29th of the 12th month.
+	for _, ymd := range []string{"2027-02-04", "2026-02-15"} {
+		if matched, _, _ := AccessExceptionMatch(newYearsEve, shanghai, mustDate(t, shanghai, ymd)); matched {
+			t.Fatalf("%s must not match the 除夕 entry", ymd)
+		}
+	}
+}
+
+func TestValidateAccessExceptionsHolidayAndLunar(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   []AccessExceptionDate
+		wantErr bool
+	}{
+		{"named holiday", []AccessExceptionDate{{Holiday: "春节", Mode: "deny"}}, false},
+		{"named holiday workdays", []AccessExceptionDate{{Holiday: "春节", HolidayDay: "work", Mode: "allow"}}, false},
+		{"holiday_day off is explicit", []AccessExceptionDate{{Holiday: "国庆节", HolidayDay: "off", Mode: "deny"}}, false},
+		{"lunar festival", []AccessExceptionDate{{Repeat: "lunar", LunarMonth: 8, LunarDay: 15, Mode: "deny"}}, false},
+		{"unknown holiday", []AccessExceptionDate{{Holiday: "元宵节", Mode: "deny"}}, true},
+		{"holiday plus date", []AccessExceptionDate{{Holiday: "春节", Date: "2026-02-17", Mode: "deny"}}, true},
+		{"holiday plus repeat", []AccessExceptionDate{{Holiday: "春节", Repeat: "yearly", Mode: "deny"}}, true},
+		{"bad holiday_day", []AccessExceptionDate{{Holiday: "春节", HolidayDay: "sometimes", Mode: "deny"}}, true},
+		{"lunar without repeat", []AccessExceptionDate{{LunarMonth: 5, LunarDay: 5, Mode: "deny"}}, true},
+		{"lunar repeat without day", []AccessExceptionDate{{Repeat: "lunar", LunarMonth: 5, Mode: "deny"}}, true},
+		{"lunar repeat with bad month", []AccessExceptionDate{{Repeat: "lunar", LunarMonth: 13, LunarDay: 1, Mode: "deny"}}, true},
+		{"lunar repeat with date", []AccessExceptionDate{{Repeat: "lunar", Date: "2026-06-19", LunarMonth: 5, LunarDay: 5, Mode: "deny"}}, true},
+		{"holiday_day on a date entry", []AccessExceptionDate{{Date: "2026-06-19", HolidayDay: "work", Mode: "deny"}}, true},
+		// Overlap is detected against the resolved calendar dates, so a fixed
+		// allow inside the blocked festival is caught.
+		{"allow inside holiday deny", []AccessExceptionDate{
+			{Holiday: "春节", Mode: "deny"},
+			{Date: "2026-02-17", Mode: "allow"},
+		}, true},
+		{"allow on a make-up workday is fine", []AccessExceptionDate{
+			{Holiday: "春节", Mode: "deny"},
+			{Holiday: "春节", HolidayDay: "work", Mode: "allow"},
+		}, false},
+		{"lunar deny overlapping a fixed allow", []AccessExceptionDate{
+			{Repeat: "lunar", LunarMonth: 5, LunarDay: 5, Mode: "deny"},
+			{Date: "2026-06-19", Mode: "allow"},
+		}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateAccessExceptions(tt.input)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("ValidateAccessExceptions(%v) err = %v, wantErr %v", tt.input, err, tt.wantErr)
+			}
+			if tt.wantErr && err != nil && !errors.Is(err, ErrInvalidAccessException) {
+				t.Fatalf("error should wrap ErrInvalidAccessException, got %v", err)
+			}
+		})
+	}
+}
+
+// A policy can combine a weekly window with a named holiday, which is the
+// intended real deployment shape: Mondays 09:00-18:00, closed for 春节.
+func TestEvaluateDeviceAccessPolicyAtHonoursHolidayCalendar(t *testing.T) {
+	shanghai := mustLoad(t, "Asia/Shanghai")
+	policy := &models.DeviceAccessPolicy{
+		AllowedWindows: `[{"days":[1,2,3,4,5,6],"start":"09:00","end":"18:00"}]`,
+		Timezone:       "Asia/Shanghai",
+		ExceptionDates: `[{"holiday":"春节","mode":"deny"}]`,
+	}
+
+	// 2026-02-18 is a Wednesday inside the weekly window, blocked by 春节.
+	inside := time.Date(2026, time.February, 18, 10, 0, 0, 0, shanghai)
+	allowed, reason := EvaluateDeviceAccessPolicyAt(policy, "127.0.0.1", inside)
+	if allowed {
+		t.Fatal("the Spring Festival must block a weekday inside the window")
+	}
+	if reason != "today is blocked by an access exception date" {
+		t.Fatalf("unexpected reason %q", reason)
+	}
+
+	// 2026-03-04 is a normal Wednesday, so the weekly window applies again.
+	normal := time.Date(2026, time.March, 4, 10, 0, 0, 0, shanghai)
+	if allowed, reason := EvaluateDeviceAccessPolicyAt(policy, "127.0.0.1", normal); !allowed {
+		t.Fatalf("a normal weekday should be allowed, got %q", reason)
+	}
+}
+
+func mustDate(t *testing.T, loc *time.Location, ymd string) time.Time {
+	t.Helper()
+	parsed, err := time.ParseInLocation("2006-01-02", ymd, loc)
+	if err != nil {
+		t.Fatalf("parse %s: %v", ymd, err)
+	}
+	return parsed
+}

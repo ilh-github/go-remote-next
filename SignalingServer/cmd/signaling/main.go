@@ -23,6 +23,7 @@ import (
 	"quickdesk/signaling/internal/config"
 	"quickdesk/signaling/internal/database"
 	"quickdesk/signaling/internal/handler"
+	"quickdesk/signaling/internal/holiday"
 	"quickdesk/signaling/internal/httpx"
 	"quickdesk/signaling/internal/middleware"
 	"quickdesk/signaling/internal/models"
@@ -101,6 +102,17 @@ func main() {
 	// -------------------------------------------------------------------
 	// Services
 	// -------------------------------------------------------------------
+	// Statutory holiday calendar for device access policy exception dates.
+	// Loading it here (rather than lazily at first evaluate) means a broken
+	// override file fails at startup, not on someone's first connection.
+	holidayCalendar, err := holiday.Load(cfg.Holiday.Dir)
+	if err != nil {
+		log.Fatalf("load holiday calendar (HOLIDAY_CALENDAR_DIR=%q): %v", cfg.Holiday.Dir, err)
+	}
+	service.SetHolidayCalendar(holidayCalendar)
+	log.Printf("Holiday calendar: %d dates across years %v (override dir=%q)",
+		holidayCalendar.Len(), holidayCalendar.Years(), cfg.Holiday.Dir)
+
 	settingsService := service.NewSettingsService(db)
 	settingsService.SeedFromEnv(service.EnvSeed{
 		TurnURLs:        strings.Join(cfg.Ice.TurnURLs, "\n"),

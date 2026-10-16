@@ -3,8 +3,12 @@ package service
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
+	"sync"
 	"time"
+
+	"quickdesk/signaling/internal/holiday"
 )
 
 // ErrInvalidAccessWindow means an allowed-access window is malformed (bad day,
@@ -15,8 +19,9 @@ var ErrInvalidAccessWindow = errors.New("access windows need days 0-6 and HH:MM 
 var ErrInvalidTimezone = errors.New("timezone must be an IANA name like Asia/Shanghai")
 
 // ErrInvalidAccessException means an exception date is malformed (bad date or
-// range, unknown mode/repeat) or two exceptions with different modes overlap.
-var ErrInvalidAccessException = errors.New("access exception dates need YYYY-MM-DD date/end_date, mode \"allow\" or \"deny\", optional repeat \"yearly\", and no overlapping allow/deny entries")
+// range, unknown mode/repeat/holiday, mixed sources) or two exceptions with
+// different modes cover the same day.
+var ErrInvalidAccessException = errors.New("access exception dates need exactly one of date/end_date, holiday, or repeat \"lunar\" with lunar_month/lunar_day; mode \"allow\" or \"deny\"; and no overlapping allow/deny entries")
 
 // Exception-date modes.
 const (
@@ -29,18 +34,73 @@ const (
 // per year.
 const AccessExceptionRepeatYearly = "yearly"
 
-// AccessExceptionDate is a one-off (or annually recurring) override, evaluated
-// in the policy's timezone. "deny" blocks access for the covered day(s)
-// (holidays, maintenance); "allow" permits them and overrides the weekly
-// windows (a one-off work day). EndDate is an inclusive range end and defaults
-// to Date; Repeat:"yearly" matches the same month-day(s) every year and may
-// wrap the new year (e.g. 12-30 through 01-02). Either way only the *time* rule
-// is decided here - remote_disabled and the IP allow list are still enforced.
+// AccessExceptionRepeatLunar makes an exception follow the lunar calendar
+// instead of a fixed month-day, so 春节 (正月初一), 端午 (五月初五) and 中秋
+// (八月十五) are one entry that is correct every year. Requires LunarMonth and
+// LunarDay.
+const AccessExceptionRepeatLunar = "lunar"
+
+// AccessExceptionHolidayDay selects which dates of a named statutory holiday
+// an entry covers: the days off (default) or the make-up workdays (调休上班).
+const (
+	AccessExceptionHolidayDayOff  = "off"
+	AccessExceptionHolidayDayWork = "work"
+)
+
+var (
+	policyCalendarMu sync.RWMutex
+	policyCalendar   = holiday.Builtin()
+)
+
+// SetHolidayCalendar replaces the process-wide statutory holiday calendar used
+// to resolve `holiday` exception entries. main calls it once at startup with
+// the configured calendar; tests may swap it to make results deterministic.
+// A nil calendar is ignored so a failed load cannot silently empty the data.
+func SetHolidayCalendar(c *holiday.Calendar) {
+	if c == nil {
+		return
+	}
+	policyCalendarMu.Lock()
+	policyCalendar = c
+	policyCalendarMu.Unlock()
+}
+
+func currentHolidayCalendar() *holiday.Calendar {
+	policyCalendarMu.RLock()
+	defer policyCalendarMu.RUnlock()
+	return policyCalendar
+}
+
+// AccessExceptionDate is a calendar override, evaluated in the policy's
+// timezone. "deny" blocks access for the covered day(s) (holidays,
+// maintenance); "allow" permits them and overrides the weekly windows (a
+// one-off work day). Only the *time* rule is decided here - remote_disabled
+// and the IP allow list are still enforced.
+//
+// Exactly one source may be set:
+//
+//   - Date (+ optional EndDate): a fixed date or inclusive range, optionally
+//     recurring every year on the same month-day(s) via Repeat:"yearly", which
+//     may wrap the new year (e.g. 12-30 through 01-02);
+//   - Holiday: the name of an entry in the statutory holiday calendar
+//     (e.g. "春节"). HolidayDay picks the days off (default) or the make-up
+//     workdays, so both "放假别连我机器" and "调休那天要开工" are one entry;
+//   - Repeat:"lunar" with LunarMonth/LunarDay: a date on the lunar calendar
+//     (春节 1/1, 端午 5/5, 中秋 8/15) that resolves to a different solar date
+//     each year, so it never needs an annual edit.
 type AccessExceptionDate struct {
-	Date    string `json:"date"`
+	Date    string `json:"date,omitempty"`
 	EndDate string `json:"end_date,omitempty"`
 	Mode    string `json:"mode"`
 	Repeat  string `json:"repeat,omitempty"`
+	// Holiday names a statutory holiday in the configured calendar (e.g.
+	// "春节", "国庆节"). Mutually exclusive with Date and lunar fields.
+	Holiday string `json:"holiday,omitempty"`
+	// HolidayDay is "off" (default) or "work" for a Holiday entry.
+	HolidayDay string `json:"holiday_day,omitempty"`
+	// LunarMonth/LunarDay describe a lunar date when Repeat is "lunar".
+	LunarMonth int `json:"lunar_month,omitempty"`
+	LunarDay   int `json:"lunar_day,omitempty"`
 }
 
 // AccessWindow is one recurring window in which remote access is allowed.
@@ -91,47 +151,115 @@ func ValidateTimezone(name string) error {
 // accept an allow and a deny entry that cover the same day, so a policy can
 // never be ambiguous about whether a given day is allowed or denied. Entries
 // with the same mode may overlap (harmless duplication).
+//
+// Overlap is checked by resolving every entry into concrete dates around the
+// current year. That makes holiday and lunar entries comparable with fixed
+// dates - which a pure month-day comparison could not do - while keeping the
+// existing behaviour for date and yearly entries.
 func ValidateAccessExceptions(exceptions []AccessExceptionDate) error {
 	for i, e := range exceptions {
-		start, err := parseExceptionDate(e.Date)
-		if err != nil {
-			return fmt.Errorf("%w: exception %d date %q", ErrInvalidAccessException, i, e.Date)
-		}
-		end := start
-		if strings.TrimSpace(e.EndDate) != "" {
-			end, err = parseExceptionDate(e.EndDate)
-			if err != nil {
-				return fmt.Errorf("%w: exception %d end_date %q", ErrInvalidAccessException, i, e.EndDate)
-			}
-		}
-		if mode := strings.ToLower(strings.TrimSpace(e.Mode)); mode != AccessExceptionModeAllow && mode != AccessExceptionModeDeny {
-			return fmt.Errorf("%w: exception %d mode %q", ErrInvalidAccessException, i, e.Mode)
-		}
-		repeat := strings.ToLower(strings.TrimSpace(e.Repeat))
-		if repeat != "" && repeat != AccessExceptionRepeatYearly {
-			return fmt.Errorf("%w: exception %d repeat %q", ErrInvalidAccessException, i, e.Repeat)
-		}
-		// A yearly exception may wrap the new year, so only a non-recurring
-		// range has to be ordered.
-		if repeat == "" && end.Before(start) {
-			return fmt.Errorf("%w: exception %d end_date %s is before date %s",
-				ErrInvalidAccessException, i, e.EndDate, e.Date)
+		if err := validateAccessExceptionShape(e); err != nil {
+			return fmt.Errorf("%w: exception %d %s", ErrInvalidAccessException, i, err)
 		}
 	}
 
-	// Pairwise conflict check: an allow and a deny must not cover any shared day.
+	refYear := time.Now().UTC().Year()
+	years := overlapYears(exceptions, refYear)
+	sets := make([]map[string]struct{}, len(exceptions))
+	for i, e := range exceptions {
+		sets[i] = exceptionDateSet(e, years)
+	}
 	for i := 0; i < len(exceptions); i++ {
 		for j := i + 1; j < len(exceptions); j++ {
 			if sameMode(exceptions[i].Mode, exceptions[j].Mode) {
 				continue
 			}
-			if exceptionsOverlap(exceptions[i], exceptions[j]) {
+			if dateSetsIntersect(sets[i], sets[j]) {
 				return fmt.Errorf("%w: exceptions %d and %d both cover a day with different modes",
 					ErrInvalidAccessException, i, j)
 			}
 		}
 	}
 	return nil
+}
+
+// validateAccessExceptionShape checks one entry in isolation: exactly one
+// source, a known mode/repeat, and a sane range.
+func validateAccessExceptionShape(e AccessExceptionDate) error {
+	mode := strings.ToLower(strings.TrimSpace(e.Mode))
+	if mode != AccessExceptionModeAllow && mode != AccessExceptionModeDeny {
+		return fmt.Errorf("mode %q", e.Mode)
+	}
+	repeat := strings.ToLower(strings.TrimSpace(e.Repeat))
+	if repeat != "" && repeat != AccessExceptionRepeatYearly && repeat != AccessExceptionRepeatLunar {
+		return fmt.Errorf("repeat %q", e.Repeat)
+	}
+	holidayName := strings.TrimSpace(e.Holiday)
+	lunar := repeat == AccessExceptionRepeatLunar
+
+	switch {
+	case lunar:
+		if strings.TrimSpace(e.Date) != "" || strings.TrimSpace(e.EndDate) != "" {
+			return errors.New("has both lunar and date fields")
+		}
+		if holidayName != "" {
+			return errors.New("has both lunar and holiday fields")
+		}
+		if e.LunarMonth < 1 || e.LunarMonth > 12 {
+			return fmt.Errorf("lunar_month %d", e.LunarMonth)
+		}
+		if e.LunarDay < 1 || e.LunarDay > 30 {
+			return fmt.Errorf("lunar_day %d", e.LunarDay)
+		}
+		if strings.TrimSpace(e.HolidayDay) != "" {
+			return errors.New("holiday_day is only valid with holiday")
+		}
+		return nil
+	case holidayName != "":
+		if strings.TrimSpace(e.Date) != "" || strings.TrimSpace(e.EndDate) != "" {
+			return errors.New("has both holiday and date fields")
+		}
+		if repeat != "" {
+			return errors.New("holiday entries recur by definition; drop repeat")
+		}
+		if e.LunarMonth != 0 || e.LunarDay != 0 {
+			return errors.New("has both holiday and lunar fields")
+		}
+		day := strings.ToLower(strings.TrimSpace(e.HolidayDay))
+		if day != "" && day != AccessExceptionHolidayDayOff && day != AccessExceptionHolidayDayWork {
+			return fmt.Errorf("holiday_day %q", e.HolidayDay)
+		}
+		// An unknown name would silently never match, so reject it while the
+		// calendar has data. A calendar with no years loaded cannot judge.
+		cal := currentHolidayCalendar()
+		if cal.Len() > 0 && !cal.HasName(holidayName) {
+			return fmt.Errorf("unknown holiday %q", holidayName)
+		}
+		return nil
+	default:
+		if e.LunarMonth != 0 || e.LunarDay != 0 {
+			return errors.New("lunar_month/lunar_day need repeat \"lunar\"")
+		}
+		if strings.TrimSpace(e.HolidayDay) != "" {
+			return errors.New("holiday_day is only valid with holiday")
+		}
+		start, err := parseExceptionDate(e.Date)
+		if err != nil {
+			return fmt.Errorf("date %q", e.Date)
+		}
+		end := start
+		if strings.TrimSpace(e.EndDate) != "" {
+			if end, err = parseExceptionDate(e.EndDate); err != nil {
+				return fmt.Errorf("end_date %q", e.EndDate)
+			}
+		}
+		// A yearly exception may wrap the new year, so only a non-recurring
+		// range has to be ordered.
+		if repeat == "" && end.Before(start) {
+			return fmt.Errorf("end_date %s is before date %s", e.EndDate, e.Date)
+		}
+		return nil
+	}
 }
 
 // AccessExceptionMatch reports whether the policy's local calendar date for now
@@ -169,8 +297,28 @@ func sameMode(a, b string) bool {
 }
 
 // exceptionCovers reports whether the (midnight, UTC-normalised) day falls in
-// the exception, honouring yearly recurrence and new-year wrapping.
+// the exception, honouring yearly recurrence, the lunar calendar, statutory
+// holidays and new-year wrapping.
 func exceptionCovers(e AccessExceptionDate, day time.Time) bool {
+	if name := strings.TrimSpace(e.Holiday); name != "" {
+		entry, ok := currentHolidayCalendar().Lookup(day)
+		if !ok || entry.Name != name {
+			return false
+		}
+		wantOff := !strings.EqualFold(strings.TrimSpace(e.HolidayDay), AccessExceptionHolidayDayWork)
+		return entry.IsOffDay == wantOff
+	}
+	if strings.EqualFold(strings.TrimSpace(e.Repeat), AccessExceptionRepeatLunar) {
+		// The solar year and the lunar year differ for dates before the lunar
+		// new year, so try the neighbouring lunar years: 12/29 of lunar 2026
+		// lands in solar February 2027.
+		for _, y := range []int{day.Year() - 1, day.Year(), day.Year() + 1} {
+			if solar, ok := holiday.LunarToSolarClamped(y, e.LunarMonth, e.LunarDay); ok && solar.Equal(day) {
+				return true
+			}
+		}
+		return false
+	}
 	start, err := parseExceptionDate(e.Date)
 	if err != nil {
 		return false
@@ -187,40 +335,94 @@ func exceptionCovers(e AccessExceptionDate, day time.Time) bool {
 	return !day.Before(start) && !day.After(end)
 }
 
-// exceptionsOverlap reports whether two entries cover at least one shared day.
-func exceptionsOverlap(a, b AccessExceptionDate) bool {
-	aStart, errA1 := parseExceptionDate(a.Date)
-	bStart, errB1 := parseExceptionDate(b.Date)
-	if errA1 != nil || errB1 != nil {
-		return false
+// overlapYears collects the years an overlap check has to consider: the
+// reference year and its neighbours (so a range that wraps the new year is
+// seen from both sides), every year the holiday calendar knows about, and the
+// explicit years of fixed-range entries.
+func overlapYears(exceptions []AccessExceptionDate, refYear int) []int {
+	set := map[int]struct{}{refYear - 1: {}, refYear: {}, refYear + 1: {}}
+	for _, y := range currentHolidayCalendar().Years() {
+		set[y] = struct{}{}
 	}
-	aEnd := aStart
-	if strings.TrimSpace(a.EndDate) != "" {
-		if parsed, err := parseExceptionDate(a.EndDate); err == nil {
-			aEnd = parsed
+	for _, e := range exceptions {
+		for _, raw := range []string{e.Date, e.EndDate} {
+			if strings.TrimSpace(raw) == "" {
+				continue
+			}
+			if d, err := parseExceptionDate(raw); err == nil {
+				set[d.Year()] = struct{}{}
+			}
 		}
 	}
-	bEnd := bStart
-	if strings.TrimSpace(b.EndDate) != "" {
-		if parsed, err := parseExceptionDate(b.EndDate); err == nil {
-			bEnd = parsed
-		}
+	out := make([]int, 0, len(set))
+	for y := range set {
+		out = append(out, y)
 	}
-	aYearly := strings.EqualFold(strings.TrimSpace(a.Repeat), AccessExceptionRepeatYearly)
-	bYearly := strings.EqualFold(strings.TrimSpace(b.Repeat), AccessExceptionRepeatYearly)
+	sort.Ints(out)
+	return out
+}
 
-	switch {
-	case aYearly && bYearly:
-		return monthDayRangesOverlap(monthDayKey(aStart), monthDayKey(aEnd), monthDayKey(bStart), monthDayKey(bEnd))
-	case aYearly:
-		return inMonthDayRange(monthDayKey(aStart), monthDayKey(aEnd), monthDayKey(bStart)) ||
-			inMonthDayRange(monthDayKey(aStart), monthDayKey(aEnd), monthDayKey(bEnd))
-	case bYearly:
-		return inMonthDayRange(monthDayKey(bStart), monthDayKey(bEnd), monthDayKey(aStart)) ||
-			inMonthDayRange(monthDayKey(bStart), monthDayKey(bEnd), monthDayKey(aEnd))
-	default:
-		return !aStart.After(bEnd) && !bStart.After(aEnd)
+// exceptionDateSet resolves an entry into every concrete calendar date it
+// covers across the given years.
+func exceptionDateSet(e AccessExceptionDate, years []int) map[string]struct{} {
+	set := make(map[string]struct{})
+	add := func(d time.Time) { set[d.Format("2006-01-02")] = struct{}{} }
+
+	if name := strings.TrimSpace(e.Holiday); name != "" {
+		offDay := !strings.EqualFold(strings.TrimSpace(e.HolidayDay), AccessExceptionHolidayDayWork)
+		cal := currentHolidayCalendar()
+		for _, y := range years {
+			for _, d := range cal.Dates(y, name, offDay) {
+				add(d)
+			}
+		}
+		return set
 	}
+	if strings.EqualFold(strings.TrimSpace(e.Repeat), AccessExceptionRepeatLunar) {
+		for _, y := range years {
+			if d, ok := holiday.LunarToSolarClamped(y, e.LunarMonth, e.LunarDay); ok {
+				add(d)
+			}
+		}
+		return set
+	}
+	start, err := parseExceptionDate(e.Date)
+	if err != nil {
+		return set
+	}
+	end := start
+	if strings.TrimSpace(e.EndDate) != "" {
+		if parsed, err := parseExceptionDate(e.EndDate); err == nil {
+			end = parsed
+		}
+	}
+	if strings.EqualFold(strings.TrimSpace(e.Repeat), AccessExceptionRepeatYearly) {
+		startKey, endKey := monthDayKey(start), monthDayKey(end)
+		for _, y := range years {
+			for d := time.Date(y, 1, 1, 0, 0, 0, 0, time.UTC); d.Year() == y; d = d.AddDate(0, 0, 1) {
+				if inMonthDayRange(startKey, endKey, monthDayKey(d)) {
+					add(d)
+				}
+			}
+		}
+		return set
+	}
+	for d := start; !d.After(end); d = d.AddDate(0, 0, 1) {
+		add(d)
+	}
+	return set
+}
+
+func dateSetsIntersect(a, b map[string]struct{}) bool {
+	if len(a) > len(b) {
+		a, b = b, a
+	}
+	for k := range a {
+		if _, ok := b[k]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 // parseExceptionDate parses YYYY-MM-DD into a date-only UTC time so range
@@ -241,15 +443,6 @@ func inMonthDayRange(start, end, md int) bool {
 		return md >= start && md <= end
 	}
 	return md >= start || md <= end
-}
-
-// monthDayRangesOverlap reports whether two month-day ranges (each possibly
-// wrapping the new year) share at least one day.
-//
-// Two arcs on a circle intersect exactly when one arc's start lies in the
-// other arc, which avoids any cyclic-interval case analysis.
-func monthDayRangesOverlap(aStart, aEnd, bStart, bEnd int) bool {
-	return inMonthDayRange(bStart, bEnd, aStart) || inMonthDayRange(aStart, aEnd, bStart)
 }
 
 // EvaluateAccessWindowsAt reports whether now falls inside any window. An

@@ -449,7 +449,7 @@ blocked client never gets to guess codes.
 | Method | Path | Body | Notes |
 |---|---|---|---|
 | `GET` | `/v1/me/devices/:device_id/access-policy` | — | Returns `{device_id, remote_disabled, allow_ips: [], max_sessions, allowed_windows: [], timezone, exception_dates: [], approval_required, updated_at?}`. A device with no policy returns `remote_disabled: false, allow_ips: [], max_sessions: 0, allowed_windows: [], exception_dates: [], approval_required: false`. |
-| `PUT` | `/v1/me/devices/:device_id/access-policy` | `{remote_disabled: bool, allow_ips: ["10.0.0.0/8"], max_sessions: 1, allowed_windows: [{"days":[1,2,3,4,5],"start":"09:00","end":"18:00"}], timezone: "Asia/Shanghai", exception_dates: [{"date":"2026-02-15","end_date":"2026-02-21","mode":"deny","repeat":"yearly"}], approval_required: false}` | Full replace. IP entries must be bare IPs or CIDR blocks; `0` max sessions means unlimited; negative is rejected. |
+| `PUT` | `/v1/me/devices/:device_id/access-policy` | `{remote_disabled: bool, allow_ips: ["10.0.0.0/8"], max_sessions: 1, allowed_windows: [{"days":[1,2,3,4,5],"start":"09:00","end":"18:00"}], timezone: "Asia/Shanghai", exception_dates: [{"holiday":"春节","mode":"deny"},{"repeat":"lunar","lunar_month":8,"lunar_day":15,"mode":"deny"},{"date":"2026-10-17","mode":"allow"}], approval_required: false}` | Full replace. IP entries must be bare IPs or CIDR blocks; `0` max sessions means unlimited; negative is rejected. |
 
 `max_sessions` is a concurrency cap on *controllers* (viewers count too, the
 host socket does not). It is enforced when a controller authenticates its
@@ -476,15 +476,35 @@ evaluated in the same `timezone`:
   `today is blocked by an access exception date`;
 - `mode: "allow"` permits the covered day(s) and **overrides**
   `allowed_windows` (a one-off work day);
-- `date` is `YYYY-MM-DD`; `end_date` is an optional **inclusive** range end and
-  defaults to `date`;
-- `repeat: "yearly"` makes the entry recur every year on the same month-day(s),
-  so "Spring Festival" or "New Year" is one entry instead of one per year. A
-  yearly range may wrap the new year (`2026-12-30` → `2026-01-02`); a
-  non-yearly range must be ordered;
 - an `allow` and a `deny` entry may not cover the same day (overlap is rejected
   as ambiguous, with the two offending indexes named); same-mode overlap is
   allowed. An empty list means "no exceptions".
+
+Each entry carries **exactly one** of three date sources:
+
+1. **Fixed date** — `date` is `YYYY-MM-DD`; `end_date` is an optional
+   **inclusive** range end and defaults to `date`; `repeat: "yearly"` makes it
+   recur every year on the same month-day(s), and a yearly range may wrap the
+   new year (`2026-12-30` → `2026-01-02`). A non-yearly range must be ordered.
+2. **Statutory holiday** — `holiday` names an entry in the server's holiday
+   calendar, e.g. `"春节"`, `"国庆节"`, `"元旦"`. The dates come from the data,
+   not from the policy, so the whole holiday break is one entry:
+   `{"holiday":"春节","mode":"deny"}`. `holiday_day: "work"` selects the
+   make-up workdays (调休上班) instead of the days off, which is how a Saturday
+   that the government turned into a workday can be admitted by a weekly
+   window that would otherwise skip it:
+   `{"holiday":"春节","holiday_day":"work","mode":"allow"}`. An unknown holiday
+   name is rejected at write time rather than silently never matching.
+3. **Lunar date** — `repeat: "lunar"` with `lunar_month` (1–12) and `lunar_day`
+   (1–30) follows the lunar calendar, so `{"repeat":"lunar","lunar_month":8,"lunar_day":15,"mode":"deny"}`
+   blocks 中秋 every year without an annual edit. `12/30` falls back to `12/29`
+   when that month is short, which keeps a 除夕 entry working across years.
+
+The holiday calendar is the 2026 CN arrangement compiled into the binary
+(sourced from the State Council notice) plus, when `HOLIDAY_CALENDAR_DIR` is
+set, every `YYYY.json` found there. The files use the public `holiday-cn`
+format (`{year, papers, days:[{name,date,isOffDay}]}`), so next year's file can
+be dropped in and the server restarted without a rebuild.
 
 Exception dates only decide the *time* rule. `remote_disabled` and `allow_ips`
 are still evaluated first, so an allow date cannot bypass either of them.
