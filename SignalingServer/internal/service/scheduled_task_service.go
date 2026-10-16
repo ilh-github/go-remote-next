@@ -26,6 +26,15 @@ const (
 const (
 	MinScheduledTaskRepeatSeconds = 60
 	MaxScheduledTaskRepeatSeconds = 365 * 24 * 60 * 60
+	// DefaultScheduledTaskMaxAttempts is "no retry": one attempt per occurrence,
+	// which is how the scheduler behaved before retries existed.
+	DefaultScheduledTaskMaxAttempts = 1
+	MinScheduledTaskMaxAttempts     = 1
+	// MaxScheduledTaskMaxAttempts bounds the retry budget. A task that keeps
+	// failing is a bug or an outage; hammering it forever helps neither.
+	MaxScheduledTaskMaxAttempts = 10
+	// scheduledTaskRetryBackoffCap bounds the per-retry delay.
+	scheduledTaskRetryBackoffCap = 10 * time.Minute
 	// scheduledTaskBatch bounds one worker pass.
 	scheduledTaskBatch = 100
 )
@@ -37,6 +46,8 @@ var (
 	// ErrInvalidScheduledTaskSchedule covers a run_at that is absent, in the
 	// past, or a repeat interval outside the accepted range.
 	ErrInvalidScheduledTaskSchedule = errors.New("scheduled task needs a future run_at and repeat_seconds of 0 or 60..31536000")
+	// ErrInvalidScheduledTaskMaxAttempts covers a retry budget outside 1..10.
+	ErrInvalidScheduledTaskMaxAttempts = errors.New("scheduled task max_attempts must be between 1 and 10")
 )
 
 // ScheduledTaskAction is the server-side work one kind performs. Actions must
@@ -94,6 +105,7 @@ func (s *ScheduledTaskService) Create(
 	kind string,
 	runAt time.Time,
 	repeatSeconds int,
+	maxAttempts int,
 ) (*models.ScheduledTask, error) {
 	kind = strings.TrimSpace(kind)
 	if _, ok := s.actions[kind]; !ok {
@@ -107,12 +119,19 @@ func (s *ScheduledTaskService) Create(
 		(repeatSeconds < MinScheduledTaskRepeatSeconds || repeatSeconds > MaxScheduledTaskRepeatSeconds) {
 		return nil, fmt.Errorf("%w: repeat_seconds is %d", ErrInvalidScheduledTaskSchedule, repeatSeconds)
 	}
+	if maxAttempts == 0 {
+		maxAttempts = DefaultScheduledTaskMaxAttempts
+	}
+	if maxAttempts < MinScheduledTaskMaxAttempts || maxAttempts > MaxScheduledTaskMaxAttempts {
+		return nil, fmt.Errorf("%w: max_attempts is %d", ErrInvalidScheduledTaskMaxAttempts, maxAttempts)
+	}
 	row := &models.ScheduledTask{
 		UserID:        userID,
 		Kind:          kind,
 		NextRunAt:     runAt.UTC(),
 		RepeatSeconds: repeatSeconds,
 		Enabled:       true,
+		MaxAttempts:   maxAttempts,
 	}
 	if err := s.db.WithContext(ctx).Create(row).Error; err != nil {
 		return nil, err
@@ -204,9 +223,14 @@ func (s *ScheduledTaskService) claimDue(ctx context.Context, now time.Time) ([]m
 	return claimed, err
 }
 
-// runOne executes one claimed task and records the outcome. Failures are
-// recorded rather than retried in place: the schedule has already moved on, and
-// the next occurrence (or the operator reading last_error) is the recovery.
+// runOne executes one claimed task and records the outcome, re-arming the task
+// when the failure is retryable.
+//
+// The claim already moved the schedule forward (or disabled a one-shot), so a
+// retry is expressed by writing a *new* next_run_at from here. Two rules keep
+// that honest: the retry never pushes a recurring task past its own next
+// period, and the retry budget is bounded per occurrence, so a task that keeps
+// failing eventually parks with last_error instead of spinning.
 func (s *ScheduledTaskService) runOne(ctx context.Context, task models.ScheduledTask, now time.Time) {
 	action, ok := s.actions[task.Kind]
 	status := ScheduledTaskStatusOK
@@ -221,22 +245,77 @@ func (s *ScheduledTaskService) runOne(ctx context.Context, task models.Scheduled
 			message = message[:255]
 		}
 	}
+
+	attempted := task.Attempts + 1
+	updates := map[string]interface{}{
+		"last_run_at": now,
+		"last_status": status,
+		"last_error":  message,
+		"updated_at":  now,
+	}
+	switch {
+	case status == ScheduledTaskStatusOK:
+		// Success ends the occurrence: clear the counter so the next period (or
+		// an operator re-running it) starts fresh.
+		updates["attempts"] = 0
+	case attempted < scheduledTaskMaxAttempts(task):
+		retryAt := now.Add(scheduledTaskRetryBackoff(attempted))
+		if task.RepeatSeconds > 0 {
+			// The retry exists to run sooner, not to drift the schedule, so it
+			// is clamped to the period the claim already advanced.
+			if periodEnd := now.Add(time.Duration(task.RepeatSeconds) * time.Second); retryAt.After(periodEnd) {
+				retryAt = periodEnd
+			}
+		}
+		updates["next_run_at"] = retryAt
+		updates["attempts"] = attempted
+		updates["enabled"] = true
+	default:
+		// Out of attempts. A one-shot stays disabled and keeps the count so the
+		// operator can see it tried; a recurring task keeps the period the claim
+		// advanced and starts the next occurrence with a clean counter.
+		if task.RepeatSeconds > 0 {
+			updates["attempts"] = 0
+		} else {
+			updates["attempts"] = attempted
+		}
+	}
+
 	if err := s.db.WithContext(ctx).Model(&models.ScheduledTask{}).
 		Where("id = ?", task.ID).
-		Updates(map[string]interface{}{
-			"last_run_at": now,
-			"last_status": status,
-			"last_error":  message,
-			"updated_at":  now,
-		}).Error; err != nil {
+		Updates(updates).Error; err != nil {
 		log.Printf("[scheduled-task] record outcome for task %d failed: %v", task.ID, err)
 	}
 	if s.audit != nil {
 		s.audit.LogActor(ctx, task.UserID, "scheduled_task.run", "scheduled_task",
 			fmt.Sprintf("%d", task.ID),
-			fmt.Sprintf("kind=%s status=%s error=%q", task.Kind, status, message),
+			fmt.Sprintf("kind=%s status=%s attempt=%d/%d error=%q",
+				task.Kind, status, attempted, scheduledTaskMaxAttempts(task), message),
 			"")
 	}
+}
+
+// scheduledTaskMaxAttempts treats an unset budget as "no retry", so rows
+// written before the column existed keep their old behaviour.
+func scheduledTaskMaxAttempts(task models.ScheduledTask) int {
+	if task.MaxAttempts < MinScheduledTaskMaxAttempts {
+		return DefaultScheduledTaskMaxAttempts
+	}
+	return task.MaxAttempts
+}
+
+// scheduledTaskRetryBackoff grows 30s, 1m, 2m, 4m, 8m and then holds at the cap.
+// The first retry is deliberately quick: the common failure is a blip, and a
+// one-shot task has no next period to fall back on.
+func scheduledTaskRetryBackoff(attempt int) time.Duration {
+	if attempt < 1 {
+		attempt = 1
+	}
+	backoff := 30 * time.Second * time.Duration(1<<uint(min(attempt-1, 5)))
+	if backoff > scheduledTaskRetryBackoffCap {
+		return scheduledTaskRetryBackoffCap
+	}
+	return backoff
 }
 
 // Run drives RunDue on a ticker until ctx is cancelled. interval <= 0 disables

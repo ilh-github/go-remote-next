@@ -37,6 +37,9 @@ type scheduledTaskReq struct {
 	RunAt string `json:"run_at" binding:"required"`
 	// RepeatSeconds is 0 for a one-shot task, or 60..31536000 to repeat.
 	RepeatSeconds int `json:"repeat_seconds"`
+	// MaxAttempts is how many times one occurrence may be attempted (1..10).
+	// 1, the default, means "no retry".
+	MaxAttempts int `json:"max_attempts"`
 }
 
 // scheduledTaskView is the wire shape. The outcome fields are exposed so an
@@ -47,6 +50,8 @@ type scheduledTaskView struct {
 	NextRunAt     time.Time  `json:"next_run_at"`
 	RepeatSeconds int        `json:"repeat_seconds"`
 	Enabled       bool       `json:"enabled"`
+	MaxAttempts   int        `json:"max_attempts"`
+	Attempts      int        `json:"attempts"`
 	LastRunAt     *time.Time `json:"last_run_at,omitempty"`
 	LastStatus    string     `json:"last_status,omitempty"`
 	LastError     string     `json:"last_error,omitempty"`
@@ -61,6 +66,8 @@ func scheduledTaskViewOf(row models.ScheduledTask) scheduledTaskView {
 		NextRunAt:     row.NextRunAt,
 		RepeatSeconds: row.RepeatSeconds,
 		Enabled:       row.Enabled,
+		MaxAttempts:   row.MaxAttempts,
+		Attempts:      row.Attempts,
 		LastRunAt:     row.LastRunAt,
 		LastStatus:    row.LastStatus,
 		LastError:     row.LastError,
@@ -104,10 +111,12 @@ func (h *ScheduledTaskHandler) Create(c *gin.Context) {
 		ProblemBadRequest(c, ProblemCodeInvalidRequest, "run_at must be RFC3339, e.g. 2026-10-17T03:00:00Z")
 		return
 	}
-	row, err := h.tasks.Create(c.Request.Context(), middleware.MustUserID(c), req.Kind, runAt, req.RepeatSeconds)
+	row, err := h.tasks.Create(c.Request.Context(), middleware.MustUserID(c),
+		req.Kind, runAt, req.RepeatSeconds, req.MaxAttempts)
 	if err != nil {
 		if errors.Is(err, service.ErrInvalidScheduledTaskKind) ||
-			errors.Is(err, service.ErrInvalidScheduledTaskSchedule) {
+			errors.Is(err, service.ErrInvalidScheduledTaskSchedule) ||
+			errors.Is(err, service.ErrInvalidScheduledTaskMaxAttempts) {
 			ProblemBadRequest(c, ProblemCodeInvalidRequest, err.Error())
 			return
 		}

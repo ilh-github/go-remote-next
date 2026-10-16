@@ -1004,7 +1004,7 @@ cannot be reaped.
 | Method | Path | Body |
 |---|---|---|
 | `GET` | `/v1/me/scheduled-tasks` | — |
-| `POST` | `/v1/me/scheduled-tasks` | `{kind, run_at, repeat_seconds?}` |
+| `POST` | `/v1/me/scheduled-tasks` | `{kind, run_at, repeat_seconds?, max_attempts?}` |
 | `DELETE` | `/v1/me/scheduled-tasks/:id` | — |
 
 `run_at` is RFC3339 and must be in the future; `repeat_seconds` is `0` for a
@@ -1027,6 +1027,18 @@ Each row carries its outcome: `last_run_at`, `last_status` (`ok` / `failed`) and
 reading server logs. One-shot tasks are **disabled** after they run rather than
 deleted, so the history survives.
 
+**Failures can be retried.** `max_attempts` (default `1`, allowed `1`…`10`) is
+how many times one occurrence may be attempted; `1` keeps the original
+"fire once and record the error" behaviour. When a run fails and the budget is
+not spent, the task is re-armed after a short backoff (30s, 1m, 2m, 4m, 8m, then
+held at 10m) instead of waiting a whole period — which matters most for a
+one-shot task, where the next period never comes. A retry never pushes a
+recurring task past its own next period, so it recovers the failed occurrence
+without drifting the schedule. The live counter is `attempts`: reset to `0` on
+success, kept on a parked one-shot so the operator can see how many tries it
+got, and reset for a recurring task so the next period starts fresh. A parked
+one-shot stays `enabled: false` with `last_error` set.
+
 The worker (`SCHEDULED_TASK_INTERVAL_SECONDS`, default `30`; `0` disables it)
 claims due rows with `FOR UPDATE SKIP LOCKED` and advances the schedule *inside*
 the claiming transaction, before the action runs. That makes the schedule safe
@@ -1034,8 +1046,9 @@ across instances — the same occurrence can never fire twice — at the cost of
 at-most-once semantics: a crash in the window between the claim and the action
 skips that occurrence. A recurring task whose worker was down for several
 periods fires once and reschedules from now rather than replaying every missed
-occurrence. Every run writes an `audit.sweep`-style audit row,
-`scheduled_task.run`, with the kind and outcome.
+occurrence. Every run writes an audit row, `scheduled_task.run`, with the kind,
+the outcome and the attempt number (`attempt=2/3`), so a retry is visible in the
+trail and not only in the row's counter.
 
 ---
 

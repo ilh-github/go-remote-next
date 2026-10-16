@@ -532,6 +532,8 @@ CREATE TABLE IF NOT EXISTS scheduled_tasks (
     next_run_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     repeat_seconds INTEGER      NOT NULL DEFAULT 0,
     enabled        BOOLEAN      NOT NULL DEFAULT TRUE,
+    max_attempts   INTEGER      NOT NULL DEFAULT 1,
+    attempts       INTEGER      NOT NULL DEFAULT 0,
     last_run_at    TIMESTAMPTZ,
     last_status    VARCHAR(16)  NOT NULL DEFAULT '',
     last_error     VARCHAR(255) NOT NULL DEFAULT '',

@@ -32,6 +32,14 @@ type ScheduledTask struct {
 	// RepeatSeconds is the interval between runs; 0 means "run once".
 	RepeatSeconds int  `gorm:"not null;default:0" json:"repeat_seconds"`
 	Enabled       bool `gorm:"not null;default:true" json:"enabled"`
+	// MaxAttempts is how many times one occurrence may be attempted: 1 means
+	// "no retry" (the historical behaviour), 2..10 re-arms a failed task after a
+	// short backoff instead of waiting a whole period or giving up outright.
+	MaxAttempts int `gorm:"not null;default:1" json:"max_attempts"`
+	// Attempts counts attempts made for the current occurrence. It is reset to
+	// 0 on success and, for a recurring task, when retries are exhausted so the
+	// next period starts fresh.
+	Attempts int `gorm:"not null;default:0" json:"attempts"`
 
 	LastRunAt  *time.Time `json:"last_run_at"`
 	LastStatus string     `gorm:"size:16;not null;default:''" json:"last_status"`

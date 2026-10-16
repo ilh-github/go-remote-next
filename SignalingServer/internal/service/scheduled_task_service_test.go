@@ -81,20 +81,23 @@ func TestScheduledTaskCreateValidation(t *testing.T) {
 	ctx := context.Background()
 	future := time.Now().Add(time.Hour)
 
-	if _, err := svc.Create(ctx, 1, "nope", future, 0); !errors.Is(err, ErrInvalidScheduledTaskKind) {
+	if _, err := svc.Create(ctx, 1, "nope", future, 0, 0); !errors.Is(err, ErrInvalidScheduledTaskKind) {
 		t.Fatalf("unknown kind err = %v, want ErrInvalidScheduledTaskKind", err)
 	}
-	if _, err := svc.Create(ctx, 1, "probe", time.Now().Add(-time.Minute), 0); !errors.Is(err, ErrInvalidScheduledTaskSchedule) {
+	if _, err := svc.Create(ctx, 1, "probe", time.Now().Add(-time.Minute), 0, 0); !errors.Is(err, ErrInvalidScheduledTaskSchedule) {
 		t.Fatalf("past run_at err = %v, want ErrInvalidScheduledTaskSchedule", err)
 	}
-	if _, err := svc.Create(ctx, 1, "probe", future, 30); !errors.Is(err, ErrInvalidScheduledTaskSchedule) {
+	if _, err := svc.Create(ctx, 1, "probe", future, 30, 0); !errors.Is(err, ErrInvalidScheduledTaskSchedule) {
 		t.Fatalf("repeat below the minimum err = %v, want ErrInvalidScheduledTaskSchedule", err)
 	}
-	row, err := svc.Create(ctx, 1, "probe", future, 60)
+	if _, err := svc.Create(ctx, 1, "probe", future, 0, 11); !errors.Is(err, ErrInvalidScheduledTaskMaxAttempts) {
+		t.Fatalf("max_attempts above the cap err = %v, want ErrInvalidScheduledTaskMaxAttempts", err)
+	}
+	row, err := svc.Create(ctx, 1, "probe", future, 60, 0)
 	if err != nil {
 		t.Fatalf("valid create: %v", err)
 	}
-	if !row.Enabled || row.RepeatSeconds != 60 {
+	if !row.Enabled || row.RepeatSeconds != 60 || row.MaxAttempts != DefaultScheduledTaskMaxAttempts {
 		t.Fatalf("created row = %+v, want an enabled 60s repeat", row)
 	}
 }
@@ -259,5 +262,174 @@ func TestScheduledTaskListAndDeleteAreOwnerScoped(t *testing.T) {
 	}
 	if after := loadScheduledTask(t, db, theirs.ID); after.ID != theirs.ID {
 		t.Fatal("another user's task was deleted")
+	}
+}
+
+// flakyAction fails its first `failures` runs and then succeeds, so a test can
+// watch one occurrence get retried instead of losing its only chance.
+type flakyAction struct {
+	mu       sync.Mutex
+	failures int
+	runs     int
+}
+
+func (a *flakyAction) Run(_ context.Context, _ models.ScheduledTask) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.runs++
+	if a.runs <= a.failures {
+		return errors.New("boom")
+	}
+	return nil
+}
+
+func (a *flakyAction) count() int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.runs
+}
+
+// A one-shot task that fails once must not lose its only chance: the retry
+// budget re-arms it after a short backoff, and a later success clears the
+// counter.
+func TestScheduledTaskRetriesFailedOneShotThenSucceeds(t *testing.T) {
+	db := newScheduledTaskTestDB(t)
+	action := &flakyAction{failures: 1}
+	svc := NewScheduledTaskService(db).RegisterAction("probe", action)
+	ctx := context.Background()
+
+	now := time.Now().UTC()
+	task := seedScheduledTask(t, db, models.ScheduledTask{
+		UserID:      1,
+		Kind:        "probe",
+		NextRunAt:   now.Add(-time.Second),
+		Enabled:     true,
+		MaxAttempts: 3,
+	})
+
+	if n, err := svc.RunDue(ctx, now); err != nil || n != 1 {
+		t.Fatalf("first RunDue = %d,%v, want 1,nil", n, err)
+	}
+	row := loadScheduledTask(t, db, task.ID)
+	if !row.Enabled || row.Attempts != 1 || row.LastStatus != ScheduledTaskStatusFailed {
+		t.Fatalf("after the first failure row = %+v, want enabled with attempts=1", row)
+	}
+	if d := row.NextRunAt.Sub(now); d <= 0 || d > time.Minute {
+		t.Fatalf("retry scheduled %v after the failure, want a short backoff inside a minute", d)
+	}
+
+	if n, err := svc.RunDue(ctx, row.NextRunAt.Add(time.Second)); err != nil || n != 1 {
+		t.Fatalf("retry RunDue = %d,%v, want 1,nil", n, err)
+	}
+	row = loadScheduledTask(t, db, task.ID)
+	if row.Enabled || row.Attempts != 0 || row.LastStatus != ScheduledTaskStatusOK {
+		t.Fatalf("after the retry succeeded row = %+v, want finished with the counter cleared", row)
+	}
+	if action.count() != 2 {
+		t.Fatalf("action ran %d times, want 2", action.count())
+	}
+}
+
+// The budget is finite: once it is spent the one-shot parks with the error
+// instead of spinning, and no later pass picks it up again.
+func TestScheduledTaskParksOneShotWhenAttemptsRunOut(t *testing.T) {
+	db := newScheduledTaskTestDB(t)
+	action := &flakyAction{failures: 99}
+	svc := NewScheduledTaskService(db).RegisterAction("probe", action)
+	ctx := context.Background()
+
+	now := time.Now().UTC()
+	task := seedScheduledTask(t, db, models.ScheduledTask{
+		UserID:      1,
+		Kind:        "probe",
+		NextRunAt:   now.Add(-time.Second),
+		Enabled:     true,
+		MaxAttempts: 2,
+	})
+
+	if n, _ := svc.RunDue(ctx, now); n != 1 {
+		t.Fatalf("first pass ran %d tasks, want 1", n)
+	}
+	row := loadScheduledTask(t, db, task.ID)
+	if !row.Enabled || row.Attempts != 1 {
+		t.Fatalf("after the first failure row = %+v, want enabled with attempts=1", row)
+	}
+
+	second := row.NextRunAt.Add(time.Second)
+	if n, _ := svc.RunDue(ctx, second); n != 1 {
+		t.Fatalf("second pass ran %d tasks, want 1", n)
+	}
+	row = loadScheduledTask(t, db, task.ID)
+	if row.Enabled || row.Attempts != 2 || row.LastStatus != ScheduledTaskStatusFailed {
+		t.Fatalf("exhausted row = %+v, want disabled with attempts=2", row)
+	}
+
+	if n, _ := svc.RunDue(ctx, second.Add(time.Hour)); n != 0 {
+		t.Fatalf("a parked task ran again (%d tasks), want 0", n)
+	}
+	if action.count() != 2 {
+		t.Fatalf("action ran %d times, want exactly the budget", action.count())
+	}
+}
+
+// The default budget is 1, which is the old "fire once, record the error"
+// behaviour: no re-arm, the row parks immediately.
+func TestScheduledTaskWithoutRetryBudgetDoesNotRetry(t *testing.T) {
+	db := newScheduledTaskTestDB(t)
+	action := &flakyAction{failures: 99}
+	svc := NewScheduledTaskService(db).RegisterAction("probe", action)
+	ctx := context.Background()
+
+	now := time.Now().UTC()
+	task := seedScheduledTask(t, db, models.ScheduledTask{
+		UserID:      1,
+		Kind:        "probe",
+		NextRunAt:   now.Add(-time.Second),
+		Enabled:     true,
+		MaxAttempts: 1,
+	})
+
+	if n, _ := svc.RunDue(ctx, now); n != 1 {
+		t.Fatalf("first pass ran %d tasks, want 1", n)
+	}
+	row := loadScheduledTask(t, db, task.ID)
+	if row.Enabled || row.Attempts != 1 || row.LastStatus != ScheduledTaskStatusFailed {
+		t.Fatalf("no-retry row = %+v, want parked after a single attempt", row)
+	}
+	if action.count() != 1 {
+		t.Fatalf("action ran %d times, want 1", action.count())
+	}
+}
+
+// A recurring task's retry must run sooner than (or at) its next period - it
+// exists to recover the failed occurrence, not to drift the schedule.
+func TestScheduledTaskRecurringRetryRunsBeforeTheNextPeriod(t *testing.T) {
+	db := newScheduledTaskTestDB(t)
+	action := &flakyAction{failures: 99}
+	svc := NewScheduledTaskService(db).RegisterAction("probe", action)
+	ctx := context.Background()
+
+	now := time.Now().UTC()
+	task := seedScheduledTask(t, db, models.ScheduledTask{
+		UserID:        1,
+		Kind:          "probe",
+		NextRunAt:     now.Add(-time.Second),
+		RepeatSeconds: 3600,
+		Enabled:       true,
+		MaxAttempts:   3,
+	})
+
+	if n, _ := svc.RunDue(ctx, now); n != 1 {
+		t.Fatalf("first pass ran %d tasks, want 1", n)
+	}
+	row := loadScheduledTask(t, db, task.ID)
+	if !row.Enabled || row.Attempts != 1 {
+		t.Fatalf("row after the failure = %+v, want enabled with attempts=1", row)
+	}
+	if !row.NextRunAt.Before(now.Add(3600 * time.Second)) {
+		t.Fatalf("retry at %v is not before the hourly period end", row.NextRunAt)
+	}
+	if row.LastError == "" {
+		t.Fatal("last_error is empty; a retried failure must still be readable")
 	}
 }
