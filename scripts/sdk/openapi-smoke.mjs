@@ -10,8 +10,10 @@
 // Read-only by default. Give QD_SMOKE_DEVICE=<device_id> and it also covers the
 // documented operations with side effects - the offline-alert and access-policy
 // PUTs (restored to exactly the prior state afterwards), issuing then revoking a
-// short-lived guest code, and the wrong-access-code rejection (which writes an
-// access-log row and may notify the owner).
+// short-lived guest code, the wrong-access-code rejection (which writes an
+// access-log row and may notify the owner), the whole recording lifecycle (which
+// the smoke creates and deletes itself) and the approval flow (which needs the
+// device to be online and switches approval_mode on temporarily).
 //
 // Usage:
 //   QD_IDENTIFIER=user QD_PASSWORD=secret scripts/sdk/openapi-smoke.mjs
@@ -22,6 +24,10 @@
 //   QD_API_KEY     default qd-local-dev-key
 //   QD_IDENTIFIER / QD_PASSWORD   required
 //   QD_SMOKE_DEVICE               optional; enables the write-path checks
+//   QD_SMOKE_APPROVAL_DENY        set to 1 to also drive the deny outcome; a
+//                                 deny arms the per-(device, source) cooldown,
+//                                 so a second run against the same device would
+//                                 be refused while it lasts
 //
 // Exit codes: 0 = the documented shapes hold, 3 = a documented field is missing
 // or mistyped, 4 = the server could not be reached or returned an unexpected
@@ -503,6 +509,128 @@ if (smokeDevice) {
   check(deletedRecording.status === 204, 'DELETE recording did not return 204');
   const goneRecording = await call('GET', `/v1/me/recordings/${recordingId}`, { token, expect: 404 });
   problemShape(goneRecording.json, 'GET deleted recording');
+
+  // 11. Second-factor approval, both outcomes.
+  //
+  // The read-only checks can pin the 404/400 shapes of these routes but not
+  // what a real decision does, because that needs a pending request - and a
+  // pending request needs a device that is online and requires approval. The
+  // smoke provides both: it turns approval on for its own device, drives the
+  // exchange, and puts the policy back immediately afterwards.
+  //
+  // Residue, stated rather than hidden: the device keeps two decided approval
+  // rows (one approved-and-consumed, one denied) and their entries on the
+  // access timeline. They are the owner's own history and the reason the flow
+  // is auditable.
+  const originalApprovalMode = policy.json.approval_mode ?? 'off';
+  const approvalPolicy = { ...policyPut, approval_mode: 'always' };
+  const approvalOn = await call('PUT', `/v1/me/devices/${deviceId}/access-policy`, {
+    token,
+    body: approvalPolicy,
+    expect: 200,
+  });
+  check(approvalOn.json.approval_mode === 'always',
+    `PUT access-policy left approval_mode "${approvalOn.json.approval_mode}", want always`);
+
+  // The device list carries the plaintext access code, which is what a
+  // controller would have been told out of band.
+  const approvalDevice = (deviceItems ?? []).find((d) => d.device_id === deviceId);
+  const deviceAccessCode = approvalDevice?.access_code ?? '';
+  check(typeof deviceAccessCode === 'string' && deviceAccessCode.length > 0,
+    'the device list did not return an access_code to verify with');
+
+  // A unique client id per run: denying arms the per-source cooldown, and a
+  // fixed id would make the *next* run look like the same denied source.
+  const approvalClient = `openapi-smoke-${Date.now()}`;
+  const pending = await call('POST', `/v1/devices/${deviceId}/access-code:verify`, {
+    body: { code: deviceAccessCode, client_id: approvalClient },
+    expect: 202,
+  });
+  for (const name of ['approval_id', 'approval_secret', 'status', 'expires_at', 'poll_after_ms']) {
+    field(pending.json, name, undefined, 'POST access-code:verify (approval pending)');
+  }
+  check(pending.json.status === 'pending',
+    `approval status is "${pending.json.status}", want pending`);
+
+  const pendingList = await call('GET', `/v1/me/devices/${deviceId}/access-approvals?status=pending`, { token, expect: 200 });
+  const pendingRow = (pendingList.json?.items ?? []).find((a) => a.id === pending.json.approval_id);
+  check(pendingRow !== undefined, 'the pending request is missing from the owner\'s approval list');
+  if (pendingRow) {
+    for (const name of ['id', 'device_id', 'client_id', 'client_ip', 'source', 'status', 'expires_at', 'created_at']) {
+      field(pendingRow, name, undefined, 'AccessApproval');
+    }
+  }
+
+  // Before a decision the claim is "keep polling", not an error.
+  const claimPending = await call('POST', `/v1/devices/${deviceId}/access-approvals:claim`, {
+    body: { approval_id: pending.json.approval_id, secret: pending.json.approval_secret },
+    expect: 202,
+  });
+  for (const name of ['status', 'expires_at', 'poll_after_ms']) {
+    field(claimPending.json, name, undefined, 'POST access-approvals:claim (pending)');
+  }
+  check(claimPending.json.status === 'pending',
+    `pending claim status is "${claimPending.json.status}", want pending`);
+
+  const approved = await call('POST', `/v1/me/devices/${deviceId}/access-approvals/${pending.json.approval_id}/approve`, {
+    token,
+    body: { reason: 'openapi-smoke' },
+    expect: 200,
+  });
+  check(approved.json.status === 'approved', `approve returned status "${approved.json.status}"`);
+  check(typeof approved.json.decided_at === 'string', 'approve did not record decided_at');
+
+  const claimed = await call('POST', `/v1/devices/${deviceId}/access-approvals:claim`, {
+    body: { approval_id: pending.json.approval_id, secret: pending.json.approval_secret },
+    expect: 200,
+  });
+  for (const name of ['signal_token', 'expires_at']) {
+    field(claimed.json, name, undefined, 'POST access-approvals:claim (approved)');
+  }
+  check(typeof claimed.json.signal_token === 'string' && claimed.json.signal_token.length > 0,
+    'the approved claim returned no signal_token');
+
+  // The approval is single-use: the same secret cannot mint a second token.
+  const reclaimed = await call('POST', `/v1/devices/${deviceId}/access-approvals:claim`, {
+    body: { approval_id: pending.json.approval_id, secret: pending.json.approval_secret },
+    expect: 409,
+  });
+  check(reclaimed.json?.status === 'consumed',
+    `re-claim status is "${reclaimed.json?.status}", want consumed`);
+
+  // The other outcome, on a fresh request: deny, then the claim is refused.
+  //
+  // Opt-in, because a deny arms the per-(device, source address) cooldown
+  // (APPROVAL_DENIAL_COOLDOWN_SECONDS, five minutes by default): running it
+  // unconditionally would make a second smoke run against the same device fail
+  // before the approve leg even started. CI sets QD_SMOKE_APPROVAL_DENY=1
+  // because its device is created fresh for every run and nothing follows it.
+  if (process.env.QD_SMOKE_APPROVAL_DENY === '1') {
+    const deniedRequest = await call('POST', `/v1/devices/${deviceId}/access-code:verify`, {
+      body: { code: deviceAccessCode, client_id: `${approvalClient}-denied` },
+      expect: 202,
+    });
+    const denied = await call('POST', `/v1/me/devices/${deviceId}/access-approvals/${deniedRequest.json.approval_id}/deny`, {
+      token,
+      body: { reason: 'openapi-smoke' },
+      expect: 200,
+    });
+    check(denied.json.status === 'denied', `deny returned status "${denied.json.status}"`);
+    const claimDenied = await call('POST', `/v1/devices/${deviceId}/access-approvals:claim`, {
+      body: { approval_id: deniedRequest.json.approval_id, secret: deniedRequest.json.approval_secret },
+      expect: 403,
+    });
+    problemShape(claimDenied.json, 'POST access-approvals:claim (denied)');
+  }
+
+  // Put the policy back exactly as it was before the flow.
+  const approvalOff = await call('PUT', `/v1/me/devices/${deviceId}/access-policy`, {
+    token,
+    body: policyPut,
+    expect: 200,
+  });
+  check(approvalOff.json.approval_mode === originalApprovalMode,
+    `access-policy was not restored: approval_mode "${approvalOff.json.approval_mode}", want "${originalApprovalMode}"`);
 }
 
 if (failures.length > 0) {

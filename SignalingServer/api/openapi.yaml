@@ -20,10 +20,16 @@ info:
 
     That smoke is read-only by default; `QD_SMOKE_DEVICE=<device_id>` adds the
     operations with side effects, and it restores what it touches: the
-    offline-alert rule and the access policy are put back exactly as they were.
-    The one deliberate residue is a **revoked, never-used guest code** row from
-    the create-then-revoke probe, because revocation (not deletion) is how a
-    grant is disabled.
+    offline-alert rule and the access policy (including the `approval_mode` it
+    temporarily switches on to drive the approval flow) are put back exactly as
+    they were, and the recording it creates is deleted again.
+
+    Two residues are deliberate and are the reason this document says so: a
+    **revoked, never-used guest code** row from the create-then-revoke probe
+    (revocation, not deletion, is how a grant is disabled), and **two decided
+    approval rows** on the smoke device - one approved and consumed, one denied
+    - because a decision is history and the flow is auditable precisely by
+    leaving it.
 
     A generated **TypeScript** client is committed under `sdk/ts` and is kept in
     step with this file by `scripts/sdk/check-generated-sdk.sh`, which CI runs:

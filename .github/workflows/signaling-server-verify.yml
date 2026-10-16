@@ -147,6 +147,9 @@ jobs:
       OFFLINE_ALERT_INTERVAL_SECONDS: '0'
       QD_API_KEY: ci-smoke-key
       QD_SERVER: http://127.0.0.1:8000
+      # The seeder creates a new device for every run, so driving the deny
+      # outcome (which arms a per-device cooldown) cannot affect anything later.
+      QD_SMOKE_APPROVAL_DENY: '1'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
