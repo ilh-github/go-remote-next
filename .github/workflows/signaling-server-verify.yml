@@ -61,6 +61,16 @@ jobs:
         with:
           go-version-file: SignalingServer/go.mod
           cache-dependency-path: SignalingServer/go.sum
+      - name: Provide the embedded admin UI directory
+        working-directory: SignalingServer
+        run: |
+          # `//go:embed web/dist/*` needs at least one matching file to compile,
+          # and web/dist is a build artifact that is not in the repository. The
+          # real admin UI build is covered by the Docker workflow, which builds
+          # the image on pull requests; here a placeholder is enough for the
+          # server to compile and its tests to run.
+          mkdir -p web/dist
+          printf '<!doctype html><title>ci placeholder</title>\n' > web/dist/index.html
       - name: go vet
         working-directory: SignalingServer
         run: go vet ./...
@@ -146,6 +156,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
+      - name: Provide the embedded admin UI directory
+        working-directory: SignalingServer
+        run: |
+          # Same reason as the Go job: the embed pattern needs a file, and the
+          # real UI build belongs to the Docker workflow.
+          mkdir -p web/dist
+          printf '<!doctype html><title>ci placeholder</title>\n' > web/dist/index.html
       - name: Build the server
         working-directory: SignalingServer
         run: go build -o /tmp/qd-signaling ./cmd/signaling
