@@ -72,7 +72,7 @@ QuickDesk 已经覆盖了远程控制最核心、最难实现的画面、输入�
 | 移动端 | 手机控制 | Android 客户端已有，iOS 未承诺 | 部分 | Android 保留，iOS 暂不做 |
 | Linux | Linux 被控端 | README 标注计划中 | 缺失 | Linux 暂不做，Windows/macOS 优先 |
 | P2P | 直连降低延迟 | WebRTC ICE，P2P 优先、TURN 回退 | 已有 | 不重写，做自托管压测 |
-| TURN | NAT 失败时中继 | coturn 自托管方案 | 已有 | 保留；容量/带宽/TLS/**DTLS**/**CA 证书轮换**/**小时级 soak（UDP 与 TLS）**/**ChannelData 路径**/**多实例与中继端口池耗尽** 都已实测（第 25、28、29、39、41、42、45 节），还缺 DTLS 上的小时级、公网/NAT 实测、公网 CA 自动续期与多天回归 |
+| TURN | NAT 失败时中继 | coturn 自托管方案 | 已有 | 保留；容量/带宽/TLS/**DTLS**/**CA 证书轮换**/**小时级 soak（UDP、TLS 与 DTLS）**/**ChannelData 路径**/**多实例与中继端口池耗尽** 都已实测（第 25、28、29、39、41、42、45、58 节；DTLS 小时级为 3605s、7200/7200 包、0 丢包、247 次 allocation refresh），还缺公网/NAT 实测、公网 CA 自动续期与多天回归 |
 | RDP | 系统远程桌面 | 不依赖 RDP，避免锁屏 | 已有替代 | 不做 RDP |
 | 日志聚合 | 集中日志和告警 | 有系统日志、审计和应用日志；**设备离线告警规则已落地**（第 44 节）；**日志可在服务器上就地检索**（`GET /v1/admin/system/logs:search`：从文件尾部逆序扫描，支持 `q` / `component` 整词 / `since`+`until` 闭区间 / `limit` / `file=` 选择来源，8 MiB 预算超了会报 `truncated`，检索本身写审计 `log.search`；配置 `POSTGRES_LOG_FILE`/`REDIS_LOG_FILE` 后数据库与缓存日志同样可搜，见第 48/53 节） | 部分 | 还缺跨实例日志汇聚（多实例各看自己；一次只能搜一个文件）、管理端日志面板，以及指标型告警（CPU/内存等，依赖被控端上报） |
 | Prometheus | 监控指标 | 后端有 metrics，管理后台有统计 | 部分 | 按业务指标扩展 |
