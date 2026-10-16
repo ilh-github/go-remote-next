@@ -144,6 +144,11 @@ type AuditConfig struct {
 	// JSONL file there before deleting them. Empty = plain delete. Audit rows
 	// are evidence, so an operator turning retention on should normally set it.
 	ArchiveDir string
+	// ArchiveRetentionDays bounds how long those archive files themselves are
+	// kept. 0 = keep them forever (the safe default: archiving exists so a
+	// purged row stays recoverable, so deleting the archives has to be asked
+	// for). Only files named audit-logs-YYYY-MM-DD.jsonl are touched.
+	ArchiveRetentionDays int
 }
 
 // OfflineAlertConfig controls the background evaluator behind per-device
@@ -278,6 +283,8 @@ func Load() *Config {
 	viper.SetDefault("AUDIT_RETENTION_DAYS", 0)
 	viper.SetDefault("AUDIT_SWEEP_INTERVAL_MINUTES", 60)
 	viper.SetDefault("AUDIT_ARCHIVE_DIR", "")
+	// How long the daily archive files themselves are kept. 0 = forever.
+	viper.SetDefault("AUDIT_ARCHIVE_RETENTION_DAYS", 0)
 	// Hard row cap, independent of the age window: the sweep trims the oldest
 	// rows until at most this many remain. 0 = no cap.
 	viper.SetDefault("AUDIT_MAX_ROWS", 0)
@@ -382,10 +389,11 @@ func Load() *Config {
 		AggregateSeconds: viper.GetInt("NOTIFICATION_AGGREGATE_SECONDS"),
 	}
 	cfg.Audit = AuditConfig{
-		RetentionDays:    viper.GetInt("AUDIT_RETENTION_DAYS"),
-		SweepIntervalMin: viper.GetInt("AUDIT_SWEEP_INTERVAL_MINUTES"),
-		MaxRows:          viper.GetInt("AUDIT_MAX_ROWS"),
-		ArchiveDir:       viper.GetString("AUDIT_ARCHIVE_DIR"),
+		RetentionDays:        viper.GetInt("AUDIT_RETENTION_DAYS"),
+		SweepIntervalMin:     viper.GetInt("AUDIT_SWEEP_INTERVAL_MINUTES"),
+		MaxRows:              viper.GetInt("AUDIT_MAX_ROWS"),
+		ArchiveDir:           viper.GetString("AUDIT_ARCHIVE_DIR"),
+		ArchiveRetentionDays: viper.GetInt("AUDIT_ARCHIVE_RETENTION_DAYS"),
 	}
 	cfg.OfflineAlert = OfflineAlertConfig{
 		IntervalSeconds: viper.GetInt("OFFLINE_ALERT_INTERVAL_SECONDS"),

@@ -16,13 +16,19 @@ import (
 
 // AdminAuditHandler serves GET /v1/admin/audit-logs.
 type AdminAuditHandler struct {
-	audit         *service.AuditService
-	retentionDays int
-	maxRows       int
+	audit                *service.AuditService
+	retentionDays        int
+	maxRows              int
+	archiveRetentionDays int
 }
 
-func NewAdminAuditHandler(a *service.AuditService, retentionDays, maxRows int) *AdminAuditHandler {
-	return &AdminAuditHandler{audit: a, retentionDays: retentionDays, maxRows: maxRows}
+func NewAdminAuditHandler(a *service.AuditService, retentionDays, maxRows, archiveRetentionDays int) *AdminAuditHandler {
+	return &AdminAuditHandler{
+		audit:                a,
+		retentionDays:        retentionDays,
+		maxRows:              maxRows,
+		archiveRetentionDays: archiveRetentionDays,
+	}
 }
 
 func (h *AdminAuditHandler) List(c *gin.Context) {
@@ -80,8 +86,9 @@ func parseActorUserID(raw string) (uint, error) {
 // cap than the configured retention, which is how either bound is exercised
 // without changing config and restarting.
 type auditSweepReq struct {
-	OlderThanDays *int `json:"older_than_days"`
-	MaxRows       *int `json:"max_rows"`
+	OlderThanDays        *int `json:"older_than_days"`
+	MaxRows              *int `json:"max_rows"`
+	ArchiveRetentionDays *int `json:"archive_retention_days"`
 }
 
 // Sweep handles POST /v1/admin/audit-logs:sweep.
@@ -111,9 +118,13 @@ func (h *AdminAuditHandler) Sweep(c *gin.Context) {
 	if req.MaxRows != nil {
 		maxRows = *req.MaxRows
 	}
-	if days <= 0 && maxRows <= 0 {
+	archiveDays := h.archiveRetentionDays
+	if req.ArchiveRetentionDays != nil {
+		archiveDays = *req.ArchiveRetentionDays
+	}
+	if days <= 0 && maxRows <= 0 && archiveDays <= 0 {
 		ProblemBadRequest(c, ProblemCodeInvalidRequest,
-			"retention is not configured; set AUDIT_RETENTION_DAYS / AUDIT_MAX_ROWS or pass older_than_days / max_rows")
+			"retention is not configured; set AUDIT_RETENTION_DAYS / AUDIT_MAX_ROWS / AUDIT_ARCHIVE_RETENTION_DAYS or pass older_than_days / max_rows / archive_retention_days")
 		return
 	}
 
@@ -151,20 +162,38 @@ func (h *AdminAuditHandler) Sweep(c *gin.Context) {
 			}
 		}
 	}
+	// The archive files are a third, independent bound: rows may be kept
+	// forever while the JSONL they were purged into is not.
+	var archiveRemoved int
+	if archiveDays > 0 {
+		if h.audit.ArchiveDir() == "" {
+			ProblemBadRequest(c, ProblemCodeInvalidRequest,
+				"archive retention was requested but AUDIT_ARCHIVE_DIR is not configured")
+			return
+		}
+		removed, err := h.audit.SweepArchive(archiveDays)
+		if err != nil {
+			ProblemInternal(c, "archive sweep failed: "+err.Error())
+			return
+		}
+		archiveRemoved = removed
+	}
 	if h.audit != nil {
 		h.audit.Log(c.Request.Context(), middleware.MustAdminID(c), "", "audit.sweep",
 			"audit_log", "",
-			fmt.Sprintf("older_than_days=%d cutoff=%s purged=%d max_rows=%d cap_removed=%d archive=%s",
-				days, cutoff, purged, maxRows, capRemoved, h.audit.ArchiveDir()),
+			fmt.Sprintf("older_than_days=%d cutoff=%s purged=%d max_rows=%d cap_removed=%d archive_retention_days=%d archive_removed=%d archive=%s",
+				days, cutoff, purged, maxRows, capRemoved, archiveDays, archiveRemoved, h.audit.ArchiveDir()),
 			c.ClientIP())
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"purged":          purged,
-		"older_than_days": days,
-		"cutoff":          cutoff,
-		"max_rows":        maxRows,
-		"cap_removed":     capRemoved,
-		"archive_dir":     h.audit.ArchiveDir(),
+		"purged":                 purged,
+		"older_than_days":        days,
+		"cutoff":                 cutoff,
+		"max_rows":               maxRows,
+		"cap_removed":            capRemoved,
+		"archive_retention_days": archiveDays,
+		"archive_removed":        archiveRemoved,
+		"archive_dir":            h.audit.ArchiveDir(),
 	})
 }
 

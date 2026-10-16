@@ -167,19 +167,30 @@ func (s *AuditService) archiveRows(rows []models.AuditLog) error {
 	return file.Sync()
 }
 
+// SweepArchive deletes daily archive files older than archiveRetentionDays and
+// reports how many it removed. 0 means "keep the archives forever"; a
+// deployment with no archive directory simply has nothing to sweep.
+func (s *AuditService) SweepArchive(archiveRetentionDays int) (int, error) {
+	if s == nil {
+		return 0, nil
+	}
+	return sweepArchiveDir(s.archiveDir, "audit-logs", archiveRetentionDays, time.Now().UTC())
+}
+
 // RunRetention sweeps expired rows on a ticker until ctx is cancelled.
 //
-// Two independent bounds are enforced, and either one alone is enough to make
-// the sweep run: `retentionDays` deletes rows older than the window, and
-// `maxRows` trims the oldest rows so at most that many remain whatever their
-// age. Keeping them separate matters - a deployment may want "keep 30 days OR
-// 100k rows, whichever bites first" and must be able to set either to 0 to
-// disable that bound without disabling the other.
+// Three independent bounds are enforced, and any one alone is enough to make
+// the sweep run: `retentionDays` deletes rows older than the window, `maxRows`
+// trims the oldest rows so at most that many remain whatever their age, and
+// `archiveRetentionDays` deletes archive files older than its window. Keeping
+// them separate matters - a deployment may want "keep 30 days OR 100k rows,
+// whichever bites first" and must be able to set either to 0 to disable that
+// bound without disabling the others.
 //
-// interval <= 0, retentionDays <= 0 and maxRows <= 0 together mean "keep every
-// audit row forever", matching the recording and notification defaults.
-func (s *AuditService) RunRetention(ctx context.Context, interval time.Duration, retentionDays, maxRows int) {
-	if interval <= 0 || (retentionDays <= 0 && maxRows <= 0) {
+// interval <= 0 with every bound <= 0 means "keep every audit row (and every
+// archive file) forever", matching the recording and notification defaults.
+func (s *AuditService) RunRetention(ctx context.Context, interval time.Duration, retentionDays, maxRows, archiveRetentionDays int) {
+	if interval <= 0 || (retentionDays <= 0 && maxRows <= 0 && archiveRetentionDays <= 0) {
 		return
 	}
 	ticker := time.NewTicker(interval)
@@ -226,6 +237,15 @@ func (s *AuditService) RunRetention(ctx context.Context, interval time.Duration,
 				}
 				if total > 0 {
 					log.Printf("[audit] row cap removed %d audit rows over %d", total, maxRows)
+				}
+			}
+			if archiveRetentionDays > 0 {
+				removed, err := s.SweepArchive(archiveRetentionDays)
+				if err != nil {
+					log.Printf("[audit] archive sweep failed: %v", err)
+				} else if removed > 0 {
+					log.Printf("[audit] archive sweep removed %d file(s) older than %d day(s)",
+						removed, archiveRetentionDays)
 				}
 			}
 		}

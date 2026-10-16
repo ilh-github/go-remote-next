@@ -1348,7 +1348,7 @@ request shapes; this section documents only the route table.
 | `GET` | `/v1/admin/activity` |
 | `GET` | `/v1/admin/trends?range=24h\|7d\|30d` |
 | `GET` | `/v1/admin/audit-logs` (filters `action` / `admin` / `actor_user_id` / `date_from` / `date_to`; a non-numeric `actor_user_id` is `400` rather than a filter that quietly matches everything) |
-| `POST` | `/v1/admin/audit-logs:sweep` — run the audit-retention purge now. Optional body `{older_than_days: N}` overrides the configured age window and `{max_rows: N}` overrides the configured row cap; either or both may be passed. Returns `{purged, older_than_days, cutoff, max_rows, cap_removed, archive_dir}` and audits `audit.sweep`. `400` when neither the config nor the body supplies any bound (`AUDIT_RETENTION_DAYS` / `AUDIT_MAX_ROWS` or `older_than_days` / `max_rows`); when `AUDIT_ARCHIVE_DIR` is set an archive write failure deletes nothing |
+| `POST` | `/v1/admin/audit-logs:sweep` — run the audit-retention purge now. Optional body `{older_than_days: N}` overrides the configured age window, `{max_rows: N}` overrides the configured row cap and `{archive_retention_days: N}` overrides how long the daily archive files are kept; any combination may be passed. Returns `{purged, older_than_days, cutoff, max_rows, cap_removed, archive_retention_days, archive_removed, archive_dir}` and audits `audit.sweep`. `400` when none of the config or body supplies any bound (`AUDIT_RETENTION_DAYS` / `AUDIT_MAX_ROWS` / `AUDIT_ARCHIVE_RETENTION_DAYS` or the matching body fields), and `400` when archive retention is asked for while `AUDIT_ARCHIVE_DIR` is unset; when `AUDIT_ARCHIVE_DIR` is set an archive write failure deletes nothing |
 | `GET` | `/v1/admin/audit-archive:search` — read back a day's archive that retention wrote. `?date=` (`YYYY-MM-DD`, default today in UTC), `&q=` (case-insensitive substring over action/resource/details/ip/admin), `&action=` (exact), `&admin=` (substring), `&actor_user_id=` (positive integer), `&limit=` (default 50, clamped to 500). Returns `{items, count, date, file, scanned_bytes, scanned_lines, truncated, has_more, archive_dir}` newest first and audits `audit.archive.search`. `400` when `AUDIT_ARCHIVE_DIR` is unset or `date`/`limit`/`actor_user_id` is malformed; `404` when that day has no archive file |
 | `GET` `DELETE` | `/v1/admin/recordings[/:id]` (list filters `user_id` / `device_id` / `status` / `q`; delete writes audit action `recording.delete`) |
 | `GET` | `/v1/admin/recordings/:id/artifact` (cross-user download; audit action `recording.download`) |
@@ -1410,6 +1410,19 @@ tick, so it bounds growth rather than freezing an exact count. There is
 deliberately no byte-sized cap: PostgreSQL does not return freed space until
 `VACUUM`, so a byte threshold would either over-delete or never converge, while
 a row count is exact.
+
+**The archive directory is bounded too, and off by default.**
+Archiving keeps a purged row recoverable, but the daily files themselves only
+ever grew. `AUDIT_ARCHIVE_RETENTION_DAYS` (default `0` = keep them forever)
+deletes archive files older than the window on the same timer, and
+`{"archive_retention_days": N}` on the sweep endpoint does it on demand;
+`archive_removed` reports how many files went. Only files named
+`audit-logs-YYYY-MM-DD.jsonl` are candidates - anything else in the directory
+(a README, a hand-rotated copy) is left alone, because the directory belongs to
+the operator as much as to this server. Asking for archive retention without an
+`AUDIT_ARCHIVE_DIR` is a `400` rather than a silent no-op. The default is "keep
+forever" on purpose: archiving exists so a purged row stays recoverable, so
+deleting the archives has to be asked for explicitly.
 
 **The archive is searchable, not write-only.**
 `GET /v1/admin/audit-archive:search` reads a day's JSONL archive back with the
