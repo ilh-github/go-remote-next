@@ -92,6 +92,7 @@ jobs:
           # The nested Go client module has its own go.mod; it is deliberately
           # not part of the server module.
           go-version-file: sdk/go/go.mod
+          cache-dependency-path: sdk/go/go.sum
       - name: Committed clients match the spec
         run: |
           ./scripts/sdk/check-generated-sdk.sh
