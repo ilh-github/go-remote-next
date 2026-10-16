@@ -13,8 +13,8 @@
 // short-lived guest code, the wrong-access-code rejection (which writes an
 // access-log row and may notify the owner), the whole recording lifecycle (which
 // the smoke creates and deletes itself) and the approval flow (which needs the
-// device to be online and drives both the device-code and grant-backed triggers
-// by switching approval_mode temporarily).
+// device to be online and drives both triggers, the pending-queue cap and the
+// denial cooldown by switching approval_mode temporarily).
 //
 // Usage:
 //   QD_IDENTIFIER=user QD_PASSWORD=secret scripts/sdk/openapi-smoke.mjs
@@ -673,6 +673,73 @@ if (smokeDevice) {
       'approval grant is still active after its only approved claim');
   }
 
+  // The queue guard and denial cooldown are security controls, not just unit
+  // test subjects. Fill the device's pending queue from five distinct sources,
+  // show the sixth source is refused, then deny the five to clear the queue
+  // before proving the first denied source is cooled down while a fresh source
+  // is still admitted.
+  const queueOn = await call('PUT', `/v1/me/devices/${deviceId}/access-policy`, {
+    token,
+    body: { ...policyPut, approval_mode: 'always' },
+    expect: 200,
+  });
+  check(queueOn.json.approval_mode === 'always',
+    `PUT access-policy left approval_mode "${queueOn.json.approval_mode}", want always for queue guard`);
+
+  const queueBaseIP = '198.51.100.';
+  const queuedApprovals = [];
+  for (let i = 1; i <= 5; i++) {
+    const sourceIP = `${queueBaseIP}${i}`;
+    const queued = await call('POST', `/v1/devices/${deviceId}/access-code:verify`, {
+      body: { code: deviceAccessCode, client_id: `${approvalClient}-queue-${i}` },
+      extraHeaders: { 'X-Forwarded-For': sourceIP },
+      expect: 202,
+    });
+    queuedApprovals.push({ ...queued.json, sourceIP });
+  }
+
+  const queueOverflow = await call('POST', `/v1/devices/${deviceId}/access-code:verify`, {
+    body: { code: deviceAccessCode, client_id: `${approvalClient}-queue-overflow` },
+    extraHeaders: { 'X-Forwarded-For': `${queueBaseIP}6` },
+    expect: 429,
+  });
+  problemShape(queueOverflow.json, 'approval queue overflow', 'RATE_LIMITED');
+  check(queueOverflow.headers.get('Retry-After') !== null,
+    'approval queue overflow response has no Retry-After header');
+
+  for (const queued of queuedApprovals) {
+    const denied = await call('POST', `/v1/me/devices/${deviceId}/access-approvals/${queued.approval_id}/deny`, {
+      token,
+      body: { reason: 'openapi-smoke-queue' },
+      expect: 200,
+    });
+    check(denied.json.status === 'denied',
+      `queue cleanup deny returned status "${denied.json.status}", want denied`);
+  }
+
+  const cooled = await call('POST', `/v1/devices/${deviceId}/access-code:verify`, {
+    body: { code: deviceAccessCode, client_id: `${approvalClient}-cooldown` },
+    extraHeaders: { 'X-Forwarded-For': queuedApprovals[0].sourceIP },
+    expect: 429,
+  });
+  problemShape(cooled.json, 'denied-source cooldown', 'RATE_LIMITED');
+  const retryAfter = Number(cooled.headers.get('Retry-After'));
+  check(Number.isFinite(retryAfter) && retryAfter > 0,
+    `denied-source cooldown Retry-After is "${cooled.headers.get('Retry-After')}"`);
+
+  const freshSource = await call('POST', `/v1/devices/${deviceId}/access-code:verify`, {
+    body: { code: deviceAccessCode, client_id: `${approvalClient}-fresh-source` },
+    extraHeaders: { 'X-Forwarded-For': `${queueBaseIP}77` },
+    expect: 202,
+  });
+  const freshDenied = await call('POST', `/v1/me/devices/${deviceId}/access-approvals/${freshSource.json.approval_id}/deny`, {
+    token,
+    body: { reason: 'openapi-smoke-fresh-source' },
+    expect: 200,
+  });
+  check(freshDenied.json.status === 'denied',
+    `fresh-source deny returned status "${freshDenied.json.status}", want denied`);
+
   // The other outcome, on a fresh request: deny, then the claim is refused.
   //
   // Opt-in, because a deny arms the per-(device, source address) cooldown
@@ -681,15 +748,6 @@ if (smokeDevice) {
   // before the approve leg even started. CI sets QD_SMOKE_APPROVAL_DENY=1
   // because its device is created fresh for every run and nothing follows it.
   if (process.env.QD_SMOKE_APPROVAL_DENY === '1') {
-    // The grant leg above left approval_mode at "grant"; the deny leg is about
-    // the device-code source, so switch it back to "always" explicitly.
-    const denyOn = await call('PUT', `/v1/me/devices/${deviceId}/access-policy`, {
-      token,
-      body: { ...policyPut, approval_mode: 'always' },
-      expect: 200,
-    });
-    check(denyOn.json.approval_mode === 'always',
-      `PUT access-policy left approval_mode "${denyOn.json.approval_mode}", want always for deny`);
     const deniedRequest = await call('POST', `/v1/devices/${deviceId}/access-code:verify`, {
       body: { code: deviceAccessCode, client_id: `${approvalClient}-denied` },
       expect: 202,
