@@ -16,6 +16,7 @@ export * from './ApprovalSummary';
 export * from './ApprovalSummaryByStatus';
 export * from './ApprovalSummaryDeniedSourcesInner';
 export * from './ApproveAccessApprovalRequest';
+export * from './ArtifactUploadState';
 export * from './AuthSessionRequest';
 export * from './AuthSessionResponse';
 export * from './Device';

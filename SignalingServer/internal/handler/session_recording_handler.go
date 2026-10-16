@@ -372,13 +372,8 @@ func (h *SessionRecordingHandler) UploadArtifact(c *gin.Context) {
 		ProblemBadRequest(c, ProblemCodeInvalidRequest, service.ErrArtifactEmpty.Error())
 		return
 	}
-	if err := os.Rename(tmp, dest); err != nil {
-		os.Remove(tmp)
-		ProblemInternal(c, err.Error())
-		return
-	}
 
-	row, err := h.recordings.AttachArtifact(c.Request.Context(), uid, uint(id), dest, ext, written)
+	row, err := h.finalizeArtifact(c, uid, uint(id), tmp, dest, ext, written)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			ProblemNotFound(c, ProblemCodeNotFound, "Recording not found")
@@ -386,6 +381,33 @@ func (h *SessionRecordingHandler) UploadArtifact(c *gin.Context) {
 		}
 		ProblemInternal(c, err.Error())
 		return
+	}
+	c.JSON(http.StatusOK, row)
+}
+
+// finalizeArtifact promotes a finished upload into place and records it on the
+// row. Both the single-shot POST body and the resumable PATCH path end here, so
+// the two shapes cannot disagree about what "the artifact is stored" means: one
+// rename, one AttachArtifact call, one realtime event.
+//
+// A failure removes the temporary file, so a rejected finish cannot leave a
+// half-written upload behind for the reaper to find later.
+func (h *SessionRecordingHandler) finalizeArtifact(
+	c *gin.Context,
+	uid uint,
+	id uint,
+	tmp string,
+	dest string,
+	ext string,
+	size int64,
+) (*models.SessionRecording, error) {
+	if err := os.Rename(tmp, dest); err != nil {
+		os.Remove(tmp)
+		return nil, err
+	}
+	row, err := h.recordings.AttachArtifact(c.Request.Context(), uid, id, dest, ext, size)
+	if err != nil {
+		return nil, err
 	}
 	if h.bus != nil {
 		h.bus.Publish(c.Request.Context(), service.Event{
@@ -400,7 +422,7 @@ func (h *SessionRecordingHandler) UploadArtifact(c *gin.Context) {
 			},
 		})
 	}
-	c.JSON(http.StatusOK, row)
+	return row, nil
 }
 
 // thumbnailMaxBytes caps a preview image independently of the (much larger)

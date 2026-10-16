@@ -15,6 +15,7 @@
 
 import * as runtime from '../runtime';
 import type {
+  ArtifactUploadState,
   PlaybackTicket,
   Problem,
   SessionRecording,
@@ -23,6 +24,8 @@ import type {
   SessionRecordingPatch,
 } from '../models/index';
 import {
+    ArtifactUploadStateFromJSON,
+    ArtifactUploadStateToJSON,
     PlaybackTicketFromJSON,
     PlaybackTicketToJSON,
     ProblemFromJSON,
@@ -36,6 +39,15 @@ import {
     SessionRecordingPatchFromJSON,
     SessionRecordingPatchToJSON,
 } from '../models/index';
+
+export interface AppendRecordingArtifactRequest {
+    ext: AppendRecordingArtifactExtEnum;
+    uploadOffset: number;
+    recordingId: number;
+    uploadLength?: string;
+    uploadComplete?: AppendRecordingArtifactUploadCompleteEnum;
+    body?: Blob;
+}
 
 export interface CreateRecordingArtifactTicketRequest {
     recordingId: number;
@@ -101,6 +113,90 @@ export interface UploadRecordingThumbnailRequest {
  * 
  */
 export class RecordingsApi extends runtime.BaseAPI {
+
+    /**
+     * The resumable half of the upload contract, for a capture that does not fit in one request body or a connection that drops halfway. The client sends chunks; the server answers with the offset it actually holds in the `Upload-Offset` response header, so a retry resumes from that number instead of starting over.  Three headers drive it. `Upload-Offset` (required) is where the chunk starts and must equal the bytes already staged; otherwise the answer is `409` with the authoritative offset in the same header and the client resyncs. `Upload-Length` (optional, `*` while unknown) declares the total size, which lets the server finish by itself when the last byte lands and lets it refuse a chunk that would overshoot. `Upload-Complete: 1` says this chunk ends the upload, which is how a client finishes without ever declaring a total.  An empty body with a valid offset is a status probe: it stages nothing and answers `202` with the current offset, so a client that crashed can re-learn where it stopped without a second endpoint.  The staging file (`<artifact-path>.part`) is subject to the same size limit as the single-shot upload, an empty artifact is refused on every path, and the recording lifecycle deletes a staging file that has been untouched for six hours. 
+     * Append one chunk of a resumable recording upload
+     */
+    async appendRecordingArtifactRaw(requestParameters: AppendRecordingArtifactRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<SessionRecording>> {
+        if (requestParameters['ext'] == null) {
+            throw new runtime.RequiredError(
+                'ext',
+                'Required parameter "ext" was null or undefined when calling appendRecordingArtifact().'
+            );
+        }
+
+        if (requestParameters['uploadOffset'] == null) {
+            throw new runtime.RequiredError(
+                'uploadOffset',
+                'Required parameter "uploadOffset" was null or undefined when calling appendRecordingArtifact().'
+            );
+        }
+
+        if (requestParameters['recordingId'] == null) {
+            throw new runtime.RequiredError(
+                'recordingId',
+                'Required parameter "recordingId" was null or undefined when calling appendRecordingArtifact().'
+            );
+        }
+
+        const queryParameters: any = {};
+
+        if (requestParameters['ext'] != null) {
+            queryParameters['ext'] = requestParameters['ext'];
+        }
+
+        const headerParameters: runtime.HTTPHeaders = {};
+
+        headerParameters['Content-Type'] = 'application/octet-stream';
+
+        if (requestParameters['uploadOffset'] != null) {
+            headerParameters['Upload-Offset'] = String(requestParameters['uploadOffset']);
+        }
+
+        if (requestParameters['uploadLength'] != null) {
+            headerParameters['Upload-Length'] = String(requestParameters['uploadLength']);
+        }
+
+        if (requestParameters['uploadComplete'] != null) {
+            headerParameters['Upload-Complete'] = String(requestParameters['uploadComplete']);
+        }
+
+        if (this.configuration && this.configuration.apiKey) {
+            headerParameters["X-API-Key"] = await this.configuration.apiKey("X-API-Key"); // ApiKeyAuth authentication
+        }
+
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("BearerAuth", []);
+
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+
+        let urlPath = `/v1/me/recordings/{recording_id}/artifact`;
+        urlPath = urlPath.replace(`{${"recording_id"}}`, encodeURIComponent(String(requestParameters['recordingId'])));
+
+        const response = await this.request({
+            path: urlPath,
+            method: 'PATCH',
+            headers: headerParameters,
+            query: queryParameters,
+            body: requestParameters['body'] as any,
+        }, initOverrides);
+
+        return new runtime.JSONApiResponse(response, (jsonValue) => SessionRecordingFromJSON(jsonValue));
+    }
+
+    /**
+     * The resumable half of the upload contract, for a capture that does not fit in one request body or a connection that drops halfway. The client sends chunks; the server answers with the offset it actually holds in the `Upload-Offset` response header, so a retry resumes from that number instead of starting over.  Three headers drive it. `Upload-Offset` (required) is where the chunk starts and must equal the bytes already staged; otherwise the answer is `409` with the authoritative offset in the same header and the client resyncs. `Upload-Length` (optional, `*` while unknown) declares the total size, which lets the server finish by itself when the last byte lands and lets it refuse a chunk that would overshoot. `Upload-Complete: 1` says this chunk ends the upload, which is how a client finishes without ever declaring a total.  An empty body with a valid offset is a status probe: it stages nothing and answers `202` with the current offset, so a client that crashed can re-learn where it stopped without a second endpoint.  The staging file (`<artifact-path>.part`) is subject to the same size limit as the single-shot upload, an empty artifact is refused on every path, and the recording lifecycle deletes a staging file that has been untouched for six hours. 
+     * Append one chunk of a resumable recording upload
+     */
+    async appendRecordingArtifact(requestParameters: AppendRecordingArtifactRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<SessionRecording> {
+        const response = await this.appendRecordingArtifactRaw(requestParameters, initOverrides);
+        return await response.value();
+    }
 
     /**
      * Owner-only. Returns a signed, time-limited `url` that can be fetched **without** an `Authorization` header, which is what makes playback work from `<video src>`. The ticket is bound to the recording, the owner and its purpose, so an artifact ticket cannot be replayed against the thumbnail route. Minting is stateless - nothing is written - and the link stops working when `expires_at` passes. `400` when playback tickets are disabled on the deployment (`RECORDING_URL_SECRET`/`API_KEY` unset); `404` when the recording has no stored artifact. 
@@ -866,6 +962,26 @@ export class RecordingsApi extends runtime.BaseAPI {
 
 }
 
+/**
+ * @export
+ */
+export const AppendRecordingArtifactExtEnum = {
+    Mp4: '.mp4',
+    M4v: '.m4v',
+    Mkv: '.mkv',
+    Webm: '.webm',
+    H264: '.h264',
+    Grf: '.grf'
+} as const;
+export type AppendRecordingArtifactExtEnum = typeof AppendRecordingArtifactExtEnum[keyof typeof AppendRecordingArtifactExtEnum];
+/**
+ * @export
+ */
+export const AppendRecordingArtifactUploadCompleteEnum = {
+    _0: '0',
+    _1: '1'
+} as const;
+export type AppendRecordingArtifactUploadCompleteEnum = typeof AppendRecordingArtifactUploadCompleteEnum[keyof typeof AppendRecordingArtifactUploadCompleteEnum];
 /**
  * @export
  */

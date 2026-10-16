@@ -400,6 +400,115 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [recordings]
+      summary: Append one chunk of a resumable recording upload
+      operationId: appendRecordingArtifact
+      description: |
+        The resumable half of the upload contract, for a capture that does not
+        fit in one request body or a connection that drops halfway. The client
+        sends chunks; the server answers with the offset it actually holds in
+        the `Upload-Offset` response header, so a retry resumes from that number
+        instead of starting over.
+
+        Three headers drive it. `Upload-Offset` (required) is where the chunk
+        starts and must equal the bytes already staged; otherwise the answer is
+        `409` with the authoritative offset in the same header and the client
+        resyncs. `Upload-Length` (optional, `*` while unknown) declares the total
+        size, which lets the server finish by itself when the last byte lands and
+        lets it refuse a chunk that would overshoot. `Upload-Complete: 1` says
+        this chunk ends the upload, which is how a client finishes without ever
+        declaring a total.
+
+        An empty body with a valid offset is a status probe: it stages nothing
+        and answers `202` with the current offset, so a client that crashed can
+        re-learn where it stopped without a second endpoint.
+
+        The staging file (`<artifact-path>.part`) is subject to the same size
+        limit as the single-shot upload, an empty artifact is refused on every
+        path, and the recording lifecycle deletes a staging file that has been
+        untouched for six hours.
+      parameters:
+        - name: ext
+          in: query
+          required: true
+          description: The artifact extension, allow-listed exactly like the raw-body POST shape.
+          schema:
+            type: string
+            enum: ['.mp4', '.m4v', '.mkv', '.webm', '.h264', '.grf']
+        - name: Upload-Offset
+          in: header
+          required: true
+          description: The byte offset this chunk starts at.
+          schema:
+            type: integer
+            format: int64
+            minimum: 0
+        - name: Upload-Length
+          in: header
+          required: false
+          description: The total size of the artifact, or `*` while it is unknown.
+          schema:
+            type: string
+        - name: Upload-Complete
+          in: header
+          required: false
+          description: Set to `1` when this chunk ends the upload.
+          schema:
+            type: string
+            enum: ['0', '1']
+      requestBody:
+        required: false
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '200':
+          description: The final chunk; the recording now carries the stored artifact.
+          headers:
+            Upload-Offset:
+              description: Bytes staged, which for a finished upload is the artifact size.
+              schema:
+                type: integer
+                format: int64
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionRecording'
+        '202':
+          description: The chunk was staged and more are expected.
+          headers:
+            Upload-Offset:
+              description: Bytes staged so far; a client resumes from this number.
+              schema:
+                type: integer
+                format: int64
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArtifactUploadState'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: |
+            `Upload-Offset` did not match the bytes already staged. The header
+            carries the authoritative offset, so the client can resume from it.
+          headers:
+            Upload-Offset:
+              description: The offset the server actually holds.
+              schema:
+                type: integer
+                format: int64
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
   /v1/me/recordings/{recording_id}/thumbnail:
     parameters:
       - $ref: '#/components/parameters/RecordingId'
@@ -1566,6 +1675,25 @@ components:
         denial_cooldown_max_seconds:
           type: integer
           description: The live APPROVAL_DENIAL_COOLDOWN_MAX_SECONDS, the ceiling the escalation cannot pass; 0 means uncapped.
+    ArtifactUploadState:
+      type: object
+      description: How much of a resumable recording upload the server currently holds.
+      required: [recording_id, upload_offset, upload_length, ext]
+      properties:
+        recording_id:
+          type: integer
+          format: int64
+        upload_offset:
+          type: integer
+          format: int64
+          description: Bytes staged so far; the `Upload-Offset` response header carries the same number.
+        upload_length:
+          type: [integer, 'null']
+          format: int64
+          description: The total the client declared, or null when it declared none.
+        ext:
+          type: string
+          description: The extension the upload is being staged as.
     Problem:
       type: object
       description: RFC 7807 problem details, served as `application/problem+json`.

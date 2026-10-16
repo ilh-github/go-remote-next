@@ -135,12 +135,29 @@ type SweepResult struct {
 	ArtifactsPurged   int
 	BytesFreed        int64
 	OrphansRemoved    int
+	// UploadsReaped counts abandoned resumable-upload staging files that were
+	// deleted. They are separate from orphans because their rule is age, not
+	// "no row points at me" - see uploadTempMinAge.
+	UploadsReaped int
 }
 
 // orphanMinAge keeps the orphan pass away from a file that an upload may still
 // be writing. A row is always created before its bytes, so a file this old with
 // no row is genuinely abandoned.
 const orphanMinAge = time.Hour
+
+// uploadTempMinAge is how long a `.part` staging file may sit untouched before
+// the lifecycle deletes it. Resumable uploads make this file bigger and more
+// likely to be abandoned than the single-shot path ever did, and nothing else
+// reclaims it: the orphan pass deliberately ignores `.part` names so a pass can
+// never delete a file that is still being written.
+//
+// Six hours is a trade-off, and the trade-off is visible to clients: a paused
+// upload older than this must restart from zero, which is exactly the operation
+// a resumable upload exists to make cheap. A shorter window would be more
+// aggressive about disk, a longer one would leave abandoned captures lying
+// around for a day.
+const uploadTempMinAge = 6 * time.Hour
 
 func NewRecordingLifecycle(
 	recordings *SessionRecordingService,
@@ -203,23 +220,40 @@ func RecordFileID(name string) (uint, bool) {
 	return uint(id), true
 }
 
-// ReapOrphanFiles deletes stored media whose index row no longer exists. Deleting
-// a row already deletes its files, but an unlink can fail (a locked or
-// permission-protected file); without this pass such a file would never be
-// reclaimed, because every other cleanup path starts from a row.
-func (l *RecordingLifecycle) ReapOrphanFiles(ctx context.Context) (int, error) {
+// UploadTempRecordingID extracts the recording id from a staging file
+// (`rec-<id>.<ext>.part` / `thumb-<id>.<ext>.part`). The reaper treats these
+// separately from stored media: age decides, not whether a row still exists,
+// because a half-finished upload legitimately belongs to a row that is very
+// much alive.
+func UploadTempRecordingID(name string) (uint, bool) {
+	if !strings.HasSuffix(name, ".part") {
+		return 0, false
+	}
+	return RecordFileID(strings.TrimSuffix(name, ".part"))
+}
+
+// ReapOrphanFiles deletes two kinds of leftover file and reports the two counts
+// separately, because they are cleaned for different reasons.
+//
+// Stored media whose index row no longer exists: deleting a row already deletes
+// its files, but an unlink can fail (a locked or permission-protected file), and
+// without this pass such a file would never be reclaimed, because every other
+// cleanup path starts from a row.
+//
+// Staging files (`...part`) that have not been written for uploadTempMinAge: a
+// resumable upload the client abandoned, or never came back to.
+func (l *RecordingLifecycle) ReapOrphanFiles(ctx context.Context) (orphans int, uploads int, err error) {
 	if l == nil || l.recordings == nil || l.dir == "" {
-		return 0, nil
+		return 0, 0, nil
 	}
 	userDirs, err := os.ReadDir(l.dir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return 0, nil
+			return 0, 0, nil
 		}
-		return 0, err
+		return 0, 0, err
 	}
 	now := time.Now().UTC()
-	removed := 0
 	for _, userDir := range userDirs {
 		if !userDir.IsDir() {
 			continue
@@ -227,10 +261,23 @@ func (l *RecordingLifecycle) ReapOrphanFiles(ctx context.Context) (int, error) {
 		dir := filepath.Join(l.dir, userDir.Name())
 		entries, err := os.ReadDir(dir)
 		if err != nil {
-			return removed, err
+			return orphans, uploads, err
 		}
 		for _, entry := range entries {
 			if entry.IsDir() {
+				continue
+			}
+			// Staging files are decided by age alone.
+			if _, isTemp := UploadTempRecordingID(entry.Name()); isTemp {
+				info, err := entry.Info()
+				if err != nil || now.Sub(info.ModTime().UTC()) < uploadTempMinAge {
+					continue
+				}
+				if removeErr := l.removeFile(filepath.Join(dir, entry.Name())); removeErr != nil &&
+					!os.IsNotExist(removeErr) {
+					continue
+				}
+				uploads++
 				continue
 			}
 			id, ok := RecordFileID(entry.Name())
@@ -243,7 +290,7 @@ func (l *RecordingLifecycle) ReapOrphanFiles(ctx context.Context) (int, error) {
 			}
 			indexed, err := l.recordings.Exists(ctx, id)
 			if err != nil {
-				return removed, err
+				return orphans, uploads, err
 			}
 			if indexed {
 				continue
@@ -252,10 +299,10 @@ func (l *RecordingLifecycle) ReapOrphanFiles(ctx context.Context) (int, error) {
 				!os.IsNotExist(removeErr) {
 				continue
 			}
-			removed++
+			orphans++
 		}
 	}
-	return removed, nil
+	return orphans, uploads, nil
 }
 
 // SweepOnce performs one stale sweep, one retention pass and one orphan pass,
@@ -279,11 +326,12 @@ func (l *RecordingLifecycle) SweepOnce(ctx context.Context) (SweepResult, error)
 			return result, err
 		}
 	}
-	orphans, err := l.ReapOrphanFiles(ctx)
+	orphans, uploads, err := l.ReapOrphanFiles(ctx)
 	if err != nil {
 		return result, err
 	}
 	result.OrphansRemoved = orphans
+	result.UploadsReaped = uploads
 	return result, nil
 }
 

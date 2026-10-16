@@ -519,6 +519,9 @@ func main() {
 			me.PATCH("/recordings/:id", sessionRecordingHandler.Update)
 			me.DELETE("/recordings/:id", sessionRecordingHandler.Delete)
 			me.POST("/recordings/:id/artifact", sessionRecordingHandler.UploadArtifact)
+			// PATCH is the resumable half: one chunk at a time, with the
+			// authoritative offset coming back in `Upload-Offset`.
+			me.PATCH("/recordings/:id/artifact", sessionRecordingHandler.AppendArtifact)
 			me.GET("/recordings/:id/artifact", sessionRecordingHandler.DownloadArtifact)
 			me.POST("/recordings/:id/artifact-ticket", sessionRecordingHandler.CreateArtifactTicket)
 			me.POST("/recordings/:id/thumbnail", sessionRecordingHandler.UploadThumbnail)

@@ -122,6 +122,16 @@ function problemShape(json, where, expectedCode) {
   }
 }
 
+// The resumable upload reports how much it has staged in a response header, so
+// every step of it asserts both the header's presence and its value.
+function headerNumber(res, name, where) {
+  const raw = res.headers.get(name);
+  check(raw !== null && raw !== '', `${where}: ${name} response header is missing`);
+  const value = Number(raw);
+  check(Number.isInteger(value) && value >= 0, `${where}: ${name} is "${raw}", want a byte count`);
+  return Number.isFinite(value) ? value : -1;
+}
+
 // A tiny RESP client for the one destructive Redis operation the smoke needs:
 // removing the seeded device's heartbeat so the server observes it as offline.
 // Keeping this dependency-free avoids pulling a Redis package into the smoke.
@@ -498,6 +508,67 @@ if (smokeDevice) {
   check(uploaded.json.format === 'mp4', `artifact format=${uploaded.json.format}, want mp4`);
   check(typeof uploaded.json.artifact_url === 'string' && uploaded.json.artifact_url !== '',
     'artifact_url is empty after the upload');
+
+  // The resumable half of the upload contract, exercised on the same recording:
+  // two chunks with a declared total, a status probe in between, and a wrong
+  // offset, which is what a client reconnecting after a dropped response does.
+  const chunk1 = media.slice(0, 4);
+  const chunk2 = media.slice(4);
+  const firstChunk = await call('PATCH', `/v1/me/recordings/${recordingId}/artifact?ext=.mp4`, {
+    token,
+    rawBody: chunk1,
+    contentType: 'application/octet-stream',
+    extraHeaders: { 'Upload-Offset': '0', 'Upload-Length': String(media.length) },
+    expect: 202,
+  });
+  const afterFirst = headerNumber(firstChunk, 'Upload-Offset', 'PATCH artifact (first chunk)');
+  check(afterFirst === chunk1.length,
+    `first chunk left the offset at ${afterFirst}, want ${chunk1.length}`);
+  field(firstChunk.json, 'recording_id', 'number', 'PATCH artifact (first chunk)');
+  const reportedOffset = field(firstChunk.json, 'upload_offset', 'number', 'PATCH artifact (first chunk)');
+  check(reportedOffset === chunk1.length,
+    `upload_offset=${reportedOffset} in the body, want ${chunk1.length} like the header`);
+  field(firstChunk.json, 'upload_length', 'number', 'PATCH artifact (first chunk)');
+  field(firstChunk.json, 'ext', 'string', 'PATCH artifact (first chunk)');
+
+  // An empty body is a probe: it must not stage anything, and it is how a client
+  // that lost its own bookkeeping re-learns the offset.
+  const probe = await call('PATCH', `/v1/me/recordings/${recordingId}/artifact?ext=.mp4`, {
+    token,
+    rawBody: new Uint8Array([]),
+    contentType: 'application/octet-stream',
+    extraHeaders: { 'Upload-Offset': String(chunk1.length), 'Upload-Length': String(media.length) },
+    expect: 202,
+  });
+  check(headerNumber(probe, 'Upload-Offset', 'PATCH artifact (probe)') === chunk1.length,
+    'the probe changed the staged offset');
+
+  // A chunk that starts somewhere else is refused, and the answer carries the
+  // offset the server actually holds so the client can resume from it.
+  const wrongOffset = await call('PATCH', `/v1/me/recordings/${recordingId}/artifact?ext=.mp4`, {
+    token,
+    rawBody: new Uint8Array([9]),
+    contentType: 'application/octet-stream',
+    extraHeaders: { 'Upload-Offset': '5', 'Upload-Length': String(media.length) },
+    expect: 409,
+  });
+  problemShape(wrongOffset.json, 'PATCH artifact (offset mismatch)', 'CONFLICT');
+  check(headerNumber(wrongOffset, 'Upload-Offset', 'PATCH artifact (offset mismatch)') === chunk1.length,
+    'the 409 did not report the offset the server holds');
+
+  const lastChunk = await call('PATCH', `/v1/me/recordings/${recordingId}/artifact?ext=.mp4`, {
+    token,
+    rawBody: chunk2,
+    contentType: 'application/octet-stream',
+    extraHeaders: { 'Upload-Offset': String(chunk1.length), 'Upload-Length': String(media.length) },
+    expect: 200,
+  });
+  check(headerNumber(lastChunk, 'Upload-Offset', 'PATCH artifact (final chunk)') === media.length,
+    'the final chunk did not report the completed size');
+  check(lastChunk.json.size_bytes === media.length,
+    `resumed artifact size_bytes=${lastChunk.json.size_bytes}, want ${media.length}`);
+  check(lastChunk.json.format === 'mp4',
+    `resumed artifact format=${lastChunk.json.format}, want mp4`);
 
   // The two documented rejections: an extension that is not on the allow-list,
   // and an empty body.

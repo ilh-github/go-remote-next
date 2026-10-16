@@ -70,9 +70,9 @@ func (h *AdminSessionRecordingHandler) Sweep(c *gin.Context) {
 	if h.audit != nil {
 		h.audit.Log(c.Request.Context(), middleware.MustAdminID(c), "", "recording.sweep",
 			"session_recording", "",
-			fmt.Sprintf("stale=%d purged=%d freed_bytes=%d orphans=%d",
+			fmt.Sprintf("stale=%d purged=%d freed_bytes=%d orphans=%d uploads=%d",
 				result.StaleMarkedFailed, result.ArtifactsPurged, result.BytesFreed,
-				result.OrphansRemoved),
+				result.OrphansRemoved, result.UploadsReaped),
 			c.ClientIP())
 	}
 	c.JSON(http.StatusOK, gin.H{
@@ -80,6 +80,7 @@ func (h *AdminSessionRecordingHandler) Sweep(c *gin.Context) {
 		"artifacts_purged":    result.ArtifactsPurged,
 		"bytes_freed":         result.BytesFreed,
 		"orphans_removed":     result.OrphansRemoved,
+		"uploads_reaped":      result.UploadsReaped,
 	})
 }
 

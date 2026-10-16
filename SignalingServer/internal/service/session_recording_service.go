@@ -248,11 +248,19 @@ func (s *SessionRecordingService) Delete(ctx context.Context, userID uint, id ui
 // reported but not fatal: the row is already gone, and the lifecycle's orphan
 // pass will retry the deletion later.
 func (s *SessionRecordingService) removeStoredMedia(row models.SessionRecording) {
+	// The `.part` siblings matter for the resumable upload path: a client can
+	// stop halfway, and the row is then the only thing that knows a staging file
+	// exists. Without this, deleting a half-uploaded recording would leave its
+	// partial bytes on disk forever.
+	paths := make([]string, 0, 4)
 	for _, path := range []string{row.ArtifactPath, row.ThumbnailPath} {
 		path = strings.TrimSpace(path)
 		if path == "" {
 			continue
 		}
+		paths = append(paths, path, path+".part")
+	}
+	for _, path := range paths {
 		if err := s.removeFile(path); err != nil && !os.IsNotExist(err) {
 			log.Printf("[Recording] could not delete stored media %s: %v", path, err)
 		}

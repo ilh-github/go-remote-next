@@ -972,6 +972,7 @@ one alert for it.
 | `PATCH` | `/v1/me/recordings/:id` | `{status?, format?, artifact_path?, artifact_url?, thumbnail_path?, duration_seconds?, size_bytes?, ended_at?}` |
 | `DELETE` | `/v1/me/recordings/:id` | Deletes the row **and the stored media/preview files** it points at. |
 | `POST` | `/v1/me/recordings/:id/artifact` | Media bytes. `multipart/form-data` with a `file` part, or a raw body plus `?ext=.mp4\|.mkv\|.webm\|.h264\|.grf`. |
+| `PATCH` | `/v1/me/recordings/:id/artifact?ext=.mp4` | Resumable upload: one chunk per request, positioned by the `Upload-Offset` header and optionally bounded by `Upload-Length` (total, or `*` while unknown). `202` stages the chunk and returns `{recording_id, upload_offset, upload_length, ext}` plus the same offset in the `Upload-Offset` response header; `200` means this chunk finished the upload and returns the row; `409` means the offset did not match and the header carries the offset the server actually holds; an empty body with a valid offset is a status probe that stages nothing. |
 | `GET` | `/v1/me/recordings/:id/artifact` | Streams the stored media back. Owner only. |
 | `POST` | `/v1/me/recordings/:id/artifact-ticket` | Mints `{url, expires_at}` for playback without an `Authorization` header. |
 | `POST` | `/v1/me/recordings/:id/thumbnail` | Preview image (JPEG or PNG) for the recordings list. `multipart/form-data` with a `file` part, or a raw body plus `?ext=.jpg\|.jpeg\|.png`. |
@@ -992,8 +993,9 @@ whole set on every page. Follow `next_cursor` until it is absent rather than
 trusting a count. The machine-readable contract covers the list endpoint plus
 the media half of this surface: `GET .../artifact`, `GET .../thumbnail`,
 `POST .../artifact-ticket`, `POST .../thumbnail-ticket`, and the ticket-gated
-`GET /v1/recordings/{id}/artifact|thumbnail?t=`. Only the **write** verbs
-(`POST`/`PATCH`/`DELETE` and the multipart uploads) are still out of it.
+`GET /v1/recordings/{id}/artifact|thumbnail?t=`, and the whole write side —
+`POST`/`PATCH`/`DELETE`, both multipart uploads and the resumable `PATCH
+.../artifact`.
 
 Signed playback links: `<video src>`, `window.open` and `<a download>` cannot
 carry an `Authorization` header, so those two routes have ticket variants.
@@ -1030,6 +1032,25 @@ Upload behaviour worth knowing:
   alone so a client can still report failure;
 - the size limit is `RECORDING_MAX_UPLOAD_MB` (default `2048`), and files live
   under `RECORDING_DIR` (default `data/recordings`).
+- **A dropped upload can resume instead of starting over.**
+  `PATCH /v1/me/recordings/:id/artifact?ext=.mp4` takes one chunk per request
+  and answers with the number of bytes it actually holds, in the
+  `Upload-Offset` response header. The client tells the server where the chunk
+  starts; when the two disagree the answer is `409` with the authoritative
+  offset in that same header, so a client that lost its bookkeeping resyncs
+  without re-sending anything. `Upload-Length` (total, or `*` while unknown)
+  lets the server finish by itself when the last byte lands and refuses a chunk
+  that would overshoot; `Upload-Complete: 1` finishes an upload whose total was
+  never declared. An empty body with a valid offset is a probe — it stages
+  nothing and reports the current offset, which is how a client that crashed
+  re-learns where it stopped. A staging file that a client starts under one
+  extension cannot be resumed under another (that is a `400` naming the
+  extension already staged), the total is capped exactly like the single-shot
+  upload, and an empty artifact is refused on every path.
+- Staging files are not immortal: the recording lifecycle deletes a `.part`
+  file that has not been written for six hours, reported as `uploads_reaped` by
+  `POST /v1/admin/recordings:sweep`. A paused upload older than that must
+  restart, which is the operation resumable upload exists to make cheap.
 
 Previews follow the same storage rules with a much smaller budget: the cap is
 2 MiB (`min(2 MiB, RECORDING_MAX_UPLOAD_MB)`), the file is named
@@ -1501,7 +1522,7 @@ request shapes; this section documents only the route table.
 | `GET` | `/v1/admin/recordings/:id/artifact` (cross-user download; audit action `recording.download`) |
 | `GET` | `/v1/admin/recordings/:id/thumbnail` (cross-user preview; audit action `recording.thumbnail.download`) |
 | `GET` | `/v1/admin/recordings:storage` — `{artifact_count, total_bytes, retention_days, stale_after_minutes}` |
-| `POST` | `/v1/admin/recordings:sweep` — runs the stale + retention + orphan pass now; returns `{stale_marked_failed, artifacts_purged, bytes_freed, orphans_removed}` and audits `recording.sweep` |
+| `POST` | `/v1/admin/recordings:sweep` — runs the stale + retention + orphan pass now; returns `{stale_marked_failed, artifacts_purged, bytes_freed, orphans_removed, uploads_reaped}` (`uploads_reaped` counts abandoned resumable-upload staging files older than six hours) and audits `recording.sweep` |
 | `GET` | `/v1/admin/notification-deliveries:stats` — `{total, by_status, retention_days, archive_retention_days, archive_dir}`; `by_status` always carries all four states (`pending`/`delivering`/`delivered`/`failed`), zeroes included |
 | `POST` | `/v1/admin/notification-deliveries:sweep` — runs the outbox retention pass now. Optional body `{older_than_days: N}` overrides the configured window and `{archive_retention_days: N}` overrides how long the daily archive files are kept; either or both may be passed. Returns `{purged, older_than_days, cutoff, archive_retention_days, archive_removed, archive_moved, archive_deleted, archive_dir, archive_cold_dir}` and audits `notification_delivery.sweep`. `400` when none of the config or body supplies a bound (`NOTIFICATION_RETENTION_DAYS` / `NOTIFICATION_ARCHIVE_RETENTION_DAYS` or the matching body fields) and `400` when archive retention is asked for with `NOTIFICATION_ARCHIVE_DIR` unset; on an archive write failure nothing is deleted and the response is an error |
 | `GET` `PUT` | `/v1/admin/preset` |
