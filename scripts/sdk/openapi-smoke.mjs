@@ -236,6 +236,25 @@ const recLimitedItems = field(recLimited.json, 'items', 'object', 'GET /v1/me/re
 check(Array.isArray(recLimitedItems) && recLimitedItems.length <= 1,
   'GET /v1/me/recordings?limit=1 returned more than one item');
 
+// 11. Approval decisions (approve / deny / claim) - not-found and validation shapes.
+// These POSTs use an id that cannot exist, so they pin the documented error
+// contract without creating or deciding anything. The happy path needs a real
+// pending approval (an online device plus approval_mode), so it is covered by
+// the end-to-end run rather than this always-runnable smoke.
+if (deviceId) {
+  const ghostApprovalId = 2147483647;
+  const approveGhost = await call('POST', `/v1/me/devices/${deviceId}/access-approvals/${ghostApprovalId}/approve`, { token, expect: 404 });
+  problemShape(approveGhost.json, 'POST access-approvals/:id/approve (unknown id)');
+  const denyGhost = await call('POST', `/v1/me/devices/${deviceId}/access-approvals/${ghostApprovalId}/deny`, { token, expect: 404 });
+  problemShape(denyGhost.json, 'POST access-approvals/:id/deny (unknown id)');
+  const claimGhost = await call('POST', `/v1/devices/${deviceId}/access-approvals:claim`, {
+    body: { approval_id: ghostApprovalId, secret: 'openapi-smoke' }, expect: 404,
+  });
+  problemShape(claimGhost.json, 'POST access-approvals:claim (unknown id)');
+  const claimMissing = await call('POST', `/v1/devices/${deviceId}/access-approvals:claim`, { body: {}, expect: 400 });
+  problemShape(claimMissing.json, 'POST access-approvals:claim (missing secret)');
+}
+
 if (smokeDevice) {
   // 6. PUT the rule back unchanged, then restore the prior state exactly.
   const putBody = {

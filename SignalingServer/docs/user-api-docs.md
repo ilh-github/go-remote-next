@@ -14,8 +14,9 @@ rationale for every decision is in
 [`SignalingServer/api/openapi.yaml`](../api/openapi.yaml) is an OpenAPI 3.1
 contract for the stable, integrator-facing subset of this API (authenticate,
 enumerate devices, verify an access code, and manage the access policy, guest
-access codes, approvals, offline-alert rule, notification channels and the
-session-recording index) — generate a client in any language from it. It covers
+access codes, approvals including approve / deny / claim, offline-alert rule,
+notification channels and the session-recording index) — generate a client in
+any language from it. It covers
 a documented subset rather than every route: operations are added as they are
 pinned by a conformance check, which is
 [`scripts/sdk/openapi-smoke.mjs`](../../scripts/sdk/openapi-smoke.mjs). That
@@ -27,6 +28,13 @@ access-policy `PUT`s (both restored to their prior state), issue-then-revoke a
 short-lived guest code, and the rejected-access-code shape. The guest-code probe
 deliberately leaves one **revoked, never-used** grant row behind, because
 revocation rather than deletion is how a grant is disabled.
+
+The approval **decision** routes (`approve`, `deny`, `access-approvals:claim`)
+are in the contract, but the always-runnable smoke only pins their `404` / `400`
+shapes (it uses an id that cannot exist, so nothing is created or decided). Their
+happy path needs a real pending approval - an online device plus
+`approval_mode` - so it is verified by the end-to-end run recorded in
+`docs/dev/自托管端到端联调记录.md` §67 rather than by the smoke.
 
 ---
 

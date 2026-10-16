@@ -465,6 +465,141 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+  /v1/me/devices/{device_id}/access-approvals/{approval_id}/approve:
+    parameters:
+      - $ref: '#/components/parameters/DeviceId'
+      - $ref: '#/components/parameters/ApprovalId'
+    post:
+      tags: [devices]
+      summary: Approve a pending access request
+      operationId: approveAccessApproval
+      description: |
+        Owner-only. The body is optional; a `reason` is stored on the row and
+        shown to the requester. A request that was already decided or has
+        expired returns `409` with the current status instead of pretending the
+        decision landed. The conformance smoke pins the `404` shape with an
+        unknown id; the happy path needs a real pending approval (an online
+        device plus `approval_mode`), so it is covered by the end-to-end run in
+        `docs/dev/自托管端到端联调记录.md` rather than the smoke.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+      responses:
+        '200':
+          description: The approval after the decision.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessApproval'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: The request was already decided or has expired.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalAlreadyDecided'
+  /v1/me/devices/{device_id}/access-approvals/{approval_id}/deny:
+    parameters:
+      - $ref: '#/components/parameters/DeviceId'
+      - $ref: '#/components/parameters/ApprovalId'
+    post:
+      tags: [devices]
+      summary: Deny a pending access request
+      operationId: denyAccessApproval
+      description: |
+        Owner-only, same shape as `approve`. Denying also arms the per-source
+        denial cooldown (`APPROVAL_DENIAL_COOLDOWN_SECONDS`), so the same client
+        cannot immediately re-request.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+      responses:
+        '200':
+          description: The approval after the decision.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessApproval'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: The request was already decided or has expired.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalAlreadyDecided'
+  /v1/devices/{device_id}/access-approvals:claim:
+    parameters:
+      - $ref: '#/components/parameters/DeviceId'
+    post:
+      tags: [devices]
+      summary: Exchange an approved request for a signal token
+      operationId: claimAccessApproval
+      description: |
+        The requesting controller calls this with the `approval_id` and
+        `approval_secret` it received from `access-code:verify`. It is API-key
+        gated rather than user-authenticated because the caller has no account.
+        `202` means the owner has not decided yet - keep polling with the same
+        id and secret; `200` returns the signal token; `403` means denied or
+        expired; `409` means the approval was already spent or the host went
+        offline before the exchange.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApprovalClaimRequest'
+      responses:
+        '200':
+          description: The owner approved and the signal token is ready.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessCodeVerifyResponse'
+        '202':
+          description: Still waiting for the owner to decide.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalClaimPending'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: |
+            The approval was already spent, or the host went offline before the
+            exchange could happen.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalClaimConsumed'
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
 components:
   securitySchemes:
     ApiKeyAuth:
@@ -484,6 +619,15 @@ components:
       schema:
         type: string
         maxLength: 20
+    ApprovalId:
+      name: approval_id
+      in: path
+      required: true
+      description: The numeric id from an approval row.
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
   responses:
     BadRequest:
       description: The request was malformed or failed validation.
@@ -1135,4 +1279,50 @@ components:
           items:
             $ref: '#/components/schemas/SessionRecording'
         next_cursor:
+          type: string
+    ApprovalAlreadyDecided:
+      type: object
+      description: |
+        Returned by approve/deny when the request was already decided (or
+        expired) so the click is reported honestly instead of silently
+        succeeding.
+      required: [status, message]
+      properties:
+        status:
+          type: string
+          enum: [pending, approved, denied, expired, consumed]
+        message:
+          type: string
+    ApprovalClaimRequest:
+      type: object
+      required: [approval_id, secret]
+      properties:
+        approval_id:
+          type: integer
+          format: int64
+        secret:
+          type: string
+          description: The `approval_secret` returned once by `access-code:verify`.
+    ApprovalClaimPending:
+      type: object
+      description: The owner has not decided yet; poll again after `poll_after_ms`.
+      required: [status, expires_at, poll_after_ms]
+      properties:
+        status:
+          type: string
+          enum: [pending]
+        expires_at:
+          type: string
+          format: date-time
+        poll_after_ms:
+          type: integer
+    ApprovalClaimConsumed:
+      type: object
+      description: The approval was already exchanged for a token.
+      required: [status, message]
+      properties:
+        status:
+          type: string
+          enum: [consumed]
+        message:
           type: string
