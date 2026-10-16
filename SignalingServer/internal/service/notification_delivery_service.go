@@ -428,6 +428,26 @@ func (s *NotificationDeliveryService) RetryAllFailed(ctx context.Context, channe
 	return result.RowsAffected, result.Error
 }
 
+// RetryAllFailedForUser is the cross-channel form of RetryAllFailed: it re-arms
+// every parked delivery belonging to one user, whatever channel it came from.
+// Handy after an outage that took several endpoints down at once, and still
+// scoped strictly by user_id so one account can never replay another's backlog.
+func (s *NotificationDeliveryService) RetryAllFailedForUser(ctx context.Context, userID uint) (int64, error) {
+	if userID == 0 {
+		return 0, errors.New("user id is required")
+	}
+	now := time.Now().UTC()
+	result := s.db.WithContext(ctx).Model(&models.NotificationDelivery{}).
+		Where("user_id = ? AND status = ?", userID, DeliveryStatusFailed).
+		Updates(map[string]interface{}{
+			"status":          DeliveryStatusPending,
+			"attempts":        0,
+			"next_attempt_at": now,
+			"updated_at":      now,
+		})
+	return result.RowsAffected, result.Error
+}
+
 // notificationBackoff grows 2s, 4s, 8s … up to the cap.
 func notificationBackoff(attempts int) time.Duration {
 	if attempts < 1 {

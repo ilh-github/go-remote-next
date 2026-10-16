@@ -379,6 +379,7 @@ user-owned webhook endpoint that receives that user's own device events.
 | `GET` | `/v1/me/notification-channels/:id/deliveries?limit=` | — | Delivery history for the channel (newest first, default 50, max 200). Owner-scoped. |
 | `POST` | `/v1/me/notification-channels/:id/deliveries/:deliveryId/retry` | — | Re-arms a parked `failed` delivery (dead-letter replay). Returns `400` for rows that are not `failed`. Owner-scoped. |
 | `POST` | `/v1/me/notification-channels/:id/deliveries:retry-failed` | — | Re-arms **every** parked `failed` delivery for the channel. Returns `{success, requeued}`. Owner-scoped. |
+| `POST` | `/v1/me/notification-channels:retry-failed` | — | Re-arms every parked `failed` delivery the caller owns, **across all of their channels** (one call after an outage that hit several endpoints). Returns `{success, requeued}`. |
 
 Payload shape (same as admin webhooks):
 

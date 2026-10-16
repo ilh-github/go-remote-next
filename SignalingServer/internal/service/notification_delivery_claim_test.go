@@ -507,3 +507,61 @@ func TestCountByStatusCoversEveryState(t *testing.T) {
 		}
 	}
 }
+
+// TestRetryAllFailedForUserIsUserScoped covers the cross-channel replay: every
+// parked delivery of one user is re-armed, and another user's backlog is
+// untouched no matter which channels are involved.
+func TestRetryAllFailedForUserIsUserScoped(t *testing.T) {
+	db := newPurgeTestDB(t)
+	ctx := context.Background()
+	svc := NewNotificationDeliveryService(db)
+	now := time.Now().UTC()
+
+	seed := []models.NotificationDelivery{
+		{ChannelID: 10, UserID: 1, EventType: "test", Payload: "{}", Status: DeliveryStatusFailed, Attempts: 8, NextAttemptAt: now},
+		{ChannelID: 11, UserID: 1, EventType: "test", Payload: "{}", Status: DeliveryStatusFailed, Attempts: 8, NextAttemptAt: now},
+		{ChannelID: 10, UserID: 1, EventType: "test", Payload: "{}", Status: DeliveryStatusDelivered, Attempts: 1, NextAttemptAt: now},
+		{ChannelID: 12, UserID: 2, EventType: "test", Payload: "{}", Status: DeliveryStatusFailed, Attempts: 8, NextAttemptAt: now},
+	}
+	if err := db.Create(&seed).Error; err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	requeued, err := svc.RetryAllFailedForUser(ctx, 1)
+	if err != nil {
+		t.Fatalf("retry-all-for-user: %v", err)
+	}
+	if requeued != 2 {
+		t.Errorf("requeued %d rows, want 2 (both of user 1's channels)", requeued)
+	}
+
+	var mine []models.NotificationDelivery
+	if err := db.Where("user_id = ?", 1).Find(&mine).Error; err != nil {
+		t.Fatalf("reload mine: %v", err)
+	}
+	pending := 0
+	for _, row := range mine {
+		if row.Status == DeliveryStatusPending {
+			pending++
+			if row.Attempts != 0 {
+				t.Errorf("re-armed row %d kept attempts=%d, want 0", row.ID, row.Attempts)
+			}
+		}
+	}
+	if pending != 2 {
+		t.Errorf("user 1 has %d pending rows, want 2 re-armed", pending)
+	}
+
+	var theirs models.NotificationDelivery
+	if err := db.Where("user_id = ?", 2).First(&theirs).Error; err != nil {
+		t.Fatalf("reload theirs: %v", err)
+	}
+	if theirs.Status != DeliveryStatusFailed || theirs.Attempts != 8 {
+		t.Errorf("user 2 row status=%q attempts=%d, want failed/8 (untouched)", theirs.Status, theirs.Attempts)
+	}
+
+	// A zero user id would otherwise re-arm the whole table.
+	if _, err := svc.RetryAllFailedForUser(ctx, 0); err == nil {
+		t.Error("retry-all-for-user(0) should refuse rather than touch every user")
+	}
+}

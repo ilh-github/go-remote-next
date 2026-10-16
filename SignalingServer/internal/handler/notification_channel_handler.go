@@ -242,6 +242,23 @@ func (h *NotificationChannelHandler) RetryFailedDeliveries(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "requeued": requeued})
 }
 
+// RetryFailedDeliveriesForUser re-arms every parked (`failed`) delivery the
+// caller owns, across all of their channels. One call is enough after an outage
+// that took several endpoints down at once.
+func (h *NotificationChannelHandler) RetryFailedDeliveriesForUser(c *gin.Context) {
+	if h.deliveries == nil {
+		ProblemInternal(c, "delivery store is not configured")
+		return
+	}
+	uid := middleware.MustUserID(c)
+	requeued, err := h.deliveries.RetryAllFailedForUser(c.Request.Context(), uid)
+	if err != nil {
+		ProblemInternal(c, err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "requeued": requeued})
+}
+
 func notificationChannelID(c *gin.Context) (uint, bool) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil || id == 0 {
