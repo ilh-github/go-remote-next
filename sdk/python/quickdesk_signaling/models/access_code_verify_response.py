@@ -18,18 +18,29 @@ import re  # noqa: F401
 import json
 
 from datetime import datetime
-from pydantic import BaseModel, ConfigDict, StrictStr
-from typing import Any, ClassVar, Dict, List
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, StrictStr, field_validator
+from typing import Any, ClassVar, Dict, List, Optional
 from typing import Optional, Set
 from typing_extensions import Self
 
 class AccessCodeVerifyResponse(BaseModel):
     """
-    AccessCodeVerifyResponse
+    The answer to `access-code:verify` and to the approval claim endpoint. `status` says which shape it is: `granted` (HTTP 200) carries `signal_token`, `pending` (HTTP 202) carries the approval the controller polls. The approval fields live on this schema rather than only on the 202 schema because a generated client declares one success type per operation - a Go caller receives the 202 body as this type, and without these properties it could not read the approval it is supposed to poll. 
     """ # noqa: E501
-    signal_token: StrictStr
-    expires_at: datetime
-    __properties: ClassVar[List[str]] = ["signal_token", "expires_at"]
+    status: StrictStr = Field(description="Which shape this response is.")
+    signal_token: Optional[StrictStr] = Field(default=None, description="Present when `status` is `granted`.")
+    expires_at: Optional[datetime] = Field(default=None, description="When the signal token (granted) or the approval (pending) expires.")
+    approval_id: Optional[StrictInt] = Field(default=None, description="Present when `status` is `pending`.")
+    approval_secret: Optional[StrictStr] = Field(default=None, description="Present when `status` is `pending`. Shown once; exchanged for a signal token at the claim endpoint. ")
+    poll_after_ms: Optional[StrictInt] = Field(default=None, description="Present when `status` is `pending`.")
+    __properties: ClassVar[List[str]] = ["status", "signal_token", "expires_at", "approval_id", "approval_secret", "poll_after_ms"]
+
+    @field_validator('status')
+    def status_validate_enum(cls, value):
+        """Validates the enum"""
+        if value not in set(['granted', 'pending']):
+            raise ValueError("must be one of enum values ('granted', 'pending')")
+        return value
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -82,8 +93,12 @@ class AccessCodeVerifyResponse(BaseModel):
             return cls.model_validate(obj)
 
         _obj = cls.model_validate({
+            "status": obj.get("status"),
             "signal_token": obj.get("signal_token"),
-            "expires_at": obj.get("expires_at")
+            "expires_at": obj.get("expires_at"),
+            "approval_id": obj.get("approval_id"),
+            "approval_secret": obj.get("approval_secret"),
+            "poll_after_ms": obj.get("poll_after_ms")
         })
         return _obj
 

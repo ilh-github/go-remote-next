@@ -14,31 +14,74 @@
 
 import { mapValues } from '../runtime';
 /**
+ * The answer to `access-code:verify` and to the approval claim endpoint.
+ * `status` says which shape it is: `granted` (HTTP 200) carries
+ * `signal_token`, `pending` (HTTP 202) carries the approval the controller
+ * polls. The approval fields live on this schema rather than only on the
+ * 202 schema because a generated client declares one success type per
+ * operation - a Go caller receives the 202 body as this type, and without
+ * these properties it could not read the approval it is supposed to poll.
  * 
  * @export
  * @interface AccessCodeVerifyResponse
  */
 export interface AccessCodeVerifyResponse {
     /**
+     * Which shape this response is.
+     * @type {string}
+     * @memberof AccessCodeVerifyResponse
+     */
+    status: AccessCodeVerifyResponseStatusEnum;
+    /**
+     * Present when `status` is `granted`.
+     * @type {string}
+     * @memberof AccessCodeVerifyResponse
+     */
+    signalToken?: string;
+    /**
+     * When the signal token (granted) or the approval (pending) expires.
+     * @type {Date}
+     * @memberof AccessCodeVerifyResponse
+     */
+    expiresAt?: Date;
+    /**
+     * Present when `status` is `pending`.
+     * @type {number}
+     * @memberof AccessCodeVerifyResponse
+     */
+    approvalId?: number;
+    /**
+     * Present when `status` is `pending`. Shown once; exchanged for a
+     * signal token at the claim endpoint.
      * 
      * @type {string}
      * @memberof AccessCodeVerifyResponse
      */
-    signalToken: string;
+    approvalSecret?: string;
     /**
-     * 
-     * @type {Date}
+     * Present when `status` is `pending`.
+     * @type {number}
      * @memberof AccessCodeVerifyResponse
      */
-    expiresAt: Date;
+    pollAfterMs?: number;
 }
+
+
+/**
+ * @export
+ */
+export const AccessCodeVerifyResponseStatusEnum = {
+    Granted: 'granted',
+    Pending: 'pending'
+} as const;
+export type AccessCodeVerifyResponseStatusEnum = typeof AccessCodeVerifyResponseStatusEnum[keyof typeof AccessCodeVerifyResponseStatusEnum];
+
 
 /**
  * Check if a given object implements the AccessCodeVerifyResponse interface.
  */
 export function instanceOfAccessCodeVerifyResponse(value: object): value is AccessCodeVerifyResponse {
-    if (!('signalToken' in value) || value['signalToken'] === undefined) return false;
-    if (!('expiresAt' in value) || value['expiresAt'] === undefined) return false;
+    if (!('status' in value) || value['status'] === undefined) return false;
     return true;
 }
 
@@ -52,8 +95,12 @@ export function AccessCodeVerifyResponseFromJSONTyped(json: any, ignoreDiscrimin
     }
     return {
         
-        'signalToken': json['signal_token'],
-        'expiresAt': (new Date(json['expires_at'])),
+        'status': json['status'],
+        'signalToken': json['signal_token'] == null ? undefined : json['signal_token'],
+        'expiresAt': json['expires_at'] == null ? undefined : (new Date(json['expires_at'])),
+        'approvalId': json['approval_id'] == null ? undefined : json['approval_id'],
+        'approvalSecret': json['approval_secret'] == null ? undefined : json['approval_secret'],
+        'pollAfterMs': json['poll_after_ms'] == null ? undefined : json['poll_after_ms'],
     };
 }
 
@@ -68,8 +115,12 @@ export function AccessCodeVerifyResponseToJSONTyped(value?: AccessCodeVerifyResp
 
     return {
         
+        'status': value['status'],
         'signal_token': value['signalToken'],
-        'expires_at': ((value['expiresAt']).toISOString()),
+        'expires_at': value['expiresAt'] == null ? undefined : ((value['expiresAt']).toISOString()),
+        'approval_id': value['approvalId'],
+        'approval_secret': value['approvalSecret'],
+        'poll_after_ms': value['pollAfterMs'],
     };
 }
 

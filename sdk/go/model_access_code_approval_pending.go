@@ -20,7 +20,7 @@ import (
 // checks if the AccessCodeApprovalPending type satisfies the MappedNullable interface at compile time
 var _ MappedNullable = &AccessCodeApprovalPending{}
 
-// AccessCodeApprovalPending struct for AccessCodeApprovalPending
+// AccessCodeApprovalPending The HTTP 202 body of `access-code:verify` - the same fields as `AccessCodeVerifyResponse` with `status: pending`. 
 type AccessCodeApprovalPending struct {
 	ApprovalId int64 `json:"approval_id"`
 	// Shown once; exchanged for a signal token at the claim endpoint.

@@ -25,7 +25,7 @@ from typing_extensions import Self
 
 class AccessCodeApprovalPending(BaseModel):
     """
-    AccessCodeApprovalPending
+    The HTTP 202 body of `access-code:verify` - the same fields as `AccessCodeVerifyResponse` with `status: pending`. 
     """ # noqa: E501
     approval_id: StrictInt
     approval_secret: StrictStr = Field(description="Shown once; exchanged for a signal token at the claim endpoint.")

@@ -37,11 +37,14 @@ scripts/sdk/check-generated-sdk.sh java     # fails when sdk/java is stale
 
 The Go and Python clients each carry hand-written `examples/` code -
 `sdk/go/examples`, `sdk/python/examples/login_and_list_devices.py` - and the Go
-client has a second one under `sdk/go/examples/recordinglifecycle` that runs a
-whole business workflow: create a recording, upload the media, patch the row,
-find it in the index, mint a playback ticket, read the bytes back through that
-ticket (the route a `<video>` tag uses, with no Authorization header) and delete
-the row. CI runs all three against the smoke server, which is why the freshness
+client has two more: `sdk/go/examples/recordinglifecycle` runs a whole write
+workflow (create a recording, upload the media, patch the row, find it in the
+index, mint a playback ticket, read the bytes back through that ticket - the
+route a `<video>` tag uses, with no Authorization header - and delete the row),
+and `sdk/go/examples/approvalflow` drives the second-factor flow end to end
+(require approval, receive the pending answer, poll a claim while it waits, see
+it in the owner's list, approve, exchange it for a signal token, restore the
+policy). CI runs all four against the smoke server, which is why the freshness
 check excludes those directories. The Java client is compiled with Maven in CI
 (`mvn -DskipTests package`). The generated trees are otherwise untouched, so
 regenerating after a spec change is the whole maintenance story.
@@ -963,7 +966,7 @@ The flow:
 | `GET` | `/v1/me/devices/:device_id/access-approvals:summary` | user token | `?since=` (RFC3339, default the last 24 hours) and `&limit=` (how many refused sources, default 5, capped at 10). Returns `{since, total, by_status, denied_sources, denial_cooldown_seconds, denial_cooldown_multiplier, denial_cooldown_max_seconds}` — see below. |
 | `POST` | `/v1/me/devices/:device_id/access-approvals/:approval_id/approve` | user token | Optional `{reason}`. `200` with the updated row. A request that was already decided (or timed out) returns `409` with the current `status` instead of silently flipping it. |
 | `POST` | `/v1/me/devices/:device_id/access-approvals/:approval_id/deny` | user token | Optional `{reason}`. Same `200` / `409` shape. |
-| `POST` | `/v1/devices/:device_id/access-approvals:claim` | `X-API-Key` | `{approval_id, secret}` from step 2. `202` while pending, `200` with a signal token once approved, `403` when denied or expired, `404` for an unknown id *or* a wrong secret (they are deliberately indistinguishable), `409` when the approval was already used. |
+| `POST` | `/v1/devices/:device_id/access-approvals:claim` | `X-API-Key` | `{approval_id, secret}` from step 2. `202` with `{status: pending, expires_at, poll_after_ms}` while pending, `200` with `{status: granted, signal_token, expires_at}` once approved, `403` when denied or expired, `404` for an unknown id *or* a wrong secret (they are deliberately indistinguishable), `409` when the approval was already used. |
 
 **The summary is the answer to "is somebody hammering me".** The row list shows
 requests one at a time, so noticing that a single address has been refused six
@@ -1497,7 +1500,7 @@ them the answer is `403 CONTROLLER_PROOF_INVALID`.
 Response (200):
 
 ```json
-{ "signal_token": "stk_01H...", "expires_at": "2026-05-12T08:53:39Z" }
+{ "status": "granted", "signal_token": "stk_01H...", "expires_at": "2026-05-12T08:53:39Z" }
 ```
 
 When the device policy has `approval_required` (§5.3.3), a correct code returns
@@ -1506,13 +1509,20 @@ controller claims the approval (§5.3.5):
 
 ```json
 {
+  "status": "pending",
   "approval_id": 42,
   "approval_secret": "9c5cabcd...",
-  "status": "pending",
   "expires_at": "2026-10-16T00:40:18Z",
   "poll_after_ms": 2000
 }
 ```
+
+Both answers are the same schema (`AccessCodeVerifyResponse`, distinguished by
+`status`), and the claim route's `200`/`202` pair works the same way. That is not
+cosmetic: a generated client declares a single success type per operation, so a
+second schema would leave the `202` body undecodable in every committed SDK -
+the Go client would return a token-shaped struct with empty approval fields and
+the caller could not poll.
 
 Error path:
 

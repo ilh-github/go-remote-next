@@ -15,6 +15,11 @@ const (
 	ApprovalExpired = "expired"
 	// ApprovalConsumed was claimed: the controller got its signal token.
 	ApprovalConsumed = "consumed"
+	// ApprovalGranted is the status the controller sees on the *answer* to
+	// `access-code:verify` and to the claim endpoint when a signal token was
+	// minted. It is deliberately not one of the row's lifecycle states: the row
+	// says "consumed", the answer says "here is your token".
+	ApprovalGranted = "granted"
 )
 
 // Access approval sources: which credential the owner is being asked about.

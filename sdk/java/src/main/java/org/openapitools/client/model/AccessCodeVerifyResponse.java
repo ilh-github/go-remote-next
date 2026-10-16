@@ -47,58 +47,206 @@ import java.util.Set;
 import org.openapitools.client.JSON;
 
 /**
- * AccessCodeVerifyResponse
+ * The answer to &#x60;access-code:verify&#x60; and to the approval claim endpoint. &#x60;status&#x60; says which shape it is: &#x60;granted&#x60; (HTTP 200) carries &#x60;signal_token&#x60;, &#x60;pending&#x60; (HTTP 202) carries the approval the controller polls. The approval fields live on this schema rather than only on the 202 schema because a generated client declares one success type per operation - a Go caller receives the 202 body as this type, and without these properties it could not read the approval it is supposed to poll. 
  */
 @javax.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", comments = "Generator version: 7.14.0")
 public class AccessCodeVerifyResponse {
+  /**
+   * Which shape this response is.
+   */
+  @JsonAdapter(StatusEnum.Adapter.class)
+  public enum StatusEnum {
+    GRANTED("granted"),
+    
+    PENDING("pending");
+
+    private String value;
+
+    StatusEnum(String value) {
+      this.value = value;
+    }
+
+    public String getValue() {
+      return value;
+    }
+
+    @Override
+    public String toString() {
+      return String.valueOf(value);
+    }
+
+    public static StatusEnum fromValue(String value) {
+      for (StatusEnum b : StatusEnum.values()) {
+        if (b.value.equals(value)) {
+          return b;
+        }
+      }
+      throw new IllegalArgumentException("Unexpected value '" + value + "'");
+    }
+
+    public static class Adapter extends TypeAdapter<StatusEnum> {
+      @Override
+      public void write(final JsonWriter jsonWriter, final StatusEnum enumeration) throws IOException {
+        jsonWriter.value(enumeration.getValue());
+      }
+
+      @Override
+      public StatusEnum read(final JsonReader jsonReader) throws IOException {
+        String value =  jsonReader.nextString();
+        return StatusEnum.fromValue(value);
+      }
+    }
+
+    public static void validateJsonElement(JsonElement jsonElement) throws IOException {
+      String value = jsonElement.getAsString();
+      StatusEnum.fromValue(value);
+    }
+  }
+
+  public static final String SERIALIZED_NAME_STATUS = "status";
+  @SerializedName(SERIALIZED_NAME_STATUS)
+  @javax.annotation.Nonnull
+  private StatusEnum status;
+
   public static final String SERIALIZED_NAME_SIGNAL_TOKEN = "signal_token";
   @SerializedName(SERIALIZED_NAME_SIGNAL_TOKEN)
-  @javax.annotation.Nonnull
+  @javax.annotation.Nullable
   private String signalToken;
 
   public static final String SERIALIZED_NAME_EXPIRES_AT = "expires_at";
   @SerializedName(SERIALIZED_NAME_EXPIRES_AT)
-  @javax.annotation.Nonnull
+  @javax.annotation.Nullable
   private OffsetDateTime expiresAt;
+
+  public static final String SERIALIZED_NAME_APPROVAL_ID = "approval_id";
+  @SerializedName(SERIALIZED_NAME_APPROVAL_ID)
+  @javax.annotation.Nullable
+  private Long approvalId;
+
+  public static final String SERIALIZED_NAME_APPROVAL_SECRET = "approval_secret";
+  @SerializedName(SERIALIZED_NAME_APPROVAL_SECRET)
+  @javax.annotation.Nullable
+  private String approvalSecret;
+
+  public static final String SERIALIZED_NAME_POLL_AFTER_MS = "poll_after_ms";
+  @SerializedName(SERIALIZED_NAME_POLL_AFTER_MS)
+  @javax.annotation.Nullable
+  private Integer pollAfterMs;
 
   public AccessCodeVerifyResponse() {
   }
 
-  public AccessCodeVerifyResponse signalToken(@javax.annotation.Nonnull String signalToken) {
+  public AccessCodeVerifyResponse status(@javax.annotation.Nonnull StatusEnum status) {
+    this.status = status;
+    return this;
+  }
+
+  /**
+   * Which shape this response is.
+   * @return status
+   */
+  @javax.annotation.Nonnull
+  public StatusEnum getStatus() {
+    return status;
+  }
+
+  public void setStatus(@javax.annotation.Nonnull StatusEnum status) {
+    this.status = status;
+  }
+
+
+  public AccessCodeVerifyResponse signalToken(@javax.annotation.Nullable String signalToken) {
     this.signalToken = signalToken;
     return this;
   }
 
   /**
-   * Get signalToken
+   * Present when &#x60;status&#x60; is &#x60;granted&#x60;.
    * @return signalToken
    */
-  @javax.annotation.Nonnull
+  @javax.annotation.Nullable
   public String getSignalToken() {
     return signalToken;
   }
 
-  public void setSignalToken(@javax.annotation.Nonnull String signalToken) {
+  public void setSignalToken(@javax.annotation.Nullable String signalToken) {
     this.signalToken = signalToken;
   }
 
 
-  public AccessCodeVerifyResponse expiresAt(@javax.annotation.Nonnull OffsetDateTime expiresAt) {
+  public AccessCodeVerifyResponse expiresAt(@javax.annotation.Nullable OffsetDateTime expiresAt) {
     this.expiresAt = expiresAt;
     return this;
   }
 
   /**
-   * Get expiresAt
+   * When the signal token (granted) or the approval (pending) expires.
    * @return expiresAt
    */
-  @javax.annotation.Nonnull
+  @javax.annotation.Nullable
   public OffsetDateTime getExpiresAt() {
     return expiresAt;
   }
 
-  public void setExpiresAt(@javax.annotation.Nonnull OffsetDateTime expiresAt) {
+  public void setExpiresAt(@javax.annotation.Nullable OffsetDateTime expiresAt) {
     this.expiresAt = expiresAt;
+  }
+
+
+  public AccessCodeVerifyResponse approvalId(@javax.annotation.Nullable Long approvalId) {
+    this.approvalId = approvalId;
+    return this;
+  }
+
+  /**
+   * Present when &#x60;status&#x60; is &#x60;pending&#x60;.
+   * @return approvalId
+   */
+  @javax.annotation.Nullable
+  public Long getApprovalId() {
+    return approvalId;
+  }
+
+  public void setApprovalId(@javax.annotation.Nullable Long approvalId) {
+    this.approvalId = approvalId;
+  }
+
+
+  public AccessCodeVerifyResponse approvalSecret(@javax.annotation.Nullable String approvalSecret) {
+    this.approvalSecret = approvalSecret;
+    return this;
+  }
+
+  /**
+   * Present when &#x60;status&#x60; is &#x60;pending&#x60;. Shown once; exchanged for a signal token at the claim endpoint. 
+   * @return approvalSecret
+   */
+  @javax.annotation.Nullable
+  public String getApprovalSecret() {
+    return approvalSecret;
+  }
+
+  public void setApprovalSecret(@javax.annotation.Nullable String approvalSecret) {
+    this.approvalSecret = approvalSecret;
+  }
+
+
+  public AccessCodeVerifyResponse pollAfterMs(@javax.annotation.Nullable Integer pollAfterMs) {
+    this.pollAfterMs = pollAfterMs;
+    return this;
+  }
+
+  /**
+   * Present when &#x60;status&#x60; is &#x60;pending&#x60;.
+   * @return pollAfterMs
+   */
+  @javax.annotation.Nullable
+  public Integer getPollAfterMs() {
+    return pollAfterMs;
+  }
+
+  public void setPollAfterMs(@javax.annotation.Nullable Integer pollAfterMs) {
+    this.pollAfterMs = pollAfterMs;
   }
 
 
@@ -112,21 +260,29 @@ public class AccessCodeVerifyResponse {
       return false;
     }
     AccessCodeVerifyResponse accessCodeVerifyResponse = (AccessCodeVerifyResponse) o;
-    return Objects.equals(this.signalToken, accessCodeVerifyResponse.signalToken) &&
-        Objects.equals(this.expiresAt, accessCodeVerifyResponse.expiresAt);
+    return Objects.equals(this.status, accessCodeVerifyResponse.status) &&
+        Objects.equals(this.signalToken, accessCodeVerifyResponse.signalToken) &&
+        Objects.equals(this.expiresAt, accessCodeVerifyResponse.expiresAt) &&
+        Objects.equals(this.approvalId, accessCodeVerifyResponse.approvalId) &&
+        Objects.equals(this.approvalSecret, accessCodeVerifyResponse.approvalSecret) &&
+        Objects.equals(this.pollAfterMs, accessCodeVerifyResponse.pollAfterMs);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(signalToken, expiresAt);
+    return Objects.hash(status, signalToken, expiresAt, approvalId, approvalSecret, pollAfterMs);
   }
 
   @Override
   public String toString() {
     StringBuilder sb = new StringBuilder();
     sb.append("class AccessCodeVerifyResponse {\n");
+    sb.append("    status: ").append(toIndentedString(status)).append("\n");
     sb.append("    signalToken: ").append(toIndentedString(signalToken)).append("\n");
     sb.append("    expiresAt: ").append(toIndentedString(expiresAt)).append("\n");
+    sb.append("    approvalId: ").append(toIndentedString(approvalId)).append("\n");
+    sb.append("    approvalSecret: ").append(toIndentedString(approvalSecret)).append("\n");
+    sb.append("    pollAfterMs: ").append(toIndentedString(pollAfterMs)).append("\n");
     sb.append("}");
     return sb.toString();
   }
@@ -148,10 +304,10 @@ public class AccessCodeVerifyResponse {
 
   static {
     // a set of all properties/fields (JSON key names)
-    openapiFields = new HashSet<String>(Arrays.asList("signal_token", "expires_at"));
+    openapiFields = new HashSet<String>(Arrays.asList("status", "signal_token", "expires_at", "approval_id", "approval_secret", "poll_after_ms"));
 
     // a set of required properties/fields (JSON key names)
-    openapiRequiredFields = new HashSet<String>(Arrays.asList("signal_token", "expires_at"));
+    openapiRequiredFields = new HashSet<String>(Arrays.asList("status"));
   }
 
   /**
@@ -182,8 +338,16 @@ public class AccessCodeVerifyResponse {
         }
       }
         JsonObject jsonObj = jsonElement.getAsJsonObject();
-      if (!jsonObj.get("signal_token").isJsonPrimitive()) {
+      if (!jsonObj.get("status").isJsonPrimitive()) {
+        throw new IllegalArgumentException(String.format("Expected the field `status` to be a primitive type in the JSON string but got `%s`", jsonObj.get("status").toString()));
+      }
+      // validate the required field `status`
+      StatusEnum.validateJsonElement(jsonObj.get("status"));
+      if ((jsonObj.get("signal_token") != null && !jsonObj.get("signal_token").isJsonNull()) && !jsonObj.get("signal_token").isJsonPrimitive()) {
         throw new IllegalArgumentException(String.format("Expected the field `signal_token` to be a primitive type in the JSON string but got `%s`", jsonObj.get("signal_token").toString()));
+      }
+      if ((jsonObj.get("approval_secret") != null && !jsonObj.get("approval_secret").isJsonNull()) && !jsonObj.get("approval_secret").isJsonPrimitive()) {
+        throw new IllegalArgumentException(String.format("Expected the field `approval_secret` to be a primitive type in the JSON string but got `%s`", jsonObj.get("approval_secret").toString()));
       }
   }
 

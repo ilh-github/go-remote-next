@@ -1678,24 +1678,58 @@ components:
       required:
       - code
     AccessCodeVerifyResponse:
-      example:
-        expires_at: 2000-01-23T04:56:07.000+00:00
-        signal_token: signal_token
-      properties:
-        signal_token:
-          type: string
-        expires_at:
-          format: date-time
-          type: string
-      required:
-      - expires_at
-      - signal_token
-    AccessCodeApprovalPending:
+      description: |
+        The answer to `access-code:verify` and to the approval claim endpoint.
+        `status` says which shape it is: `granted` (HTTP 200) carries
+        `signal_token`, `pending` (HTTP 202) carries the approval the controller
+        polls. The approval fields live on this schema rather than only on the
+        202 schema because a generated client declares one success type per
+        operation - a Go caller receives the 202 body as this type, and without
+        these properties it could not read the approval it is supposed to poll.
       example:
         expires_at: 2000-01-23T04:56:07.000+00:00
         poll_after_ms: 6
+        signal_token: signal_token
         approval_secret: approval_secret
+        status: granted
         approval_id: 0
+      properties:
+        status:
+          description: Which shape this response is.
+          enum:
+          - granted
+          - pending
+          type: string
+        signal_token:
+          description: Present when `status` is `granted`.
+          type: string
+        expires_at:
+          description: When the signal token (granted) or the approval (pending) expires.
+          format: date-time
+          type: string
+        approval_id:
+          description: Present when `status` is `pending`.
+          format: int64
+          type: integer
+        approval_secret:
+          description: |
+            Present when `status` is `pending`. Shown once; exchanged for a
+            signal token at the claim endpoint.
+          type: string
+        poll_after_ms:
+          description: Present when `status` is `pending`.
+          type: integer
+      required:
+      - status
+    AccessCodeApprovalPending:
+      description: |
+        The HTTP 202 body of `access-code:verify` - the same fields as
+        `AccessCodeVerifyResponse` with `status: pending`.
+      example:
+        expires_at: 2000-01-23T04:56:07.000+00:00
+        poll_after_ms: 5
+        approval_secret: approval_secret
+        approval_id: 1
         status: pending
       properties:
         approval_id:

@@ -263,6 +263,14 @@ jobs:
         # rather than in someone's integration.
         working-directory: sdk/go
         run: go run ./examples/recordinglifecycle
+      - name: Run the approval workflow through the generated Go client
+        # The second-factor flow used to be undrivable from a typed client: the
+        # 202 answer is a different schema and a generated client declares one
+        # success type. The contract now puts the approval fields on that type,
+        # and this example is what proves a Go caller can read them, poll, and
+        # exchange the approval for a signal token.
+        working-directory: sdk/go
+        run: go run ./examples/approvalflow
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'

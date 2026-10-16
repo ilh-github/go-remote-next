@@ -708,11 +708,13 @@ if (smokeDevice) {
     body: { approval_id: pending.json.approval_id, secret: pending.json.approval_secret },
     expect: 200,
   });
-  for (const name of ['signal_token', 'expires_at']) {
+  for (const name of ['signal_token', 'expires_at', 'status']) {
     field(claimed.json, name, undefined, 'POST access-approvals:claim (approved)');
   }
   check(typeof claimed.json.signal_token === 'string' && claimed.json.signal_token.length > 0,
     'the approved claim returned no signal_token');
+  check(claimed.json.status === 'granted',
+    `approved claim status is "${claimed.json.status}", want granted`);
 
   // The approval is single-use: the same secret cannot mint a second token.
   const reclaimed = await call('POST', `/v1/devices/${deviceId}/access-approvals:claim`, {
@@ -780,6 +782,9 @@ if (smokeDevice) {
     expect: 200,
   });
   field(grantClaimed.json, 'signal_token', 'string', 'POST access-approvals:claim (grant approved)');
+  field(grantClaimed.json, 'status', 'string', 'POST access-approvals:claim (grant approved)');
+  check(grantClaimed.json.status === 'granted',
+    `grant-approved claim status is "${grantClaimed.json.status}", want granted`);
   check(typeof grantClaimed.json.signal_token === 'string' && grantClaimed.json.signal_token.length > 0,
     'the grant-backed approved claim returned no signal_token');
 

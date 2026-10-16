@@ -351,6 +351,7 @@ func (h *DeviceAccessApprovalHandler) Claim(c *gin.Context) {
 	c.JSON(http.StatusOK, verifyCodeResp{
 		SignalToken: tok,
 		ExpiresAt:   exp.UTC().Format(time.RFC3339),
+		Status:      models.ApprovalGranted,
 	})
 }
 

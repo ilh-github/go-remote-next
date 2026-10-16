@@ -47,7 +47,7 @@ import java.util.Set;
 import org.openapitools.client.JSON;
 
 /**
- * AccessCodeApprovalPending
+ * The HTTP 202 body of &#x60;access-code:verify&#x60; - the same fields as &#x60;AccessCodeVerifyResponse&#x60; with &#x60;status: pending&#x60;. 
  */
 @javax.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", comments = "Generator version: 7.14.0")
 public class AccessCodeApprovalPending {

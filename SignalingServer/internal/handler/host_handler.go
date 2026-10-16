@@ -365,6 +365,10 @@ type controllerChallengeReq struct {
 type verifyCodeResp struct {
 	SignalToken string `json:"signal_token"`
 	ExpiresAt   string `json:"expires_at"`
+	// Status tells the two answers apart: "granted" carries the signal token,
+	// "pending" (HTTP 202) carries the approval to poll. Both share one schema
+	// so a generated client decodes either into the type it already has.
+	Status string `json:"status"`
 }
 
 // approvalRequiredResp is the 202 the controller gets instead of a token when
@@ -776,6 +780,7 @@ func (h *HostHandler) VerifyAccessCode(c *gin.Context) {
 	c.JSON(http.StatusOK, verifyCodeResp{
 		SignalToken: tok,
 		ExpiresAt:   exp.Format("2006-01-02T15:04:05Z"),
+		Status:      models.ApprovalGranted,
 	})
 }
 

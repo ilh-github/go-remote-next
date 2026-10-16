@@ -14,6 +14,8 @@
 
 import { mapValues } from '../runtime';
 /**
+ * The HTTP 202 body of `access-code:verify` - the same fields as
+ * `AccessCodeVerifyResponse` with `status: pending`.
  * 
  * @export
  * @interface AccessCodeApprovalPending

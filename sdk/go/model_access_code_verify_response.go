@@ -20,10 +20,20 @@ import (
 // checks if the AccessCodeVerifyResponse type satisfies the MappedNullable interface at compile time
 var _ MappedNullable = &AccessCodeVerifyResponse{}
 
-// AccessCodeVerifyResponse struct for AccessCodeVerifyResponse
+// AccessCodeVerifyResponse The answer to `access-code:verify` and to the approval claim endpoint. `status` says which shape it is: `granted` (HTTP 200) carries `signal_token`, `pending` (HTTP 202) carries the approval the controller polls. The approval fields live on this schema rather than only on the 202 schema because a generated client declares one success type per operation - a Go caller receives the 202 body as this type, and without these properties it could not read the approval it is supposed to poll. 
 type AccessCodeVerifyResponse struct {
-	SignalToken string `json:"signal_token"`
-	ExpiresAt time.Time `json:"expires_at"`
+	// Which shape this response is.
+	Status string `json:"status"`
+	// Present when `status` is `granted`.
+	SignalToken *string `json:"signal_token,omitempty"`
+	// When the signal token (granted) or the approval (pending) expires.
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+	// Present when `status` is `pending`.
+	ApprovalId *int64 `json:"approval_id,omitempty"`
+	// Present when `status` is `pending`. Shown once; exchanged for a signal token at the claim endpoint. 
+	ApprovalSecret *string `json:"approval_secret,omitempty"`
+	// Present when `status` is `pending`.
+	PollAfterMs *int32 `json:"poll_after_ms,omitempty"`
 }
 
 type _AccessCodeVerifyResponse AccessCodeVerifyResponse
@@ -32,10 +42,9 @@ type _AccessCodeVerifyResponse AccessCodeVerifyResponse
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewAccessCodeVerifyResponse(signalToken string, expiresAt time.Time) *AccessCodeVerifyResponse {
+func NewAccessCodeVerifyResponse(status string) *AccessCodeVerifyResponse {
 	this := AccessCodeVerifyResponse{}
-	this.SignalToken = signalToken
-	this.ExpiresAt = expiresAt
+	this.Status = status
 	return &this
 }
 
@@ -47,52 +56,188 @@ func NewAccessCodeVerifyResponseWithDefaults() *AccessCodeVerifyResponse {
 	return &this
 }
 
-// GetSignalToken returns the SignalToken field value
-func (o *AccessCodeVerifyResponse) GetSignalToken() string {
+// GetStatus returns the Status field value
+func (o *AccessCodeVerifyResponse) GetStatus() string {
 	if o == nil {
 		var ret string
 		return ret
 	}
 
-	return o.SignalToken
+	return o.Status
 }
 
-// GetSignalTokenOk returns a tuple with the SignalToken field value
+// GetStatusOk returns a tuple with the Status field value
 // and a boolean to check if the value has been set.
-func (o *AccessCodeVerifyResponse) GetSignalTokenOk() (*string, bool) {
+func (o *AccessCodeVerifyResponse) GetStatusOk() (*string, bool) {
 	if o == nil {
 		return nil, false
 	}
-	return &o.SignalToken, true
+	return &o.Status, true
 }
 
-// SetSignalToken sets field value
+// SetStatus sets field value
+func (o *AccessCodeVerifyResponse) SetStatus(v string) {
+	o.Status = v
+}
+
+// GetSignalToken returns the SignalToken field value if set, zero value otherwise.
+func (o *AccessCodeVerifyResponse) GetSignalToken() string {
+	if o == nil || IsNil(o.SignalToken) {
+		var ret string
+		return ret
+	}
+	return *o.SignalToken
+}
+
+// GetSignalTokenOk returns a tuple with the SignalToken field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *AccessCodeVerifyResponse) GetSignalTokenOk() (*string, bool) {
+	if o == nil || IsNil(o.SignalToken) {
+		return nil, false
+	}
+	return o.SignalToken, true
+}
+
+// HasSignalToken returns a boolean if a field has been set.
+func (o *AccessCodeVerifyResponse) HasSignalToken() bool {
+	if o != nil && !IsNil(o.SignalToken) {
+		return true
+	}
+
+	return false
+}
+
+// SetSignalToken gets a reference to the given string and assigns it to the SignalToken field.
 func (o *AccessCodeVerifyResponse) SetSignalToken(v string) {
-	o.SignalToken = v
+	o.SignalToken = &v
 }
 
-// GetExpiresAt returns the ExpiresAt field value
+// GetExpiresAt returns the ExpiresAt field value if set, zero value otherwise.
 func (o *AccessCodeVerifyResponse) GetExpiresAt() time.Time {
-	if o == nil {
+	if o == nil || IsNil(o.ExpiresAt) {
 		var ret time.Time
 		return ret
 	}
-
-	return o.ExpiresAt
+	return *o.ExpiresAt
 }
 
-// GetExpiresAtOk returns a tuple with the ExpiresAt field value
+// GetExpiresAtOk returns a tuple with the ExpiresAt field value if set, nil otherwise
 // and a boolean to check if the value has been set.
 func (o *AccessCodeVerifyResponse) GetExpiresAtOk() (*time.Time, bool) {
-	if o == nil {
+	if o == nil || IsNil(o.ExpiresAt) {
 		return nil, false
 	}
-	return &o.ExpiresAt, true
+	return o.ExpiresAt, true
 }
 
-// SetExpiresAt sets field value
+// HasExpiresAt returns a boolean if a field has been set.
+func (o *AccessCodeVerifyResponse) HasExpiresAt() bool {
+	if o != nil && !IsNil(o.ExpiresAt) {
+		return true
+	}
+
+	return false
+}
+
+// SetExpiresAt gets a reference to the given time.Time and assigns it to the ExpiresAt field.
 func (o *AccessCodeVerifyResponse) SetExpiresAt(v time.Time) {
-	o.ExpiresAt = v
+	o.ExpiresAt = &v
+}
+
+// GetApprovalId returns the ApprovalId field value if set, zero value otherwise.
+func (o *AccessCodeVerifyResponse) GetApprovalId() int64 {
+	if o == nil || IsNil(o.ApprovalId) {
+		var ret int64
+		return ret
+	}
+	return *o.ApprovalId
+}
+
+// GetApprovalIdOk returns a tuple with the ApprovalId field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *AccessCodeVerifyResponse) GetApprovalIdOk() (*int64, bool) {
+	if o == nil || IsNil(o.ApprovalId) {
+		return nil, false
+	}
+	return o.ApprovalId, true
+}
+
+// HasApprovalId returns a boolean if a field has been set.
+func (o *AccessCodeVerifyResponse) HasApprovalId() bool {
+	if o != nil && !IsNil(o.ApprovalId) {
+		return true
+	}
+
+	return false
+}
+
+// SetApprovalId gets a reference to the given int64 and assigns it to the ApprovalId field.
+func (o *AccessCodeVerifyResponse) SetApprovalId(v int64) {
+	o.ApprovalId = &v
+}
+
+// GetApprovalSecret returns the ApprovalSecret field value if set, zero value otherwise.
+func (o *AccessCodeVerifyResponse) GetApprovalSecret() string {
+	if o == nil || IsNil(o.ApprovalSecret) {
+		var ret string
+		return ret
+	}
+	return *o.ApprovalSecret
+}
+
+// GetApprovalSecretOk returns a tuple with the ApprovalSecret field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *AccessCodeVerifyResponse) GetApprovalSecretOk() (*string, bool) {
+	if o == nil || IsNil(o.ApprovalSecret) {
+		return nil, false
+	}
+	return o.ApprovalSecret, true
+}
+
+// HasApprovalSecret returns a boolean if a field has been set.
+func (o *AccessCodeVerifyResponse) HasApprovalSecret() bool {
+	if o != nil && !IsNil(o.ApprovalSecret) {
+		return true
+	}
+
+	return false
+}
+
+// SetApprovalSecret gets a reference to the given string and assigns it to the ApprovalSecret field.
+func (o *AccessCodeVerifyResponse) SetApprovalSecret(v string) {
+	o.ApprovalSecret = &v
+}
+
+// GetPollAfterMs returns the PollAfterMs field value if set, zero value otherwise.
+func (o *AccessCodeVerifyResponse) GetPollAfterMs() int32 {
+	if o == nil || IsNil(o.PollAfterMs) {
+		var ret int32
+		return ret
+	}
+	return *o.PollAfterMs
+}
+
+// GetPollAfterMsOk returns a tuple with the PollAfterMs field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *AccessCodeVerifyResponse) GetPollAfterMsOk() (*int32, bool) {
+	if o == nil || IsNil(o.PollAfterMs) {
+		return nil, false
+	}
+	return o.PollAfterMs, true
+}
+
+// HasPollAfterMs returns a boolean if a field has been set.
+func (o *AccessCodeVerifyResponse) HasPollAfterMs() bool {
+	if o != nil && !IsNil(o.PollAfterMs) {
+		return true
+	}
+
+	return false
+}
+
+// SetPollAfterMs gets a reference to the given int32 and assigns it to the PollAfterMs field.
+func (o *AccessCodeVerifyResponse) SetPollAfterMs(v int32) {
+	o.PollAfterMs = &v
 }
 
 func (o AccessCodeVerifyResponse) MarshalJSON() ([]byte, error) {
@@ -105,8 +250,22 @@ func (o AccessCodeVerifyResponse) MarshalJSON() ([]byte, error) {
 
 func (o AccessCodeVerifyResponse) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
-	toSerialize["signal_token"] = o.SignalToken
-	toSerialize["expires_at"] = o.ExpiresAt
+	toSerialize["status"] = o.Status
+	if !IsNil(o.SignalToken) {
+		toSerialize["signal_token"] = o.SignalToken
+	}
+	if !IsNil(o.ExpiresAt) {
+		toSerialize["expires_at"] = o.ExpiresAt
+	}
+	if !IsNil(o.ApprovalId) {
+		toSerialize["approval_id"] = o.ApprovalId
+	}
+	if !IsNil(o.ApprovalSecret) {
+		toSerialize["approval_secret"] = o.ApprovalSecret
+	}
+	if !IsNil(o.PollAfterMs) {
+		toSerialize["poll_after_ms"] = o.PollAfterMs
+	}
 	return toSerialize, nil
 }
 
@@ -115,8 +274,7 @@ func (o *AccessCodeVerifyResponse) UnmarshalJSON(data []byte) (err error) {
 	// by unmarshalling the object into a generic map with string keys and checking
 	// that every required field exists as a key in the generic map.
 	requiredProperties := []string{
-		"signal_token",
-		"expires_at",
+		"status",
 	}
 
 	allProperties := make(map[string]interface{})
