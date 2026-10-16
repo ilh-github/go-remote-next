@@ -198,6 +198,10 @@ jobs:
           grep -E '^QD_(IDENTIFIER|PASSWORD|SMOKE_DEVICE)=' /tmp/seed.out >> "$GITHUB_ENV"
       - name: Run the conformance smoke
         run: node scripts/sdk/openapi-smoke.mjs
+      - name: Run the realtime conformance smoke
+        # Same seeded account and device as the HTTP smoke; the WebSocket routes
+        # take their credentials in the first frame, not in the URL.
+        run: node scripts/sdk/realtime-smoke.mjs
       - name: Upload the server log
         if: failure()
         uses: actions/upload-artifact@v4
