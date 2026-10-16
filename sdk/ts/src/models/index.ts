@@ -33,5 +33,7 @@ export * from './PlaybackTicket';
 export * from './Problem';
 export * from './RevokeAccessGrant200Response';
 export * from './SessionRecording';
+export * from './SessionRecordingInput';
 export * from './SessionRecordingList';
+export * from './SessionRecordingPatch';
 export * from './User';

@@ -210,6 +210,110 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [recordings]
+      summary: Index a new recording
+      operationId: createSessionRecording
+      description: |
+        Called by the capturing side when a session starts (or when a finished
+        capture is handed over), so the owner sees the recording while it is
+        still being written and the row can carry the outcome afterwards.
+        `status` is one of `recording`, `completed` or `failed`; `started_at`
+        defaults to now. The media is uploaded separately to `.../artifact`.
+
+        The row belongs to the *caller*: `device_id` is recorded as a label and
+        is not checked for ownership, so a producer can index a capture for a
+        machine that is not bound to it. Only the caller can then read or delete
+        the row.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SessionRecordingInput'
+      responses:
+        '201':
+          description: The created index row.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionRecording'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/me/recordings/{recording_id}:
+    parameters:
+      - $ref: '#/components/parameters/RecordingId'
+    get:
+      tags: [recordings]
+      summary: One recording the caller owns
+      operationId: getSessionRecording
+      description: |
+        The same row the list returns. Another user's id is a `404` rather than
+        a `403`, so the route cannot be used to discover which recording ids
+        exist.
+      responses:
+        '200':
+          description: The recording.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionRecording'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [recordings]
+      summary: Update a recording's lifecycle metadata
+      operationId: updateSessionRecording
+      description: |
+        Partial update: only the fields present in the body are written, so a
+        producer can patch `status` when a capture starts and then
+        `size_bytes`/`ended_at` when the upload finishes. `status` accepts the
+        same three values as create; anything else is a `400` and writes
+        nothing.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SessionRecordingPatch'
+      responses:
+        '200':
+          description: The updated recording.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionRecording'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [recordings]
+      summary: Delete a recording and its stored media
+      operationId: deleteSessionRecording
+      description: |
+        Removes the index row and the media files that belong to it, so the
+        recording cannot be played back afterwards. There is no "already gone"
+        success: a second delete is a `404`. The deletion is published on the
+        owner's realtime stream and written to the audit trail as
+        `recording.delete` with the actor's observed address.
+      responses:
+        '204':
+          description: Deleted. No body.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /v1/me/recordings/{recording_id}/artifact:
     parameters:
       - $ref: '#/components/parameters/RecordingId'
@@ -238,6 +342,58 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
+    post:
+      tags: [recordings]
+      summary: Upload a recording's media bytes
+      operationId: uploadRecordingArtifact
+      description: |
+        Two request shapes, because the producers differ: `multipart/form-data`
+        with a `file` part (the browser and Qt clients) or the raw body with
+        `?ext=`. The extension is allow-listed (`.mp4`, `.m4v`, `.mkv`, `.webm`,
+        `.h264`, `.grf`), the bytes are written to a temporary file and renamed
+        into place so a dropped upload can never leave a half-written file under
+        the real name, and the row is then updated with `artifact_path`,
+        `artifact_url`, `format` and `size_bytes` in one step.
+
+        An empty body is a `400`; a body over the configured limit
+        (`RECORDING_MAX_BYTES`, exposed as `store.max_bytes`) is a `400` as well,
+        never a truncated file. Uploading again replaces the stored artifact.
+      parameters:
+        - name: ext
+          in: query
+          required: false
+          description: Required for the raw-body shape; ignored for multipart.
+          schema:
+            type: string
+            enum: ['.mp4', '.m4v', '.mkv', '.webm', '.h264', '.grf']
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '200':
+          description: The recording, now carrying the stored artifact.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionRecording'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /v1/me/recordings/{recording_id}/thumbnail:
     parameters:
       - $ref: '#/components/parameters/RecordingId'
@@ -256,6 +412,55 @@ paths:
               schema:
                 type: string
                 format: binary
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [recordings]
+      summary: Upload a recording's preview image
+      operationId: uploadRecordingThumbnail
+      description: |
+        The same two shapes as the artifact upload (`multipart/form-data` with a
+        `file` part, or the raw body with `?ext=`), but the extension is limited
+        to `.jpg`, `.jpeg` and `.png` and the size to 2 MiB - a preview is a
+        small still, and an oversized one means the wrong file was sent.
+
+        The bytes are sniffed before they are stored rather than trusted from
+        the name or the declared content type: the index renders this image
+        inline, so a file that only claims to be a JPEG is a `400`.
+      parameters:
+        - name: ext
+          in: query
+          required: false
+          description: Required for the raw-body shape; ignored for multipart.
+          schema:
+            type: string
+            enum: ['.jpg', '.jpeg', '.png']
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '200':
+          description: The recording, now carrying the preview.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionRecording'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -1370,6 +1575,76 @@ components:
           description: A stable machine-readable code, e.g. `INVALID_CODE` or `RATE_LIMITED`.
         trace_id:
           type: string
+    SessionRecordingInput:
+      type: object
+      description: |
+        The index row a producer creates before (or instead of) uploading media.
+        `device_id` is recorded as a label; it is not checked against the
+        caller's devices, because a headless producer may be indexing a capture
+        for a machine it is not bound to.
+      required: [device_id, status]
+      properties:
+        device_id:
+          type: string
+          description: The device the capture came from.
+        device_name:
+          type: string
+        session_id:
+          type: string
+          description: The control session this recording belongs to, when there is one.
+        status:
+          type: string
+          enum: [recording, completed, failed]
+          description: How far the capture got when this row was written.
+        format:
+          type: string
+          description: Free-form label; the upload route overwrites it from the file extension.
+        artifact_path:
+          type: string
+          description: Server-side path. Set by the upload route; clients do not need to send it.
+        artifact_url:
+          type: string
+        thumbnail_path:
+          type: string
+        duration_seconds:
+          type: integer
+          minimum: 0
+        size_bytes:
+          type: integer
+          minimum: 0
+        started_at:
+          type: [string, 'null']
+          format: date-time
+          description: Defaults to the time the row was created when omitted.
+        ended_at:
+          type: [string, 'null']
+          format: date-time
+    SessionRecordingPatch:
+      type: object
+      description: |
+        Partial update - every field is optional and only the ones present are
+        written, so a producer can patch the row as the capture progresses.
+      properties:
+        status:
+          type: string
+          enum: [recording, completed, failed]
+        format:
+          type: string
+        artifact_path:
+          type: string
+        artifact_url:
+          type: string
+        thumbnail_path:
+          type: string
+        duration_seconds:
+          type: integer
+          minimum: 0
+        size_bytes:
+          type: integer
+          minimum: 0
+        ended_at:
+          type: [string, 'null']
+          format: date-time
     SessionRecording:
       type: object
       description: |

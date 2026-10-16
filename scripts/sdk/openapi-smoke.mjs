@@ -60,16 +60,25 @@ function field(obj, name, type, where) {
   return value;
 }
 
-async function call(method, path, { token, body, expect, extraHeaders = {} } = {}) {
+async function call(method, path, { token, body, rawBody, contentType, expect, extraHeaders = {} } = {}) {
   const headers = { 'X-API-Key': apiKey, ...extraHeaders };
   if (token) headers.Authorization = `Bearer ${token}`;
   if (body !== undefined) headers['Content-Type'] = 'application/json';
+  // rawBody is for the two shapes JSON cannot express: a FormData multipart
+  // upload (fetch sets its own boundary) and a streamed octet-stream body.
+  let payload;
+  if (rawBody !== undefined) {
+    payload = rawBody;
+    if (contentType) headers['Content-Type'] = contentType;
+  } else if (body !== undefined) {
+    payload = JSON.stringify(body);
+  }
   let res;
   try {
     res = await fetch(server + path, {
       method,
       headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: payload,
     });
   } catch (err) {
     console.error(`transport error calling ${method} ${path}: ${err.message}`);
@@ -211,6 +220,12 @@ const badSince = await call('GET', `/v1/me/devices/${deviceId}/access-approvals:
 problemShape(badSince.json, 'GET access-approvals:summary (bad since)');
 
 // 10. GET /v1/me/recordings (cursor-paginated index)
+//
+// The field list is shared with the write path at the end of the file, so a
+// column added to one place has to exist in the other.
+const RECORDING_FIELDS = ['id', 'user_id', 'device_id', 'device_name', 'session_id', 'status', 'format',
+  'artifact_path', 'artifact_url', 'thumbnail_path', 'thumbnail_url', 'duration_seconds',
+  'size_bytes', 'started_at', 'created_at', 'updated_at'];
 const recordings = await call('GET', '/v1/me/recordings', { token, expect: 200 });
 const recordingItems = field(recordings.json, 'items', 'object', 'GET /v1/me/recordings');
 check(Array.isArray(recordingItems), 'GET /v1/me/recordings: items is not an array');
@@ -223,9 +238,7 @@ if ('next_cursor' in recordings.json) {
 }
 if (Array.isArray(recordingItems) && recordingItems.length > 0) {
   const rec = recordingItems[0];
-  for (const name of ['id', 'user_id', 'device_id', 'device_name', 'session_id', 'status', 'format',
-    'artifact_path', 'artifact_url', 'thumbnail_path', 'thumbnail_url', 'duration_seconds',
-    'size_bytes', 'started_at', 'created_at', 'updated_at']) {
+  for (const name of RECORDING_FIELDS) {
     field(rec, name, undefined, 'SessionRecording');
   }
   check(['recording', 'completed', 'failed'].includes(rec.status),
@@ -291,7 +304,7 @@ if (ticketedRecording) {
   const badTicket = await call('GET', `/v1/recordings/${recordingId}/artifact?t=not-a-ticket`, { expect: 401 });
   problemShape(badTicket.json, 'GET artifact by ticket (bad ticket)');
 } else {
-  console.log('note: no recording with a stored artifact; skipped the playback-ticket checks');
+  console.log('note: no pre-existing recording carries a stored artifact, so the list-based playback checks were skipped (the write path still covers playback on a recording it creates itself)');
 }
 
 const ghostTicket = await call('POST', '/v1/me/recordings/2147483647/artifact-ticket', { token, expect: 404 });
@@ -366,6 +379,130 @@ if (smokeDevice) {
     expect: 403,
   });
   problemShape(verify.json, 'POST access-code:verify (rejected)', verify.json?.code);
+
+  // 10. The recording write path: index a capture, patch it, upload media and
+  // a preview, play the media back through a ticket, then delete the row.
+  //
+  // This is the half of the recordings surface a read-only run cannot reach,
+  // and doing it here means a fresh account covers the whole lifecycle instead
+  // of depending on a recording that some earlier run happened to leave behind.
+  const newRecording = await call('POST', '/v1/me/recordings', {
+    token,
+    body: {
+      device_id: deviceId,
+      device_name: 'openapi-smoke',
+      session_id: `smoke-${Date.now()}`,
+      status: 'recording',
+    },
+    expect: 201,
+  });
+  for (const name of RECORDING_FIELDS) {
+    field(newRecording.json, name, undefined, 'POST /v1/me/recordings');
+  }
+  const recordingId = newRecording.json.id;
+  check(newRecording.json.status === 'recording',
+    'POST /v1/me/recordings did not keep the status it was given');
+
+  const missingStatus = await call('POST', '/v1/me/recordings', {
+    token,
+    body: { device_id: deviceId },
+    expect: 400,
+  });
+  problemShape(missingStatus.json, 'POST /v1/me/recordings (missing status)');
+
+  const oneRecording = await call('GET', `/v1/me/recordings/${recordingId}`, { token, expect: 200 });
+  check(oneRecording.json.id === recordingId, 'GET recording returned a different row');
+
+  const patched = await call('PATCH', `/v1/me/recordings/${recordingId}`, {
+    token,
+    body: { status: 'completed', duration_seconds: 3 },
+    expect: 200,
+  });
+  check(patched.json.status === 'completed' && patched.json.duration_seconds === 3,
+    'PATCH recording did not apply status/duration_seconds');
+  const badPatch = await call('PATCH', `/v1/me/recordings/${recordingId}`, {
+    token,
+    body: { status: 'finished' },
+    expect: 400,
+  });
+  problemShape(badPatch.json, 'PATCH /v1/me/recordings/:id (invalid status)');
+
+  // A tiny but real MP4 header: the server allow-lists the extension rather
+  // than sniffing video containers, and this pins that rule.
+  const media = new Uint8Array([0, 0, 0, 24, 102, 116, 121, 112, 109, 112, 52, 50]);
+  const mediaForm = new FormData();
+  mediaForm.append('file', new Blob([media], { type: 'video/mp4' }), 'smoke.mp4');
+  const uploaded = await call('POST', `/v1/me/recordings/${recordingId}/artifact`, {
+    token,
+    rawBody: mediaForm,
+    expect: 200,
+  });
+  check(uploaded.json.size_bytes === media.length,
+    `artifact size_bytes=${uploaded.json.size_bytes}, want ${media.length}`);
+  check(uploaded.json.format === 'mp4', `artifact format=${uploaded.json.format}, want mp4`);
+  check(typeof uploaded.json.artifact_url === 'string' && uploaded.json.artifact_url !== '',
+    'artifact_url is empty after the upload');
+
+  // The two documented rejections: an extension that is not on the allow-list,
+  // and an empty body.
+  const deniedExt = await call('POST', `/v1/me/recordings/${recordingId}/artifact?ext=.exe`, {
+    token,
+    rawBody: new Uint8Array([1, 2, 3]),
+    contentType: 'application/octet-stream',
+    expect: 400,
+  });
+  problemShape(deniedExt.json, 'POST artifact (denied extension)');
+  const emptyUpload = await call('POST', `/v1/me/recordings/${recordingId}/artifact?ext=.mp4`, {
+    token,
+    rawBody: new Uint8Array([]),
+    contentType: 'application/octet-stream',
+    expect: 400,
+  });
+  problemShape(emptyUpload.json, 'POST artifact (empty body)');
+
+  // A real 1x1 PNG, and a file that only claims to be one: the preview route
+  // sniffs the bytes, so the second upload must be refused.
+  const png = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8AAAwAB/AMQ/AMZ4zCfAAAAAElFTkSuQmCC',
+    'base64',
+  );
+  const thumbForm = new FormData();
+  thumbForm.append('file', new Blob([png], { type: 'image/png' }), 'smoke.png');
+  const thumbUpload = await call('POST', `/v1/me/recordings/${recordingId}/thumbnail`, {
+    token,
+    rawBody: thumbForm,
+    expect: 200,
+  });
+  check(typeof thumbUpload.json.thumbnail_path === 'string' && thumbUpload.json.thumbnail_path !== '',
+    'thumbnail_path is empty after the preview upload');
+  const fakeThumbForm = new FormData();
+  fakeThumbForm.append('file', new Blob([new Uint8Array([1, 2, 3, 4])], { type: 'image/png' }), 'not-really.png');
+  const fakeThumb = await call('POST', `/v1/me/recordings/${recordingId}/thumbnail`, {
+    token,
+    rawBody: fakeThumbForm,
+    expect: 400,
+  });
+  problemShape(fakeThumb.json, 'POST thumbnail (bytes are not an image)');
+
+  // Playback without an Authorization header, on the artifact that was just
+  // uploaded: a one-byte range request rather than the whole file.
+  const freshTicket = await call('POST', `/v1/me/recordings/${recordingId}/artifact-ticket`, { token, expect: 200 });
+  const freshTicketUrl = field(freshTicket.json, 'url', 'string', 'POST artifact-ticket (fresh upload)');
+  check(freshTicketUrl.includes('/artifact?t='),
+    `fresh ticket url is "${freshTicketUrl}", want a signed /artifact?t= path`);
+  const mediaRes = await fetch(new URL(freshTicketUrl, server), { headers: { Range: 'bytes=0-0' } });
+  check(mediaRes.status === 206, `ticket media fetch returned ${mediaRes.status}, want 206`);
+  check((mediaRes.headers.get('content-type') || '').startsWith('video/mp4'),
+    `ticket media content-type is ${mediaRes.headers.get('content-type')}, want video/mp4`);
+  const oneByte = new Uint8Array(await mediaRes.arrayBuffer());
+  check(oneByte.length === 1, `ticket media fetch returned ${oneByte.length} bytes, want 1`);
+
+  // Delete it again: the smoke leaves the account's recording index as it found
+  // it, which is also the only assertion that covers the delete route.
+  const deletedRecording = await call('DELETE', `/v1/me/recordings/${recordingId}`, { token, expect: 204 });
+  check(deletedRecording.status === 204, 'DELETE recording did not return 204');
+  const goneRecording = await call('GET', `/v1/me/recordings/${recordingId}`, { token, expect: 404 });
+  problemShape(goneRecording.json, 'GET deleted recording');
 }
 
 if (failures.length > 0) {
@@ -377,5 +514,5 @@ if (failures.length > 0) {
 const scope = smokeDevice ? 'read + write operations' : 'read-only operations';
 console.log(`PASS: ${checks} documented assertions hold against ${server} (${scope})`);
 if (!smokeDevice) {
-  console.log('note: set QD_SMOKE_DEVICE=<device_id> to also check the offline-alert PUT and the rejected access-code shape');
+  console.log('note: set QD_SMOKE_DEVICE=<device_id> to also check the offline-alert PUT, the rejected access-code shape and the recording write path');
 }

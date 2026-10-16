@@ -17,15 +17,24 @@ import * as runtime from '../runtime';
 import type {
   PlaybackTicket,
   Problem,
+  SessionRecording,
+  SessionRecordingInput,
   SessionRecordingList,
+  SessionRecordingPatch,
 } from '../models/index';
 import {
     PlaybackTicketFromJSON,
     PlaybackTicketToJSON,
     ProblemFromJSON,
     ProblemToJSON,
+    SessionRecordingFromJSON,
+    SessionRecordingToJSON,
+    SessionRecordingInputFromJSON,
+    SessionRecordingInputToJSON,
     SessionRecordingListFromJSON,
     SessionRecordingListToJSON,
+    SessionRecordingPatchFromJSON,
+    SessionRecordingPatchToJSON,
 } from '../models/index';
 
 export interface CreateRecordingArtifactTicketRequest {
@@ -33,6 +42,14 @@ export interface CreateRecordingArtifactTicketRequest {
 }
 
 export interface CreateRecordingThumbnailTicketRequest {
+    recordingId: number;
+}
+
+export interface CreateSessionRecordingRequest {
+    sessionRecordingInput: SessionRecordingInput;
+}
+
+export interface DeleteSessionRecordingRequest {
     recordingId: number;
 }
 
@@ -54,9 +71,30 @@ export interface DownloadRecordingThumbnailByTicketRequest {
     recordingId: number;
 }
 
+export interface GetSessionRecordingRequest {
+    recordingId: number;
+}
+
 export interface ListSessionRecordingsRequest {
     cursor?: string;
     limit?: number;
+}
+
+export interface UpdateSessionRecordingRequest {
+    recordingId: number;
+    sessionRecordingPatch: SessionRecordingPatch;
+}
+
+export interface UploadRecordingArtifactRequest {
+    recordingId: number;
+    file: Blob;
+    ext?: UploadRecordingArtifactExtEnum;
+}
+
+export interface UploadRecordingThumbnailRequest {
+    recordingId: number;
+    file: Blob;
+    ext?: UploadRecordingThumbnailExtEnum;
 }
 
 /**
@@ -164,6 +202,109 @@ export class RecordingsApi extends runtime.BaseAPI {
     async createRecordingThumbnailTicket(requestParameters: CreateRecordingThumbnailTicketRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<PlaybackTicket> {
         const response = await this.createRecordingThumbnailTicketRaw(requestParameters, initOverrides);
         return await response.value();
+    }
+
+    /**
+     * Called by the capturing side when a session starts (or when a finished capture is handed over), so the owner sees the recording while it is still being written and the row can carry the outcome afterwards. `status` is one of `recording`, `completed` or `failed`; `started_at` defaults to now. The media is uploaded separately to `.../artifact`.  The row belongs to the *caller*: `device_id` is recorded as a label and is not checked for ownership, so a producer can index a capture for a machine that is not bound to it. Only the caller can then read or delete the row. 
+     * Index a new recording
+     */
+    async createSessionRecordingRaw(requestParameters: CreateSessionRecordingRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<SessionRecording>> {
+        if (requestParameters['sessionRecordingInput'] == null) {
+            throw new runtime.RequiredError(
+                'sessionRecordingInput',
+                'Required parameter "sessionRecordingInput" was null or undefined when calling createSessionRecording().'
+            );
+        }
+
+        const queryParameters: any = {};
+
+        const headerParameters: runtime.HTTPHeaders = {};
+
+        headerParameters['Content-Type'] = 'application/json';
+
+        if (this.configuration && this.configuration.apiKey) {
+            headerParameters["X-API-Key"] = await this.configuration.apiKey("X-API-Key"); // ApiKeyAuth authentication
+        }
+
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("BearerAuth", []);
+
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+
+        let urlPath = `/v1/me/recordings`;
+
+        const response = await this.request({
+            path: urlPath,
+            method: 'POST',
+            headers: headerParameters,
+            query: queryParameters,
+            body: SessionRecordingInputToJSON(requestParameters['sessionRecordingInput']),
+        }, initOverrides);
+
+        return new runtime.JSONApiResponse(response, (jsonValue) => SessionRecordingFromJSON(jsonValue));
+    }
+
+    /**
+     * Called by the capturing side when a session starts (or when a finished capture is handed over), so the owner sees the recording while it is still being written and the row can carry the outcome afterwards. `status` is one of `recording`, `completed` or `failed`; `started_at` defaults to now. The media is uploaded separately to `.../artifact`.  The row belongs to the *caller*: `device_id` is recorded as a label and is not checked for ownership, so a producer can index a capture for a machine that is not bound to it. Only the caller can then read or delete the row. 
+     * Index a new recording
+     */
+    async createSessionRecording(requestParameters: CreateSessionRecordingRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<SessionRecording> {
+        const response = await this.createSessionRecordingRaw(requestParameters, initOverrides);
+        return await response.value();
+    }
+
+    /**
+     * Removes the index row and the media files that belong to it, so the recording cannot be played back afterwards. There is no \"already gone\" success: a second delete is a `404`. The deletion is published on the owner\'s realtime stream and written to the audit trail as `recording.delete` with the actor\'s observed address. 
+     * Delete a recording and its stored media
+     */
+    async deleteSessionRecordingRaw(requestParameters: DeleteSessionRecordingRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<void>> {
+        if (requestParameters['recordingId'] == null) {
+            throw new runtime.RequiredError(
+                'recordingId',
+                'Required parameter "recordingId" was null or undefined when calling deleteSessionRecording().'
+            );
+        }
+
+        const queryParameters: any = {};
+
+        const headerParameters: runtime.HTTPHeaders = {};
+
+        if (this.configuration && this.configuration.apiKey) {
+            headerParameters["X-API-Key"] = await this.configuration.apiKey("X-API-Key"); // ApiKeyAuth authentication
+        }
+
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("BearerAuth", []);
+
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+
+        let urlPath = `/v1/me/recordings/{recording_id}`;
+        urlPath = urlPath.replace(`{${"recording_id"}}`, encodeURIComponent(String(requestParameters['recordingId'])));
+
+        const response = await this.request({
+            path: urlPath,
+            method: 'DELETE',
+            headers: headerParameters,
+            query: queryParameters,
+        }, initOverrides);
+
+        return new runtime.VoidApiResponse(response);
+    }
+
+    /**
+     * Removes the index row and the media files that belong to it, so the recording cannot be played back afterwards. There is no \"already gone\" success: a second delete is a `404`. The deletion is published on the owner\'s realtime stream and written to the audit trail as `recording.delete` with the actor\'s observed address. 
+     * Delete a recording and its stored media
+     */
+    async deleteSessionRecording(requestParameters: DeleteSessionRecordingRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<void> {
+        await this.deleteSessionRecordingRaw(requestParameters, initOverrides);
     }
 
     /**
@@ -393,6 +534,57 @@ export class RecordingsApi extends runtime.BaseAPI {
     }
 
     /**
+     * The same row the list returns. Another user\'s id is a `404` rather than a `403`, so the route cannot be used to discover which recording ids exist. 
+     * One recording the caller owns
+     */
+    async getSessionRecordingRaw(requestParameters: GetSessionRecordingRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<SessionRecording>> {
+        if (requestParameters['recordingId'] == null) {
+            throw new runtime.RequiredError(
+                'recordingId',
+                'Required parameter "recordingId" was null or undefined when calling getSessionRecording().'
+            );
+        }
+
+        const queryParameters: any = {};
+
+        const headerParameters: runtime.HTTPHeaders = {};
+
+        if (this.configuration && this.configuration.apiKey) {
+            headerParameters["X-API-Key"] = await this.configuration.apiKey("X-API-Key"); // ApiKeyAuth authentication
+        }
+
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("BearerAuth", []);
+
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+
+        let urlPath = `/v1/me/recordings/{recording_id}`;
+        urlPath = urlPath.replace(`{${"recording_id"}}`, encodeURIComponent(String(requestParameters['recordingId'])));
+
+        const response = await this.request({
+            path: urlPath,
+            method: 'GET',
+            headers: headerParameters,
+            query: queryParameters,
+        }, initOverrides);
+
+        return new runtime.JSONApiResponse(response, (jsonValue) => SessionRecordingFromJSON(jsonValue));
+    }
+
+    /**
+     * The same row the list returns. Another user\'s id is a `404` rather than a `403`, so the route cannot be used to discover which recording ids exist. 
+     * One recording the caller owns
+     */
+    async getSessionRecording(requestParameters: GetSessionRecordingRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<SessionRecording> {
+        const response = await this.getSessionRecordingRaw(requestParameters, initOverrides);
+        return await response.value();
+    }
+
+    /**
      * Cursor-paginated, newest first. `next_cursor` is opaque: pass it back as `?cursor=` to fetch the next page and stop when it is absent. The envelope here has no `total` because this endpoint does not count the whole set on every page, so an integrator must page until `next_cursor` is empty rather than trusting a count. This is the metadata index only; the media bytes live behind the per-recording `.../artifact` routes documented in `docs/user-api-docs.md`. 
      * The caller\'s session-recording index
      */
@@ -443,4 +635,255 @@ export class RecordingsApi extends runtime.BaseAPI {
         return await response.value();
     }
 
+    /**
+     * Partial update: only the fields present in the body are written, so a producer can patch `status` when a capture starts and then `size_bytes`/`ended_at` when the upload finishes. `status` accepts the same three values as create; anything else is a `400` and writes nothing. 
+     * Update a recording\'s lifecycle metadata
+     */
+    async updateSessionRecordingRaw(requestParameters: UpdateSessionRecordingRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<SessionRecording>> {
+        if (requestParameters['recordingId'] == null) {
+            throw new runtime.RequiredError(
+                'recordingId',
+                'Required parameter "recordingId" was null or undefined when calling updateSessionRecording().'
+            );
+        }
+
+        if (requestParameters['sessionRecordingPatch'] == null) {
+            throw new runtime.RequiredError(
+                'sessionRecordingPatch',
+                'Required parameter "sessionRecordingPatch" was null or undefined when calling updateSessionRecording().'
+            );
+        }
+
+        const queryParameters: any = {};
+
+        const headerParameters: runtime.HTTPHeaders = {};
+
+        headerParameters['Content-Type'] = 'application/json';
+
+        if (this.configuration && this.configuration.apiKey) {
+            headerParameters["X-API-Key"] = await this.configuration.apiKey("X-API-Key"); // ApiKeyAuth authentication
+        }
+
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("BearerAuth", []);
+
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+
+        let urlPath = `/v1/me/recordings/{recording_id}`;
+        urlPath = urlPath.replace(`{${"recording_id"}}`, encodeURIComponent(String(requestParameters['recordingId'])));
+
+        const response = await this.request({
+            path: urlPath,
+            method: 'PATCH',
+            headers: headerParameters,
+            query: queryParameters,
+            body: SessionRecordingPatchToJSON(requestParameters['sessionRecordingPatch']),
+        }, initOverrides);
+
+        return new runtime.JSONApiResponse(response, (jsonValue) => SessionRecordingFromJSON(jsonValue));
+    }
+
+    /**
+     * Partial update: only the fields present in the body are written, so a producer can patch `status` when a capture starts and then `size_bytes`/`ended_at` when the upload finishes. `status` accepts the same three values as create; anything else is a `400` and writes nothing. 
+     * Update a recording\'s lifecycle metadata
+     */
+    async updateSessionRecording(requestParameters: UpdateSessionRecordingRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<SessionRecording> {
+        const response = await this.updateSessionRecordingRaw(requestParameters, initOverrides);
+        return await response.value();
+    }
+
+    /**
+     * Two request shapes, because the producers differ: `multipart/form-data` with a `file` part (the browser and Qt clients) or the raw body with `?ext=`. The extension is allow-listed (`.mp4`, `.m4v`, `.mkv`, `.webm`, `.h264`, `.grf`), the bytes are written to a temporary file and renamed into place so a dropped upload can never leave a half-written file under the real name, and the row is then updated with `artifact_path`, `artifact_url`, `format` and `size_bytes` in one step.  An empty body is a `400`; a body over the configured limit (`RECORDING_MAX_BYTES`, exposed as `store.max_bytes`) is a `400` as well, never a truncated file. Uploading again replaces the stored artifact. 
+     * Upload a recording\'s media bytes
+     */
+    async uploadRecordingArtifactRaw(requestParameters: UploadRecordingArtifactRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<SessionRecording>> {
+        if (requestParameters['recordingId'] == null) {
+            throw new runtime.RequiredError(
+                'recordingId',
+                'Required parameter "recordingId" was null or undefined when calling uploadRecordingArtifact().'
+            );
+        }
+
+        if (requestParameters['file'] == null) {
+            throw new runtime.RequiredError(
+                'file',
+                'Required parameter "file" was null or undefined when calling uploadRecordingArtifact().'
+            );
+        }
+
+        const queryParameters: any = {};
+
+        if (requestParameters['ext'] != null) {
+            queryParameters['ext'] = requestParameters['ext'];
+        }
+
+        const headerParameters: runtime.HTTPHeaders = {};
+
+        if (this.configuration && this.configuration.apiKey) {
+            headerParameters["X-API-Key"] = await this.configuration.apiKey("X-API-Key"); // ApiKeyAuth authentication
+        }
+
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("BearerAuth", []);
+
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+        const consumes: runtime.Consume[] = [
+            { contentType: 'multipart/form-data' },
+            { contentType: 'application/octet-stream' },
+        ];
+        // @ts-ignore: canConsumeForm may be unused
+        const canConsumeForm = runtime.canConsumeForm(consumes);
+
+        let formParams: { append(param: string, value: any): any };
+        let useForm = false;
+        // use FormData to transmit files using content-type "multipart/form-data"
+        useForm = canConsumeForm;
+        if (useForm) {
+            formParams = new FormData();
+        } else {
+            formParams = new URLSearchParams();
+        }
+
+        if (requestParameters['file'] != null) {
+            formParams.append('file', requestParameters['file'] as any);
+        }
+
+
+        let urlPath = `/v1/me/recordings/{recording_id}/artifact`;
+        urlPath = urlPath.replace(`{${"recording_id"}}`, encodeURIComponent(String(requestParameters['recordingId'])));
+
+        const response = await this.request({
+            path: urlPath,
+            method: 'POST',
+            headers: headerParameters,
+            query: queryParameters,
+            body: formParams,
+        }, initOverrides);
+
+        return new runtime.JSONApiResponse(response, (jsonValue) => SessionRecordingFromJSON(jsonValue));
+    }
+
+    /**
+     * Two request shapes, because the producers differ: `multipart/form-data` with a `file` part (the browser and Qt clients) or the raw body with `?ext=`. The extension is allow-listed (`.mp4`, `.m4v`, `.mkv`, `.webm`, `.h264`, `.grf`), the bytes are written to a temporary file and renamed into place so a dropped upload can never leave a half-written file under the real name, and the row is then updated with `artifact_path`, `artifact_url`, `format` and `size_bytes` in one step.  An empty body is a `400`; a body over the configured limit (`RECORDING_MAX_BYTES`, exposed as `store.max_bytes`) is a `400` as well, never a truncated file. Uploading again replaces the stored artifact. 
+     * Upload a recording\'s media bytes
+     */
+    async uploadRecordingArtifact(requestParameters: UploadRecordingArtifactRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<SessionRecording> {
+        const response = await this.uploadRecordingArtifactRaw(requestParameters, initOverrides);
+        return await response.value();
+    }
+
+    /**
+     * The same two shapes as the artifact upload (`multipart/form-data` with a `file` part, or the raw body with `?ext=`), but the extension is limited to `.jpg`, `.jpeg` and `.png` and the size to 2 MiB - a preview is a small still, and an oversized one means the wrong file was sent.  The bytes are sniffed before they are stored rather than trusted from the name or the declared content type: the index renders this image inline, so a file that only claims to be a JPEG is a `400`. 
+     * Upload a recording\'s preview image
+     */
+    async uploadRecordingThumbnailRaw(requestParameters: UploadRecordingThumbnailRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<SessionRecording>> {
+        if (requestParameters['recordingId'] == null) {
+            throw new runtime.RequiredError(
+                'recordingId',
+                'Required parameter "recordingId" was null or undefined when calling uploadRecordingThumbnail().'
+            );
+        }
+
+        if (requestParameters['file'] == null) {
+            throw new runtime.RequiredError(
+                'file',
+                'Required parameter "file" was null or undefined when calling uploadRecordingThumbnail().'
+            );
+        }
+
+        const queryParameters: any = {};
+
+        if (requestParameters['ext'] != null) {
+            queryParameters['ext'] = requestParameters['ext'];
+        }
+
+        const headerParameters: runtime.HTTPHeaders = {};
+
+        if (this.configuration && this.configuration.apiKey) {
+            headerParameters["X-API-Key"] = await this.configuration.apiKey("X-API-Key"); // ApiKeyAuth authentication
+        }
+
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("BearerAuth", []);
+
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+        const consumes: runtime.Consume[] = [
+            { contentType: 'multipart/form-data' },
+            { contentType: 'application/octet-stream' },
+        ];
+        // @ts-ignore: canConsumeForm may be unused
+        const canConsumeForm = runtime.canConsumeForm(consumes);
+
+        let formParams: { append(param: string, value: any): any };
+        let useForm = false;
+        // use FormData to transmit files using content-type "multipart/form-data"
+        useForm = canConsumeForm;
+        if (useForm) {
+            formParams = new FormData();
+        } else {
+            formParams = new URLSearchParams();
+        }
+
+        if (requestParameters['file'] != null) {
+            formParams.append('file', requestParameters['file'] as any);
+        }
+
+
+        let urlPath = `/v1/me/recordings/{recording_id}/thumbnail`;
+        urlPath = urlPath.replace(`{${"recording_id"}}`, encodeURIComponent(String(requestParameters['recordingId'])));
+
+        const response = await this.request({
+            path: urlPath,
+            method: 'POST',
+            headers: headerParameters,
+            query: queryParameters,
+            body: formParams,
+        }, initOverrides);
+
+        return new runtime.JSONApiResponse(response, (jsonValue) => SessionRecordingFromJSON(jsonValue));
+    }
+
+    /**
+     * The same two shapes as the artifact upload (`multipart/form-data` with a `file` part, or the raw body with `?ext=`), but the extension is limited to `.jpg`, `.jpeg` and `.png` and the size to 2 MiB - a preview is a small still, and an oversized one means the wrong file was sent.  The bytes are sniffed before they are stored rather than trusted from the name or the declared content type: the index renders this image inline, so a file that only claims to be a JPEG is a `400`. 
+     * Upload a recording\'s preview image
+     */
+    async uploadRecordingThumbnail(requestParameters: UploadRecordingThumbnailRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<SessionRecording> {
+        const response = await this.uploadRecordingThumbnailRaw(requestParameters, initOverrides);
+        return await response.value();
+    }
+
 }
+
+/**
+ * @export
+ */
+export const UploadRecordingArtifactExtEnum = {
+    Mp4: '.mp4',
+    M4v: '.m4v',
+    Mkv: '.mkv',
+    Webm: '.webm',
+    H264: '.h264',
+    Grf: '.grf'
+} as const;
+export type UploadRecordingArtifactExtEnum = typeof UploadRecordingArtifactExtEnum[keyof typeof UploadRecordingArtifactExtEnum];
+/**
+ * @export
+ */
+export const UploadRecordingThumbnailExtEnum = {
+    Jpg: '.jpg',
+    Jpeg: '.jpeg',
+    Png: '.png'
+} as const;
+export type UploadRecordingThumbnailExtEnum = typeof UploadRecordingThumbnailExtEnum[keyof typeof UploadRecordingThumbnailExtEnum];
