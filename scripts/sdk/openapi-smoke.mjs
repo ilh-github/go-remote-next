@@ -13,7 +13,8 @@
 // short-lived guest code, the wrong-access-code rejection (which writes an
 // access-log row and may notify the owner), the whole recording lifecycle (which
 // the smoke creates and deletes itself) and the approval flow (which needs the
-// device to be online and switches approval_mode on temporarily).
+// device to be online and drives both the device-code and grant-backed triggers
+// by switching approval_mode temporarily).
 //
 // Usage:
 //   QD_IDENTIFIER=user QD_PASSWORD=secret scripts/sdk/openapi-smoke.mjs
@@ -510,7 +511,8 @@ if (smokeDevice) {
   const goneRecording = await call('GET', `/v1/me/recordings/${recordingId}`, { token, expect: 404 });
   problemShape(goneRecording.json, 'GET deleted recording');
 
-  // 11. Second-factor approval, both outcomes.
+  // 11. Second-factor approval: device-code and grant-backed triggers, both
+  // outcomes.
   //
   // The read-only checks can pin the 404/400 shapes of these routes but not
   // what a real decision does, because that needs a pending request - and a
@@ -518,10 +520,10 @@ if (smokeDevice) {
   // smoke provides both: it turns approval on for its own device, drives the
   // exchange, and puts the policy back immediately afterwards.
   //
-  // Residue, stated rather than hidden: the device keeps two decided approval
-  // rows (one approved-and-consumed, one denied) and their entries on the
-  // access timeline. They are the owner's own history and the reason the flow
-  // is auditable.
+  // Residue, stated rather than hidden: the device keeps three decided approval
+  // rows (two approved-and-consumed, one denied) plus one consumed grant row
+  // and their entries on the access timeline. They are the owner's own history
+  // and the reason the flow is auditable.
   const originalApprovalMode = policy.json.approval_mode ?? 'off';
   const approvalPolicy = { ...policyPut, approval_mode: 'always' };
   const approvalOn = await call('PUT', `/v1/me/devices/${deviceId}/access-policy`, {
@@ -559,6 +561,8 @@ if (smokeDevice) {
     for (const name of ['id', 'device_id', 'client_id', 'client_ip', 'source', 'status', 'expires_at', 'created_at']) {
       field(pendingRow, name, undefined, 'AccessApproval');
     }
+    check(pendingRow.source === 'device_code',
+      `device-code approval source is "${pendingRow.source}", want device_code`);
   }
 
   // Before a decision the claim is "keep polling", not an error.
@@ -598,6 +602,77 @@ if (smokeDevice) {
   check(reclaimed.json?.status === 'consumed',
     `re-claim status is "${reclaimed.json?.status}", want consumed`);
 
+  // The grant-backed trigger is a separate branch: approval_mode "grant" must
+  // send guest-code sessions to the owner's decision queue while the device's
+  // own code still passes. A one-use grant stays unconsumed across the pending
+  // stage and is spent only when the approved claim actually mints a token.
+  const grantPolicy = { ...policyPut, approval_mode: 'grant' };
+  const grantOn = await call('PUT', `/v1/me/devices/${deviceId}/access-policy`, {
+    token,
+    body: grantPolicy,
+    expect: 200,
+  });
+  check(grantOn.json.approval_mode === 'grant',
+    `PUT access-policy left approval_mode "${grantOn.json.approval_mode}", want grant`);
+
+  const approvalGrant = await call('POST', `/v1/me/devices/${deviceId}/access-grants`, {
+    token,
+    body: { label: 'openapi-smoke-approval', expires_in_minutes: 5, max_uses: 1 },
+    expect: 201,
+  });
+  for (const name of ['id', 'device_id', 'code', 'expires_at', 'max_uses', 'uses', 'active', 'created_at']) {
+    field(approvalGrant.json, name, undefined, 'POST access-grants (approval)');
+  }
+  check(typeof approvalGrant.json.code === 'string' && approvalGrant.json.code.length > 0,
+    'approval grant returned no code');
+
+  const grantClient = `${approvalClient}-grant`;
+  const grantPending = await call('POST', `/v1/devices/${deviceId}/access-code:verify`, {
+    body: { code: approvalGrant.json.code, client_id: grantClient },
+    expect: 202,
+  });
+  for (const name of ['approval_id', 'approval_secret', 'status', 'expires_at', 'poll_after_ms']) {
+    field(grantPending.json, name, undefined, 'POST access-code:verify (grant approval pending)');
+  }
+  check(grantPending.json.status === 'pending',
+    `grant approval status is "${grantPending.json.status}", want pending`);
+
+  const grantPendingList = await call('GET', `/v1/me/devices/${deviceId}/access-approvals?status=pending`, { token, expect: 200 });
+  const grantApprovalRow = (grantPendingList.json?.items ?? []).find((a) => a.id === grantPending.json.approval_id);
+  check(grantApprovalRow !== undefined, 'the grant-backed pending request is missing from the owner\'s list');
+  if (grantApprovalRow) {
+    check(grantApprovalRow.source === 'grant',
+      `grant approval source is "${grantApprovalRow.source}", want grant`);
+    check(grantApprovalRow.grant_id === approvalGrant.json.id,
+      `grant approval grant_id is "${grantApprovalRow.grant_id}", want ${approvalGrant.json.id}`);
+  }
+
+  const grantApproved = await call('POST', `/v1/me/devices/${deviceId}/access-approvals/${grantPending.json.approval_id}/approve`, {
+    token,
+    body: { reason: 'openapi-smoke-grant' },
+    expect: 200,
+  });
+  check(grantApproved.json.status === 'approved',
+    `grant approve returned status "${grantApproved.json.status}"`);
+
+  const grantClaimed = await call('POST', `/v1/devices/${deviceId}/access-approvals:claim`, {
+    body: { approval_id: grantPending.json.approval_id, secret: grantPending.json.approval_secret },
+    expect: 200,
+  });
+  field(grantClaimed.json, 'signal_token', 'string', 'POST access-approvals:claim (grant approved)');
+  check(typeof grantClaimed.json.signal_token === 'string' && grantClaimed.json.signal_token.length > 0,
+    'the grant-backed approved claim returned no signal_token');
+
+  const grantList = await call('GET', `/v1/me/devices/${deviceId}/access-grants`, { token, expect: 200 });
+  const spentGrant = (grantList.json?.items ?? []).find((g) => g.id === approvalGrant.json.id);
+  check(spentGrant !== undefined, 'the approval grant disappeared from the owner\'s grant list');
+  if (spentGrant) {
+    check(spentGrant.uses === 1,
+      `approval grant uses is ${spentGrant.uses}, want 1 after the approved claim`);
+    check(spentGrant.active === false,
+      'approval grant is still active after its only approved claim');
+  }
+
   // The other outcome, on a fresh request: deny, then the claim is refused.
   //
   // Opt-in, because a deny arms the per-(device, source address) cooldown
@@ -606,6 +681,15 @@ if (smokeDevice) {
   // before the approve leg even started. CI sets QD_SMOKE_APPROVAL_DENY=1
   // because its device is created fresh for every run and nothing follows it.
   if (process.env.QD_SMOKE_APPROVAL_DENY === '1') {
+    // The grant leg above left approval_mode at "grant"; the deny leg is about
+    // the device-code source, so switch it back to "always" explicitly.
+    const denyOn = await call('PUT', `/v1/me/devices/${deviceId}/access-policy`, {
+      token,
+      body: { ...policyPut, approval_mode: 'always' },
+      expect: 200,
+    });
+    check(denyOn.json.approval_mode === 'always',
+      `PUT access-policy left approval_mode "${denyOn.json.approval_mode}", want always for deny`);
     const deniedRequest = await call('POST', `/v1/devices/${deviceId}/access-code:verify`, {
       body: { code: deviceAccessCode, client_id: `${approvalClient}-denied` },
       expect: 202,
