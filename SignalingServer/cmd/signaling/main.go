@@ -634,6 +634,19 @@ func main() {
 		// already implements the OR logic (§2.2 H1).
 		v1.POST("/devices/:device_id/access-code:verify", hostHandler.VerifyAccessCode)
 
+		// Controller challenge: the same gate as verify, because it also
+		// presents the access code. It exists for grants bound to a public key,
+		// where the controller has to sign something the server minted before
+		// verify will accept it.
+		//
+		// The path is *not* `access-code:challenge`, even though that would
+		// read better: gin's router treats the `:` in `access-code:verify` as
+		// the start of a wildcard segment (the handler is reachable as
+		// `/access-code<param>`), so a sibling sharing that static prefix
+		// panics at route-registration time. It is the same trap the
+		// `webhooks/:id/test` note in docs/user-api-docs.md describes.
+		v1.POST("/devices/:device_id/controller-challenges", hostHandler.IssueControllerChallenge)
+
 		// claim: the requesting controller exchanges a granted approval
 		// (approval_id + one-time secret from access-code:verify) for a
 		// signal token. No device secret or user token: the secret is the

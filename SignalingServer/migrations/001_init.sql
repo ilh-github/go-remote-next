@@ -304,6 +304,7 @@ CREATE TABLE IF NOT EXISTS device_access_grants (
     revoked_at  TIMESTAMPTZ,
     last_used_at TIMESTAMPTZ,
     bound_client_id VARCHAR(64)  NOT NULL DEFAULT '',
+    bound_client_public_key VARCHAR(100) NOT NULL DEFAULT '',
     bound_ips       TEXT         NOT NULL DEFAULT '[]',
     last_used_client_id VARCHAR(64) NOT NULL DEFAULT '',
     last_used_ip    VARCHAR(50)  NOT NULL DEFAULT '',
@@ -327,6 +328,11 @@ ALTER TABLE device_access_grants
 
 ALTER TABLE device_access_grants
     ADD COLUMN IF NOT EXISTS bound_ips TEXT NOT NULL DEFAULT '[]';
+
+-- Optional proof of possession: when set, the controller bound by client id
+-- must also sign the server's challenge with the matching private key.
+ALTER TABLE device_access_grants
+    ADD COLUMN IF NOT EXISTS bound_client_public_key VARCHAR(100) NOT NULL DEFAULT '';
 
 ALTER TABLE device_access_grants
     ADD COLUMN IF NOT EXISTS last_used_client_id VARCHAR(64) NOT NULL DEFAULT '';

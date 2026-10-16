@@ -39,8 +39,12 @@ type accessGrantReq struct {
 	Code             string `json:"code"`
 	// Optional binding: who may redeem the code. Empty means "anyone who has
 	// the code", which is what a grant meant before these fields existed.
-	BoundClientID string   `json:"bound_client_id"`
-	BoundIPs      []string `json:"bound_ips"`
+	BoundClientID string `json:"bound_client_id"`
+	// Optional proof of possession for that client id: base64 of a raw 32-byte
+	// Ed25519 public key. When set, redeeming the code requires a signature
+	// from the matching private key over the server's challenge.
+	BoundClientPublicKey string   `json:"bound_client_public_key"`
+	BoundIPs             []string `json:"bound_ips"`
 }
 
 // accessGrantView is the wire shape: it adds the derived `active` flag so a
@@ -58,11 +62,15 @@ type accessGrantView struct {
 	LastUsedAt *time.Time `json:"last_used_at"`
 	// BoundClientID / BoundIPs echo the binding, and LastUsed* show how the
 	// code was actually redeemed.
-	BoundClientID    string    `json:"bound_client_id"`
-	BoundIPs         []string  `json:"bound_ips"`
-	LastUsedClientID string    `json:"last_used_client_id"`
-	LastUsedIP       string    `json:"last_used_ip"`
-	CreatedAt        time.Time `json:"created_at"`
+	BoundClientID string `json:"bound_client_id"`
+	// BoundClientPublicKey is echoed so the owner can tell an assertion-only
+	// binding from a provable one without keeping track of which code got which
+	// key. The key is public, so echoing it leaks nothing.
+	BoundClientPublicKey string    `json:"bound_client_public_key"`
+	BoundIPs             []string  `json:"bound_ips"`
+	LastUsedClientID     string    `json:"last_used_client_id"`
+	LastUsedIP           string    `json:"last_used_ip"`
+	CreatedAt            time.Time `json:"created_at"`
 }
 
 func (h *DeviceAccessGrantHandler) List(c *gin.Context) {
@@ -95,12 +103,13 @@ func (h *DeviceAccessGrantHandler) Create(c *gin.Context) {
 	}
 	row, err := h.grants.Create(c.Request.Context(), deviceID, middleware.MustUserID(c),
 		service.CreateDeviceAccessGrantInput{
-			Label:            req.Label,
-			ExpiresInMinutes: req.ExpiresInMinutes,
-			MaxUses:          req.MaxUses,
-			Code:             req.Code,
-			BoundClientID:    req.BoundClientID,
-			BoundIPs:         req.BoundIPs,
+			Label:                req.Label,
+			ExpiresInMinutes:     req.ExpiresInMinutes,
+			MaxUses:              req.MaxUses,
+			Code:                 req.Code,
+			BoundClientID:        req.BoundClientID,
+			BoundClientPublicKey: req.BoundClientPublicKey,
+			BoundIPs:             req.BoundIPs,
 		})
 	if err != nil {
 		if errors.Is(err, service.ErrInvalidAccessGrant) {
@@ -189,20 +198,21 @@ func (h *DeviceAccessGrantHandler) ownedDeviceID(c *gin.Context) (string, bool) 
 
 func grantView(row models.DeviceAccessGrant, now time.Time) accessGrantView {
 	return accessGrantView{
-		ID:               row.ID,
-		DeviceID:         row.DeviceID,
-		Code:             row.Code,
-		Label:            row.Label,
-		ExpiresAt:        row.ExpiresAt,
-		MaxUses:          row.MaxUses,
-		Uses:             row.Uses,
-		Active:           row.UsableAt(now),
-		RevokedAt:        row.RevokedAt,
-		LastUsedAt:       row.LastUsedAt,
-		BoundClientID:    row.BoundClientID,
-		BoundIPs:         decodeAllowIPsForEvent(row.BoundIPs),
-		LastUsedClientID: row.LastUsedClientID,
-		LastUsedIP:       row.LastUsedIP,
-		CreatedAt:        row.CreatedAt,
+		ID:                   row.ID,
+		DeviceID:             row.DeviceID,
+		Code:                 row.Code,
+		Label:                row.Label,
+		ExpiresAt:            row.ExpiresAt,
+		MaxUses:              row.MaxUses,
+		Uses:                 row.Uses,
+		Active:               row.UsableAt(now),
+		RevokedAt:            row.RevokedAt,
+		LastUsedAt:           row.LastUsedAt,
+		BoundClientID:        row.BoundClientID,
+		BoundClientPublicKey: row.BoundClientPublicKey,
+		BoundIPs:             decodeAllowIPsForEvent(row.BoundIPs),
+		LastUsedClientID:     row.LastUsedClientID,
+		LastUsedIP:           row.LastUsedIP,
+		CreatedAt:            row.CreatedAt,
 	}
 }

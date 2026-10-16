@@ -26,6 +26,13 @@ func newGrantTestDB(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
+	// One pool per test against a scratch Postgres with a connection limit;
+	// closing it with the test keeps a long package run from exhausting them.
+	t.Cleanup(func() {
+		if sqlDB, err := db.DB(); err == nil {
+			sqlDB.Close()
+		}
+	})
 	if err := db.AutoMigrate(&models.DeviceAccessGrant{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
@@ -323,6 +330,7 @@ func TestCreateAccessGrantValidatesBinding(t *testing.T) {
 	db := newGrantTestDB(t)
 	svc := NewDeviceAccessGrantService(db)
 	ctx := context.Background()
+	publicKey, _ := testControllerKey(t)
 
 	if _, err := svc.Create(ctx, "dev-1", 7, CreateDeviceAccessGrantInput{
 		ExpiresInMinutes: 30, Code: "BADBIND1", BoundIPs: []string{"example.com"},
@@ -343,5 +351,30 @@ func TestCreateAccessGrantValidatesBinding(t *testing.T) {
 	}
 	if row.BoundClientID != "" {
 		t.Fatalf("blank binding should normalise to empty, got %q", row.BoundClientID)
+	}
+
+	// A proof-bound grant needs both halves: without the client id the binding
+	// and the audit value would disagree, and a key that is not a raw Ed25519
+	// public key can never be satisfied.
+	if _, err := svc.Create(ctx, "dev-1", 7, CreateDeviceAccessGrantInput{
+		ExpiresInMinutes: 30, Code: "BADKEY01", BoundClientPublicKey: publicKey,
+	}); !errors.Is(err, ErrInvalidAccessGrant) {
+		t.Fatalf("a public key without a client id should be rejected, got %v", err)
+	}
+	if _, err := svc.Create(ctx, "dev-1", 7, CreateDeviceAccessGrantInput{
+		ExpiresInMinutes: 30, Code: "BADKEY02", BoundClientID: "guest-1",
+		BoundClientPublicKey: "not-a-key",
+	}); !errors.Is(err, ErrInvalidAccessGrant) {
+		t.Fatalf("a malformed public key should be rejected, got %v", err)
+	}
+	bound, err := svc.Create(ctx, "dev-1", 7, CreateDeviceAccessGrantInput{
+		ExpiresInMinutes: 30, Code: "KEYBIND1", BoundClientID: "guest-1",
+		BoundClientPublicKey: publicKey,
+	})
+	if err != nil {
+		t.Fatalf("create with a bound key: %v", err)
+	}
+	if bound.BoundClientPublicKey != publicKey {
+		t.Fatalf("bound key stored as %q, want %q", bound.BoundClientPublicKey, publicKey)
 	}
 }

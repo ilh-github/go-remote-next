@@ -36,6 +36,10 @@ const (
 	ProblemCodeProvisionFailed    = httpx.CodeProvisionFailed
 	ProblemCodePeerDisconnected   = httpx.CodePeerDisconnected
 
+	ProblemCodeControllerProofRequired = httpx.CodeControllerProofRequired
+	ProblemCodeControllerProofInvalid  = httpx.CodeControllerProofInvalid
+	ProblemCodeProofNotRequired        = httpx.CodeProofNotRequired
+
 	ProblemCodeSmsDisabled   = httpx.CodeSmsDisabled
 	ProblemCodeSmsRateLimit  = httpx.CodeSmsRateLimit
 	ProblemCodeSmsCodeBad    = httpx.CodeSmsCodeBad

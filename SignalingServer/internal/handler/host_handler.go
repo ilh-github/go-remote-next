@@ -26,6 +26,7 @@ import (
 //	PUT  /v1/devices/:device_id/access-code       (device_secret)
 //	GET  /v1/ice-config                           (X-API-Key OR device_secret)
 //	POST /v1/devices/:device_id/access-code:verify (X-API-Key OR Origin-allowed)
+//	POST /v1/devices/:device_id/controller-challenges (X-API-Key OR Origin-allowed)
 //
 // See docs §2.5, §2.6, §2.10, §2.19, §2.23.
 type HostHandler struct {
@@ -346,6 +347,19 @@ func buildTurnCredential(secret string, ttlSec int) (user, cred string) {
 type verifyCodeReq struct {
 	Code     string `json:"code" binding:"required"`
 	ClientID string `json:"client_id"`
+	// Challenge and Signature are only needed when the matched grant is bound
+	// to a public key (the owner created it with bound_client_public_key). The
+	// device's own access code never requires them.
+	Challenge string `json:"challenge"`
+	Signature string `json:"signature"`
+}
+
+// controllerChallengeReq asks for a proof-of-possession challenge for a grant
+// that is bound to a public key. It presents the code, so it costs the same
+// rate-limit budget as a redemption attempt rather than being a free oracle.
+type controllerChallengeReq struct {
+	Code     string `json:"code" binding:"required"`
+	ClientID string `json:"client_id"`
 }
 
 type verifyCodeResp struct {
@@ -385,10 +399,13 @@ func approvalReason(trigger string) string {
 	}
 }
 
-func (h *HostHandler) VerifyAccessCode(c *gin.Context) {
-	deviceID := c.Param("device_id")
-	ip := c.ClientIP()
-
+// accessGate runs the two gates every code-presenting request shares, in the
+// order they have to run: the rate limiter first (so a blocked caller cannot
+// use this path to spray requests), then the device's access policy (so a
+// device with remote access switched off never reaches a code comparison).
+// It writes the response itself when it refuses and reports whether the caller
+// may continue, together with the policy it loaded.
+func (h *HostHandler) accessGate(c *gin.Context, deviceID, ip string) (*models.DeviceAccessPolicy, bool) {
 	// Rate-limit precheck (§2.10): per-IP ⇒ 429, per-device or
 	// per-(device,ip) ⇒ 403 TOO_MANY_ATTEMPTS.
 	if decision, _ := h.rateLimit.CheckVerifyPreflight(c.Request.Context(), deviceID, ip); decision.Blocked {
@@ -403,30 +420,131 @@ func (h *HostHandler) VerifyAccessCode(c *gin.Context) {
 			}
 			ProblemForbidden(c, ProblemCodeTooManyAttempts, decision.Reason)
 		}
+		return nil, false
+	}
+	if h.accessPolicy == nil {
+		return nil, true
+	}
+	policy, err := h.accessPolicy.Get(c.Request.Context(), deviceID)
+	if err != nil {
+		ProblemInternal(c, err.Error())
+		return nil, false
+	}
+	if allowed, reason := service.EvaluateDeviceAccessPolicy(policy, ip); !allowed {
+		h.recordDeviceAccess(c, deviceID, "", service.DeviceAccessDeniedPolicy, reason)
+		observability.Event("access_verify", "policy_denied", map[string]interface{}{
+			"device_id": deviceID, "ip": ip, "reason": reason,
+			"request_id": c.GetString("request_id"),
+		})
+		ProblemForbidden(c, ProblemCodeAccessPolicyDenied, reason)
+		return nil, false
+	}
+	return policy, true
+}
+
+// tripLimitIfExhausted records one failed presentation of a code and, when the
+// per-device counter is now exhausted, answers 403 TOO_MANY_ATTEMPTS
+// (+ Retry-After) and returns true so the caller stops. Both
+// access-code:verify and access-code:challenge go through it, so the challenge
+// endpoint cannot be turned into an unmetered oracle for guessing codes.
+func (h *HostHandler) tripLimitIfExhausted(c *gin.Context, deviceID, clientID, ip string) bool {
+	failure, _ := h.rateLimit.RecordVerifyFailure(c.Request.Context(), deviceID, ip)
+	if !failure.TripsLimit {
+		return false
+	}
+	h.recordDeviceAccess(c, deviceID, clientID, service.DeviceAccessDeniedRateLimited,
+		"too many failed attempts")
+	observability.Event("access_verify", "rate_limited", map[string]interface{}{
+		"device_id": deviceID, "ip": ip, "request_id": c.GetString("request_id"),
+	})
+	// Tripped a per-device error counter (not the per-IP total counter), so
+	// §2.10 mandates 403 + Retry-After.
+	if failure.RetryAfterSec > 0 {
+		c.Header("Retry-After", fmt.Sprintf("%d", failure.RetryAfterSec))
+	}
+	ProblemForbidden(c, ProblemCodeTooManyAttempts, "Too many failed attempts")
+	return true
+}
+
+// IssueControllerChallenge mints the challenge a controller signs to redeem a
+// grant that is bound to a public key.
+//
+// The code still has to be presented, so this is not a free endpoint: a miss
+// costs the same rate-limit budget as a redemption attempt. The challenge
+// itself is bound to the device, the grant and the client id, so a signature
+// seen in one flow cannot be replayed into another.
+func (h *HostHandler) IssueControllerChallenge(c *gin.Context) {
+	deviceID := c.Param("device_id")
+	ip := c.ClientIP()
+
+	if _, ok := h.accessGate(c, deviceID, ip); !ok {
+		return
+	}
+	var req controllerChallengeReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		ProblemBadRequest(c, ProblemCodeInvalidRequest, err.Error())
 		return
 	}
 
-	// Device-level access policy, owned by the device owner: a device with
-	// remote access switched off, or a client outside the allow list, never
-	// reaches the access-code comparison at all. Checked after the rate
-	// limiter so a blocked caller cannot use this path to spray requests.
-	var policy *models.DeviceAccessPolicy
-	if h.accessPolicy != nil {
-		loaded, err := h.accessPolicy.Get(c.Request.Context(), deviceID)
-		if err != nil {
-			ProblemInternal(c, err.Error())
+	exists, _, err := h.devices.VerifyAccessCode(c.Request.Context(), deviceID, req.Code)
+	if err != nil {
+		ProblemInternal(c, err.Error())
+		return
+	}
+	if !exists {
+		ProblemNotFound(c, ProblemCodeDeviceNotFound, "Device not registered")
+		return
+	}
+
+	var grant *models.DeviceAccessGrant
+	if h.accessGrants != nil {
+		matched, merr := h.accessGrants.Match(c.Request.Context(), deviceID, req.Code, req.ClientID, ip)
+		if merr != nil {
+			ProblemInternal(c, merr.Error())
 			return
 		}
-		policy = loaded
-		if allowed, reason := service.EvaluateDeviceAccessPolicy(policy, ip); !allowed {
-			h.recordDeviceAccess(c, deviceID, "", service.DeviceAccessDeniedPolicy, reason)
-			observability.Event("access_verify", "policy_denied", map[string]interface{}{
-				"device_id": deviceID, "ip": ip, "reason": reason,
-				"request_id": c.GetString("request_id"),
-			})
-			ProblemForbidden(c, ProblemCodeAccessPolicyDenied, reason)
+		grant = matched
+	}
+	if grant == nil {
+		if h.tripLimitIfExhausted(c, deviceID, req.ClientID, ip) {
 			return
 		}
+		h.recordDeviceAccess(c, deviceID, req.ClientID, service.DeviceAccessDeniedInvalidCode,
+			"no active grant matches this code")
+		observability.Event("access_verify", "rejected", map[string]interface{}{
+			"device_id": deviceID, "ip": ip, "request_id": c.GetString("request_id"),
+			"reason": "invalid_code",
+		})
+		ProblemForbidden(c, ProblemCodeInvalidCode, "Access code is incorrect")
+		return
+	}
+	if grant.BoundClientPublicKey == "" {
+		// The caller may simply be probing; the honest answer is that this code
+		// does not need a proof, so a client can fall back to plain verification
+		// instead of treating the 400 as a failure.
+		ProblemBadRequest(c, ProblemCodeProofNotRequired,
+			"This access grant is not bound to a controller public key")
+		return
+	}
+	challenge, expiresAt, err := service.SignControllerChallenge(
+		h.appConfig.Runtime.ControllerChallengeSecret, deviceID, grant.ID, req.ClientID, 0)
+	if err != nil {
+		ProblemInternal(c, err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"challenge":  challenge,
+		"expires_at": expiresAt.Format(time.RFC3339),
+	})
+}
+
+func (h *HostHandler) VerifyAccessCode(c *gin.Context) {
+	deviceID := c.Param("device_id")
+	ip := c.ClientIP()
+
+	policy, ok := h.accessGate(c, deviceID, ip)
+	if !ok {
+		return
 	}
 
 	var req verifyCodeReq
@@ -460,6 +578,31 @@ func (h *HostHandler) VerifyAccessCode(c *gin.Context) {
 			usedGrant = grant
 		}
 	}
+	// A grant bound to a public key is not satisfied by the code alone: the
+	// controller has to prove it holds the private half. This runs before the
+	// host-online check so a caller without the key cannot use the online state
+	// of the machine as an oracle.
+	if matches && usedGrant != nil && usedGrant.BoundClientPublicKey != "" {
+		proofErr := service.VerifyControllerProof(
+			h.appConfig.Runtime.ControllerChallengeSecret,
+			usedGrant.BoundClientPublicKey,
+			req.Challenge, req.Signature,
+			deviceID, usedGrant.ID, req.ClientID)
+		if proofErr != nil {
+			if h.tripLimitIfExhausted(c, deviceID, req.ClientID, ip) {
+				return
+			}
+			h.recordDeviceAccess(c, deviceID, req.ClientID, service.DeviceAccessDeniedInvalidCode,
+				"controller proof of possession failed")
+			observability.Event("access_verify", "rejected", map[string]interface{}{
+				"device_id": deviceID, "ip": ip, "request_id": c.GetString("request_id"),
+				"reason": "controller_proof_invalid",
+			})
+			ProblemForbidden(c, ProblemCodeControllerProofInvalid,
+				"This access grant requires a valid controller signature")
+			return
+		}
+	}
 	// IMPORTANT ordering (R5 fix):
 	//   1. wrong code  → count failure + INVALID_CODE / TOO_MANY_ATTEMPTS
 	//   2. right code + host offline → HOST_OFFLINE (don't count as failure)
@@ -470,18 +613,7 @@ func (h *HostHandler) VerifyAccessCode(c *gin.Context) {
 	// comparison first so rate limiting engages consistently regardless
 	// of host presence.
 	if !matches {
-		if failure, _ := h.rateLimit.RecordVerifyFailure(c.Request.Context(), deviceID, ip); failure.TripsLimit {
-			h.recordDeviceAccess(c, deviceID, req.ClientID, service.DeviceAccessDeniedRateLimited,
-				"too many failed attempts")
-			observability.Event("access_verify", "rate_limited", map[string]interface{}{
-				"device_id": deviceID, "ip": ip, "request_id": c.GetString("request_id"),
-			})
-			// Tripped a per-device error counter (not the per-IP total
-			// counter), so §2.10 mandates 403 + Retry-After.
-			if failure.RetryAfterSec > 0 {
-				c.Header("Retry-After", fmt.Sprintf("%d", failure.RetryAfterSec))
-			}
-			ProblemForbidden(c, ProblemCodeTooManyAttempts, "Too many failed attempts")
+		if h.tripLimitIfExhausted(c, deviceID, req.ClientID, ip) {
 			return
 		}
 		h.recordDeviceAccess(c, deviceID, req.ClientID, service.DeviceAccessDeniedInvalidCode,

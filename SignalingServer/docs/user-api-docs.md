@@ -828,8 +828,8 @@ the owner can issue, hand out, and revoke.
 
 | Method | Path | Body | Notes |
 |---|---|---|---|
-| `GET` | `/v1/me/devices/:device_id/access-grants` | — | `{items: [...]}` newest first. Each item carries the derived `active` flag (so clients never re-implement the expiry/quota/revocation rules), the `bound_client_id` / `bound_ips` binding, and `last_used_client_id` / `last_used_ip` showing who actually redeemed it. |
-| `POST` | `/v1/me/devices/:device_id/access-grants` | `{label?, expires_in_minutes, max_uses?, code?, bound_client_id?, bound_ips?}` | `expires_in_minutes` must be positive; `max_uses` defaults to `0` = unlimited within the window; `code` is generated (8 chars, unambiguous alphabet) when omitted. Returns `201` with the code, which the owner must relay to the guest. A `bound_ips` entry that is not an IP/CIDR or a `bound_client_id` over 64 characters is a `400`. |
+| `GET` | `/v1/me/devices/:device_id/access-grants` | — | `{items: [...]}` newest first. Each item carries the derived `active` flag (so clients never re-implement the expiry/quota/revocation rules), the `bound_client_id` / `bound_client_public_key` / `bound_ips` binding, and `last_used_client_id` / `last_used_ip` showing who actually redeemed it. |
+| `POST` | `/v1/me/devices/:device_id/access-grants` | `{label?, expires_in_minutes, max_uses?, code?, bound_client_id?, bound_client_public_key?, bound_ips?}` | `expires_in_minutes` must be positive; `max_uses` defaults to `0` = unlimited within the window; `code` is generated (8 chars, unambiguous alphabet) when omitted. Returns `201` with the code, which the owner must relay to the guest. A `bound_ips` entry that is not an IP/CIDR, a `bound_client_id` over 64 characters, a `bound_client_public_key` that is not base64 of a raw 32-byte Ed25519 public key, or a public key without a `bound_client_id`, is a `400`. |
 | `DELETE` | `/v1/me/devices/:device_id/access-grants/:grant_id` | — | Revokes. Revoking an already-revoked grant is a no-op. |
 
 **Optional guest binding.** A grant is a bearer code by default: whoever holds
@@ -837,13 +837,41 @@ it can redeem it. `bound_client_id` and `bound_ips` narrow that:
 
 | Field | Enforced against | Strength |
 |---|---|---|
-| `bound_client_id` | the `client_id` the controller sends to `access-code:verify` | client-asserted friction: it stops a code being pasted into a different client, but a client can claim any id, so it is not proof of identity |
+| `bound_client_id` | the `client_id` the controller sends to `access-code:verify` | client-asserted friction: it stops a code being pasted into a different client, but a client can claim any id, so on its own it is not proof of identity — pair it with `bound_client_public_key` to get one |
+| `bound_client_public_key` | a signature over the server's challenge, verified against this key | real proof of possession: the code plus the client id are no longer enough, because the redeemer also has to hold the matching private key |
 | `bound_ips` | the address the server actually saw | a real boundary: a forwarded code stays useless from anywhere else |
 
-Both are optional and ANDed when both are set; empty means "anyone holding the
+All three are optional and ANDed when set; empty means "anyone holding the
 code", which is how grants behaved before the fields existed. A controller that
 matches the code but not the binding gets the ordinary `403 INVALID_CODE` — the
 same answer as a wrong code, so a leaked code does not confirm itself.
+
+**Proof of possession (`bound_client_public_key`).** When the owner sets this,
+the grant can only be redeemed by a controller that proves it holds the private
+half. The flow is two steps, and the second one is what actually needs the key:
+
+1. `POST /v1/devices/:device_id/controller-challenges` with `{code, client_id}`
+   returns `{challenge, expires_at}` (two minutes). The request carries the code
+   and goes through the same rate limiter and device policy as a redemption, so
+   this is not a free oracle; the client id must already match the binding. A
+   code that is not key-bound answers `400 PROOF_NOT_REQUIRED`, which lets a
+   client fall back to plain verification instead of treating it as a failure.
+2. `POST /v1/devices/:device_id/access-code:verify` with
+   `{code, client_id, challenge, signature}`, where `signature` is base64 of the
+   bound key's Ed25519 signature over **the challenge string exactly as
+   returned**. Missing, expired, re-bound (another device, grant or client id)
+   or wrong-key proofs answer `403 CONTROLLER_PROOF_INVALID` and count as a
+   failed attempt, so a leaked code cannot be used to grind against the key.
+
+The path is `controller-challenges` rather than `access-code:challenge` because
+gin's router reads the `:` in `access-code:verify` as the start of a wildcard
+segment: a sibling sharing that static prefix panics at route-registration
+time. It is the same limitation the `webhooks/:id/test` note below describes.
+
+This is the **server half** of the binding. No shipped client generates or uses
+these keys yet (that work is in the WebClient/Qt tree, which tracks upstream
+PR #23), so today the mechanism is for API integrators; a grant without the key
+behaves exactly as it did before.
 
 `access-code:verify` accepts **either** the device's access code or the code of
 a usable grant. Two properties matter:
@@ -1409,6 +1437,12 @@ Request:
 ```json
 { "code": "633732" }
 ```
+
+`client_id` names the controller and is what a grant's `bound_client_id` is
+compared against. When the matched grant also carries a
+`bound_client_public_key`, the request must add `challenge` and `signature`
+(both from `POST /v1/devices/:device_id/controller-challenges`, §5.3.4); without
+them the answer is `403 CONTROLLER_PROOF_INVALID`.
 
 Response (200):
 

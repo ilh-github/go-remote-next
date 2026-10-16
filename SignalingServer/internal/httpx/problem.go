@@ -42,6 +42,10 @@ const (
 	CodeDeviceSecretBad    = "DEVICE_SECRET_INVALID"
 	CodeProvisionFailed    = "PROVISION_FAILED"
 	CodePeerDisconnected   = "PEER_DISCONNECTED"
+	// Proof of possession for a key-bound access grant.
+	CodeControllerProofRequired = "CONTROLLER_PROOF_REQUIRED"
+	CodeControllerProofInvalid  = "CONTROLLER_PROOF_INVALID"
+	CodeProofNotRequired        = "PROOF_NOT_REQUIRED"
 
 	// SMS
 	CodeSmsDisabled   = "SMS_DISABLED"

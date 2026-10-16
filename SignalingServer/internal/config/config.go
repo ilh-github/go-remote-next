@@ -253,6 +253,10 @@ type RuntimeConfig struct {
 	LogMaxBackups   int
 	PostgresLogFile string
 	RedisLogFile    string
+	// ControllerChallengeSecret signs the proof-of-possession challenges that
+	// a key-bound access grant requires. It falls back to the API key, so a
+	// deployment that already has one needs no new setting.
+	ControllerChallengeSecret string
 }
 
 type ServerConfig struct {
@@ -325,6 +329,7 @@ func Load() *Config {
 	viper.SetDefault("RECORDING_DIR", "data/recordings")
 	viper.SetDefault("RECORDING_MAX_UPLOAD_MB", 2048)
 	viper.SetDefault("RECORDING_URL_SECRET", "")
+	viper.SetDefault("CONTROLLER_CHALLENGE_SECRET", "")
 	viper.SetDefault("RECORDING_TICKET_TTL_SECONDS", 600)
 	// Recordings stuck in "recording" longer than this are marked failed.
 	viper.SetDefault("RECORDING_STALE_MINUTES", 240)
@@ -545,14 +550,22 @@ func Load() *Config {
 		TemplateCode:    smsTemplate,
 		Enabled:         smsEnabled,
 	}
+	// Proof-of-possession challenges are signed with their own secret when one
+	// is configured, and with the API key otherwise, so an existing deployment
+	// can bind a grant to a key without adding a setting.
+	challengeSecret := strings.TrimSpace(viper.GetString("CONTROLLER_CHALLENGE_SECRET"))
+	if challengeSecret == "" {
+		challengeSecret = cfg.Security.APIKey
+	}
 	cfg.Runtime = RuntimeConfig{
-		RunAutoMigrate:  viper.GetBool("RUN_AUTO_MIGRATE"),
-		PprofAddr:       viper.GetString("PPROF_ADDR"),
-		LogDir:          viper.GetString("LOG_DIR"),
-		LogMaxSizeMB:    viper.GetInt("LOG_MAX_SIZE_MB"),
-		LogMaxBackups:   viper.GetInt("LOG_MAX_BACKUPS"),
-		PostgresLogFile: viper.GetString("POSTGRES_LOG_FILE"),
-		RedisLogFile:    viper.GetString("REDIS_LOG_FILE"),
+		RunAutoMigrate:            viper.GetBool("RUN_AUTO_MIGRATE"),
+		PprofAddr:                 viper.GetString("PPROF_ADDR"),
+		LogDir:                    viper.GetString("LOG_DIR"),
+		LogMaxSizeMB:              viper.GetInt("LOG_MAX_SIZE_MB"),
+		LogMaxBackups:             viper.GetInt("LOG_MAX_BACKUPS"),
+		PostgresLogFile:           viper.GetString("POSTGRES_LOG_FILE"),
+		RedisLogFile:              viper.GetString("REDIS_LOG_FILE"),
+		ControllerChallengeSecret: challengeSecret,
 	}
 
 	apiKeyStatus := "disabled"

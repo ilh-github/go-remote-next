@@ -17,7 +17,7 @@ import (
 
 // ErrInvalidAccessGrant means the requested grant is malformed or would never
 // admit anyone (non-positive lifetime, negative use cap, or unusable binding).
-var ErrInvalidAccessGrant = errors.New("access grants need expires_in_minutes > 0, max_uses >= 0, and bound_ips entries that are IPs or CIDR blocks")
+var ErrInvalidAccessGrant = errors.New("access grants need expires_in_minutes > 0, max_uses >= 0, bound_ips entries that are IPs or CIDR blocks, and a bound client public key (if any) alongside a client id")
 
 // grantCodeAlphabet avoids characters that are easy to confuse when someone
 // reads a code aloud or retypes it (0/O, 1/I/L).
@@ -41,7 +41,10 @@ type CreateDeviceAccessGrantInput struct {
 	// BoundClientID and BoundIPs optionally restrict who may redeem the code.
 	// Both empty (the default) keeps the old "anyone holding the code" rule.
 	BoundClientID string
-	BoundIPs      []string
+	// BoundClientPublicKey upgrades the client-id binding to a proof: base64 of
+	// a raw 32-byte Ed25519 public key whose holder must sign the challenge.
+	BoundClientPublicKey string
+	BoundIPs             []string
 }
 
 // Create issues a grant for one device.
@@ -54,6 +57,21 @@ func (s *DeviceAccessGrantService) Create(ctx context.Context, deviceID string, 
 	}
 	if len(strings.TrimSpace(in.BoundClientID)) > 64 {
 		return nil, fmt.Errorf("%w: bound_client_id is limited to 64 characters", ErrInvalidAccessGrant)
+	}
+	boundKey := strings.TrimSpace(in.BoundClientPublicKey)
+	if boundKey != "" {
+		// Validate on the way in rather than at redemption time: a grant whose
+		// binding can never be satisfied is a grant nobody can use, and the
+		// owner would only find out by handing the code to a guest.
+		if _, err := ParseControllerPublicKey(boundKey); err != nil {
+			return nil, fmt.Errorf("%w: %s", ErrInvalidAccessGrant, err.Error())
+		}
+		if strings.TrimSpace(in.BoundClientID) == "" {
+			// Without a client id the binding would accept a signature from the
+			// key while the "who" column stayed empty, which makes the audit
+			// value and the binding disagree.
+			return nil, fmt.Errorf("%w: bound_client_public_key requires bound_client_id", ErrInvalidAccessGrant)
+		}
 	}
 	boundIPs, err := json.Marshal(normalizeAllowIPs(in.BoundIPs))
 	if err != nil {
@@ -68,14 +86,15 @@ func (s *DeviceAccessGrantService) Create(ctx context.Context, deviceID string, 
 		code = generated
 	}
 	row := &models.DeviceAccessGrant{
-		DeviceID:      deviceID,
-		OwnerID:       ownerID,
-		Code:          code,
-		Label:         strings.TrimSpace(in.Label),
-		ExpiresAt:     time.Now().UTC().Add(time.Duration(in.ExpiresInMinutes) * time.Minute),
-		MaxUses:       in.MaxUses,
-		BoundClientID: strings.TrimSpace(in.BoundClientID),
-		BoundIPs:      string(boundIPs),
+		DeviceID:             deviceID,
+		OwnerID:              ownerID,
+		Code:                 code,
+		Label:                strings.TrimSpace(in.Label),
+		ExpiresAt:            time.Now().UTC().Add(time.Duration(in.ExpiresInMinutes) * time.Minute),
+		MaxUses:              in.MaxUses,
+		BoundClientID:        strings.TrimSpace(in.BoundClientID),
+		BoundClientPublicKey: boundKey,
+		BoundIPs:             string(boundIPs),
 	}
 	if err := s.db.WithContext(ctx).Create(row).Error; err != nil {
 		return nil, err

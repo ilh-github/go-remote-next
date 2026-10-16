@@ -36,6 +36,12 @@ type DeviceAccessGrant struct {
 	// this is friction against an accidental leak rather than proof of
 	// identity - the server cannot verify who a controller really is today.
 	BoundClientID string `gorm:"size:64" json:"bound_client_id"`
+	// BoundClientPublicKey turns the client-id binding from an assertion into a
+	// proof when it is set: the controller must sign the server's challenge
+	// with the matching private key, so a leaked code plus a leaked client id
+	// is no longer enough. It holds the base64 (standard alphabet) encoding of
+	// a raw 32-byte Ed25519 public key, and empty keeps the old behaviour.
+	BoundClientPublicKey string `gorm:"size:100" json:"bound_client_public_key"`
 	// BoundIPs is a JSON array of IPs/CIDRs, also optional. Unlike the client
 	// id this one is server-observed, so it is an actual boundary: a leaked
 	// code stays useless from anywhere else. Empty means "any address".
