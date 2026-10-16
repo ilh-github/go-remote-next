@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	"quickdesk/signaling/internal/httpx"
@@ -23,12 +25,18 @@ import (
 // PostgreSQL and Redis logs are opt-in because they are normally owned by
 // separate containers; set POSTGRES_LOG_FILE / REDIS_LOG_FILE to bind them.
 type AdminLogsHandler struct {
-	audit *service.AuditService
-	db    *gorm.DB
-	files map[string]string
+	audit    *service.AuditService
+	db       *gorm.DB
+	files    map[string]string
+	logQuery *service.LogQueryService
 }
 
-func NewAdminLogsHandler(audit *service.AuditService, db *gorm.DB, logDir, postgresLogFile, redisLogFile string) *AdminLogsHandler {
+func NewAdminLogsHandler(
+	audit *service.AuditService,
+	db *gorm.DB,
+	logDir, postgresLogFile, redisLogFile string,
+	logQuery *service.LogQueryService,
+) *AdminLogsHandler {
 	files := map[string]string{
 		"signaling.log": filepath.Join(logDir, "signaling.log"),
 	}
@@ -38,7 +46,7 @@ func NewAdminLogsHandler(audit *service.AuditService, db *gorm.DB, logDir, postg
 	if redisLogFile != "" {
 		files["redis.log"] = redisLogFile
 	}
-	return &AdminLogsHandler{audit: audit, db: db, files: files}
+	return &AdminLogsHandler{audit: audit, db: db, files: files, logQuery: logQuery}
 }
 
 func (h *AdminLogsHandler) requireSuperAdmin(c *gin.Context) (*models.AdminUser, bool) {
@@ -72,6 +80,86 @@ func (h *AdminLogsHandler) List(c *gin.Context) {
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i]["name"].(string) < items[j]["name"].(string) })
 	c.JSON(http.StatusOK, gin.H{"items": items})
+}
+
+// Search answers `GET /v1/admin/system/logs:search`.
+//
+//	?q=          case-insensitive substring over the whole line
+//	&component=  whole-token match on the structured `component=` field
+//	&since=&until=  RFC3339 bounds on the line's own timestamp (the logger
+//	                writes UTC)
+//	&limit=      default 200, clamped to 2000
+//
+// Downloading the whole file works too, but it means pulling tens of megabytes
+// through a browser to answer "what happened around 3pm". This reads the file
+// backwards with a byte budget, so the newest matching lines come back without
+// moving the whole log. The search itself is audited: "who looked at the logs,
+// and for what" is worth knowing.
+func (h *AdminLogsHandler) Search(c *gin.Context) {
+	admin, ok := h.requireSuperAdmin(c)
+	if !ok {
+		return
+	}
+	if h.logQuery == nil || h.logQuery.LogDir() == "" {
+		ProblemBadRequest(c, ProblemCodeInvalidRequest, "log directory is not configured")
+		return
+	}
+	limit := service.DefaultLogQueryLimit
+	if raw := strings.TrimSpace(c.Query("limit")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil {
+			ProblemBadRequest(c, ProblemCodeInvalidRequest, "limit must be a number")
+			return
+		}
+		if parsed < 0 {
+			ProblemBadRequest(c, ProblemCodeInvalidRequest, "limit must be zero (default) or positive")
+			return
+		}
+		if parsed > 0 {
+			// Clamp rather than reject: the caller asked for lines, and the
+			// response reports the effective cap so nothing is hidden.
+			limit = min(parsed, service.MaxLogQueryLimit)
+		}
+	}
+	since, err := parseOptionalRFC3339("since", c.Query("since"))
+	if err != nil {
+		ProblemBadRequest(c, ProblemCodeInvalidRequest, err.Error())
+		return
+	}
+	until, err := parseOptionalRFC3339("until", c.Query("until"))
+	if err != nil {
+		ProblemBadRequest(c, ProblemCodeInvalidRequest, err.Error())
+		return
+	}
+	if since != nil && until != nil && since.After(*until) {
+		ProblemBadRequest(c, ProblemCodeInvalidRequest, "since must not be later than until")
+		return
+	}
+
+	result, err := h.logQuery.Query(c.Request.Context(), service.LogQuery{
+		Query:     strings.TrimSpace(c.Query("q")),
+		Component: strings.TrimSpace(c.Query("component")),
+		Since:     since,
+		Until:     until,
+		Limit:     limit,
+	})
+	if err != nil {
+		ProblemInternal(c, err.Error())
+		return
+	}
+	filter := fmt.Sprintf("q=%q component=%q limit=%d scanned_bytes=%d truncated=%t",
+		c.Query("q"), c.Query("component"), limit, result.ScannedBytes, result.Truncated)
+	h.audit.Log(c.Request.Context(), admin.ID, admin.Username, "log.search", "log_file", "signaling.log", filter, c.ClientIP())
+
+	c.JSON(http.StatusOK, gin.H{
+		"items":         result.Entries,
+		"count":         len(result.Entries),
+		"limit":         limit,
+		"files":         result.Files,
+		"scanned_bytes": result.ScannedBytes,
+		"scanned_lines": result.ScannedLines,
+		"truncated":     result.Truncated,
+	})
 }
 
 func (h *AdminLogsHandler) Download(c *gin.Context) {

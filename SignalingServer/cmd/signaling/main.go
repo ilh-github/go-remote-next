@@ -287,6 +287,7 @@ func main() {
 		cfg.Runtime.LogDir,
 		cfg.Runtime.PostgresLogFile,
 		cfg.Runtime.RedisLogFile,
+		service.NewLogQueryService(cfg.Runtime.LogDir),
 	)
 	adminWebhooksHandler := handler.NewAdminWebhooksHandler(webhookService, auditService)
 	adminGroupsHandler := handler.NewAdminGroupsHandler(groupService, auditService)
@@ -537,6 +538,7 @@ func main() {
 		// Raw operational log downloads are intentionally restricted to
 		// super administrators and a fixed server-side file allow-list.
 		adminGuarded.GET("/system/logs", adminLogsHandler.List)
+		adminGuarded.GET("/system/logs:search", adminLogsHandler.Search)
 		adminGuarded.GET("/system/logs/:name", adminLogsHandler.Download)
 
 		// Preset.

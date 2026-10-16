@@ -1156,6 +1156,9 @@ request shapes; this section documents only the route table.
 | `GET` `POST` `DELETE` | `/v1/admin/groups/:id/devices` |
 | `GET` | `/v1/admin/stats` |
 | `GET` | `/v1/admin/system/status` |
+| `GET` | `/v1/admin/system/logs` — the operational files an operator may read: `{items: [{name, size_bytes, modified_at}]}` from a fixed server-side allow-list (`signaling.log`, plus `postgres.log` / `redis.log` when `POSTGRES_LOG_FILE` / `REDIS_LOG_FILE` are set). Super-admin only |
+| `GET` | `/v1/admin/system/logs:search` — search the application log instead of downloading it. `?q=` (case-insensitive substring), `&component=` (whole-token match on the structured `component=` field, so `component=api` does not match `api_auth`), `&since=` / `&until=` (RFC3339, inclusive, compared against the line's own UTC timestamp), `&limit=` (default 200, clamped to 2000). Returns `{items: [{timestamp, line}], count, limit, files, scanned_bytes, scanned_lines, truncated}` newest first. Audited as `log.search`. Super-admin only |
+| `GET` | `/v1/admin/system/logs/:name` — download one allow-listed file; audited as `log.download`. Super-admin only |
 | `GET` | `/v1/admin/connections` |
 | `GET` | `/v1/admin/activity` |
 | `GET` | `/v1/admin/trends?range=24h\|7d\|30d` |
@@ -1181,6 +1184,18 @@ unanswerable. The action name is shared where the same fact can be caused by
 either party — a recording deletion is `recording.delete` whether the owner or
 an admin did it, and the actor columns are what tell them apart, so one filter
 shows every deletion.
+
+**`logs:search` reads the log backwards.** The application log is a rotating
+file (`signaling.log`, `signaling.log.1`, …), so the newest line is at the end
+of a file that may be tens of megabytes; the endpoint scans from the end in
+64 KiB blocks and stops after an 8 MiB budget, which makes "what happened
+around 3pm" a query instead of a download. Two consequences are worth knowing:
+the token-boundary `component` match exists so `component=api` does not pull in
+`component=api_auth`; and `truncated: true` means the scan ran out of budget
+before reaching the oldest file, so an empty result then is *not* proof the
+event never happened. Paging backwards is done with `until` — pass the oldest
+timestamp from one page to get the previous one — rather than a second scan
+direction.
 
 > **Why `webhooks/:id/test` and not `webhooks/:id:test`** — gin's httprouter
 > cannot register a literal suffix on a wildcard segment. The AIP-136-style
