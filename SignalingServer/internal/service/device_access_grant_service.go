@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -15,8 +16,8 @@ import (
 )
 
 // ErrInvalidAccessGrant means the requested grant is malformed or would never
-// admit anyone (non-positive lifetime, negative use cap).
-var ErrInvalidAccessGrant = errors.New("access grants need expires_in_minutes > 0 and max_uses >= 0")
+// admit anyone (non-positive lifetime, negative use cap, or unusable binding).
+var ErrInvalidAccessGrant = errors.New("access grants need expires_in_minutes > 0, max_uses >= 0, and bound_ips entries that are IPs or CIDR blocks")
 
 // grantCodeAlphabet avoids characters that are easy to confuse when someone
 // reads a code aloud or retypes it (0/O, 1/I/L).
@@ -37,12 +38,26 @@ type CreateDeviceAccessGrantInput struct {
 	ExpiresInMinutes int
 	MaxUses          int
 	Code             string
+	// BoundClientID and BoundIPs optionally restrict who may redeem the code.
+	// Both empty (the default) keeps the old "anyone holding the code" rule.
+	BoundClientID string
+	BoundIPs      []string
 }
 
 // Create issues a grant for one device.
 func (s *DeviceAccessGrantService) Create(ctx context.Context, deviceID string, ownerID uint, in CreateDeviceAccessGrantInput) (*models.DeviceAccessGrant, error) {
 	if in.ExpiresInMinutes <= 0 || in.MaxUses < 0 {
 		return nil, ErrInvalidAccessGrant
+	}
+	if err := ValidateAllowIPs(in.BoundIPs); err != nil {
+		return nil, fmt.Errorf("%w: bound_ips %s", ErrInvalidAccessGrant, err.Error())
+	}
+	if len(strings.TrimSpace(in.BoundClientID)) > 64 {
+		return nil, fmt.Errorf("%w: bound_client_id is limited to 64 characters", ErrInvalidAccessGrant)
+	}
+	boundIPs, err := json.Marshal(normalizeAllowIPs(in.BoundIPs))
+	if err != nil {
+		return nil, err
 	}
 	code := strings.TrimSpace(in.Code)
 	if code == "" {
@@ -53,12 +68,14 @@ func (s *DeviceAccessGrantService) Create(ctx context.Context, deviceID string, 
 		code = generated
 	}
 	row := &models.DeviceAccessGrant{
-		DeviceID:  deviceID,
-		OwnerID:   ownerID,
-		Code:      code,
-		Label:     strings.TrimSpace(in.Label),
-		ExpiresAt: time.Now().UTC().Add(time.Duration(in.ExpiresInMinutes) * time.Minute),
-		MaxUses:   in.MaxUses,
+		DeviceID:      deviceID,
+		OwnerID:       ownerID,
+		Code:          code,
+		Label:         strings.TrimSpace(in.Label),
+		ExpiresAt:     time.Now().UTC().Add(time.Duration(in.ExpiresInMinutes) * time.Minute),
+		MaxUses:       in.MaxUses,
+		BoundClientID: strings.TrimSpace(in.BoundClientID),
+		BoundIPs:      string(boundIPs),
 	}
 	if err := s.db.WithContext(ctx).Create(row).Error; err != nil {
 		return nil, err
@@ -101,14 +118,18 @@ func (s *DeviceAccessGrantService) Revoke(ctx context.Context, deviceID string, 
 		Updates(map[string]interface{}{"revoked_at": now, "updated_at": now}).Error
 }
 
-// Match returns the usable grant whose code equals the presented one, or nil
-// when none does.
+// Match returns the usable grant whose code equals the presented one *and*
+// whose binding admits this controller, or nil when none does.
 //
 // The candidates are loaded for the device and compared with
 // subtle.ConstantTimeCompare rather than looked up by code, so the redeem path
 // keeps the same constant-time habit as the device access code (and does not
 // turn the code index into an oracle).
-func (s *DeviceAccessGrantService) Match(ctx context.Context, deviceID, code string) (*models.DeviceAccessGrant, error) {
+//
+// A grant whose code matches but whose binding does not is treated exactly
+// like an unknown code: the caller keeps its existing "invalid code" response,
+// so a leaked code does not reveal that it was real.
+func (s *DeviceAccessGrantService) Match(ctx context.Context, deviceID, code, clientID, clientIP string) (*models.DeviceAccessGrant, error) {
 	if strings.TrimSpace(code) == "" {
 		return nil, nil
 	}
@@ -120,26 +141,53 @@ func (s *DeviceAccessGrantService) Match(ctx context.Context, deviceID, code str
 	}
 	presented := []byte(code)
 	for i := range rows {
-		if subtle.ConstantTimeCompare([]byte(rows[i].Code), presented) == 1 && rows[i].UsableAt(time.Now().UTC()) {
+		if subtle.ConstantTimeCompare([]byte(rows[i].Code), presented) == 1 &&
+			rows[i].UsableAt(time.Now().UTC()) &&
+			GrantBindingAllows(rows[i], clientID, clientIP) {
 			return &rows[i], nil
 		}
 	}
 	return nil, nil
 }
 
+// GrantBindingAllows reports whether this controller may redeem the grant.
+// An empty binding admits everyone, which is what grants meant before the
+// fields existed.
+//
+// The client id half is client-asserted friction; the IP half is enforced
+// against the address the server actually saw, so it survives a forwarded
+// code.
+func GrantBindingAllows(grant models.DeviceAccessGrant, clientID, clientIP string) bool {
+	if bound := strings.TrimSpace(grant.BoundClientID); bound != "" {
+		if strings.TrimSpace(clientID) != bound {
+			return false
+		}
+	}
+	boundIPs := decodeAllowIPs(grant.BoundIPs)
+	if len(boundIPs) > 0 && !IPAllowed(boundIPs, clientIP) {
+		return false
+	}
+	return true
+}
+
 // Consume records one started session against the grant. It re-checks the
 // grant in the UPDATE itself, so two controllers racing the last use of a
 // single-use grant cannot both win: the loser sees ok=false.
-func (s *DeviceAccessGrantService) Consume(ctx context.Context, grantID uint) (bool, error) {
+//
+// The redeeming client is written in the same UPDATE, so the audit value can
+// never disagree with the use count.
+func (s *DeviceAccessGrantService) Consume(ctx context.Context, grantID uint, clientID, clientIP string) (bool, error) {
 	now := time.Now().UTC()
 	result := s.db.WithContext(ctx).
 		Model(&models.DeviceAccessGrant{}).
 		Where("id = ? AND revoked_at IS NULL AND expires_at > ? AND (max_uses = 0 OR uses < max_uses)",
 			grantID, now).
 		Updates(map[string]interface{}{
-			"uses":         gorm.Expr("uses + 1"),
-			"last_used_at": now,
-			"updated_at":   now,
+			"uses":                gorm.Expr("uses + 1"),
+			"last_used_at":        now,
+			"last_used_client_id": clipRunes(clientID, 64),
+			"last_used_ip":        clipRunes(clientIP, 50),
+			"updated_at":          now,
 		})
 	if result.Error != nil {
 		return false, result.Error
@@ -157,4 +205,18 @@ func generateGrantCode() (string, error) {
 		out[i] = grantCodeAlphabet[int(b)%len(grantCodeAlphabet)]
 	}
 	return string(out), nil
+}
+
+// clipRunes bounds a caller-supplied string to n characters so it cannot
+// overflow its column. Postgres VARCHAR(n) counts characters, so this slices
+// on runes rather than bytes.
+func clipRunes(s string, n int) string {
+	if n <= 0 {
+		return ""
+	}
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n])
 }

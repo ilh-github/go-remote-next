@@ -295,6 +295,10 @@ CREATE TABLE IF NOT EXISTS device_access_grants (
     uses        INTEGER     NOT NULL DEFAULT 0,
     revoked_at  TIMESTAMPTZ,
     last_used_at TIMESTAMPTZ,
+    bound_client_id VARCHAR(64)  NOT NULL DEFAULT '',
+    bound_ips       TEXT         NOT NULL DEFAULT '[]',
+    last_used_client_id VARCHAR(64) NOT NULL DEFAULT '',
+    last_used_ip    VARCHAR(50)  NOT NULL DEFAULT '',
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -307,6 +311,20 @@ CREATE INDEX IF NOT EXISTS idx_device_access_grants_code
 
 CREATE INDEX IF NOT EXISTS idx_device_access_grants_owner_id
     ON device_access_grants (owner_id);
+
+-- Optional guest binding: which client_id / address may redeem the code, and
+-- who actually did. Added after the table shipped, hence the ALTERs.
+ALTER TABLE device_access_grants
+    ADD COLUMN IF NOT EXISTS bound_client_id VARCHAR(64) NOT NULL DEFAULT '';
+
+ALTER TABLE device_access_grants
+    ADD COLUMN IF NOT EXISTS bound_ips TEXT NOT NULL DEFAULT '[]';
+
+ALTER TABLE device_access_grants
+    ADD COLUMN IF NOT EXISTS last_used_client_id VARCHAR(64) NOT NULL DEFAULT '';
+
+ALTER TABLE device_access_grants
+    ADD COLUMN IF NOT EXISTS last_used_ip VARCHAR(50) NOT NULL DEFAULT '';
 
 -- ---------------------------------------------------------------
 -- Device access approvals (second factor for high-risk sessions)

@@ -254,7 +254,7 @@ func (h *DeviceAccessApprovalHandler) Claim(c *gin.Context) {
 	// A grant-backed approval only spends the guest code's use once the
 	// session can actually start, mirroring the non-approval path.
 	if row.GrantID != nil && h.grants != nil {
-		consumed, cerr := h.grants.Consume(c.Request.Context(), *row.GrantID)
+		consumed, cerr := h.grants.Consume(c.Request.Context(), *row.GrantID, row.ClientID, row.ClientIP)
 		if cerr != nil {
 			ProblemInternal(c, cerr.Error())
 			return

@@ -37,6 +37,10 @@ type accessGrantReq struct {
 	ExpiresInMinutes int    `json:"expires_in_minutes" binding:"required"`
 	MaxUses          int    `json:"max_uses"`
 	Code             string `json:"code"`
+	// Optional binding: who may redeem the code. Empty means "anyone who has
+	// the code", which is what a grant meant before these fields existed.
+	BoundClientID string   `json:"bound_client_id"`
+	BoundIPs      []string `json:"bound_ips"`
 }
 
 // accessGrantView is the wire shape: it adds the derived `active` flag so a
@@ -52,7 +56,13 @@ type accessGrantView struct {
 	Active     bool       `json:"active"`
 	RevokedAt  *time.Time `json:"revoked_at"`
 	LastUsedAt *time.Time `json:"last_used_at"`
-	CreatedAt  time.Time  `json:"created_at"`
+	// BoundClientID / BoundIPs echo the binding, and LastUsed* show how the
+	// code was actually redeemed.
+	BoundClientID    string    `json:"bound_client_id"`
+	BoundIPs         []string  `json:"bound_ips"`
+	LastUsedClientID string    `json:"last_used_client_id"`
+	LastUsedIP       string    `json:"last_used_ip"`
+	CreatedAt        time.Time `json:"created_at"`
 }
 
 func (h *DeviceAccessGrantHandler) List(c *gin.Context) {
@@ -89,6 +99,8 @@ func (h *DeviceAccessGrantHandler) Create(c *gin.Context) {
 			ExpiresInMinutes: req.ExpiresInMinutes,
 			MaxUses:          req.MaxUses,
 			Code:             req.Code,
+			BoundClientID:    req.BoundClientID,
+			BoundIPs:         req.BoundIPs,
 		})
 	if err != nil {
 		if errors.Is(err, service.ErrInvalidAccessGrant) {
@@ -174,16 +186,20 @@ func (h *DeviceAccessGrantHandler) ownedDeviceID(c *gin.Context) (string, bool) 
 
 func grantView(row models.DeviceAccessGrant, now time.Time) accessGrantView {
 	return accessGrantView{
-		ID:         row.ID,
-		DeviceID:   row.DeviceID,
-		Code:       row.Code,
-		Label:      row.Label,
-		ExpiresAt:  row.ExpiresAt,
-		MaxUses:    row.MaxUses,
-		Uses:       row.Uses,
-		Active:     row.UsableAt(now),
-		RevokedAt:  row.RevokedAt,
-		LastUsedAt: row.LastUsedAt,
-		CreatedAt:  row.CreatedAt,
+		ID:               row.ID,
+		DeviceID:         row.DeviceID,
+		Code:             row.Code,
+		Label:            row.Label,
+		ExpiresAt:        row.ExpiresAt,
+		MaxUses:          row.MaxUses,
+		Uses:             row.Uses,
+		Active:           row.UsableAt(now),
+		RevokedAt:        row.RevokedAt,
+		LastUsedAt:       row.LastUsedAt,
+		BoundClientID:    row.BoundClientID,
+		BoundIPs:         decodeAllowIPsForEvent(row.BoundIPs),
+		LastUsedClientID: row.LastUsedClientID,
+		LastUsedIP:       row.LastUsedIP,
+		CreatedAt:        row.CreatedAt,
 	}
 }

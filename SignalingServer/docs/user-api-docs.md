@@ -551,9 +551,22 @@ the owner can issue, hand out, and revoke.
 
 | Method | Path | Body | Notes |
 |---|---|---|---|
-| `GET` | `/v1/me/devices/:device_id/access-grants` | — | `{items: [...]}` newest first. Each item carries the derived `active` flag, so clients never re-implement the expiry/quota/revocation rules. |
-| `POST` | `/v1/me/devices/:device_id/access-grants` | `{label?, expires_in_minutes, max_uses?, code?}` | `expires_in_minutes` must be positive; `max_uses` defaults to `0` = unlimited within the window; `code` is generated (8 chars, unambiguous alphabet) when omitted. Returns `201` with the code, which the owner must relay to the guest. |
+| `GET` | `/v1/me/devices/:device_id/access-grants` | — | `{items: [...]}` newest first. Each item carries the derived `active` flag (so clients never re-implement the expiry/quota/revocation rules), the `bound_client_id` / `bound_ips` binding, and `last_used_client_id` / `last_used_ip` showing who actually redeemed it. |
+| `POST` | `/v1/me/devices/:device_id/access-grants` | `{label?, expires_in_minutes, max_uses?, code?, bound_client_id?, bound_ips?}` | `expires_in_minutes` must be positive; `max_uses` defaults to `0` = unlimited within the window; `code` is generated (8 chars, unambiguous alphabet) when omitted. Returns `201` with the code, which the owner must relay to the guest. A `bound_ips` entry that is not an IP/CIDR or a `bound_client_id` over 64 characters is a `400`. |
 | `DELETE` | `/v1/me/devices/:device_id/access-grants/:grant_id` | — | Revokes. Revoking an already-revoked grant is a no-op. |
+
+**Optional guest binding.** A grant is a bearer code by default: whoever holds
+it can redeem it. `bound_client_id` and `bound_ips` narrow that:
+
+| Field | Enforced against | Strength |
+|---|---|---|
+| `bound_client_id` | the `client_id` the controller sends to `access-code:verify` | client-asserted friction: it stops a code being pasted into a different client, but a client can claim any id, so it is not proof of identity |
+| `bound_ips` | the address the server actually saw | a real boundary: a forwarded code stays useless from anywhere else |
+
+Both are optional and ANDed when both are set; empty means "anyone holding the
+code", which is how grants behaved before the fields existed. A controller that
+matches the code but not the binding gets the ordinary `403 INVALID_CODE` — the
+same answer as a wrong code, so a leaked code does not confirm itself.
 
 `access-code:verify` accepts **either** the device's access code or the code of
 a usable grant. Two properties matter:

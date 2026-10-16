@@ -450,7 +450,7 @@ func (h *HostHandler) VerifyAccessCode(c *gin.Context) {
 	// so that an offline host does not burn one of the grant's uses.
 	var usedGrant *models.DeviceAccessGrant
 	if !matches && h.accessGrants != nil {
-		grant, gerr := h.accessGrants.Match(c.Request.Context(), deviceID, req.Code)
+		grant, gerr := h.accessGrants.Match(c.Request.Context(), deviceID, req.Code, req.ClientID, ip)
 		if gerr != nil {
 			ProblemInternal(c, gerr.Error())
 			return
@@ -577,7 +577,7 @@ func (h *HostHandler) VerifyAccessCode(c *gin.Context) {
 	// re-checks the window and quota in its own UPDATE, so two controllers
 	// racing the last slot cannot both win.
 	if usedGrant != nil {
-		consumed, cerr := h.accessGrants.Consume(c.Request.Context(), usedGrant.ID)
+		consumed, cerr := h.accessGrants.Consume(c.Request.Context(), usedGrant.ID, req.ClientID, ip)
 		if cerr != nil {
 			ProblemInternal(c, cerr.Error())
 			return

@@ -31,6 +31,19 @@ type DeviceAccessGrant struct {
 	// RevokedAt lets the owner cancel a grant before it expires.
 	RevokedAt  *time.Time `json:"revoked_at"`
 	LastUsedAt *time.Time `json:"last_used_at"`
+	// BoundClientID, when set, restricts the grant to the controller that
+	// presents this client_id. client_id is self-asserted by the client, so
+	// this is friction against an accidental leak rather than proof of
+	// identity - the server cannot verify who a controller really is today.
+	BoundClientID string `gorm:"size:64" json:"bound_client_id"`
+	// BoundIPs is a JSON array of IPs/CIDRs, also optional. Unlike the client
+	// id this one is server-observed, so it is an actual boundary: a leaked
+	// code stays useless from anywhere else. Empty means "any address".
+	BoundIPs string `gorm:"type:text" json:"bound_ips"`
+	// LastUsedClientID / LastUsedIP record who actually redeemed the grant, so
+	// the owner can see how a code was used rather than only that it was.
+	LastUsedClientID string `gorm:"size:64" json:"last_used_client_id"`
+	LastUsedIP       string `gorm:"size:50" json:"last_used_ip"`
 
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
