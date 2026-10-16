@@ -54,6 +54,9 @@ type LogQuery struct {
 	Until *time.Time
 	// Limit caps returned lines; 0 means DefaultLogQueryLimit.
 	Limit int
+	// File selects which configured log source to scan. Empty means the
+	// application log (DefaultLogSourceName) when it is configured.
+	File string
 }
 
 // Paging back through history is done with `Until`, not a second scan
@@ -71,6 +74,10 @@ type LogEntry struct {
 type LogFileInfo struct {
 	Name  string `json:"name"`
 	Bytes int64  `json:"bytes"`
+	// path is where the file actually lives. It is unexported so the JSON
+	// response keeps reporting a stable logical name and never leaks a host
+	// path.
+	path string
 }
 
 // LogQueryResult is the query response, including what it cost to produce so a
@@ -87,19 +94,71 @@ type LogQueryResult struct {
 	Truncated bool `json:"truncated"`
 }
 
-// LogQueryService reads the rotating application log.
+// LogQueryService reads one or more rotating log files. The application log is
+// always the default source; PostgreSQL and Redis logs can be registered as
+// extra sources so "what happened around 3pm" is answerable without first
+// downloading each file and grepping locally.
 type LogQueryService struct {
-	dir      string
-	fileName string
+	dir     string
+	sources map[string]string
+	order   []string
 	// scanBudget bounds how many bytes one query reads. It defaults to
 	// logScanBudget and exists as a field so tests can drive the truncation
 	// path without writing eight megabytes of fixture data.
 	scanBudget int64
 }
 
+// DefaultLogSourceName is the application log's source name. It is also the
+// file the search endpoint uses when the caller does not pass `file=`.
+const DefaultLogSourceName = "signaling.log"
+
 // NewLogQueryService points the service at the directory the logger writes to.
 func NewLogQueryService(dir string) *LogQueryService {
-	return &LogQueryService{dir: dir, fileName: "signaling.log", scanBudget: logScanBudget}
+	s := &LogQueryService{dir: dir, sources: map[string]string{}, scanBudget: logScanBudget}
+	if strings.TrimSpace(dir) != "" {
+		s.AddFile(DefaultLogSourceName, filepath.Join(dir, DefaultLogSourceName))
+	}
+	return s
+}
+
+// AddFile registers one more searchable log source. Registering the same name
+// twice replaces the path without duplicating the source in the order, so a
+// caller cannot accidentally scan a file twice.
+func (s *LogQueryService) AddFile(name, path string) *LogQueryService {
+	if s == nil {
+		return s
+	}
+	name = strings.TrimSpace(name)
+	path = strings.TrimSpace(path)
+	if name == "" || path == "" {
+		return s
+	}
+	if s.sources == nil {
+		s.sources = map[string]string{}
+	}
+	if _, exists := s.sources[name]; !exists {
+		s.order = append(s.order, name)
+	}
+	s.sources[name] = path
+	return s
+}
+
+// LogFileSource is one registered source, in registration order.
+type LogFileSource struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+}
+
+// Sources lists the registered sources in registration order.
+func (s *LogQueryService) Sources() []LogFileSource {
+	if s == nil {
+		return nil
+	}
+	out := make([]LogFileSource, 0, len(s.order))
+	for _, name := range s.order {
+		out = append(out, LogFileSource{Name: name, Path: s.sources[name]})
+	}
+	return out
 }
 
 // LogDir reports the directory being read ("" when not configured).
@@ -115,7 +174,13 @@ func (s *LogQueryService) LogDir() string {
 // written anything yet simply has nothing to show.
 func (s *LogQueryService) Query(ctx context.Context, q LogQuery) (LogQueryResult, error) {
 	var out LogQueryResult
-	if s == nil || s.dir == "" {
+	if s == nil || len(s.order) == 0 {
+		out.Entries = []LogEntry{}
+		out.Files = []LogFileInfo{}
+		return out, nil
+	}
+	sourceName, sourcePath, ok := s.resolveSource(q.File)
+	if !ok {
 		out.Entries = []LogEntry{}
 		out.Files = []LogFileInfo{}
 		return out, nil
@@ -128,7 +193,7 @@ func (s *LogQueryService) Query(ctx context.Context, q LogQuery) (LogQueryResult
 		limit = MaxLogQueryLimit
 	}
 
-	files := s.logFiles()
+	files := logFilesFor(sourceName, sourcePath)
 	out.Files = files
 	out.Entries = make([]LogEntry, 0, min(limit, 64))
 
@@ -148,8 +213,7 @@ func (s *LogQueryService) Query(ctx context.Context, q LogQuery) (LogQueryResult
 			out.Truncated = true
 			break
 		}
-		path := filepath.Join(s.dir, file.Name)
-		exhausted, err := forEachLineReverse(path, &budget, func(line string) bool {
+		exhausted, err := forEachLineReverse(file.path, &budget, func(line string) bool {
 			out.ScannedLines++
 			if !logLineMatches(line, q) {
 				return true
@@ -168,25 +232,45 @@ func (s *LogQueryService) Query(ctx context.Context, q LogQuery) (LogQueryResult
 	return out, nil
 }
 
-// logFiles lists the current log and its rotated siblings, newest first. The
-// rotating writer names them `signaling.log`, `signaling.log.1`, … with `.1`
-// being the most recent rotation.
-func (s *LogQueryService) logFiles() []LogFileInfo {
+// resolveSource picks the file to scan. An empty name means the application
+// log when it is registered, otherwise the first source; an unknown name
+// resolves to nothing rather than silently scanning a different file.
+func (s *LogQueryService) resolveSource(name string) (string, string, bool) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		if _, ok := s.sources[DefaultLogSourceName]; ok {
+			name = DefaultLogSourceName
+		} else if len(s.order) > 0 {
+			name = s.order[0]
+		}
+	}
+	path, ok := s.sources[name]
+	if !ok {
+		return "", "", false
+	}
+	return name, path, true
+}
+
+// logFilesFor lists the current log file and its rotated siblings, newest
+// first. The rotating writer names them `<name>`, `<name>.1`, … with `.1` being
+// the most recent rotation, so the same rule works for the application log and
+// for an externally rotated PostgreSQL or Redis log.
+func logFilesFor(sourceName, sourcePath string) []LogFileInfo {
 	out := make([]LogFileInfo, 0, 4)
-	collect := func(name string) {
-		info, err := os.Stat(filepath.Join(s.dir, name))
+	collect := func(reportName, path string) {
+		info, err := os.Stat(path)
 		if err != nil || info.IsDir() {
 			return
 		}
-		out = append(out, LogFileInfo{Name: name, Bytes: info.Size()})
+		out = append(out, LogFileInfo{Name: reportName, Bytes: info.Size(), path: path})
 	}
-	collect(s.fileName)
+	collect(sourceName, sourcePath)
 	for i := 1; i <= 64; i++ {
-		name := fmt.Sprintf("%s.%d", s.fileName, i)
-		if _, err := os.Stat(filepath.Join(s.dir, name)); err != nil {
+		path := fmt.Sprintf("%s.%d", sourcePath, i)
+		if _, err := os.Stat(path); err != nil {
 			break
 		}
-		collect(name)
+		collect(fmt.Sprintf("%s.%d", sourceName, i), path)
 	}
 	return out
 }

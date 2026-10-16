@@ -37,14 +37,23 @@ func NewAdminLogsHandler(
 	logDir, postgresLogFile, redisLogFile string,
 	logQuery *service.LogQueryService,
 ) *AdminLogsHandler {
-	files := map[string]string{
-		"signaling.log": filepath.Join(logDir, "signaling.log"),
+	files := map[string]string{}
+	if strings.TrimSpace(logDir) != "" {
+		files["signaling.log"] = filepath.Join(logDir, "signaling.log")
 	}
 	if postgresLogFile != "" {
 		files["postgres.log"] = postgresLogFile
 	}
 	if redisLogFile != "" {
 		files["redis.log"] = redisLogFile
+	}
+	// Make every listed file searchable too. Before this the search only ever
+	// scanned the application log, so a configured PostgreSQL or Redis log
+	// could be downloaded but not queried in place.
+	if logQuery != nil {
+		for name, path := range files {
+			logQuery.AddFile(name, path)
+		}
 	}
 	return &AdminLogsHandler{audit: audit, db: db, files: files, logQuery: logQuery}
 }
@@ -100,8 +109,16 @@ func (h *AdminLogsHandler) Search(c *gin.Context) {
 	if !ok {
 		return
 	}
-	if h.logQuery == nil || h.logQuery.LogDir() == "" {
+	if h.logQuery == nil || len(h.logQuery.Sources()) == 0 {
 		ProblemBadRequest(c, ProblemCodeInvalidRequest, "log directory is not configured")
+		return
+	}
+	file := strings.TrimSpace(c.Query("file"))
+	if file == "" {
+		file = service.DefaultLogSourceName
+	}
+	if _, ok := h.files[file]; !ok {
+		ProblemBadRequest(c, ProblemCodeInvalidRequest, fmt.Sprintf("unknown log file %q", file))
 		return
 	}
 	limit := service.DefaultLogQueryLimit
@@ -142,19 +159,21 @@ func (h *AdminLogsHandler) Search(c *gin.Context) {
 		Since:     since,
 		Until:     until,
 		Limit:     limit,
+		File:      file,
 	})
 	if err != nil {
 		ProblemInternal(c, err.Error())
 		return
 	}
-	filter := fmt.Sprintf("q=%q component=%q limit=%d scanned_bytes=%d truncated=%t",
-		c.Query("q"), c.Query("component"), limit, result.ScannedBytes, result.Truncated)
-	h.audit.Log(c.Request.Context(), admin.ID, admin.Username, "log.search", "log_file", "signaling.log", filter, c.ClientIP())
+	filter := fmt.Sprintf("file=%q q=%q component=%q limit=%d scanned_bytes=%d truncated=%t",
+		file, c.Query("q"), c.Query("component"), limit, result.ScannedBytes, result.Truncated)
+	h.audit.Log(c.Request.Context(), admin.ID, admin.Username, "log.search", "log_file", file, filter, c.ClientIP())
 
 	c.JSON(http.StatusOK, gin.H{
 		"items":         result.Entries,
 		"count":         len(result.Entries),
 		"limit":         limit,
+		"file":          file,
 		"files":         result.Files,
 		"scanned_bytes": result.ScannedBytes,
 		"scanned_lines": result.ScannedLines,

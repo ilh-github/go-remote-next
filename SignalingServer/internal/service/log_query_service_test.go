@@ -248,3 +248,90 @@ func TestLogQueryReportsTruncatedScan(t *testing.T) {
 		t.Fatalf("missing log returned %+v, want empty", res)
 	}
 }
+
+// The search endpoint used to scan only the application log directory, so a
+// configured PostgreSQL or Redis log could be listed and downloaded but not
+// queried. A registered extra source has to be selectable by name, and the
+// default must stay the application log.
+func TestLogQuerySearchesRegisteredExtraSource(t *testing.T) {
+	dir, base := sampleLogDir(t)
+	pgPath := filepath.Join(t.TempDir(), "postgres.log")
+	writeLogFile(t, filepath.Dir(pgPath), "postgres.log", []string{
+		stamp(base) + " FATAL: pg-marker-1 could not connect",
+		stamp(base.Add(time.Second)) + " LOG: checkpoint complete pg-marker-2",
+	})
+
+	svc := NewLogQueryService(dir).AddFile("postgres.log", pgPath)
+
+	// Default (no file=) still reads the application log.
+	app, err := svc.Query(context.Background(), LogQuery{Query: "component=notification"})
+	if err != nil {
+		t.Fatalf("app query: %v", err)
+	}
+	if len(app.Entries) != 1 {
+		t.Fatalf("default query returned %d entries, want the one app-log match", len(app.Entries))
+	}
+	if app.Files[0].Name != "signaling.log" {
+		t.Fatalf("default query scanned %q, want signaling.log", app.Files[0].Name)
+	}
+
+	// The extra source is selectable and reports its own logical name.
+	pg, err := svc.Query(context.Background(), LogQuery{Query: "pg-marker", File: "postgres.log"})
+	if err != nil {
+		t.Fatalf("pg query: %v", err)
+	}
+	if len(pg.Entries) != 2 {
+		t.Fatalf("postgres.log query returned %d entries, want 2", len(pg.Entries))
+	}
+	if len(pg.Files) != 1 || pg.Files[0].Name != "postgres.log" {
+		t.Fatalf("postgres.log query reported files %+v, want the logical name", pg.Files)
+	}
+	// An unknown name must not silently fall back to another file.
+	unknown, err := svc.Query(context.Background(), LogQuery{File: "nope.log"})
+	if err != nil {
+		t.Fatalf("unknown source: %v", err)
+	}
+	if len(unknown.Entries) != 0 || len(unknown.Files) != 0 {
+		t.Fatalf("unknown source returned %+v, want empty", unknown)
+	}
+}
+
+// Rotation handling has to work for extra sources too: a PostgreSQL log
+// rotated to postgres.log.1 is exactly the file an operator wants when asking
+// "what happened before the restart".
+func TestLogQueryFollowsExtraSourceRotation(t *testing.T) {
+	dir, base := sampleLogDir(t)
+	pgDir := t.TempDir()
+	writeLogFile(t, pgDir, "postgres.log", []string{
+		stamp(base) + " LOG: current pg-current",
+	})
+	writeLogFile(t, pgDir, "postgres.log.1", []string{
+		stamp(base.Add(-time.Hour)) + " FATAL: rotated pg-rotated",
+	})
+
+	svc := NewLogQueryService(dir).AddFile("postgres.log", filepath.Join(pgDir, "postgres.log"))
+	res, err := svc.Query(context.Background(), LogQuery{Query: "pg-", File: "postgres.log"})
+	if err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	if len(res.Entries) != 2 {
+		t.Fatalf("got %d entries, want both the current and rotated line: %+v", len(res.Entries), lineTexts(res.Entries))
+	}
+	// Newest first across the rotation.
+	if !strings.Contains(res.Entries[0].Line, "pg-current") {
+		t.Fatalf("first entry = %q, want the newest (current file) line", res.Entries[0].Line)
+	}
+	if len(res.Files) != 2 || res.Files[1].Name != "postgres.log.1" {
+		t.Fatalf("files = %+v, want postgres.log then postgres.log.1", res.Files)
+	}
+
+	// Sources() reports registration order so the API can document what is
+	// searchable.
+	names := make([]string, 0, len(svc.Sources()))
+	for _, s := range svc.Sources() {
+		names = append(names, s.Name)
+	}
+	if strings.Join(names, ",") != "signaling.log,postgres.log" {
+		t.Fatalf("Sources() = %v, want registration order with the app log first", names)
+	}
+}
