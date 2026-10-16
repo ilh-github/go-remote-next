@@ -70,6 +70,7 @@ type Config struct {
 	Security     SecurityConfig
 	Recording    RecordingConfig
 	Notification NotificationConfig
+	OfflineAlert OfflineAlertConfig
 	Holiday      HolidayConfig
 	Sms          SmsConfig
 	Runtime      RuntimeConfig
@@ -83,6 +84,16 @@ type NotificationConfig struct {
 	// ArchiveDir, when set, makes retention append expired rows to a daily
 	// JSONL file there before deleting them. Empty = plain delete.
 	ArchiveDir string
+}
+
+// OfflineAlertConfig controls the background evaluator behind per-device
+// "tell me when this stays offline" rules. IntervalSeconds = 0 disables it.
+//
+// The interval is a trade-off against the heartbeat TTL (90s): a device is
+// only considered offline once the heartbeat key expires, so evaluating much
+// faster than that only burns queries.
+type OfflineAlertConfig struct {
+	IntervalSeconds int
 }
 
 type RuntimeConfig struct {
@@ -176,6 +187,9 @@ func Load() *Config {
 	// before being deleted, so retention never destroys the only copy.
 	viper.SetDefault("NOTIFICATION_ARCHIVE_DIR", "")
 
+	// Background evaluator for per-device offline alerts. 0 disables it.
+	viper.SetDefault("OFFLINE_ALERT_INTERVAL_SECONDS", 30)
+
 	// Statutory holiday calendar used by device access policies. Empty keeps
 	// the year(s) embedded in the binary; point it at a directory of
 	// holiday-cn style YYYY.json files to add years without a rebuild.
@@ -258,6 +272,9 @@ func Load() *Config {
 		RetentionDays:    viper.GetInt("NOTIFICATION_RETENTION_DAYS"),
 		SweepIntervalMin: viper.GetInt("NOTIFICATION_SWEEP_INTERVAL_MINUTES"),
 		ArchiveDir:       viper.GetString("NOTIFICATION_ARCHIVE_DIR"),
+	}
+	cfg.OfflineAlert = OfflineAlertConfig{
+		IntervalSeconds: viper.GetInt("OFFLINE_ALERT_INTERVAL_SECONDS"),
 	}
 	cfg.Holiday = HolidayConfig{
 		Dir: viper.GetString("HOLIDAY_CALENDAR_DIR"),

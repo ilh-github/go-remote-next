@@ -451,6 +451,29 @@ CREATE INDEX IF NOT EXISTS idx_notification_deliveries_device_id
     ON notification_deliveries (device_id);
 
 -- ---------------------------------------------------------------
+-- Per-device offline alerts ("tell me when this stays offline")
+-- The row carries the evaluator's episode state because presence only answers
+-- "is it online right now": offline_since is set on the first offline
+-- observation and alerted_at when the alert for that episode was published,
+-- and both are cleared when the device comes back so the next outage alerts
+-- again. Alerts themselves go out through the notification outbox above.
+-- ---------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS device_offline_alert_rules (
+    id            BIGSERIAL PRIMARY KEY,
+    device_id     VARCHAR(20) NOT NULL UNIQUE,
+    owner_id      BIGINT      NOT NULL DEFAULT 0,
+    enabled       BOOLEAN     NOT NULL DEFAULT TRUE,
+    after_minutes INTEGER     NOT NULL DEFAULT 10,
+    offline_since TIMESTAMPTZ,
+    alerted_at    TIMESTAMPTZ,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_device_offline_alert_rules_owner_id
+    ON device_offline_alert_rules (owner_id);
+
+-- ---------------------------------------------------------------
 -- Preset (single-row server config distributed to clients)
 -- ---------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS presets (

@@ -91,6 +91,7 @@ func main() {
 			&models.Webhook{},
 			&models.UserNotificationChannel{},
 			&models.NotificationDelivery{},
+			&models.DeviceOfflineAlertRule{},
 			&models.Preset{},
 		); err != nil {
 			log.Printf("Warning: AutoMigrate error (continuing anyway): %v", err)
@@ -203,6 +204,19 @@ func main() {
 	service.NewPresenceWatcher(redisClient, bus, presenceService, deviceRepo).
 		Start(context.Background())
 
+	// Per-device offline alerts. Presence says "the heartbeat stopped"; this
+	// evaluator adds the part an owner actually asked for - how long - and
+	// publishes through the user notification outbox, so the alert inherits
+	// durable delivery, retry and dead-letter replay.
+	deviceOfflineAlertService := service.NewDeviceOfflineAlertService(db, presenceService, bus)
+	if cfg.OfflineAlert.IntervalSeconds > 0 {
+		go deviceOfflineAlertService.Run(
+			context.Background(),
+			time.Duration(cfg.OfflineAlert.IntervalSeconds)*time.Second,
+		)
+		log.Printf("Offline alerts: enabled evaluate_interval=%ds", cfg.OfflineAlert.IntervalSeconds)
+	}
+
 	// Bootstrap the initial admin user if needed.
 	ctx := context.Background()
 	if _, err := adminUserRepo.GetByUsername(ctx, cfg.Admin.User); err != nil {
@@ -232,6 +246,7 @@ func main() {
 	deviceHandler := handler.NewDeviceHandler(deviceService, favoriteService, connectionService, presenceService, deviceAccessService, bus, db)
 	notificationChannelHandler := handler.NewNotificationChannelHandler(notificationChannelService, notificationDeliveryService)
 	deviceAccessPolicyHandler := handler.NewDeviceAccessPolicyHandler(deviceService, deviceAccessPolicyService, bus)
+	deviceOfflineAlertHandler := handler.NewDeviceOfflineAlertHandler(deviceService, deviceOfflineAlertService)
 	deviceAccessGrantHandler := handler.NewDeviceAccessGrantHandler(deviceService, deviceAccessGrantService, bus)
 	deviceAccessApprovalHandler := handler.NewDeviceAccessApprovalHandler(
 		deviceService, deviceAccessApprovalService, deviceAccessGrantService,
@@ -341,6 +356,9 @@ func main() {
 			me.GET("/devices/:device_id/access-logs", deviceHandler.ListAccessLogs)
 			me.GET("/devices/:device_id/access-policy", deviceAccessPolicyHandler.Get)
 			me.PUT("/devices/:device_id/access-policy", deviceAccessPolicyHandler.Put)
+			me.GET("/devices/:device_id/offline-alert", deviceOfflineAlertHandler.Get)
+			me.PUT("/devices/:device_id/offline-alert", deviceOfflineAlertHandler.Put)
+			me.DELETE("/devices/:device_id/offline-alert", deviceOfflineAlertHandler.Delete)
 			me.GET("/devices/:device_id/access-grants", deviceAccessGrantHandler.List)
 			me.POST("/devices/:device_id/access-grants", deviceAccessGrantHandler.Create)
 			me.DELETE("/devices/:device_id/access-grants/:grant_id", deviceAccessGrantHandler.Delete)

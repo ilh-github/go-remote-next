@@ -414,9 +414,9 @@ Payload shape (same as admin webhooks):
 ```
 
 Supported events today: `device.access.denied`, `device.access.granted`,
-`device.access.session_started`, `device.online.changed`, `device.bound`,
-`device.unbound`, `device.access_approval.requested`,
-`device.access_approval.decided`.
+`device.access.session_started`, `device.online.changed`,
+`device.offline.sustained` (§5.3.6), `device.bound`, `device.unbound`,
+`device.access_approval.requested`, `device.access_approval.decided`.
 
 When `secret` is set the raw body is signed with HMAC-SHA256 and sent as
 `X-Webhook-Signature: sha256=<hex>`, so receivers can share one verification
@@ -674,6 +674,67 @@ Rules that matter:
   when the owner refuses, and `granted` when the claim succeeds. Approving or
   denying is also written to the admin audit trail (it is an admission
   decision), while healthy admissions stay owner-scoped.
+
+### 5.3.6 Device offline alerts ("tell me when this stays offline")
+
+`device.online.changed` fires the moment a heartbeat stops, which is the same
+event whether the machine is rebooting, asleep, temporarily unplugged or dead.
+An offline alert adds the missing dimension — **how long** — as an owner-set
+rule per device:
+
+| Method | Path | Auth | Body / notes |
+|---|---|---|---|
+| `GET` | `/v1/me/devices/:device_id/offline-alert` | user token | The rule, or the defaults (`enabled: false`, `after_minutes: 10`) when none is configured. Also returns the evaluator's episode state. |
+| `PUT` | `/v1/me/devices/:device_id/offline-alert` | user token | `{enabled, after_minutes}`. `after_minutes` is 1…10080 (7 days); omitting it (or sending `0`) stores the default of 10. Out of range is a `400`. |
+| `DELETE` | `/v1/me/devices/:device_id/offline-alert` | user token | `204`. Idempotent: deleting a rule that does not exist is still `204`. |
+
+Response:
+
+```json
+{"device_id": "256983850", "enabled": true, "after_minutes": 10,
+ "offline_since": "2026-10-16T04:10:17Z", "last_alerted_at": "2026-10-16T04:11:17Z"}
+```
+
+A background evaluator (`OFFLINE_ALERT_INTERVAL_SECONDS`, default 30; `0`
+disables it) turns presence into an episode state machine:
+
+1. **first** tick that sees the device offline records `offline_since` — this
+   is what makes "offline for ten minutes" answerable, because Redis only knows
+   whether the heartbeat exists *right now*;
+2. while `now - offline_since < after_minutes` nothing happens;
+3. once the threshold is crossed the evaluator publishes
+   `device.offline.sustained` **once** and stamps `last_alerted_at`. That event
+   is user-scoped, so it reaches the owner's realtime stream and — if a channel
+   subscribes to it — the durable notification outbox;
+4. when the device comes back, `offline_since` and `last_alerted_at` are
+   cleared, so the **next** outage alerts again instead of being suppressed by
+   the first one.
+
+Payload of the alert:
+
+```json
+{"device_id": "256983850", "device_name": "办公机", "offline_since": "...",
+ "offline_minutes": 11, "threshold_minutes": 10}
+```
+
+Three behaviours are worth knowing because the obvious implementation gets
+them wrong:
+
+- **A deliberately logged-out device is not an outage.** When
+  `devices.logged_in` is false the episode is cleared and nothing is published;
+  alerting about a machine the owner parked would only train them to ignore the
+  alerts.
+- **Changing the threshold does not restart the clock.** `offline_since` is
+  preserved across a `PUT`, so raising the threshold from 1 to 10 minutes keeps
+  the episode's real start; lowering it re-evaluates immediately.
+- **Disabling the rule clears the episode.** Switching it off means "stop
+  telling me about this device", so switching it back on gives a clean slate
+  rather than an alert about an outage that began while it was off.
+
+Both `offline_since` and `last_alerted_at` are written with conditional
+`UPDATE`s (`... WHERE offline_since IS NULL` and `... WHERE alerted_at IS NULL`),
+so two signaling instances cannot both start the same episode or both publish
+one alert for it.
 
 ### 5.4 Connections (history)
 
@@ -1176,6 +1237,7 @@ include access-code plaintext, `device_secret`, or `refresh_token`.
 | `type` | When | Payload sketch |
 |---|---|---|
 | `device.online.changed` | hb-TTL expiry or wsconn DEL → `online` flips | `{device_id, online}` |
+| `device.offline.sustained` | the device stayed offline past its owner-set threshold (§5.3.6), published once per outage | `{device_id, device_name, offline_since, offline_minutes, threshold_minutes}` |
 | `device.session.updated` | `logged_in_intent` flipped (bind / clear-session) | `{device_id, online, logged_in}` |
 | `device.access_code.changed` | host reported a new code | `{device_id, changed: true}` (no plaintext) |
 | `device.bound` / `device.added` | new device for this user | `{device_id}` (clients fetch detail once if not present) |

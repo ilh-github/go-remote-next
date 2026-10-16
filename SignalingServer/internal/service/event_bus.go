@@ -36,11 +36,16 @@ type Event struct {
 // Canonical event type strings. Add new ones here so grep can find every
 // producer at a glance.
 const (
-	EventDeviceBound             = "device.bound"
-	EventDeviceAdded             = "device.added"
-	EventDeviceUnbound           = "device.unbound"
-	EventDeviceOwnershipLost     = "device.ownership.lost"
-	EventDeviceOnlineChanged     = "device.online.changed"
+	EventDeviceBound         = "device.bound"
+	EventDeviceAdded         = "device.added"
+	EventDeviceUnbound       = "device.unbound"
+	EventDeviceOwnershipLost = "device.ownership.lost"
+	EventDeviceOnlineChanged = "device.online.changed"
+	// Fired by the offline-alert evaluator, not by presence itself:
+	// `online.changed` says the heartbeat stopped, this says it has stayed
+	// stopped for longer than the owner's threshold. A device that reboots or
+	// sleeps produces the first and not the second.
+	EventDeviceOfflineSustained  = "device.offline.sustained"
 	EventDeviceSessionUpdated    = "device.session.updated"
 	EventDeviceAccessCodeChanged = "device.access_code.changed"
 	EventDeviceRemarkChanged     = "device.remark.changed"

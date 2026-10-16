@@ -25,6 +25,7 @@ var SupportedUserNotificationEvents = []string{
 	EventDeviceAccessGranted,
 	EventDeviceAccessSession,
 	EventDeviceOnlineChanged,
+	EventDeviceOfflineSustained,
 	EventDeviceBound,
 	EventDeviceUnbound,
 	EventDeviceAccessApprovalRequested,
