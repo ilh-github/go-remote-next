@@ -1456,7 +1456,7 @@ request shapes; this section documents only the route table.
 | `GET` | `/v1/admin/activity` |
 | `GET` | `/v1/admin/trends?range=24h\|7d\|30d` |
 | `GET` | `/v1/admin/audit-logs` (filters `action` / `admin` / `actor_user_id` / `date_from` / `date_to`; a non-numeric `actor_user_id` is `400` rather than a filter that quietly matches everything) |
-| `POST` | `/v1/admin/audit-logs:sweep` — run the audit-retention purge now. Optional body `{older_than_days: N}` overrides the configured age window, `{max_rows: N}` overrides the configured row cap and `{archive_retention_days: N}` overrides how long the daily archive files are kept; any combination may be passed. Returns `{purged, older_than_days, cutoff, max_rows, cap_removed, archive_retention_days, archive_removed, archive_dir}` and audits `audit.sweep`. `400` when none of the config or body supplies any bound (`AUDIT_RETENTION_DAYS` / `AUDIT_MAX_ROWS` / `AUDIT_ARCHIVE_RETENTION_DAYS` or the matching body fields), and `400` when archive retention is asked for while `AUDIT_ARCHIVE_DIR` is unset; when `AUDIT_ARCHIVE_DIR` is set an archive write failure deletes nothing |
+| `POST` | `/v1/admin/audit-logs:sweep` — run the audit-retention purge now. Optional body `{older_than_days: N}` overrides the configured age window, `{max_rows: N}` the table-wide row cap, `{max_rows_per_actor: N}` the per-actor row cap and `{archive_retention_days: N}` how long the daily archive files are kept; any combination may be passed. Returns `{purged, older_than_days, cutoff, max_rows, cap_removed, max_rows_per_actor, actor_cap_removed, archive_retention_days, archive_removed, archive_dir}` and audits `audit.sweep`. `400` when none of the config or body supplies any bound (`AUDIT_RETENTION_DAYS` / `AUDIT_MAX_ROWS` / `AUDIT_MAX_ROWS_PER_ACTOR` / `AUDIT_ARCHIVE_RETENTION_DAYS` or the matching body fields), and `400` when archive retention is asked for while `AUDIT_ARCHIVE_DIR` is unset; when `AUDIT_ARCHIVE_DIR` is set an archive write failure deletes nothing |
 | `GET` | `/v1/admin/audit-archive:search` — read back a day's archive that retention wrote. `?date=` (`YYYY-MM-DD`, default today in UTC), `&q=` (case-insensitive substring over action/resource/details/ip/admin), `&action=` (exact), `&admin=` (substring), `&actor_user_id=` (positive integer), `&limit=` (default 50, clamped to 500). Returns `{items, count, date, file, scanned_bytes, scanned_lines, truncated, has_more, archive_dir}` newest first and audits `audit.archive.search`. `400` when `AUDIT_ARCHIVE_DIR` is unset or `date`/`limit`/`actor_user_id` is malformed; `404` when that day has no archive file |
 | `GET` `DELETE` | `/v1/admin/recordings[/:id]` (list filters `user_id` / `device_id` / `status` / `q`; delete writes audit action `recording.delete`) |
 | `GET` | `/v1/admin/recordings/:id/artifact` (cross-user download; audit action `recording.download`) |
@@ -1518,6 +1518,23 @@ tick, so it bounds growth rather than freezing an exact count. There is
 deliberately no byte-sized cap: PostgreSQL does not return freed space until
 `VACUUM`, so a byte threshold would either over-delete or never converge, while
 a row count is exact.
+
+**A table-wide cap is not enough: `AUDIT_MAX_ROWS_PER_ACTOR` charges the noisy
+actor.** The table cap has no idea who wrote a row, so a single actor - a user
+whose failing token refreshes log in a loop, an admin running a bulk migration -
+can fill the table and evict *everybody else's* trail. `AUDIT_MAX_ROWS_PER_ACTOR`
+(default `0` = no cap) caps each actor separately: an actor holding more than the
+limit loses their own oldest rows, and other actors' rows are untouched. Admins
+and end users are counted apart, so admin 7 and user 7 never spend each other's
+budget, and rows with no actor at all (the server's own entries) are exempt -
+there is nobody to charge them to, and `AUDIT_MAX_ROWS` still bounds them. The
+per-actor cap runs *before* the table-wide one on the same sweep, so the targeted
+rule absorbs the overflow before the blunt rule starts deleting someone else's
+history; `{"max_rows_per_actor": N}` on the sweep endpoint exercises it without
+changing config. One pass inspects at most 20 actors and removes at most 1000
+rows, so the sweep loops instead of holding one long statement, and when
+`AUDIT_ARCHIVE_DIR` is set the removed rows are archived and fsynced first,
+exactly like the other two bounds.
 
 **The archive directory is bounded too, and off by default.**
 Archiving keeps a purged row recoverable, but the daily files themselves only

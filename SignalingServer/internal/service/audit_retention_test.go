@@ -207,3 +207,205 @@ func TestAuditCapRowsArchivesBeforeDeleting(t *testing.T) {
 		t.Fatalf("archive holds a row that should have been kept:\n%s", body)
 	}
 }
+
+// seedAuditActorRow writes one attributed row, which is what the per-actor cap
+// works on. adminID and actorUserID are mutually exclusive by convention: an
+// admin column wins when both are set.
+func seedAuditActorRow(t *testing.T, db *gorm.DB, adminID, actorUserID uint, action string) {
+	t.Helper()
+	if err := db.Create(&models.AuditLog{
+		AdminID:     adminID,
+		ActorUserID: actorUserID,
+		Action:      action,
+		CreatedAt:   time.Now(),
+	}).Error; err != nil {
+		t.Fatalf("seed attributed audit row: %v", err)
+	}
+}
+
+func auditRowsFor(t *testing.T, db *gorm.DB, where string, args ...interface{}) []models.AuditLog {
+	t.Helper()
+	var rows []models.AuditLog
+	if err := db.Where(where, args...).Order("id").Find(&rows).Error; err != nil {
+		t.Fatalf("list rows (%s): %v", where, err)
+	}
+	return rows
+}
+
+// The whole point of the per-actor cap: the noisy actor pays, everyone else
+// keeps their trail. The table-wide cap cannot promise that.
+func TestAuditCapRowsPerActorChargesOnlyTheNoisyActor(t *testing.T) {
+	db := newAuditTestDB(t)
+	svc := NewAuditService(db)
+	ctx := context.Background()
+
+	for i := 0; i < 5; i++ {
+		seedAuditActorRow(t, db, 0, 7, "noisy.action")
+	}
+	for i := 0; i < 2; i++ {
+		seedAuditActorRow(t, db, 0, 9, "quiet.action")
+	}
+	// Unattributed rows are the system's own; there is nobody to charge them
+	// to, so the per-actor cap must leave them alone.
+	seedAuditRowAt(t, db, "system.action", time.Now())
+
+	removed, err := svc.CapRowsPerActor(ctx, 2)
+	if err != nil {
+		t.Fatalf("per-actor cap: %v", err)
+	}
+	if removed != 3 {
+		t.Fatalf("removed %d rows, want the noisy actor's 3 oldest", removed)
+	}
+	if got := len(auditRowsFor(t, db, "actor_user_id = ?", 7)); got != 2 {
+		t.Fatalf("noisy actor holds %d rows, want 2", got)
+	}
+	if got := len(auditRowsFor(t, db, "actor_user_id = ?", 9)); got != 2 {
+		t.Fatalf("quiet actor holds %d rows, want its 2 untouched rows", got)
+	}
+	if got := len(auditRowsFor(t, db, "action = ?", "system.action")); got != 1 {
+		t.Fatalf("unattributed rows = %d, want the system row left alone", got)
+	}
+	// The kept rows are the newest ones, which is what makes the cap "trim the
+	// oldest" rather than "trim at random".
+	kept := auditRowsFor(t, db, "actor_user_id = ?", 7)
+	if kept[0].ID < 4 {
+		t.Fatalf("kept rows start at id %d; the oldest rows should have gone first", kept[0].ID)
+	}
+}
+
+// An admin with id 7 and an end user with id 7 are different people. Merging
+// them would let an admin's work spend a user's budget (and the reverse).
+func TestAuditCapRowsPerActorKeepsAdminsAndUsersApart(t *testing.T) {
+	db := newAuditTestDB(t)
+	svc := NewAuditService(db)
+	ctx := context.Background()
+
+	for i := 0; i < 4; i++ {
+		seedAuditActorRow(t, db, 7, 0, "admin.action")
+	}
+	for i := 0; i < 4; i++ {
+		seedAuditActorRow(t, db, 0, 7, "user.action")
+	}
+
+	removed, err := svc.CapRowsPerActor(ctx, 2)
+	if err != nil {
+		t.Fatalf("per-actor cap: %v", err)
+	}
+	if removed != 4 {
+		t.Fatalf("removed %d rows, want 2 from each of the two actors", removed)
+	}
+	if got := len(auditRowsFor(t, db, "admin_id = ?", 7)); got != 2 {
+		t.Fatalf("admin 7 holds %d rows, want 2", got)
+	}
+	if got := len(auditRowsFor(t, db, "admin_id = 0 AND actor_user_id = ?", 7)); got != 2 {
+		t.Fatalf("user 7 holds %d rows, want 2", got)
+	}
+}
+
+// Audit rows are evidence, so the per-actor cap has to archive the bytes before
+// it deletes - the same rule the age window and the table-wide cap follow.
+func TestAuditCapRowsPerActorArchivesBeforeDeleting(t *testing.T) {
+	db := newAuditTestDB(t)
+	archiveDir := t.TempDir()
+	svc := NewAuditService(db).WithArchiveDir(archiveDir)
+	ctx := context.Background()
+
+	for _, action := range []string{"actor.old1", "actor.old2"} {
+		seedAuditActorRow(t, db, 0, 3, action)
+	}
+	seedAuditActorRow(t, db, 0, 3, "actor.new")
+
+	removed, err := svc.CapRowsPerActor(ctx, 1)
+	if err != nil {
+		t.Fatalf("per-actor cap: %v", err)
+	}
+	if removed != 2 {
+		t.Fatalf("removed %d rows, want 2", removed)
+	}
+	matches, _ := filepath.Glob(filepath.Join(archiveDir, "*.jsonl"))
+	if len(matches) != 1 {
+		t.Fatalf("archive files = %v, want exactly one daily file", matches)
+	}
+	body, err := os.ReadFile(matches[0])
+	if err != nil {
+		t.Fatalf("read archive: %v", err)
+	}
+	if !strings.Contains(string(body), "actor.old1") || !strings.Contains(string(body), "actor.old2") {
+		t.Fatalf("archive is missing a capped row:\n%s", body)
+	}
+	if strings.Contains(string(body), "actor.new") {
+		t.Fatalf("archive holds a row that should have been kept:\n%s", body)
+	}
+}
+
+// An archive failure must leave the table untouched: a cap is never allowed to
+// be the step that destroys the only copy of a trail.
+func TestAuditCapRowsPerActorArchiveFailureDeletesNothing(t *testing.T) {
+	db := newAuditTestDB(t)
+	// A file where the archive directory should be makes MkdirAll fail.
+	blocker := filepath.Join(t.TempDir(), "not-a-dir")
+	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
+		t.Fatalf("write blocker: %v", err)
+	}
+	svc := NewAuditService(db).WithArchiveDir(blocker)
+	ctx := context.Background()
+
+	for i := 0; i < 3; i++ {
+		seedAuditActorRow(t, db, 0, 5, "blocked.action")
+	}
+	if _, err := svc.CapRowsPerActor(ctx, 1); err == nil {
+		t.Fatal("per-actor cap returned no error with an unusable archive directory")
+	}
+	if got := len(auditRowsFor(t, db, "actor_user_id = ?", 5)); got != 3 {
+		t.Fatalf("rows after a failed archive = %d, want all 3 still present", got)
+	}
+}
+
+// Disabled and under-limit calls are no-ops, and one pass never removes more
+// than the batch limit - the worker loops instead.
+func TestAuditCapRowsPerActorBatchesAndNoops(t *testing.T) {
+	db := newAuditTestDB(t)
+	svc := NewAuditService(db)
+	ctx := context.Background()
+
+	if removed, err := svc.CapRowsPerActor(ctx, 0); err != nil || removed != 0 {
+		t.Fatalf("disabled cap = %d,%v, want 0,nil", removed, err)
+	}
+
+	rows := make([]models.AuditLog, 0, auditPurgeBatch+200)
+	for i := 0; i < auditPurgeBatch+200; i++ {
+		rows = append(rows, models.AuditLog{
+			ActorUserID: 4, Action: "bulk.action", CreatedAt: time.Now(),
+		})
+	}
+	if err := db.CreateInBatches(rows, 500).Error; err != nil {
+		t.Fatalf("seed bulk rows: %v", err)
+	}
+
+	if removed, err := svc.CapRowsPerActor(ctx, 10_000); err != nil || removed != 0 {
+		t.Fatalf("under-limit cap = %d,%v, want 0,nil", removed, err)
+	}
+
+	// One call removes at most auditPurgeBatch rows, so the caller can bound how
+	// long it holds the database for.
+	first, err := svc.CapRowsPerActor(ctx, 10)
+	if err != nil {
+		t.Fatalf("first capped pass: %v", err)
+	}
+	if first != auditPurgeBatch {
+		t.Fatalf("first pass removed %d rows, want the batch limit %d", first, auditPurgeBatch)
+	}
+	second, err := svc.CapRowsPerActor(ctx, 10)
+	if err != nil {
+		t.Fatalf("second capped pass: %v", err)
+	}
+	if second != 190 {
+		t.Fatalf("second pass removed %d rows, want the remaining 190", second)
+	}
+	if third, err := svc.CapRowsPerActor(ctx, 10); err != nil || third != 0 {
+		t.Fatalf("third pass = %d,%v, want 0,nil", third, err)
+	}
+	if got := len(auditRowsFor(t, db, "actor_user_id = ?", 4)); got != 10 {
+		t.Fatalf("actor holds %d rows after the cap, want 10", got)
+	}
+}

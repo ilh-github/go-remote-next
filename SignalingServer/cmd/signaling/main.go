@@ -209,20 +209,22 @@ func main() {
 	smsService := service.NewSmsService(redisClient, settingsService)
 	auditService := service.NewAuditService(db).WithArchiveDir(cfg.Audit.ArchiveDir)
 	if cfg.Audit.SweepIntervalMin > 0 &&
-		(cfg.Audit.RetentionDays > 0 || cfg.Audit.MaxRows > 0 || cfg.Audit.ArchiveRetentionDays > 0) {
+		(cfg.Audit.RetentionDays > 0 || cfg.Audit.MaxRows > 0 ||
+			cfg.Audit.MaxRowsPerActor > 0 || cfg.Audit.ArchiveRetentionDays > 0) {
 		go auditService.RunRetention(
 			context.Background(),
 			time.Duration(cfg.Audit.SweepIntervalMin)*time.Minute,
 			cfg.Audit.RetentionDays,
 			cfg.Audit.MaxRows,
+			cfg.Audit.MaxRowsPerActor,
 			cfg.Audit.ArchiveRetentionDays,
 		)
 		archive := cfg.Audit.ArchiveDir
 		if archive == "" {
 			archive = "(delete, no archive)"
 		}
-		log.Printf("Audit retention: retention_days=%d max_rows=%d archive_retention_days=%d sweep_interval=%dm archive=%s",
-			cfg.Audit.RetentionDays, cfg.Audit.MaxRows, cfg.Audit.ArchiveRetentionDays,
+		log.Printf("Audit retention: retention_days=%d max_rows=%d max_rows_per_actor=%d archive_retention_days=%d sweep_interval=%dm archive=%s",
+			cfg.Audit.RetentionDays, cfg.Audit.MaxRows, cfg.Audit.MaxRowsPerActor, cfg.Audit.ArchiveRetentionDays,
 			cfg.Audit.SweepIntervalMin, archive)
 	}
 	webhookService := service.NewWebhookService(db)
@@ -328,7 +330,8 @@ func main() {
 	adminSettingsHandler := handler.NewAdminSettingsHandler(settingsService, bus, auditService)
 	adminPresetHandler := handler.NewAdminPresetHandler(presetService, auditService)
 	adminAuditHandler := handler.NewAdminAuditHandler(
-		auditService, cfg.Audit.RetentionDays, cfg.Audit.MaxRows, cfg.Audit.ArchiveRetentionDays)
+		auditService, cfg.Audit.RetentionDays, cfg.Audit.MaxRows, cfg.Audit.MaxRowsPerActor,
+		cfg.Audit.ArchiveRetentionDays)
 	adminSessionRecordingHandler := handler.NewAdminSessionRecordingHandler(
 		sessionRecordingService, auditService, recordingLifecycle,
 		cfg.Recording.RetentionDays, cfg.Recording.StaleMinutes)

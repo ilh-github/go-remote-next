@@ -144,6 +144,12 @@ type AuditConfig struct {
 	// window implies, and because the age window alone cannot answer "how big
 	// is this table allowed to get". 0 = no cap.
 	MaxRows int
+	// MaxRowsPerActor, when positive, caps how many rows any single actor may
+	// hold. The table-wide cap alone does not stop one noisy actor - a user
+	// whose failing token refreshes log in a loop, an admin running a bulk
+	// migration - from filling the table and evicting every other actor's
+	// trail. 0 = no per-actor cap.
+	MaxRowsPerActor int
 	// ArchiveDir, when set, makes retention append expired rows to a daily
 	// JSONL file there before deleting them. Empty = plain delete. Audit rows
 	// are evidence, so an operator turning retention on should normally set it.
@@ -294,6 +300,10 @@ func Load() *Config {
 	// Hard row cap, independent of the age window: the sweep trims the oldest
 	// rows until at most this many remain. 0 = no cap.
 	viper.SetDefault("AUDIT_MAX_ROWS", 0)
+	// Per-actor row cap: the sweep trims each actor's oldest rows until nobody
+	// holds more than this, so one noisy actor cannot evict everyone else's
+	// trail. 0 = no per-actor cap.
+	viper.SetDefault("AUDIT_MAX_ROWS_PER_ACTOR", 0)
 
 	// Background evaluator for per-device offline alerts. 0 disables it.
 	viper.SetDefault("OFFLINE_ALERT_INTERVAL_SECONDS", 30)
@@ -399,6 +409,7 @@ func Load() *Config {
 		RetentionDays:        viper.GetInt("AUDIT_RETENTION_DAYS"),
 		SweepIntervalMin:     viper.GetInt("AUDIT_SWEEP_INTERVAL_MINUTES"),
 		MaxRows:              viper.GetInt("AUDIT_MAX_ROWS"),
+		MaxRowsPerActor:      viper.GetInt("AUDIT_MAX_ROWS_PER_ACTOR"),
 		ArchiveDir:           viper.GetString("AUDIT_ARCHIVE_DIR"),
 		ArchiveRetentionDays: viper.GetInt("AUDIT_ARCHIVE_RETENTION_DAYS"),
 	}

@@ -19,14 +19,16 @@ type AdminAuditHandler struct {
 	audit                *service.AuditService
 	retentionDays        int
 	maxRows              int
+	maxRowsPerActor      int
 	archiveRetentionDays int
 }
 
-func NewAdminAuditHandler(a *service.AuditService, retentionDays, maxRows, archiveRetentionDays int) *AdminAuditHandler {
+func NewAdminAuditHandler(a *service.AuditService, retentionDays, maxRows, maxRowsPerActor, archiveRetentionDays int) *AdminAuditHandler {
 	return &AdminAuditHandler{
 		audit:                a,
 		retentionDays:        retentionDays,
 		maxRows:              maxRows,
+		maxRowsPerActor:      maxRowsPerActor,
 		archiveRetentionDays: archiveRetentionDays,
 	}
 }
@@ -88,6 +90,7 @@ func parseActorUserID(raw string) (uint, error) {
 type auditSweepReq struct {
 	OlderThanDays        *int `json:"older_than_days"`
 	MaxRows              *int `json:"max_rows"`
+	MaxRowsPerActor      *int `json:"max_rows_per_actor"`
 	ArchiveRetentionDays *int `json:"archive_retention_days"`
 }
 
@@ -118,13 +121,17 @@ func (h *AdminAuditHandler) Sweep(c *gin.Context) {
 	if req.MaxRows != nil {
 		maxRows = *req.MaxRows
 	}
+	maxRowsPerActor := h.maxRowsPerActor
+	if req.MaxRowsPerActor != nil {
+		maxRowsPerActor = *req.MaxRowsPerActor
+	}
 	archiveDays := h.archiveRetentionDays
 	if req.ArchiveRetentionDays != nil {
 		archiveDays = *req.ArchiveRetentionDays
 	}
-	if days <= 0 && maxRows <= 0 && archiveDays <= 0 {
+	if days <= 0 && maxRows <= 0 && maxRowsPerActor <= 0 && archiveDays <= 0 {
 		ProblemBadRequest(c, ProblemCodeInvalidRequest,
-			"retention is not configured; set AUDIT_RETENTION_DAYS / AUDIT_MAX_ROWS / AUDIT_ARCHIVE_RETENTION_DAYS or pass older_than_days / max_rows / archive_retention_days")
+			"retention is not configured; set AUDIT_RETENTION_DAYS / AUDIT_MAX_ROWS / AUDIT_MAX_ROWS_PER_ACTOR / AUDIT_ARCHIVE_RETENTION_DAYS or pass older_than_days / max_rows / max_rows_per_actor / archive_retention_days")
 		return
 	}
 
@@ -146,8 +153,24 @@ func (h *AdminAuditHandler) Sweep(c *gin.Context) {
 			}
 		}
 	}
-	// The row cap is a second, age-independent bound; it runs after the age
-	// purge so a row that both rules would drop is only counted once.
+	// The per-actor cap is the targeted row bound: charge the noisy actor their
+	// own oldest rows before the table-wide cap starts evicting everyone's.
+	var actorCapRemoved int64
+	if maxRowsPerActor > 0 {
+		for {
+			removed, err := h.audit.CapRowsPerActor(c.Request.Context(), maxRowsPerActor)
+			if err != nil {
+				ProblemInternal(c, "per-actor row cap failed, nothing deleted: "+err.Error())
+				return
+			}
+			actorCapRemoved += removed
+			if removed == 0 {
+				break
+			}
+		}
+	}
+	// The table-wide row cap is a third, age-independent bound; it runs after
+	// the targeted one so a row that both rules would drop is only counted once.
 	var capRemoved int64
 	if maxRows > 0 {
 		for {
@@ -181,8 +204,9 @@ func (h *AdminAuditHandler) Sweep(c *gin.Context) {
 	if h.audit != nil {
 		h.audit.Log(c.Request.Context(), middleware.MustAdminID(c), "", "audit.sweep",
 			"audit_log", "",
-			fmt.Sprintf("older_than_days=%d cutoff=%s purged=%d max_rows=%d cap_removed=%d archive_retention_days=%d archive_removed=%d archive=%s",
-				days, cutoff, purged, maxRows, capRemoved, archiveDays, archiveRemoved, h.audit.ArchiveDir()),
+			fmt.Sprintf("older_than_days=%d cutoff=%s purged=%d max_rows=%d cap_removed=%d max_rows_per_actor=%d actor_cap_removed=%d archive_retention_days=%d archive_removed=%d archive=%s",
+				days, cutoff, purged, maxRows, capRemoved, maxRowsPerActor, actorCapRemoved,
+				archiveDays, archiveRemoved, h.audit.ArchiveDir()),
 			c.ClientIP())
 	}
 	c.JSON(http.StatusOK, gin.H{
@@ -191,6 +215,8 @@ func (h *AdminAuditHandler) Sweep(c *gin.Context) {
 		"cutoff":                 cutoff,
 		"max_rows":               maxRows,
 		"cap_removed":            capRemoved,
+		"max_rows_per_actor":     maxRowsPerActor,
+		"actor_cap_removed":      actorCapRemoved,
 		"archive_retention_days": archiveDays,
 		"archive_removed":        archiveRemoved,
 		"archive_dir":            h.audit.ArchiveDir(),
