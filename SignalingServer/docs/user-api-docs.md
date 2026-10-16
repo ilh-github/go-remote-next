@@ -496,6 +496,34 @@ reason) and fan out as the usual `device.access.denied` event, so notification
 channels subscribed to denials see policy blocks too. Policy changes are
 audited as `device.access_policy.changed`.
 
+### 5.3.4 Device access grants (time-boxed guest codes)
+
+Handing a guest the device's own access code means handing them a code that
+keeps working. A grant is a separate, time-boxed (optionally single-use) code
+the owner can issue, hand out, and revoke.
+
+| Method | Path | Body | Notes |
+|---|---|---|---|
+| `GET` | `/v1/me/devices/:device_id/access-grants` | — | `{items: [...]}` newest first. Each item carries the derived `active` flag, so clients never re-implement the expiry/quota/revocation rules. |
+| `POST` | `/v1/me/devices/:device_id/access-grants` | `{label?, expires_in_minutes, max_uses?, code?}` | `expires_in_minutes` must be positive; `max_uses` defaults to `0` = unlimited within the window; `code` is generated (8 chars, unambiguous alphabet) when omitted. Returns `201` with the code, which the owner must relay to the guest. |
+| `DELETE` | `/v1/me/devices/:device_id/access-grants/:grant_id` | — | Revokes. Revoking an already-revoked grant is a no-op. |
+
+`access-code:verify` accepts **either** the device's access code or the code of
+a usable grant. Two properties matter:
+
+- **The policy still wins.** The device policy (remote switch, IP allow list,
+  windows, exception dates) is evaluated before the code comparison, so a grant
+  can never open a device the owner has switched off or restricted.
+- **A use is only counted when a session actually starts.** Matching a grant
+  does not consume it; the counter is incremented after the host-online check,
+  so a guest who arrives while the host is offline does not burn a use. The
+  increment re-checks the window and quota inside the `UPDATE`, so two
+  controllers racing the last slot of a single-use grant cannot both win — the
+  loser gets `403 INVALID_CODE`.
+
+Admissions via a grant land on the access timeline as `granted` with the reason
+`access grant <id>`, so the owner can tell a guest code from their own code.
+
 ### 5.4 Connections (history)
 
 | Method | Path | Body |
@@ -691,6 +719,10 @@ the plaintext code — only a `changed` flag).
 
 The **client-side** verify entrypoint. Used by the WebClient (browser) and Qt
 to validate an access code and obtain a one-shot `signal_token`.
+
+`code` may be the device's access code **or** the code of an active access grant
+(§5.3.4). The device policy gate runs first either way, and a grant only spends
+one of its uses once a session actually starts.
 
 Auth: `X-API-Key` **or** `Origin` in the admin-configured `allowed_origins`
 whitelist (whichever the request can satisfy). Browsers depend on the second

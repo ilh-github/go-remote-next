@@ -10,6 +10,7 @@ import (
 
 	"quickdesk/signaling/internal/config"
 	"quickdesk/signaling/internal/middleware"
+	"quickdesk/signaling/internal/models"
 	"quickdesk/signaling/internal/observability"
 	"quickdesk/signaling/internal/service"
 
@@ -35,6 +36,7 @@ type HostHandler struct {
 	rateLimit    *service.RateLimitService
 	access       *service.DeviceAccessService
 	accessPolicy *service.DeviceAccessPolicyService
+	accessGrants *service.DeviceAccessGrantService
 	bus          *service.EventBus
 	serverSince  time.Time
 	appConfig    *config.Config
@@ -48,6 +50,7 @@ func NewHostHandler(
 	rateLimit *service.RateLimitService,
 	access *service.DeviceAccessService,
 	accessPolicy *service.DeviceAccessPolicyService,
+	accessGrants *service.DeviceAccessGrantService,
 	bus *service.EventBus,
 	appConfig *config.Config,
 ) *HostHandler {
@@ -59,6 +62,7 @@ func NewHostHandler(
 		rateLimit:    rateLimit,
 		access:       access,
 		accessPolicy: accessPolicy,
+		accessGrants: accessGrants,
 		bus:          bus,
 		serverSince:  time.Now().UTC(),
 		appConfig:    appConfig,
@@ -403,6 +407,22 @@ func (h *HostHandler) VerifyAccessCode(c *gin.Context) {
 		ProblemNotFound(c, ProblemCodeDeviceNotFound, "Device not registered")
 		return
 	}
+	// A time-boxed grant is an alternative to the device's own code. It got
+	// here only after the policy gate above, so a grant can never open a device
+	// the owner has switched off or restricted. It is kept (not consumed yet)
+	// so that an offline host does not burn one of the grant's uses.
+	var usedGrant *models.DeviceAccessGrant
+	if !matches && h.accessGrants != nil {
+		grant, gerr := h.accessGrants.Match(c.Request.Context(), deviceID, req.Code)
+		if gerr != nil {
+			ProblemInternal(c, gerr.Error())
+			return
+		}
+		if grant != nil {
+			matches = true
+			usedGrant = grant
+		}
+	}
 	// IMPORTANT ordering (R5 fix):
 	//   1. wrong code  → count failure + INVALID_CODE / TOO_MANY_ATTEMPTS
 	//   2. right code + host offline → HOST_OFFLINE (don't count as failure)
@@ -451,6 +471,28 @@ func (h *HostHandler) VerifyAccessCode(c *gin.Context) {
 
 	// Code matched → reset counters and mint a single-use signal_token.
 	h.rateLimit.ResetVerifyFailures(c.Request.Context(), deviceID, ip)
+
+	// A grant only counts a use once a session can actually start. Consume
+	// re-checks the window and quota in its own UPDATE, so two controllers
+	// racing the last slot cannot both win.
+	if usedGrant != nil {
+		consumed, cerr := h.accessGrants.Consume(c.Request.Context(), usedGrant.ID)
+		if cerr != nil {
+			ProblemInternal(c, cerr.Error())
+			return
+		}
+		if !consumed {
+			h.recordDeviceAccess(c, deviceID, req.ClientID, service.DeviceAccessDeniedInvalidCode,
+				"access grant is no longer valid")
+			observability.Event("access_verify", "rejected", map[string]interface{}{
+				"device_id": deviceID, "ip": ip,
+				"request_id": c.GetString("request_id"), "reason": "grant_exhausted",
+			})
+			ProblemForbidden(c, ProblemCodeInvalidCode, "Access code is incorrect")
+			return
+		}
+	}
+
 	tok, exp, err := h.tokens.IssueSignalToken(c.Request.Context(), service.SignalTokenPayload{
 		DeviceID: deviceID,
 		Role:     service.SignalRoleClient,
@@ -463,7 +505,11 @@ func (h *HostHandler) VerifyAccessCode(c *gin.Context) {
 	observability.Event("access_verify", "accepted", map[string]interface{}{
 		"client_id": req.ClientID, "device_id": deviceID, "ip": ip, "request_id": c.GetString("request_id"),
 	})
-	h.recordDeviceAccess(c, deviceID, req.ClientID, service.DeviceAccessGranted, "")
+	grantNote := ""
+	if usedGrant != nil {
+		grantNote = fmt.Sprintf("access grant %d", usedGrant.ID)
+	}
+	h.recordDeviceAccess(c, deviceID, req.ClientID, service.DeviceAccessGranted, grantNote)
 	c.JSON(http.StatusOK, verifyCodeResp{
 		SignalToken: tok,
 		ExpiresAt:   exp.Format("2006-01-02T15:04:05Z"),

@@ -264,6 +264,35 @@ CREATE TABLE IF NOT EXISTS device_access_policies (
 CREATE INDEX IF NOT EXISTS idx_device_access_policies_owner_id ON device_access_policies (owner_id);
 
 -- ---------------------------------------------------------------
+-- Device access grants (owner-issued, time-boxed, optionally single-use)
+-- An alternative to the device's own rotating access code: the policy gate
+-- still runs first, and a use is only counted once a session actually starts.
+-- ---------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS device_access_grants (
+    id          BIGSERIAL PRIMARY KEY,
+    device_id   VARCHAR(20) NOT NULL,
+    owner_id    BIGINT      NOT NULL DEFAULT 0,
+    code        VARCHAR(64) NOT NULL,
+    label       VARCHAR(100) NOT NULL DEFAULT '',
+    expires_at  TIMESTAMPTZ NOT NULL,
+    max_uses    INTEGER     NOT NULL DEFAULT 0,
+    uses        INTEGER     NOT NULL DEFAULT 0,
+    revoked_at  TIMESTAMPTZ,
+    last_used_at TIMESTAMPTZ,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_device_access_grants_device_id
+    ON device_access_grants (device_id);
+
+CREATE INDEX IF NOT EXISTS idx_device_access_grants_code
+    ON device_access_grants (code);
+
+CREATE INDEX IF NOT EXISTS idx_device_access_grants_owner_id
+    ON device_access_grants (owner_id);
+
+-- ---------------------------------------------------------------
 -- Webhooks (system/admin scope, per §2.17 M4)
 -- ---------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS webhooks (
