@@ -464,14 +464,24 @@ CREATE TABLE IF NOT EXISTS device_offline_alert_rules (
     owner_id      BIGINT      NOT NULL DEFAULT 0,
     enabled       BOOLEAN     NOT NULL DEFAULT TRUE,
     after_minutes INTEGER     NOT NULL DEFAULT 10,
+    repeat_minutes INTEGER    NOT NULL DEFAULT 0,
     offline_since TIMESTAMPTZ,
     alerted_at    TIMESTAMPTZ,
+    snoozed_until TIMESTAMPTZ,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_device_offline_alert_rules_owner_id
     ON device_offline_alert_rules (owner_id);
+
+-- Repeat reminders and maintenance snoozes were added after the table
+-- shipped, so existing installs need the ALTERs too.
+ALTER TABLE device_offline_alert_rules
+    ADD COLUMN IF NOT EXISTS repeat_minutes INTEGER NOT NULL DEFAULT 0;
+
+ALTER TABLE device_offline_alert_rules
+    ADD COLUMN IF NOT EXISTS snoozed_until TIMESTAMPTZ;
 
 -- ---------------------------------------------------------------
 -- Preset (single-row server config distributed to clients)

@@ -18,6 +18,12 @@ import "time"
 //	                Cleared together with offline_since, so the next outage
 //	                alerts again instead of being suppressed forever.
 //
+// Two optional behaviours ride on the same row. `repeat_minutes` > 0 turns
+// alerted_at from a one-shot flag into "when we last spoke up", so a long
+// outage keeps reminding the owner instead of producing one easily-missed
+// message. `snoozed_until` suppresses publishing until a deadline (planned
+// maintenance) without pausing the episode clock.
+//
 // Both fields are written with conditional UPDATEs so two server instances
 // cannot both start an episode or both fire one alert.
 type DeviceOfflineAlertRule struct {
@@ -26,9 +32,17 @@ type DeviceOfflineAlertRule struct {
 	OwnerID      uint   `gorm:"index;not null" json:"owner_id"`
 	Enabled      bool   `gorm:"not null;default:true" json:"enabled"`
 	AfterMinutes int    `gorm:"not null;default:10" json:"after_minutes"`
+	// RepeatMinutes re-alerts while the episode is still running. 0 = one
+	// alert per outage (the original behaviour).
+	RepeatMinutes int `gorm:"not null;default:0" json:"repeat_minutes"`
 
 	OfflineSince *time.Time `json:"offline_since"`
 	AlertedAt    *time.Time `json:"last_alerted_at"`
+	// SnoozedUntil suppresses alerts until this instant. It is deliberately
+	// independent of the episode state: an owner silencing alerts for a
+	// maintenance window should still get an accurate "offline since" when it
+	// ends.
+	SnoozedUntil *time.Time `json:"snoozed_until"`
 
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`

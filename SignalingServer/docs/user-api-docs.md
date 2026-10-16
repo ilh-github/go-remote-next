@@ -685,13 +685,13 @@ rule per device:
 | Method | Path | Auth | Body / notes |
 |---|---|---|---|
 | `GET` | `/v1/me/devices/:device_id/offline-alert` | user token | The rule, or the defaults (`enabled: false`, `after_minutes: 10`) when none is configured. Also returns the evaluator's episode state. |
-| `PUT` | `/v1/me/devices/:device_id/offline-alert` | user token | `{enabled, after_minutes}`. `after_minutes` is 1…10080 (7 days); omitting it (or sending `0`) stores the default of 10. Out of range is a `400`. |
+| `PUT` | `/v1/me/devices/:device_id/offline-alert` | user token | `{enabled, after_minutes, repeat_minutes?, snoozed_until?}`. `after_minutes` is 1…10080 (7 days); omitting it (or sending `0`) stores the default of 10. `repeat_minutes` is 0 (one alert per outage, the default) or 1…10080. `snoozed_until` is an RFC3339 instant; omitting or sending `null` clears an existing snooze. Out-of-range values are `400`. |
 | `DELETE` | `/v1/me/devices/:device_id/offline-alert` | user token | `204`. Idempotent: deleting a rule that does not exist is still `204`. |
 
 Response:
 
 ```json
-{"device_id": "256983850", "enabled": true, "after_minutes": 10,
+{"device_id": "256983850", "enabled": true, "after_minutes": 10, "repeat_minutes": 0,
  "offline_since": "2026-10-16T04:10:17Z", "last_alerted_at": "2026-10-16T04:11:17Z"}
 ```
 
@@ -703,9 +703,11 @@ disables it) turns presence into an episode state machine:
    whether the heartbeat exists *right now*;
 2. while `now - offline_since < after_minutes` nothing happens;
 3. once the threshold is crossed the evaluator publishes
-   `device.offline.sustained` **once** and stamps `last_alerted_at`. That event
-   is user-scoped, so it reaches the owner's realtime stream and — if a channel
-   subscribes to it — the durable notification outbox;
+   `device.offline.sustained` and stamps `last_alerted_at`. With
+   `repeat_minutes: 0` that is the only message for the episode; with a
+   positive value it keeps reminding at that interval until the device comes
+   back. The event is user-scoped, so it reaches the owner's realtime stream
+   and — if a channel subscribes to it — the durable notification outbox;
 4. when the device comes back, `offline_since` and `last_alerted_at` are
    cleared, so the **next** outage alerts again instead of being suppressed by
    the first one.
@@ -714,10 +716,15 @@ Payload of the alert:
 
 ```json
 {"device_id": "256983850", "device_name": "办公机", "offline_since": "...",
- "offline_minutes": 11, "threshold_minutes": 10}
+ "offline_minutes": 11, "threshold_minutes": 10,
+ "reminder": false, "repeat_minutes": 0}
 ```
 
-Three behaviours are worth knowing because the obvious implementation gets
+`reminder` distinguishes "this device just crossed the threshold" from "this is
+still down" (`offline_minutes` is `> threshold_minutes` on a reminder), so a
+receiver can route the two differently without diffing timestamps.
+
+Four behaviours are worth knowing because the obvious implementation gets
 them wrong:
 
 - **A deliberately logged-out device is not an outage.** When
@@ -730,6 +737,10 @@ them wrong:
 - **Disabling the rule clears the episode.** Switching it off means "stop
   telling me about this device", so switching it back on gives a clean slate
   rather than an alert about an outage that began while it was off.
+- **A snooze silences messages, not the clock.** `snoozed_until` suppresses
+  publishing while it is in the future, but `offline_since` keeps running and
+  the moment it expires the alert (or the next reminder) goes out — a
+  maintenance window should not make the outage invisible, only quiet.
 
 Both `offline_since` and `last_alerted_at` are written with conditional
 `UPDATE`s (`... WHERE offline_since IS NULL` and `... WHERE alerted_at IS NULL`),

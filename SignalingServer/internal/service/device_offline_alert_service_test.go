@@ -100,7 +100,7 @@ func TestOfflineAlertStateMachine(t *testing.T) {
 	ctx := context.Background()
 	start := time.Now().UTC()
 
-	if _, err := svc.Upsert(ctx, deviceID, 1, true, 10); err != nil {
+	if _, err := svc.Upsert(ctx, deviceID, 1, UpsertOfflineAlertInput{Enabled: true, AfterMinutes: 10}); err != nil {
 		t.Fatalf("upsert: %v", err)
 	}
 
@@ -196,7 +196,7 @@ func TestOfflineAlertSkipsLoggedOutDevices(t *testing.T) {
 	ctx := context.Background()
 	start := time.Now().UTC()
 
-	if _, err := svc.Upsert(ctx, deviceID, 1, true, 1); err != nil {
+	if _, err := svc.Upsert(ctx, deviceID, 1, UpsertOfflineAlertInput{Enabled: true, AfterMinutes: 1}); err != nil {
 		t.Fatalf("upsert: %v", err)
 	}
 	for i := 0; i < 3; i++ {
@@ -228,12 +228,21 @@ func TestOfflineAlertUpsertValidationAndDisable(t *testing.T) {
 	ctx := context.Background()
 
 	for _, bad := range []int{0, -1, MaxOfflineAlertAfterMinutes + 1} {
-		if _, err := svc.Upsert(ctx, deviceID, 7, true, bad); !errors.Is(err, ErrInvalidOfflineAlertThreshold) {
+		_, err := svc.Upsert(ctx, deviceID, 7, UpsertOfflineAlertInput{Enabled: true, AfterMinutes: bad})
+		if !errors.Is(err, ErrInvalidOfflineAlertThreshold) {
 			t.Fatalf("after_minutes=%d: err = %v, want ErrInvalidOfflineAlertThreshold", bad, err)
 		}
 	}
+	for _, bad := range []int{-1, MaxOfflineAlertRepeatMinutes + 1} {
+		_, err := svc.Upsert(ctx, deviceID, 7, UpsertOfflineAlertInput{
+			Enabled: true, AfterMinutes: 10, RepeatMinutes: bad,
+		})
+		if !errors.Is(err, ErrInvalidOfflineAlertRepeat) {
+			t.Fatalf("repeat_minutes=%d: err = %v, want ErrInvalidOfflineAlertRepeat", bad, err)
+		}
+	}
 	for _, ok := range []int{MinOfflineAlertAfterMinutes, MaxOfflineAlertAfterMinutes} {
-		rule, err := svc.Upsert(ctx, deviceID, 7, true, ok)
+		rule, err := svc.Upsert(ctx, deviceID, 7, UpsertOfflineAlertInput{Enabled: true, AfterMinutes: ok})
 		if err != nil {
 			t.Fatalf("after_minutes=%d should be accepted: %v", ok, err)
 		}
@@ -250,7 +259,7 @@ func TestOfflineAlertUpsertValidationAndDisable(t *testing.T) {
 	if rule := loadOfflineAlertRule(t, db, deviceID); rule.OfflineSince == nil {
 		t.Fatal("expected an episode to be in progress before disabling")
 	}
-	if _, err := svc.Upsert(ctx, deviceID, 7, false, 10); err != nil {
+	if _, err := svc.Upsert(ctx, deviceID, 7, UpsertOfflineAlertInput{Enabled: false, AfterMinutes: 10}); err != nil {
 		t.Fatalf("disable: %v", err)
 	}
 	rule := loadOfflineAlertRule(t, db, deviceID)
@@ -286,4 +295,97 @@ func loadOfflineAlertRule(t *testing.T, db *gorm.DB, deviceID string) models.Dev
 		t.Fatalf("load rule: %v", err)
 	}
 	return rule
+}
+
+// TestOfflineAlertRepeatAndSnooze covers the two optional behaviours: a long
+// outage keeps reminding the owner instead of producing one easily-missed
+// message, and a maintenance snooze silences publishing without pausing the
+// episode clock.
+func TestOfflineAlertRepeatAndSnooze(t *testing.T) {
+	db := newOfflineAlertTestDB(t)
+	const deviceID = "900000004"
+	seedOfflineAlertDevice(t, db, deviceID, 1, true)
+
+	presence := &fakePresence{online: map[string]bool{deviceID: false}}
+	bus := NewEventBus(nil)
+	captured := &captureSubscriber{events: make(chan Event, 8)}
+	bus.Subscribe(captured)
+
+	svc := NewDeviceOfflineAlertService(db, presence, bus)
+	ctx := context.Background()
+	start := time.Now().UTC()
+
+	if _, err := svc.Upsert(ctx, deviceID, 1, UpsertOfflineAlertInput{
+		Enabled: true, AfterMinutes: 1, RepeatMinutes: 5,
+	}); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+
+	// Episode starts, then the first alert fires once the threshold passes.
+	if _, err := svc.EvaluateOnce(ctx, start); err != nil {
+		t.Fatalf("evaluate start: %v", err)
+	}
+	if fired, err := svc.EvaluateOnce(ctx, start.Add(2*time.Minute)); err != nil || fired != 1 {
+		t.Fatalf("first alert: fired=%d err=%v, want 1", fired, err)
+	}
+	assertAlertKind(t, captured, false)
+
+	// Inside the repeat interval: quiet.
+	if fired, err := svc.EvaluateOnce(ctx, start.Add(4*time.Minute)); err != nil || fired != 0 {
+		t.Fatalf("inside repeat interval: fired=%d err=%v, want 0", fired, err)
+	}
+	// Past it: a reminder, flagged as such so the receiver can tell the two
+	// apart without diffing timestamps.
+	if fired, err := svc.EvaluateOnce(ctx, start.Add(8*time.Minute)); err != nil || fired != 1 {
+		t.Fatalf("first reminder: fired=%d err=%v, want 1", fired, err)
+	}
+	assertAlertKind(t, captured, true)
+
+	// A snooze suppresses the next reminder but keeps the episode running.
+	snoozeUntil := start.Add(20 * time.Minute)
+	if _, err := svc.Upsert(ctx, deviceID, 1, UpsertOfflineAlertInput{
+		Enabled: true, AfterMinutes: 1, RepeatMinutes: 5, SnoozedUntil: &snoozeUntil,
+	}); err != nil {
+		t.Fatalf("snooze: %v", err)
+	}
+	if fired, err := svc.EvaluateOnce(ctx, start.Add(15*time.Minute)); err != nil || fired != 0 {
+		t.Fatalf("snoozed evaluation: fired=%d err=%v, want 0", fired, err)
+	}
+	rule := loadOfflineAlertRule(t, db, deviceID)
+	if rule.OfflineSince == nil || !rule.OfflineSince.Equal(start) {
+		t.Fatalf("snooze must not pause the episode clock: offline_since = %v, want %v",
+			rule.OfflineSince, start)
+	}
+
+	// Once the snooze expires the reminder goes out.
+	if fired, err := svc.EvaluateOnce(ctx, start.Add(22*time.Minute)); err != nil || fired != 1 {
+		t.Fatalf("after snooze: fired=%d err=%v, want 1", fired, err)
+	}
+	assertAlertKind(t, captured, true)
+
+	// Clearing the snooze is just an upsert without the field.
+	if _, err := svc.Upsert(ctx, deviceID, 1, UpsertOfflineAlertInput{
+		Enabled: true, AfterMinutes: 1, RepeatMinutes: 5,
+	}); err != nil {
+		t.Fatalf("clear snooze: %v", err)
+	}
+	if rule := loadOfflineAlertRule(t, db, deviceID); rule.SnoozedUntil != nil {
+		t.Fatalf("snoozed_until = %v, want cleared", rule.SnoozedUntil)
+	}
+}
+
+// assertAlertKind drains one event and checks its reminder flag.
+func assertAlertKind(t *testing.T, captured *captureSubscriber, wantReminder bool) {
+	t.Helper()
+	select {
+	case evt := <-captured.events:
+		if evt.Type != EventDeviceOfflineSustained {
+			t.Fatalf("event type = %q, want %q", evt.Type, EventDeviceOfflineSustained)
+		}
+		if got := evt.Data["reminder"]; got != wantReminder {
+			t.Fatalf("reminder = %v, want %v", got, wantReminder)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected an offline-alert event")
+	}
 }

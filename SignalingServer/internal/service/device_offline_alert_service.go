@@ -17,12 +17,28 @@ import (
 // extra steps, so it is rejected instead of quietly reinterpreted.
 var ErrInvalidOfflineAlertThreshold = errors.New("after_minutes must be between 1 and 10080")
 
+// ErrInvalidOfflineAlertRepeat means repeat_minutes was negative or past the
+// cap. 0 is allowed and means "one alert per outage".
+var ErrInvalidOfflineAlertRepeat = errors.New("repeat_minutes must be zero (no repeat) or between 1 and 10080")
+
 // Bounds and defaults for the offline-alert threshold.
 const (
 	DefaultOfflineAlertAfterMinutes = 10
 	MinOfflineAlertAfterMinutes     = 1
 	MaxOfflineAlertAfterMinutes     = 7 * 24 * 60
+	// MaxOfflineAlertRepeatMinutes bounds the reminder interval the same way
+	// the threshold is bounded: a week is already longer than most outages.
+	MaxOfflineAlertRepeatMinutes = 7 * 24 * 60
 )
+
+// UpsertOfflineAlertInput is the validated body of the offline-alert endpoint.
+type UpsertOfflineAlertInput struct {
+	Enabled       bool
+	AfterMinutes  int
+	RepeatMinutes int
+	// SnoozedUntil silences alerts until this instant; nil clears any snooze.
+	SnoozedUntil *time.Time
+}
 
 // offlineAlertBatch bounds one evaluator pass. Rules are one-per-device and
 // only exist when an owner asked for one, so this is a safety valve rather
@@ -87,27 +103,36 @@ func (s *DeviceOfflineAlertService) Upsert(
 	ctx context.Context,
 	deviceID string,
 	ownerID uint,
-	enabled bool,
-	afterMinutes int,
+	in UpsertOfflineAlertInput,
 ) (*models.DeviceOfflineAlertRule, error) {
-	if afterMinutes < MinOfflineAlertAfterMinutes || afterMinutes > MaxOfflineAlertAfterMinutes {
+	if in.AfterMinutes < MinOfflineAlertAfterMinutes || in.AfterMinutes > MaxOfflineAlertAfterMinutes {
 		return nil, ErrInvalidOfflineAlertThreshold
+	}
+	if in.RepeatMinutes < 0 || in.RepeatMinutes > MaxOfflineAlertRepeatMinutes {
+		return nil, ErrInvalidOfflineAlertRepeat
 	}
 	now := time.Now().UTC()
 
 	row := models.DeviceOfflineAlertRule{
-		DeviceID:     deviceID,
-		OwnerID:      ownerID,
-		Enabled:      enabled,
-		AfterMinutes: afterMinutes,
+		DeviceID:      deviceID,
+		OwnerID:       ownerID,
+		Enabled:       in.Enabled,
+		AfterMinutes:  in.AfterMinutes,
+		RepeatMinutes: in.RepeatMinutes,
 	}
 	updates := map[string]interface{}{
-		"owner_id":      ownerID,
-		"enabled":       enabled,
-		"after_minutes": afterMinutes,
-		"updated_at":    now,
+		"owner_id":       ownerID,
+		"enabled":        in.Enabled,
+		"after_minutes":  in.AfterMinutes,
+		"repeat_minutes": in.RepeatMinutes,
+		"updated_at":     now,
 	}
-	if !enabled {
+	if in.SnoozedUntil != nil {
+		updates["snoozed_until"] = in.SnoozedUntil.UTC()
+	} else {
+		updates["snoozed_until"] = nil
+	}
+	if !in.Enabled {
 		updates["offline_since"] = nil
 		updates["alerted_at"] = nil
 	}
@@ -238,18 +263,37 @@ func (s *DeviceOfflineAlertService) evaluateRule(
 	if now.Sub(*since) < time.Duration(rule.AfterMinutes)*time.Minute {
 		return 0, nil
 	}
-	if rule.AlertedAt != nil {
-		// Already told the owner about this episode.
+	// A snooze silences publishing without pausing the clock: the owner asked
+	// for quiet during planned maintenance, not for the outage to be forgotten.
+	if rule.SnoozedUntil != nil && now.Before(*rule.SnoozedUntil) {
 		return 0, nil
 	}
+	if rule.AlertedAt != nil {
+		if rule.RepeatMinutes <= 0 {
+			// Already told the owner about this episode and no reminder was
+			// asked for.
+			return 0, nil
+		}
+		if now.Sub(*rule.AlertedAt) < time.Duration(rule.RepeatMinutes)*time.Minute {
+			return 0, nil
+		}
+	}
 
-	// Claim the alert for this episode. Exactly one caller can move alerted_at
-	// from NULL, so a second server instance (or a second tick racing this
-	// one) cannot send the same outage twice.
-	claimed := s.db.WithContext(ctx).
+	// Claim the send. The predicate is a compare-and-swap on the value this
+	// pass read - `alerted_at IS NULL` for the first alert of an episode, or
+	// the exact previous timestamp for a reminder - plus a guard on
+	// offline_since so a claim can never cross into a different episode.
+	// Exactly one caller can win either way, so a second instance (or a second
+	// tick racing this one) cannot send the same alert twice.
+	claim := s.db.WithContext(ctx).
 		Model(&models.DeviceOfflineAlertRule{}).
-		Where("id = ? AND alerted_at IS NULL AND offline_since IS NOT NULL", rule.ID).
-		Updates(map[string]interface{}{"alerted_at": now, "updated_at": now})
+		Where("id = ? AND offline_since = ?", rule.ID, *since)
+	if rule.AlertedAt == nil {
+		claim = claim.Where("alerted_at IS NULL")
+	} else {
+		claim = claim.Where("alerted_at = ?", *rule.AlertedAt)
+	}
+	claimed := claim.Updates(map[string]interface{}{"alerted_at": now, "updated_at": now})
 	if claimed.Error != nil {
 		return 0, claimed.Error
 	}
@@ -303,6 +347,10 @@ func (s *DeviceOfflineAlertService) publishOfflineAlert(
 			"offline_since":     since.UTC().Format(time.RFC3339),
 			"offline_minutes":   int(now.Sub(since).Minutes()),
 			"threshold_minutes": rule.AfterMinutes,
+			// `reminder` is computed from the pre-claim state, so a receiver
+			// can tell "this just went down" from "this is still down".
+			"reminder":       rule.AlertedAt != nil,
+			"repeat_minutes": rule.RepeatMinutes,
 		},
 	})
 }

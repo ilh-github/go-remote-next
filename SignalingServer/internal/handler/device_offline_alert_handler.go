@@ -35,6 +35,11 @@ func NewDeviceOfflineAlertHandler(devices *service.DeviceService, alerts *servic
 type deviceOfflineAlertReq struct {
 	Enabled      bool `json:"enabled"`
 	AfterMinutes int  `json:"after_minutes"`
+	// RepeatMinutes > 0 keeps reminding while the device is still offline.
+	RepeatMinutes int `json:"repeat_minutes"`
+	// SnoozedUntil silences alerts until this instant (RFC3339). Omitted or
+	// null clears an existing snooze.
+	SnoozedUntil *time.Time `json:"snoozed_until"`
 }
 
 // deviceOfflineAlertView is the wire shape. `offline_since` and
@@ -44,6 +49,8 @@ type deviceOfflineAlertView struct {
 	DeviceID      string     `json:"device_id"`
 	Enabled       bool       `json:"enabled"`
 	AfterMinutes  int        `json:"after_minutes"`
+	RepeatMinutes int        `json:"repeat_minutes"`
+	SnoozedUntil  *time.Time `json:"snoozed_until,omitempty"`
 	OfflineSince  *time.Time `json:"offline_since,omitempty"`
 	LastAlertedAt *time.Time `json:"last_alerted_at,omitempty"`
 	UpdatedAt     *time.Time `json:"updated_at,omitempty"`
@@ -78,9 +85,15 @@ func (h *DeviceOfflineAlertHandler) Put(c *gin.Context) {
 		req.AfterMinutes = service.DefaultOfflineAlertAfterMinutes
 	}
 	uid := middleware.MustUserID(c)
-	rule, err := h.alerts.Upsert(c.Request.Context(), deviceID, uid, req.Enabled, req.AfterMinutes)
+	rule, err := h.alerts.Upsert(c.Request.Context(), deviceID, uid, service.UpsertOfflineAlertInput{
+		Enabled:       req.Enabled,
+		AfterMinutes:  req.AfterMinutes,
+		RepeatMinutes: req.RepeatMinutes,
+		SnoozedUntil:  req.SnoozedUntil,
+	})
 	if err != nil {
-		if errors.Is(err, service.ErrInvalidOfflineAlertThreshold) {
+		if errors.Is(err, service.ErrInvalidOfflineAlertThreshold) ||
+			errors.Is(err, service.ErrInvalidOfflineAlertRepeat) {
 			ProblemBadRequest(c, ProblemCodeInvalidRequest, err.Error())
 			return
 		}
@@ -134,6 +147,8 @@ func offlineAlertView(deviceID string, rule *models.DeviceOfflineAlertRule) devi
 	}
 	view.Enabled = rule.Enabled
 	view.AfterMinutes = rule.AfterMinutes
+	view.RepeatMinutes = rule.RepeatMinutes
+	view.SnoozedUntil = rule.SnoozedUntil
 	view.OfflineSince = rule.OfflineSince
 	view.LastAlertedAt = rule.AlertedAt
 	updated := rule.UpdatedAt

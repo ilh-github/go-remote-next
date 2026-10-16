@@ -23,7 +23,10 @@ func TestOfflineAlertViewDefaultsWithoutRule(t *testing.T) {
 		t.Fatalf("after_minutes = %d, want the default %d",
 			view.AfterMinutes, service.DefaultOfflineAlertAfterMinutes)
 	}
-	if view.OfflineSince != nil || view.LastAlertedAt != nil || view.UpdatedAt != nil {
+	if view.RepeatMinutes != 0 {
+		t.Fatalf("repeat_minutes = %d, want 0 (one alert per outage)", view.RepeatMinutes)
+	}
+	if view.OfflineSince != nil || view.LastAlertedAt != nil || view.SnoozedUntil != nil || view.UpdatedAt != nil {
 		t.Fatal("a device with no rule must not report episode state")
 	}
 }
