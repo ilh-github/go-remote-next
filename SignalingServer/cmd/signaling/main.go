@@ -98,6 +98,7 @@ func main() {
 			&models.UserNotificationChannel{},
 			&models.NotificationDelivery{},
 			&models.DeviceOfflineAlertRule{},
+			&models.ScheduledTask{},
 			&models.Preset{},
 		} {
 			if err := db.AutoMigrate(model); err != nil {
@@ -215,6 +216,23 @@ func main() {
 	webhookService := service.NewWebhookService(db)
 	groupService := service.NewDeviceGroupService(groupRepo)
 
+	// Owner-scheduled control-plane actions. Only kinds whose whole effect
+	// lives in the control plane are registered: a task that needed a client to
+	// cooperate could be scheduled but never actually run.
+	scheduledTaskService := service.NewScheduledTaskService(db).WithAudit(auditService)
+	scheduledTaskService.RegisterAction(
+		models.ScheduledTaskSignOutAllSessions,
+		service.NewSignOutAllSessionsAction(tokenService, bus),
+	)
+	if cfg.ScheduledTask.IntervalSeconds > 0 {
+		go scheduledTaskService.Run(
+			context.Background(),
+			time.Duration(cfg.ScheduledTask.IntervalSeconds)*time.Second,
+		)
+		log.Printf("Scheduled tasks: interval=%ds kinds=%v",
+			cfg.ScheduledTask.IntervalSeconds, scheduledTaskService.SupportedKinds())
+	}
+
 	// Subscribe system-scope event fanouts (realtime subscribes inside its
 	// own constructor so it can receive user-scope events too).
 	bus.Subscribe(service.NewWebhookSubscriber(webhookService))
@@ -274,6 +292,7 @@ func main() {
 	notificationChannelHandler := handler.NewNotificationChannelHandler(notificationChannelService, notificationDeliveryService)
 	deviceAccessPolicyHandler := handler.NewDeviceAccessPolicyHandler(deviceService, deviceAccessPolicyService, bus)
 	deviceOfflineAlertHandler := handler.NewDeviceOfflineAlertHandler(deviceService, deviceOfflineAlertService)
+	scheduledTaskHandler := handler.NewScheduledTaskHandler(scheduledTaskService)
 	deviceAccessGrantHandler := handler.NewDeviceAccessGrantHandler(deviceService, deviceAccessGrantService, bus)
 	deviceAccessApprovalHandler := handler.NewDeviceAccessApprovalHandler(
 		deviceService, deviceAccessApprovalService, deviceAccessGrantService,
@@ -423,6 +442,10 @@ func main() {
 			me.POST("/notification-channels/:id/deliveries/:deliveryId/retry", notificationChannelHandler.RetryDelivery)
 			me.POST("/notification-channels/:id/deliveries:retry-failed", notificationChannelHandler.RetryFailedDeliveries)
 			me.POST("/notification-channels:retry-failed", notificationChannelHandler.RetryFailedDeliveriesForUser)
+
+			me.GET("/scheduled-tasks", scheduledTaskHandler.List)
+			me.POST("/scheduled-tasks", scheduledTaskHandler.Create)
+			me.DELETE("/scheduled-tasks/:id", scheduledTaskHandler.Delete)
 
 			me.GET("/recordings", sessionRecordingHandler.List)
 			me.POST("/recordings", sessionRecordingHandler.Create)

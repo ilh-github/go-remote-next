@@ -945,6 +945,44 @@ cannot be reaped.
 
 `FavoriteItem` shape: `{device_id, device_name, access_password, created_at}`.
 
+### 5.6 Scheduled tasks (owner-scheduled control-plane actions)
+
+| Method | Path | Body |
+|---|---|---|
+| `GET` | `/v1/me/scheduled-tasks` | — |
+| `POST` | `/v1/me/scheduled-tasks` | `{kind, run_at, repeat_seconds?}` |
+| `DELETE` | `/v1/me/scheduled-tasks/:id` | — |
+
+`run_at` is RFC3339 and must be in the future; `repeat_seconds` is `0` for a
+one-shot task or `60`…`31536000` to repeat. `GET` also returns
+`supported_kinds`, which is the authoritative list of what may be scheduled —
+a kind the server cannot run is rejected at create time rather than stored as a
+row nothing will ever execute.
+
+Only kinds whose whole effect lives in the control plane are registered, so a
+task never silently depends on a client that is not there. Today that is one
+kind:
+
+- **`sign_out_all_sessions`** — revokes every active session family of the
+  owner, i.e. "log out everywhere at 22:00". It is the same action
+  `PUT /v1/me/password` performs, just scheduled, and it works because both the
+  session records and the revocation live in the control plane.
+
+Each row carries its outcome: `last_run_at`, `last_status` (`ok` / `failed`) and
+`last_error`, so a caller can see that a task fired and what happened without
+reading server logs. One-shot tasks are **disabled** after they run rather than
+deleted, so the history survives.
+
+The worker (`SCHEDULED_TASK_INTERVAL_SECONDS`, default `30`; `0` disables it)
+claims due rows with `FOR UPDATE SKIP LOCKED` and advances the schedule *inside*
+the claiming transaction, before the action runs. That makes the schedule safe
+across instances — the same occurrence can never fire twice — at the cost of
+at-most-once semantics: a crash in the window between the claim and the action
+skips that occurrence. A recurring task whose worker was down for several
+periods fires once and reschedules from now rather than replaying every missed
+occurrence. Every run writes an `audit.sweep`-style audit row,
+`scheduled_task.run`, with the kind and outcome.
+
 ---
 
 ## 6. Devices

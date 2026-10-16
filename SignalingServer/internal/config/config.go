@@ -96,19 +96,20 @@ type SmsConfig struct {
 }
 
 type Config struct {
-	Server       ServerConfig   `mapstructure:"server"`
-	Database     DatabaseConfig `mapstructure:"database"`
-	Redis        RedisConfig    `mapstructure:"redis"`
-	Ice          IceConfig
-	Admin        AdminConfig
-	Security     SecurityConfig
-	Recording    RecordingConfig
-	Notification NotificationConfig
-	Audit        AuditConfig
-	OfflineAlert OfflineAlertConfig
-	Holiday      HolidayConfig
-	Sms          SmsConfig
-	Runtime      RuntimeConfig
+	Server        ServerConfig   `mapstructure:"server"`
+	Database      DatabaseConfig `mapstructure:"database"`
+	Redis         RedisConfig    `mapstructure:"redis"`
+	Ice           IceConfig
+	Admin         AdminConfig
+	Security      SecurityConfig
+	Recording     RecordingConfig
+	Notification  NotificationConfig
+	Audit         AuditConfig
+	OfflineAlert  OfflineAlertConfig
+	ScheduledTask ScheduledTaskConfig
+	Holiday       HolidayConfig
+	Sms           SmsConfig
+	Runtime       RuntimeConfig
 }
 
 // NotificationConfig controls how long the user-notification outbox keeps
@@ -145,6 +146,14 @@ type AuditConfig struct {
 // only considered offline once the heartbeat key expires, so evaluating much
 // faster than that only burns queries.
 type OfflineAlertConfig struct {
+	IntervalSeconds int
+}
+
+// ScheduledTaskConfig controls the worker behind owner-scheduled control-plane
+// actions ("sign out everywhere at 22:00"). The default interval is 30s;
+// IntervalSeconds = 0 disables the worker for deployments that never schedule
+// anything.
+type ScheduledTaskConfig struct {
 	IntervalSeconds int
 }
 
@@ -257,6 +266,11 @@ func Load() *Config {
 	// Background evaluator for per-device offline alerts. 0 disables it.
 	viper.SetDefault("OFFLINE_ALERT_INTERVAL_SECONDS", 30)
 
+	// Worker behind owner-scheduled control-plane actions. 0 disables it for a
+	// deployment that never schedules anything; the worker itself is one
+	// indexed query per tick when no task is due.
+	viper.SetDefault("SCHEDULED_TASK_INTERVAL_SECONDS", 30)
+
 	// Statutory holiday calendar used by device access policies. Empty keeps
 	// the year(s) embedded in the binary; point it at a directory of
 	// holiday-cn style YYYY.json files to add years without a rebuild.
@@ -349,6 +363,9 @@ func Load() *Config {
 	}
 	cfg.OfflineAlert = OfflineAlertConfig{
 		IntervalSeconds: viper.GetInt("OFFLINE_ALERT_INTERVAL_SECONDS"),
+	}
+	cfg.ScheduledTask = ScheduledTaskConfig{
+		IntervalSeconds: viper.GetInt("SCHEDULED_TASK_INTERVAL_SECONDS"),
 	}
 	cfg.Holiday = HolidayConfig{
 		Dir: viper.GetString("HOLIDAY_CALENDAR_DIR"),

@@ -1,0 +1,47 @@
+package models
+
+import "time"
+
+// ScheduledTaskKind values. The kind decides which server-side action the
+// worker runs when the task comes due; the set is deliberately small and
+// explicit, because a task kind is a thing an operator can schedule against
+// their own account and every one of them has to be safe to run unattended.
+const (
+	// ScheduledTaskSignOutAllSessions revokes every active session family of
+	// the task's owner: "log out everywhere at 22:00, and every night after".
+	// It is the first kind because the whole action lives in the control plane
+	// - no controlled machine or controller client has to cooperate - so it can
+	// be built and verified without waiting on client work.
+	ScheduledTaskSignOutAllSessions = "sign_out_all_sessions"
+)
+
+// ScheduledTask is one owner-scheduled control-plane action.
+//
+// The row carries both the schedule and the outcome, so an operator can see
+// when a task last ran and what happened without a second table. `next_run_at`
+// is the only field the worker sorts on; a one-shot task (RepeatSeconds == 0)
+// is disabled after it runs rather than deleted, so the history of "it ran" is
+// preserved.
+type ScheduledTask struct {
+	ID     uint   `gorm:"primaryKey" json:"id"`
+	UserID uint   `gorm:"not null;index" json:"user_id"`
+	Kind   string `gorm:"size:64;not null" json:"kind"`
+
+	// NextRunAt is when the worker may run this task.
+	NextRunAt time.Time `gorm:"not null;index" json:"next_run_at"`
+	// RepeatSeconds is the interval between runs; 0 means "run once".
+	RepeatSeconds int  `gorm:"not null;default:0" json:"repeat_seconds"`
+	Enabled       bool `gorm:"not null;default:true" json:"enabled"`
+
+	LastRunAt  *time.Time `json:"last_run_at"`
+	LastStatus string     `gorm:"size:16;not null;default:''" json:"last_status"`
+	LastError  string     `gorm:"size:255;not null;default:''" json:"last_error"`
+
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// TableName overrides the default table name.
+func (ScheduledTask) TableName() string {
+	return "scheduled_tasks"
+}

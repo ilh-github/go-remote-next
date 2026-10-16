@@ -517,3 +517,30 @@ CREATE TABLE IF NOT EXISTS presets (
     webclient_url VARCHAR(500) NOT NULL DEFAULT '',
     updated_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
+
+-- ---------------------------------------------------------------
+-- Owner-scheduled control-plane tasks ("log out everywhere at 22:00").
+-- The row carries both the schedule and the outcome: the worker picks due rows
+-- with FOR UPDATE SKIP LOCKED, runs the kind's action, then either advances
+-- next_run_at by repeat_seconds or disables a one-shot row. Finished rows are
+-- kept so "did it fire, and what happened" stays answerable.
+-- ---------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS scheduled_tasks (
+    id             BIGSERIAL PRIMARY KEY,
+    user_id        BIGINT       NOT NULL,
+    kind           VARCHAR(64)  NOT NULL,
+    next_run_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    repeat_seconds INTEGER      NOT NULL DEFAULT 0,
+    enabled        BOOLEAN      NOT NULL DEFAULT TRUE,
+    last_run_at    TIMESTAMPTZ,
+    last_status    VARCHAR(16)  NOT NULL DEFAULT '',
+    last_error     VARCHAR(255) NOT NULL DEFAULT '',
+    created_at     TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    updated_at     TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_due
+    ON scheduled_tasks (enabled, next_run_at);
+
+CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_user_id
+    ON scheduled_tasks (user_id);
