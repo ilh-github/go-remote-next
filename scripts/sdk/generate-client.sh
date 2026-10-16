@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
-# Regenerates the committed TypeScript client from the signaling OpenAPI spec.
+# Regenerates a committed client from the signaling OpenAPI spec.
+#
+# Usage: generate-client.sh [output-dir] [language]
+#   language defaults to typescript-fetch; `go` is the other committed client.
 #
 # The generator is pinned by version and run from its jar rather than through
 # `npx @openapitools/openapi-generator-cli`: that wrapper resolves the latest
@@ -11,6 +14,7 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 spec="${OPENAPI_SPEC:-$root/SignalingServer/api/openapi.yaml}"
 out="${1:-$root/sdk/ts}"
+lang="${2:-typescript-fetch}"
 
 generator_version="7.14.0"
 jar="${OPENAPI_GENERATOR_JAR:-${HOME}/.cache/quickdesk/openapi-generator-cli-${generator_version}.jar}"
@@ -28,10 +32,52 @@ if ! command -v java >/dev/null 2>&1; then
   exit 1
 fi
 
-# The property list is the one documented in the spec's description, so a
-# hand-run of that example and this script produce the same client.
-java -jar "$jar" generate \
-  -i "$spec" \
-  -g typescript-fetch \
-  -o "$out" \
-  --additional-properties=supportsES6=true,npmName=@quickdesk/signaling-client,npmVersion=1.0.0
+case "$lang" in
+  typescript-fetch)
+    # The property list is the one documented in the spec's description, so a
+    # hand-run of that example and this script produce the same client.
+    java -jar "$jar" generate \
+      -i "$spec" \
+      -g typescript-fetch \
+      -o "$out" \
+      --additional-properties=supportsES6=true,npmName=@quickdesk/signaling-client,npmVersion=1.0.0
+    ;;
+  go)
+    java -jar "$jar" generate \
+      -i "$spec" \
+      -g go \
+      -o "$out" \
+      --git-user-id=ilh-github \
+      --git-repo-id=go-remote-next \
+      --additional-properties=packageName=signaling,isGoSubmodule=true,withGoMod=true
+
+    # Two normalisations, both deliberate and both applied here rather than by
+    # hand so `check-generated-sdk.sh` reproduces them byte for byte.
+    #
+    # 1. The module path. The generator builds it from the git ids plus the
+    #    package name, which can only ever produce
+    #    `github.com/ilh-github/go-remote-next/signaling` - a path that does not
+    #    exist in the repository, since the client lives in `sdk/go`. A nested Go
+    #    module has to name its own directory, so it is pinned to the canonical
+    #    location; that also keeps the path identical no matter which directory
+    #    the generator wrote into (the freshness check uses a temporary one).
+    perl -pi -e 's{^module\s+\S+$}{module github.com/ilh-github/go-remote-next/sdk/go}' "$out/go.mod"
+
+    # 2. The generator's own release helper and its test tree. `git_push.sh` is
+    #    for pushing the generated project as its own repository, which is not
+    #    what this client is. The `test/` package is a set of HTTP contract tests
+    #    that need testify (absent from the generated go.mod), so keeping it would
+    #    make `go vet ./...` fail on a client that otherwise builds; the server's
+    #    own smoke is what covers those paths.
+    if [ -f "$out/git_push.sh" ]; then
+      rm "$out/git_push.sh"
+    fi
+    if [ -d "$out/test" ]; then
+      rm -r "$out/test"
+    fi
+    ;;
+  *)
+    echo "unknown language '$lang': expected typescript-fetch or go" >&2
+    exit 2
+    ;;
+esac

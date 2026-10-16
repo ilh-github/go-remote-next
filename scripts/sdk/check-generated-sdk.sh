@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
-# Fails when the committed client no longer matches what the spec generates.
+# Fails when a committed client no longer matches what the spec generates.
+#
+# Usage: check-generated-sdk.sh [language]
+#   language defaults to typescript-fetch; `go` checks sdk/go.
 #
 # This is the gate that keeps `SignalingServer/api/openapi.yaml` and `sdk/ts`
 # from drifting: a spec edit without a regenerated client fails here, and so does
@@ -7,12 +10,26 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-committed="$root/sdk/ts"
+lang="${1:-typescript-fetch}"
+
+case "$lang" in
+  typescript-fetch)
+    committed="$root/sdk/ts"
+    ;;
+  go)
+    committed="$root/sdk/go"
+    ;;
+  *)
+    echo "unknown language '$lang': expected typescript-fetch or go" >&2
+    exit 2
+    ;;
+esac
+
 fresh="$(mktemp -d)"
 trap 'rm -rf "$fresh"' EXIT
 
-echo "generating a fresh client to compare against sdk/ts..."
-"$root/scripts/sdk/generate-client.sh" "$fresh/ts" >/dev/null
+echo "generating a fresh $lang client to compare against ${committed#"$root"/}..."
+"$root/scripts/sdk/generate-client.sh" "$fresh/out" "$lang" >/dev/null
 
 # Excluded from the comparison, and why:
 #   FILES             the generator's own manifest of what *that run* wrote. It
@@ -23,10 +40,14 @@ echo "generating a fresh client to compare against sdk/ts..."
 #   node_modules      local npm state; the committed client carries no deps.
 #   dist              local build output.
 #   package-lock.json produced by `npm install` here, not by the generator.
-if ! diff -r -x FILES -x node_modules -x dist -x package-lock.json "$committed" "$fresh/ts"; then
+#   examples          the Go client's hand-written usage example, which the CI
+#                     smoke job runs against a live server. It is the only file
+#                     under sdk/ that is not generated, and excluding it here is
+#                     what keeps that distinction honest.
+if ! diff -r -x FILES -x node_modules -x dist -x package-lock.json -x examples "$committed" "$fresh/out"; then
   echo
-  echo "sdk/ts is stale: run scripts/sdk/generate-client.sh and commit the result." >&2
+  echo "${committed#"$root"/} is stale: run scripts/sdk/generate-client.sh and commit the result." >&2
   exit 1
 fi
 
-echo "sdk/ts matches a fresh generation from SignalingServer/api/openapi.yaml"
+echo "${committed#"$root"/} matches a fresh $lang generation from SignalingServer/api/openapi.yaml"

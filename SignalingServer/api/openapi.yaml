@@ -31,15 +31,20 @@ info:
     - because a decision is history and the flow is auditable precisely by
     leaving it.
 
-    A generated **TypeScript** client is committed under `sdk/ts` and is kept in
-    step with this file by `scripts/sdk/check-generated-sdk.sh`, which CI runs:
-    an edit here without a regenerated client fails the build. Regenerate it
-    with `scripts/sdk/generate-client.sh` (a pinned openapi-generator jar, so
-    local and CI output are byte-identical). For another language, use the
-    generator directly, for example:
+    Two generated clients are committed - **TypeScript** under `sdk/ts` and
+    **Go** under `sdk/go` - and both are kept in step with this file by
+    `scripts/sdk/check-generated-sdk.sh`, which CI runs: an edit here without a
+    regenerated client fails the build. Regenerate them with
+    `scripts/sdk/generate-client.sh sdk/ts` and
+    `scripts/sdk/generate-client.sh sdk/go go` (a pinned openapi-generator jar,
+    so local and CI output are byte-identical); both scripts take the language as
+    their last argument. The Go client's `examples/` directory is the one
+    hand-written file in that module - the CI smoke job runs it against a live
+    server - and is excluded from the freshness comparison. For a third
+    language, use the generator directly, for example:
 
         npx @openapitools/openapi-generator-cli generate \
-          -i SignalingServer/api/openapi.yaml -g typescript-fetch -o sdk/ts
+          -i SignalingServer/api/openapi.yaml -g python -o sdk/python
 
     All non-2xx responses are RFC 7807 problem details with
     `Content-Type: application/problem+json`.

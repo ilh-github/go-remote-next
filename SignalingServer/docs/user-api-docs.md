@@ -16,8 +16,27 @@ contract for the stable, integrator-facing subset of this API (authenticate,
 enumerate devices, verify an access code, and manage the access policy, guest
 access codes, approvals including approve / deny / claim, offline-alert rule,
 notification channels, and the session-recording index including media
-download and playback tickets) — generate a client in any language from it. It
-covers
+download and playback tickets) — generate a client in any language from it.
+
+Two generated clients are committed and kept in step with the spec by CI:
+[`sdk/ts`](../../sdk/ts) (TypeScript, `fetch`) and [`sdk/go`](../../sdk/go)
+(Go). Both come from a pinned openapi-generator jar, so a local regeneration and
+a CI regeneration are byte-identical:
+
+```bash
+scripts/sdk/generate-client.sh sdk/ts
+scripts/sdk/generate-client.sh sdk/go go
+scripts/sdk/check-generated-sdk.sh        # fails when sdk/ts is stale
+scripts/sdk/check-generated-sdk.sh go     # fails when sdk/go is stale
+```
+
+`sdk/go/examples/main.go` is the one hand-written file in that module: it logs
+in and lists devices with the generated client, CI runs it against the smoke
+server, and the freshness check excludes it for exactly that reason. The
+generated tree is otherwise untouched, so regenerating after a spec change is
+the whole maintenance story.
+
+It covers
 a documented subset rather than every route: operations are added as they are
 pinned by a conformance check, which is
 [`scripts/sdk/openapi-smoke.mjs`](../../scripts/sdk/openapi-smoke.mjs). That

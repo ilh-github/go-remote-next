@@ -79,7 +79,7 @@ jobs:
         run: go test ./... -count=1
 
   contract:
-    name: OpenAPI contract and generated client
+    name: OpenAPI contract and generated clients
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -87,12 +87,27 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Committed client matches the spec
-        run: ./scripts/sdk/check-generated-sdk.sh
+      - uses: actions/setup-go@v5
+        with:
+          # The nested Go client module has its own go.mod; it is deliberately
+          # not part of the server module.
+          go-version-file: sdk/go/go.mod
+      - name: Committed clients match the spec
+        run: |
+          ./scripts/sdk/check-generated-sdk.sh
+          ./scripts/sdk/check-generated-sdk.sh go
+      - name: Generated Go client vets and compiles
+        # `go vet ./...` type-checks the hand-written examples/ package too, so a
+        # change to the client's API surface that the example no longer matches
+        # fails here rather than in someone's editor.
+        working-directory: sdk/go
+        run: |
+          go vet ./...
+          go build ./...
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - name: Generated client compiles
+      - name: Generated TypeScript client compiles
         working-directory: sdk/ts
         run: |
           npm install --no-audit --no-fund
@@ -209,6 +224,12 @@ jobs:
         # Same seeded account and device as the HTTP smoke; the WebSocket routes
         # take their credentials in the first frame, not in the URL.
         run: node scripts/sdk/realtime-smoke.mjs
+      - name: Run the generated Go client
+        # The same seeded account, driven through the committed Go client rather
+        # than through curl: the smoke above proves the server matches the spec,
+        # this proves the generated Go code can actually talk to it.
+        working-directory: sdk/go
+        run: go run ./examples
       - name: Upload the server log
         if: failure()
         uses: actions/upload-artifact@v4
