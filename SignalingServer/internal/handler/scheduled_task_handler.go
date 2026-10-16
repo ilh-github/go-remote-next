@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"quickdesk/signaling/internal/middleware"
@@ -33,13 +34,19 @@ func NewScheduledTaskHandler(tasks *service.ScheduledTaskService) *ScheduledTask
 
 type scheduledTaskReq struct {
 	Kind string `json:"kind" binding:"required"`
-	// RunAt is RFC3339 and must be in the future.
-	RunAt string `json:"run_at" binding:"required"`
+	// RunAt is RFC3339 and must be in the future. It is required unless
+	// Schedule is given, which derives every occurrence itself.
+	RunAt string `json:"run_at"`
 	// RepeatSeconds is 0 for a one-shot task, or 60..31536000 to repeat.
 	RepeatSeconds int `json:"repeat_seconds"`
 	// MaxAttempts is how many times one occurrence may be attempted (1..10).
 	// 1, the default, means "no retry".
 	MaxAttempts int `json:"max_attempts"`
+	// Schedule is an optional calendar recurrence: `daily@HH:MM`,
+	// `weekly@<dow>@HH:MM` or `monthly@<dom>@HH:MM`.
+	Schedule string `json:"schedule"`
+	// Timezone is the IANA zone Schedule is evaluated in; empty means UTC.
+	Timezone string `json:"timezone"`
 }
 
 // scheduledTaskView is the wire shape. The outcome fields are exposed so an
@@ -50,6 +57,8 @@ type scheduledTaskView struct {
 	NextRunAt     time.Time  `json:"next_run_at"`
 	RepeatSeconds int        `json:"repeat_seconds"`
 	Enabled       bool       `json:"enabled"`
+	Schedule      string     `json:"schedule,omitempty"`
+	Timezone      string     `json:"timezone,omitempty"`
 	MaxAttempts   int        `json:"max_attempts"`
 	Attempts      int        `json:"attempts"`
 	LastRunAt     *time.Time `json:"last_run_at,omitempty"`
@@ -66,6 +75,8 @@ func scheduledTaskViewOf(row models.ScheduledTask) scheduledTaskView {
 		NextRunAt:     row.NextRunAt,
 		RepeatSeconds: row.RepeatSeconds,
 		Enabled:       row.Enabled,
+		Schedule:      row.Schedule,
+		Timezone:      row.Timezone,
 		MaxAttempts:   row.MaxAttempts,
 		Attempts:      row.Attempts,
 		LastRunAt:     row.LastRunAt,
@@ -91,8 +102,9 @@ func (h *ScheduledTaskHandler) List(c *gin.Context) {
 		items = append(items, scheduledTaskViewOf(row))
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"items":           items,
-		"supported_kinds": h.tasks.SupportedKinds(),
+		"items":               items,
+		"supported_kinds":     h.tasks.SupportedKinds(),
+		"supported_schedules": service.SupportedCalendarSchedules(),
 	})
 }
 
@@ -106,17 +118,35 @@ func (h *ScheduledTaskHandler) Create(c *gin.Context) {
 		ProblemBadRequest(c, ProblemCodeInvalidRequest, err.Error())
 		return
 	}
-	runAt, err := time.Parse(time.RFC3339, req.RunAt)
-	if err != nil {
-		ProblemBadRequest(c, ProblemCodeInvalidRequest, "run_at must be RFC3339, e.g. 2026-10-17T03:00:00Z")
+	// run_at and schedule are two ways to say when; the service rejects being
+	// given both, and here a syntactically broken run_at is caught before it
+	// reaches it.
+	var runAt time.Time
+	if strings.TrimSpace(req.RunAt) != "" {
+		parsed, err := time.Parse(time.RFC3339, req.RunAt)
+		if err != nil {
+			ProblemBadRequest(c, ProblemCodeInvalidRequest, "run_at must be RFC3339, e.g. 2026-10-17T03:00:00Z")
+			return
+		}
+		runAt = parsed
+	} else if strings.TrimSpace(req.Schedule) == "" {
+		ProblemBadRequest(c, ProblemCodeInvalidRequest,
+			"run_at is required unless schedule is given (one of: "+strings.Join(service.SupportedCalendarSchedules(), ", ")+")")
 		return
 	}
-	row, err := h.tasks.Create(c.Request.Context(), middleware.MustUserID(c),
-		req.Kind, runAt, req.RepeatSeconds, req.MaxAttempts)
+	row, err := h.tasks.Create(c.Request.Context(), middleware.MustUserID(c), service.ScheduledTaskSpec{
+		Kind:          req.Kind,
+		RunAt:         runAt,
+		RepeatSeconds: req.RepeatSeconds,
+		MaxAttempts:   req.MaxAttempts,
+		Schedule:      req.Schedule,
+		Timezone:      req.Timezone,
+	})
 	if err != nil {
 		if errors.Is(err, service.ErrInvalidScheduledTaskKind) ||
 			errors.Is(err, service.ErrInvalidScheduledTaskSchedule) ||
-			errors.Is(err, service.ErrInvalidScheduledTaskMaxAttempts) {
+			errors.Is(err, service.ErrInvalidScheduledTaskMaxAttempts) ||
+			errors.Is(err, service.ErrInvalidScheduledTaskCalendar) {
 			ProblemBadRequest(c, ProblemCodeInvalidRequest, err.Error())
 			return
 		}

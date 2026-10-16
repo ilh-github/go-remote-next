@@ -50,6 +50,22 @@ var (
 	ErrInvalidScheduledTaskMaxAttempts = errors.New("scheduled task max_attempts must be between 1 and 10")
 )
 
+// ScheduledTaskSpec is one create request: either an absolute schedule
+// (`RunAt` + `RepeatSeconds`) or a calendar `Schedule` in a `Timezone`. The two
+// shapes are mutually exclusive, which Create enforces rather than silently
+// picking one.
+type ScheduledTaskSpec struct {
+	Kind          string
+	RunAt         time.Time
+	RepeatSeconds int
+	MaxAttempts   int
+	// Schedule is a calendar recurrence: `daily@HH:MM`,
+	// `weekly@<dow>@HH:MM` or `monthly@<dom>@HH:MM`.
+	Schedule string
+	// Timezone is the IANA zone Schedule is evaluated in; empty means UTC.
+	Timezone string
+}
+
 // ScheduledTaskAction is the server-side work one kind performs. Actions must
 // be safe to run unattended and without a request context: the worker calls
 // them with the task's owner as the only identity.
@@ -113,42 +129,68 @@ func (s *ScheduledTaskService) SupportedKinds() []string {
 }
 
 // Create schedules one action for the user. The kind has to be registered and
-// run_at has to be in the future: a task that is already due is almost always a
-// timezone or clock mistake, and the worker would otherwise run it before the
-// caller saw the response.
+// the schedule has to describe a future occurrence: a task that is already due
+// is almost always a timezone or clock mistake, and the worker would otherwise
+// run it before the caller saw the response.
 func (s *ScheduledTaskService) Create(
 	ctx context.Context,
 	userID uint,
-	kind string,
-	runAt time.Time,
-	repeatSeconds int,
-	maxAttempts int,
+	spec ScheduledTaskSpec,
 ) (*models.ScheduledTask, error) {
-	kind = strings.TrimSpace(kind)
+	kind := strings.TrimSpace(spec.Kind)
 	if _, ok := s.actions[kind]; !ok {
 		return nil, fmt.Errorf("%w: %q (supported: %s)", ErrInvalidScheduledTaskKind, kind,
 			strings.Join(s.SupportedKinds(), ", "))
 	}
-	if runAt.IsZero() || !runAt.After(time.Now()) {
-		return nil, fmt.Errorf("%w: run_at must be in the future", ErrInvalidScheduledTaskSchedule)
-	}
-	if repeatSeconds != 0 &&
-		(repeatSeconds < MinScheduledTaskRepeatSeconds || repeatSeconds > MaxScheduledTaskRepeatSeconds) {
-		return nil, fmt.Errorf("%w: repeat_seconds is %d", ErrInvalidScheduledTaskSchedule, repeatSeconds)
-	}
+	maxAttempts := spec.MaxAttempts
 	if maxAttempts == 0 {
 		maxAttempts = DefaultScheduledTaskMaxAttempts
 	}
 	if maxAttempts < MinScheduledTaskMaxAttempts || maxAttempts > MaxScheduledTaskMaxAttempts {
 		return nil, fmt.Errorf("%w: max_attempts is %d", ErrInvalidScheduledTaskMaxAttempts, maxAttempts)
 	}
+	now := time.Now().UTC()
+	schedule := strings.TrimSpace(spec.Schedule)
+	timezone := strings.TrimSpace(spec.Timezone)
 	row := &models.ScheduledTask{
-		UserID:        userID,
-		Kind:          kind,
-		NextRunAt:     runAt.UTC(),
-		RepeatSeconds: repeatSeconds,
-		Enabled:       true,
-		MaxAttempts:   maxAttempts,
+		UserID:      userID,
+		Kind:        kind,
+		Enabled:     true,
+		MaxAttempts: maxAttempts,
+	}
+	if schedule != "" {
+		// A calendar task derives every occurrence, the first one included, so a
+		// caller-supplied run_at would be a second, contradictory schedule.
+		if !spec.RunAt.IsZero() {
+			return nil, fmt.Errorf("%w: run_at and schedule are mutually exclusive", ErrInvalidScheduledTaskCalendar)
+		}
+		if spec.RepeatSeconds != 0 {
+			return nil, fmt.Errorf("%w: repeat_seconds must be 0 with schedule, because the calendar recurrence is the period", ErrInvalidScheduledTaskCalendar)
+		}
+		parsed, err := parseCalendarSchedule(schedule)
+		if err != nil {
+			return nil, err
+		}
+		loc, err := scheduledTaskLocation(timezone)
+		if err != nil {
+			return nil, err
+		}
+		row.Schedule = schedule
+		row.Timezone = timezone
+		row.NextRunAt = parsed.next(now, loc)
+	} else {
+		if timezone != "" {
+			return nil, fmt.Errorf("%w: timezone is only meaningful with schedule", ErrInvalidScheduledTaskCalendar)
+		}
+		if spec.RunAt.IsZero() || !spec.RunAt.After(now) {
+			return nil, fmt.Errorf("%w: run_at must be in the future", ErrInvalidScheduledTaskSchedule)
+		}
+		if spec.RepeatSeconds != 0 &&
+			(spec.RepeatSeconds < MinScheduledTaskRepeatSeconds || spec.RepeatSeconds > MaxScheduledTaskRepeatSeconds) {
+			return nil, fmt.Errorf("%w: repeat_seconds is %d", ErrInvalidScheduledTaskSchedule, spec.RepeatSeconds)
+		}
+		row.NextRunAt = spec.RunAt.UTC()
+		row.RepeatSeconds = spec.RepeatSeconds
 	}
 	if err := s.db.WithContext(ctx).Create(row).Error; err != nil {
 		return nil, err
@@ -210,7 +252,9 @@ func (s *ScheduledTaskService) RunDue(ctx context.Context, now time.Time) (int, 
 // visible in last_status - and recurring tasks simply run again next period.
 //
 // A recurring task whose worker was down for several periods fires once and is
-// rescheduled from `now`, rather than replaying every missed occurrence.
+// rescheduled from `now`, rather than replaying every missed occurrence. The
+// same rule covers calendar schedules, where "next" is recomputed from `now` in
+// the task's own timezone instead of by adding a fixed period.
 func (s *ScheduledTaskService) claimDue(ctx context.Context, now time.Time) ([]models.ScheduledTask, error) {
 	var claimed []models.ScheduledTask
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -222,12 +266,30 @@ func (s *ScheduledTaskService) claimDue(ctx context.Context, now time.Time) ([]m
 			FOR UPDATE SKIP LOCKED`, now, scheduledTaskBatch).Scan(&claimed).Error; err != nil {
 			return err
 		}
+		runnable := claimed[:0]
 		for i := range claimed {
 			updates := map[string]interface{}{"updated_at": now}
-			if claimed[i].RepeatSeconds > 0 {
-				updates["next_run_at"] = now.Add(time.Duration(claimed[i].RepeatSeconds) * time.Second)
-			} else {
+			switch {
+			case !scheduledTaskRecurs(claimed[i]):
+				// A one-shot task has no next occurrence: disable it and keep
+				// the row so "it ran" stays visible.
 				updates["enabled"] = false
+				runnable = append(runnable, claimed[i])
+			default:
+				next, err := scheduledTaskNextOccurrence(claimed[i], now)
+				if err != nil {
+					// A recurrence we cannot compute would stay due and be
+					// claimed on every tick, so park the row instead of
+					// looping on it. The action does not run: nobody can say
+					// when this task was supposed to fire.
+					log.Printf("[scheduled-task] task %d has an unusable schedule, disabling it: %v", claimed[i].ID, err)
+					updates["enabled"] = false
+					updates["last_status"] = ScheduledTaskStatusFailed
+					updates["last_error"] = truncateScheduledTaskError(err.Error())
+					break
+				}
+				updates["next_run_at"] = next
+				runnable = append(runnable, claimed[i])
 			}
 			if err := tx.Model(&models.ScheduledTask{}).
 				Where("id = ?", claimed[i].ID).
@@ -235,6 +297,7 @@ func (s *ScheduledTaskService) claimDue(ctx context.Context, now time.Time) ([]m
 				return err
 			}
 		}
+		claimed = runnable
 		return nil
 	})
 	return claimed, err
@@ -257,10 +320,7 @@ func (s *ScheduledTaskService) runOne(ctx context.Context, task models.Scheduled
 		message = "no action registered for kind " + task.Kind
 	} else if err := action.Run(ctx, task); err != nil {
 		status = ScheduledTaskStatusFailed
-		message = err.Error()
-		if len(message) > 255 {
-			message = message[:255]
-		}
+		message = truncateScheduledTaskError(err.Error())
 	}
 
 	attempted := task.Attempts + 1
@@ -276,29 +336,47 @@ func (s *ScheduledTaskService) runOne(ctx context.Context, task models.Scheduled
 		// Success ends the occurrence: clear the counter so the next period (or
 		// an operator re-running it) starts fresh.
 		updates["attempts"] = 0
-	case attempted < scheduledTaskMaxAttempts(task):
-		retryAt := now.Add(scheduledTaskRetryBackoff(attempted))
-		if task.RepeatSeconds > 0 {
-			// The retry exists to run sooner, not to drift the schedule, so it
-			// is clamped to the period the claim already advanced.
-			if periodEnd := now.Add(time.Duration(task.RepeatSeconds) * time.Second); retryAt.After(periodEnd) {
-				retryAt = periodEnd
-			}
-		}
-		updates["next_run_at"] = retryAt
-		updates["attempts"] = attempted
-		updates["enabled"] = true
-	default:
+	case attempted >= scheduledTaskMaxAttempts(task):
 		// Out of attempts. A one-shot stays disabled and keeps the count so the
-		// operator can see it tried; a recurring task keeps the period the claim
-		// advanced and starts the next occurrence with a clean counter.
+		// operator can see it tried; a recurring task keeps the occurrence the
+		// claim already advanced and starts the next one with a clean counter.
 		giveUp = true
-		if task.RepeatSeconds > 0 {
+		if scheduledTaskRecurs(task) {
 			updates["attempts"] = 0
 		} else {
 			updates["attempts"] = attempted
 		}
+	default:
+		retryAt := now.Add(scheduledTaskRetryBackoff(attempted))
+		retryable := true
+		if scheduledTaskRecurs(task) {
+			// The retry exists to run sooner, not to drift the schedule, so it
+			// is clamped to the occurrence the claim already advanced to.
+			periodEnd, err := scheduledTaskNextOccurrence(task, now)
+			if err != nil {
+				// A recurrence we cannot compute cannot be re-armed safely;
+				// park it instead of spinning on it.
+				retryable = false
+				message = truncateScheduledTaskError(message + " (retry skipped: " + err.Error() + ")")
+			} else if retryAt.After(periodEnd) {
+				retryAt = periodEnd
+			}
+		}
+		if retryable {
+			updates["next_run_at"] = retryAt
+			updates["attempts"] = attempted
+			updates["enabled"] = true
+		} else {
+			giveUp = true
+			if scheduledTaskRecurs(task) {
+				updates["attempts"] = 0
+			} else {
+				updates["attempts"] = attempted
+			}
+		}
 	}
+	// The message may have been extended above by a skipped retry.
+	updates["last_error"] = message
 
 	if err := s.db.WithContext(ctx).Model(&models.ScheduledTask{}).
 		Where("id = ?", task.ID).
@@ -327,6 +405,15 @@ func (s *ScheduledTaskService) runOne(ctx context.Context, task models.Scheduled
 			},
 		})
 	}
+}
+
+// truncateScheduledTaskError keeps a message inside the column's 255 bytes, so
+// a long error is truncated in the row instead of failing the write.
+func truncateScheduledTaskError(message string) string {
+	if len(message) > 255 {
+		return message[:255]
+	}
+	return message
 }
 
 // scheduledTaskMaxAttempts treats an unset budget as "no retry", so rows

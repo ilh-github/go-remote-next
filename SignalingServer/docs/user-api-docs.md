@@ -1040,14 +1040,49 @@ cannot be reaped.
 | Method | Path | Body |
 |---|---|---|
 | `GET` | `/v1/me/scheduled-tasks` | — |
-| `POST` | `/v1/me/scheduled-tasks` | `{kind, run_at, repeat_seconds?, max_attempts?}` |
+| `POST` | `/v1/me/scheduled-tasks` | `{kind, run_at?, repeat_seconds?, max_attempts?, schedule?, timezone?}` |
 | `DELETE` | `/v1/me/scheduled-tasks/:id` | — |
 
 `run_at` is RFC3339 and must be in the future; `repeat_seconds` is `0` for a
 one-shot task or `60`…`31536000` to repeat. `GET` also returns
-`supported_kinds`, which is the authoritative list of what may be scheduled —
-a kind the server cannot run is rejected at create time rather than stored as a
-row nothing will ever execute.
+`supported_kinds` — which is the authoritative list of what may be scheduled —
+and `supported_schedules`, the accepted calendar forms. A kind the server cannot
+run is rejected at create time rather than stored as a row nothing will ever
+execute.
+
+#### Calendar schedules
+
+`repeat_seconds` covers "every 15 minutes". For "every night at 22:00" or "the
+1st of the month", send `schedule` instead:
+
+| Form | Meaning |
+|---|---|
+| `daily@HH:MM` | every day at that local time |
+| `weekly@<dow>@HH:MM` | that weekday — `mon`…`sun`, or `0`…`6` with `0` = Sunday |
+| `monthly@<dom>@HH:MM` | that day of the month, `1`…`31` |
+
+`HH:MM` is a 24-hour clock time. `timezone` is an IANA zone name
+(`Asia/Shanghai`), and it is the local clock the schedule is read on; omitting it
+means UTC. The first occurrence is derived from the schedule too — you do not
+send `run_at` with a `schedule`, and the API rejects the two together, or a
+`schedule` combined with `repeat_seconds`, because those would be two
+contradictory answers to "when".
+
+Two rules the server states up front rather than leaving to inspection:
+
+- `monthly@31` **clamps** to the last day of a shorter month, so it runs on
+  February 28 (29 in a leap year) and April 30 instead of silently skipping
+  those months. A maintenance task that must run every month is the more useful
+  contract.
+- A wall-clock time that a DST transition deletes still runs: the task fires at
+  the first real instant at or after it, so a `daily@02:30` in a US spring
+  forward runs at 03:00 rather than an hour early. This is the rule cron and
+  systemd timers use for a skipped hour.
+
+Every response row carries `schedule` and `timezone` back, and `next_run_at` is
+always the concrete occurrence the worker will fire — which is also how you can
+confirm that "05:30 Shanghai" was understood as 05:30 Shanghai and not 05:30
+UTC.
 
 Only kinds whose whole effect lives in the control plane are registered, so a
 task never silently depends on a client that is not there. Today that is one
@@ -1091,9 +1126,13 @@ across instances — the same occurrence can never fire twice — at the cost of
 at-most-once semantics: a crash in the window between the claim and the action
 skips that occurrence. A recurring task whose worker was down for several
 periods fires once and reschedules from now rather than replaying every missed
-occurrence. Every run writes an audit row, `scheduled_task.run`, with the kind,
-the outcome and the attempt number (`attempt=2/3`), so a retry is visible in the
-trail and not only in the row's counter.
+occurrence; a calendar task reschedules from now by recomputing the next
+calendar occurrence, not by adding a fixed period. Every run writes an audit
+row, `scheduled_task.run`, with the kind, the outcome and the attempt number
+(`attempt=2/3`), so a retry is visible in the trail and not only in the row's
+counter. A row whose `schedule` cannot be parsed — a hand-edit, or a value
+written by a newer server — is parked (`enabled: false`, `last_status: failed`,
+`last_error` naming the problem) instead of being claimed on every tick.
 
 ---
 

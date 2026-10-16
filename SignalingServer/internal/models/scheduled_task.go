@@ -32,6 +32,14 @@ type ScheduledTask struct {
 	// RepeatSeconds is the interval between runs; 0 means "run once".
 	RepeatSeconds int  `gorm:"not null;default:0" json:"repeat_seconds"`
 	Enabled       bool `gorm:"not null;default:true" json:"enabled"`
+	// Schedule is an optional calendar recurrence: `daily@HH:MM`,
+	// `weekly@<dow>@HH:MM` or `monthly@<dom>@HH:MM`. When it is set it *is* the
+	// recurrence, so RepeatSeconds must be 0 and NextRunAt is derived from it
+	// after every run rather than by adding a fixed period.
+	Schedule string `gorm:"size:64;not null;default:''" json:"schedule"`
+	// Timezone is the IANA zone the calendar schedule is evaluated in; empty
+	// means UTC. It is ignored for an interval task.
+	Timezone string `gorm:"size:64;not null;default:''" json:"timezone"`
 	// MaxAttempts is how many times one occurrence may be attempted: 1 means
 	// "no retry" (the historical behaviour), 2..10 re-arms a failed task after a
 	// short backoff instead of waiting a whole period or giving up outright.

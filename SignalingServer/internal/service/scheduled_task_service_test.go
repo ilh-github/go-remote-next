@@ -81,24 +81,211 @@ func TestScheduledTaskCreateValidation(t *testing.T) {
 	ctx := context.Background()
 	future := time.Now().Add(time.Hour)
 
-	if _, err := svc.Create(ctx, 1, "nope", future, 0, 0); !errors.Is(err, ErrInvalidScheduledTaskKind) {
+	if _, err := svc.Create(ctx, 1, ScheduledTaskSpec{Kind: "nope", RunAt: future}); !errors.Is(err, ErrInvalidScheduledTaskKind) {
 		t.Fatalf("unknown kind err = %v, want ErrInvalidScheduledTaskKind", err)
 	}
-	if _, err := svc.Create(ctx, 1, "probe", time.Now().Add(-time.Minute), 0, 0); !errors.Is(err, ErrInvalidScheduledTaskSchedule) {
+	if _, err := svc.Create(ctx, 1, ScheduledTaskSpec{Kind: "probe", RunAt: time.Now().Add(-time.Minute)}); !errors.Is(err, ErrInvalidScheduledTaskSchedule) {
 		t.Fatalf("past run_at err = %v, want ErrInvalidScheduledTaskSchedule", err)
 	}
-	if _, err := svc.Create(ctx, 1, "probe", future, 30, 0); !errors.Is(err, ErrInvalidScheduledTaskSchedule) {
+	if _, err := svc.Create(ctx, 1, ScheduledTaskSpec{Kind: "probe", RunAt: future, RepeatSeconds: 30}); !errors.Is(err, ErrInvalidScheduledTaskSchedule) {
 		t.Fatalf("repeat below the minimum err = %v, want ErrInvalidScheduledTaskSchedule", err)
 	}
-	if _, err := svc.Create(ctx, 1, "probe", future, 0, 11); !errors.Is(err, ErrInvalidScheduledTaskMaxAttempts) {
+	if _, err := svc.Create(ctx, 1, ScheduledTaskSpec{Kind: "probe", RunAt: future, MaxAttempts: 11}); !errors.Is(err, ErrInvalidScheduledTaskMaxAttempts) {
 		t.Fatalf("max_attempts above the cap err = %v, want ErrInvalidScheduledTaskMaxAttempts", err)
 	}
-	row, err := svc.Create(ctx, 1, "probe", future, 60, 0)
+	row, err := svc.Create(ctx, 1, ScheduledTaskSpec{Kind: "probe", RunAt: future, RepeatSeconds: 60})
 	if err != nil {
 		t.Fatalf("valid create: %v", err)
 	}
 	if !row.Enabled || row.RepeatSeconds != 60 || row.MaxAttempts != DefaultScheduledTaskMaxAttempts {
 		t.Fatalf("created row = %+v, want an enabled 60s repeat", row)
+	}
+}
+
+// A calendar task derives its own first occurrence, so the caller never has to
+// compute "the next 05:30 in Shanghai" by hand - the reason the field exists.
+func TestScheduledTaskCalendarCreateDerivesTheFirstRun(t *testing.T) {
+	db := newScheduledTaskTestDB(t)
+	svc := NewScheduledTaskService(db).RegisterAction("probe", &countingAction{})
+	ctx := context.Background()
+
+	row, err := svc.Create(ctx, 4, ScheduledTaskSpec{
+		Kind:     "probe",
+		Schedule: "daily@05:30",
+		Timezone: "Asia/Shanghai",
+	})
+	if err != nil {
+		t.Fatalf("create calendar task: %v", err)
+	}
+	if row.Schedule != "daily@05:30" || row.Timezone != "Asia/Shanghai" {
+		t.Fatalf("row = %+v, want the schedule and zone persisted", row)
+	}
+	if row.RepeatSeconds != 0 {
+		t.Fatalf("repeat_seconds = %d, want 0: a calendar task's period is the calendar", row.RepeatSeconds)
+	}
+	if !row.NextRunAt.After(time.Now().UTC()) {
+		t.Fatalf("next_run_at = %v, want a future occurrence", row.NextRunAt)
+	}
+	loc, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		t.Skipf("tzdata unavailable: %v", err)
+	}
+	local := row.NextRunAt.In(loc)
+	if local.Hour() != 5 || local.Minute() != 30 {
+		t.Fatalf("first occurrence = %v (%02d:%02d local), want 05:30 in Shanghai",
+			local, local.Hour(), local.Minute())
+	}
+	// And the row survives a round trip through the database with both new
+	// columns intact, not just in the struct Create returned.
+	stored := loadScheduledTask(t, db, row.ID)
+	if stored.Schedule != "daily@05:30" || stored.Timezone != "Asia/Shanghai" {
+		t.Fatalf("stored row = %+v, want the calendar fields persisted", stored)
+	}
+}
+
+// A calendar task advances to the next occurrence, not to a fixed period: the
+// whole point is that tomorrow's run is tomorrow's calendar time.
+func TestScheduledTaskCalendarAdvancesToTheNextOccurrence(t *testing.T) {
+	db := newScheduledTaskTestDB(t)
+	action := &countingAction{}
+	svc := NewScheduledTaskService(db).RegisterAction("probe", action)
+	ctx := context.Background()
+
+	now := time.Now().UTC()
+	task := seedScheduledTask(t, db, models.ScheduledTask{
+		UserID:    9,
+		Kind:      "probe",
+		Schedule:  "daily@00:00",
+		Timezone:  "UTC",
+		NextRunAt: now.Add(-time.Minute),
+		Enabled:   true,
+	})
+	if ran, err := svc.RunDue(ctx, now); err != nil || ran != 1 {
+		t.Fatalf("run due = %d, %v; want 1, nil", ran, err)
+	}
+	row := loadScheduledTask(t, db, task.ID)
+	if !row.Enabled || row.LastStatus != ScheduledTaskStatusOK {
+		t.Fatalf("row = %+v, want an enabled task that ran ok", row)
+	}
+	// The next midnight, computed independently here so the test does not just
+	// restate the implementation.
+	want := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	if !want.After(now) {
+		want = want.AddDate(0, 0, 1)
+	}
+	if !row.NextRunAt.Equal(want) {
+		t.Fatalf("next_run_at = %v, want the next midnight %v", row.NextRunAt, want)
+	}
+	if action.count() != 1 {
+		t.Fatalf("action ran %d times, want 1", action.count())
+	}
+}
+
+// A failing calendar task is retried inside the occurrence it belongs to: the
+// retry runs minutes from now, not at tomorrow's calendar time, and it stays
+// enabled so the retry can actually happen.
+func TestScheduledTaskCalendarRetryRunsBeforeTheNextOccurrence(t *testing.T) {
+	db := newScheduledTaskTestDB(t)
+	action := &flakyAction{failures: 99}
+	svc := NewScheduledTaskService(db).RegisterAction("probe", action)
+	ctx := context.Background()
+
+	now := time.Now().UTC()
+	task := seedScheduledTask(t, db, models.ScheduledTask{
+		UserID:      3,
+		Kind:        "probe",
+		Schedule:    "daily@00:00",
+		Timezone:    "UTC",
+		NextRunAt:   now.Add(-time.Second),
+		Enabled:     true,
+		MaxAttempts: 3,
+	})
+	if n, err := svc.RunDue(ctx, now); err != nil || n != 1 {
+		t.Fatalf("first pass = %d,%v; want 1,nil", n, err)
+	}
+	row := loadScheduledTask(t, db, task.ID)
+	if !row.Enabled || row.Attempts != 1 || row.LastStatus != ScheduledTaskStatusFailed {
+		t.Fatalf("row after the failure = %+v, want enabled, failed, attempts=1", row)
+	}
+	if !row.NextRunAt.After(now) || row.NextRunAt.After(now.Add(5*time.Minute)) {
+		t.Fatalf("retry at %v, want it minutes from now rather than at the next occurrence", row.NextRunAt)
+	}
+	if row.LastError == "" {
+		t.Fatal("last_error is empty; a retried failure must stay readable")
+	}
+}
+
+// A calendar task that names something the parser cannot read must be parked,
+// not retried forever: it was written by a hand-edit or an older writer, and
+// the worker would otherwise claim it on every tick.
+func TestScheduledTaskCalendarWithUnusableScheduleIsParked(t *testing.T) {
+	db := newScheduledTaskTestDB(t)
+	action := &countingAction{}
+	svc := NewScheduledTaskService(db).RegisterAction("probe", action)
+	ctx := context.Background()
+
+	now := time.Now().UTC()
+	task := seedScheduledTask(t, db, models.ScheduledTask{
+		UserID:    5,
+		Kind:      "probe",
+		Schedule:  "fortnightly@mon@09:00",
+		NextRunAt: now.Add(-time.Minute),
+		Enabled:   true,
+	})
+	if ran, err := svc.RunDue(ctx, now); err != nil || ran != 0 {
+		t.Fatalf("run due = %d, %v; want 0, nil - an unreadable schedule must not run", ran, err)
+	}
+	if action.count() != 0 {
+		t.Fatalf("action ran %d times, want 0", action.count())
+	}
+	row := loadScheduledTask(t, db, task.ID)
+	if row.Enabled {
+		t.Fatal("a task with an unusable schedule must be disabled, not left due")
+	}
+	if row.LastStatus != ScheduledTaskStatusFailed || row.LastError == "" {
+		t.Fatalf("row = %+v, want the failure and its reason recorded", row)
+	}
+	// And it stays parked: a second pass has nothing to claim.
+	if ran, err := svc.RunDue(ctx, now.Add(time.Minute)); err != nil || ran != 0 {
+		t.Fatalf("second pass = %d, %v; want 0, nil", ran, err)
+	}
+}
+
+// The two ways of saying "when" are mutually exclusive, and an unknown zone is
+// a client error rather than a stored row that fires at the wrong time.
+func TestScheduledTaskCreateRejectsMixedOrBrokenCalendarSchedules(t *testing.T) {
+	db := newScheduledTaskTestDB(t)
+	svc := NewScheduledTaskService(db).RegisterAction("probe", &countingAction{})
+	ctx := context.Background()
+	future := time.Now().Add(time.Hour)
+
+	cases := []struct {
+		name string
+		spec ScheduledTaskSpec
+	}{
+		{name: "run_at and schedule together", spec: ScheduledTaskSpec{
+			Kind: "probe", RunAt: future, Schedule: "daily@05:30",
+		}},
+		{name: "repeat_seconds with schedule", spec: ScheduledTaskSpec{
+			Kind: "probe", Schedule: "daily@05:30", RepeatSeconds: 60,
+		}},
+		{name: "timezone without schedule", spec: ScheduledTaskSpec{
+			Kind: "probe", RunAt: future, Timezone: "Asia/Shanghai",
+		}},
+		{name: "unknown cadence", spec: ScheduledTaskSpec{
+			Kind: "probe", Schedule: "fortnightly@mon@09:00",
+		}},
+		{name: "impossible clock", spec: ScheduledTaskSpec{
+			Kind: "probe", Schedule: "daily@25:00",
+		}},
+		{name: "unknown timezone", spec: ScheduledTaskSpec{
+			Kind: "probe", Schedule: "daily@05:30", Timezone: "Mars/Olympus",
+		}},
+	}
+	for _, tc := range cases {
+		if _, err := svc.Create(ctx, 1, tc.spec); !errors.Is(err, ErrInvalidScheduledTaskCalendar) {
+			t.Fatalf("%s: err = %v, want ErrInvalidScheduledTaskCalendar", tc.name, err)
+		}
 	}
 }
 

@@ -532,6 +532,12 @@ CREATE TABLE IF NOT EXISTS scheduled_tasks (
     next_run_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     repeat_seconds INTEGER      NOT NULL DEFAULT 0,
     enabled        BOOLEAN      NOT NULL DEFAULT TRUE,
+    -- Optional calendar recurrence: daily@HH:MM, weekly@<dow>@HH:MM or
+    -- monthly@<dom>@HH:MM. When set it *is* the period, so repeat_seconds
+    -- must be 0 and next_run_at is recomputed from it after every run.
+    schedule       VARCHAR(64)  NOT NULL DEFAULT '',
+    -- IANA zone the calendar schedule is evaluated in; '' means UTC.
+    timezone       VARCHAR(64)  NOT NULL DEFAULT '',
     max_attempts   INTEGER      NOT NULL DEFAULT 1,
     attempts       INTEGER      NOT NULL DEFAULT 0,
     last_run_at    TIMESTAMPTZ,
