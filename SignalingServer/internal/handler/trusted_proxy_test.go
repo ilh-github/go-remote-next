@@ -58,3 +58,63 @@ func TestClientIPIgnoresForwardedForFromUntrustedPeer(t *testing.T) {
 		t.Fatalf("client ip = %q, want the socket address when no proxy is trusted", got)
 	}
 }
+
+// A multi-hop chain is the case the single-value test cannot reach, and it is
+// where the policy actually matters: each proxy appends to the header, so only
+// the entries near the server are trustworthy, and a client that prepends a
+// fake address must not be believed.
+func TestClientIPWalksMultiHopForwardedFor(t *testing.T) {
+	trusted := []string{"127.0.0.1/32", "::1/128", "10.0.0.0/8", "192.168.0.0/16"}
+	router := whoamiRouter(t, trusted)
+
+	cases := []struct {
+		name         string
+		remoteAddr   string
+		forwardedFor string
+		want         string
+	}{
+		{
+			name:         "trusted inner proxy, real client leftmost",
+			remoteAddr:   "127.0.0.1:41234",
+			forwardedFor: "198.51.100.7, 10.0.0.9",
+			want:         "198.51.100.7",
+		},
+		{
+			name:         "a prepended fake address is ignored",
+			remoteAddr:   "127.0.0.1:41234",
+			forwardedFor: "10.0.0.250, 203.0.113.9",
+			want:         "203.0.113.9",
+		},
+		{
+			name:         "untrusted rightmost hop wins",
+			remoteAddr:   "127.0.0.1:41234",
+			forwardedFor: "198.51.100.7, 203.0.113.9",
+			want:         "203.0.113.9",
+		},
+		{
+			name:         "all hops trusted falls back to the leftmost",
+			remoteAddr:   "127.0.0.1:41234",
+			forwardedFor: "10.0.0.1, 192.168.1.5",
+			want:         "10.0.0.1",
+		},
+		{
+			name:         "a malformed entry falls back to the socket address",
+			remoteAddr:   "127.0.0.1:41234",
+			forwardedFor: "198.51.100.7, not-an-ip",
+			want:         "127.0.0.1",
+		},
+		{
+			name:         "a chain from an untrusted peer is ignored entirely",
+			remoteAddr:   "203.0.113.9:41234",
+			forwardedFor: "198.51.100.7, 10.0.0.9",
+			want:         "203.0.113.9",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := clientIPFor(t, router, tc.remoteAddr, tc.forwardedFor); got != tc.want {
+				t.Fatalf("client ip = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

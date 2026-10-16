@@ -679,6 +679,27 @@ audited as `device.access_policy.changed`.
 > (trusted) it recorded `198.51.100.77` and let the request through to the code
 > check. The header is a claim; only a proxy's claim is believed.
 
+**A multi-hop chain is walked right to left.** Each proxy appends to
+`X-Forwarded-For`, so the entries nearest the server are the ones a client
+cannot forge; the server therefore takes the **rightmost entry that is not
+itself a trusted proxy**, falling back to the socket address when the chain is
+empty or malformed. Two consequences are worth stating because they are the
+whole point:
+
+- A client that **prepends** a fake address does not change its attributed IP.
+  With the default trusted list, `X-Forwarded-For: 10.0.0.250, 203.0.113.9`
+  from a trusted peer records `203.0.113.9` — the prepended `10.0.0.250` is
+  skipped only because it is closer to the *client*, not because it is trusted.
+- A real chain of proxies is resolved to the true client. `X-Forwarded-For:
+  198.51.100.7, 10.0.0.9` (the inner hop a trusted private proxy) records
+  `198.51.100.7`.
+
+If every entry is trusted the leftmost is used, because there is no untrusted
+hop to stop at. Verified against the live access-log path (§5.3.3): both chains
+above landed as those IPs in `device_access_logs`, and the multi-hop matrix is
+pinned by `TestClientIPWalksMultiHopForwardedFor` in
+`internal/handler/trusted_proxy_test.go`.
+
 ### 5.3.4 Device access grants (time-boxed guest codes)
 
 Handing a guest the device's own access code means handing them a code that
