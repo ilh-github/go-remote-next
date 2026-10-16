@@ -158,7 +158,9 @@ jobs:
           cache-dependency-path: SignalingServer/go.sum
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          # 22 for the built-in WebSocket the realtime smoke uses; the HTTP
+          # smoke and the generated client do not care either way.
+          node-version: '22'
       - name: Provide the embedded admin UI directory
         working-directory: SignalingServer
         run: |

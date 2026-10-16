@@ -20,8 +20,12 @@
 //   QD_IDENTIFIER / QD_PASSWORD   required
 //   QD_SMOKE_DEVICE                optional; makes the script trigger a real event
 //
-// Exit codes: 0 = the documented shapes hold, 3 = a documented shape is missing
-// or mistyped, 4 = the server could not be reached or behaved unexpectedly.
+// Needs Node 22+: it uses the built-in WebSocket, so the script stays
+// dependency-free the way the HTTP smoke is.
+//
+// Exit codes: 0 = the documented shapes hold, 2 = missing environment or an old
+// Node, 3 = a documented shape is missing or mistyped, 4 = the server could not
+// be reached or behaved unexpectedly.
 
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -40,6 +44,13 @@ const smokeDevice = process.env.QD_SMOKE_DEVICE || '';
 
 if (!identifier || !password) {
   console.error('QD_IDENTIFIER and QD_PASSWORD are required');
+  process.exit(2);
+}
+
+if (typeof WebSocket !== 'function') {
+  // Node only exposes a global WebSocket from 22 (21 behind a flag). Saying so
+  // beats a ReferenceError from deep inside the first connection attempt.
+  console.error(`this smoke needs Node 22+ for the built-in WebSocket; running ${process.version}`);
   process.exit(2);
 }
 
