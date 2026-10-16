@@ -55,9 +55,19 @@ func (h *AdminNotificationDeliveryHandler) Stats(c *gin.Context) {
 	for _, n := range counts {
 		total += n
 	}
+	// The confirmation half of the loop: `acked` is how many rows somebody
+	// confirmed, `unacked` is what endpoints accepted but nobody did. A channel
+	// that returns 200 and drops the event only shows up in the second number.
+	acked, unacked, err := h.deliveries.CountAcknowledgements(c.Request.Context())
+	if err != nil {
+		ProblemInternal(c, err.Error())
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"total":                  total,
 		"by_status":              counts,
+		"acked":                  acked,
+		"unacked":                unacked,
 		"retention_days":         h.retentionDays,
 		"archive_retention_days": h.archiveRetentionDays,
 		"archive_dir":            h.deliveries.ArchiveDir(),

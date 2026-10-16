@@ -41,6 +41,13 @@ const (
 // already delivered (or not parked as failed), so there is nothing to re-arm.
 var ErrDeliveryNotRetryable = errors.New("delivery is not retryable")
 
+// ErrDeliveryNotConfirmable means the caller tried to acknowledge a delivery
+// that has not finished yet. A row that is still pending or in flight has not
+// reached the endpoint, so "somebody saw this" would be a claim nothing
+// supports; the terminal states are the only ones where the question makes
+// sense.
+var ErrDeliveryNotConfirmable = errors.New("only delivered or failed deliveries can be acknowledged")
+
 const (
 	// notificationMaxAttempts is how many failed posts a row gets before it
 	// is parked as `failed` (still visible through the API).
@@ -616,9 +623,87 @@ func (s *NotificationDeliveryService) Retry(ctx context.Context, channelID, deli
 	return &row, nil
 }
 
+// UnackedDelivered counts one channel's delivered-but-unconfirmed rows. It is
+// the channel-level view of CountAcknowledgements' second number: what did this
+// endpoint accept that nobody has confirmed.
+func (s *NotificationDeliveryService) UnackedDelivered(ctx context.Context, channelID uint) (int64, error) {
+	var count int64
+	err := s.db.WithContext(ctx).
+		Model(&models.NotificationDelivery{}).
+		Where("channel_id = ? AND status = ? AND acked_at IS NULL", channelID, DeliveryStatusDelivered).
+		Count(&count).Error
+	return count, err
+}
+
 // MaxRetryFailedLimit bounds RetryFailedFilters.Limit so one request cannot
 // arm an unbounded batch.
 const MaxRetryFailedLimit = 1000
+
+// Acknowledge records that a person confirmed a finished delivery.
+//
+// The outbox already knows whether an endpoint accepted the POST, which is a
+// weaker fact than it looks: a webhook that answers `200` and then drops the
+// event is indistinguishable from one that acted on it. This closes that half -
+// "somebody saw it" is a claim only a human or the receiving system acting on
+// their behalf can make, so it is recorded separately and never inferred.
+//
+// Acking is idempotent on purpose. The first ack owns the timestamp; a later
+// one returns the same row rather than rewriting history, so a retry by the
+// caller (or two people clicking at once) cannot move the clock.
+func (s *NotificationDeliveryService) Acknowledge(
+	ctx context.Context,
+	channelID, deliveryID uint,
+) (*models.NotificationDelivery, error) {
+	var row models.NotificationDelivery
+	if err := s.db.WithContext(ctx).
+		Where("id = ? AND channel_id = ?", deliveryID, channelID).
+		First(&row).Error; err != nil {
+		return nil, err
+	}
+	if row.Status != DeliveryStatusDelivered && row.Status != DeliveryStatusFailed {
+		return nil, ErrDeliveryNotConfirmable
+	}
+	if row.AckedAt != nil {
+		return &row, nil
+	}
+	now := time.Now().UTC()
+	// Conditional so two simultaneous acks cannot both claim to be the first:
+	// the loser re-reads the winner's timestamp instead of overwriting it.
+	if err := s.db.WithContext(ctx).Model(&models.NotificationDelivery{}).
+		Where("id = ? AND acked_at IS NULL", row.ID).
+		Updates(map[string]interface{}{"acked_at": now, "updated_at": now}).Error; err != nil {
+		return nil, err
+	}
+	// Read the row back rather than returning the in-memory values: a timestamp
+	// written with `time.Now().UTC()` serialises as `...Z` while the same column
+	// read from the database comes back in the session's zone, and a client that
+	// compared the two responses as strings would see a difference that is not
+	// there. Every response from this endpoint is now the stored row.
+	if err := s.db.WithContext(ctx).First(&row, row.ID).Error; err != nil {
+		return nil, err
+	}
+	return &row, nil
+}
+
+// CountAcknowledgements reports the confirmation loop in two numbers: how many
+// deliveries carry a human ack, and how many finished successfully but were
+// never confirmed. The second number is the one worth watching - a channel that
+// answers 200 into a void shows up there and nowhere else.
+func (s *NotificationDeliveryService) CountAcknowledgements(ctx context.Context) (acked int64, unacked int64, err error) {
+	if err = s.db.WithContext(ctx).
+		Model(&models.NotificationDelivery{}).
+		Where("acked_at IS NOT NULL").
+		Count(&acked).Error; err != nil {
+		return 0, 0, err
+	}
+	if err = s.db.WithContext(ctx).
+		Model(&models.NotificationDelivery{}).
+		Where("status = ? AND acked_at IS NULL", DeliveryStatusDelivered).
+		Count(&unacked).Error; err != nil {
+		return 0, 0, err
+	}
+	return acked, unacked, nil
+}
 
 // MaxRetryFailedChannelIDs bounds RetryFailedFilters.ChannelIDs. The list is a
 // narrowing filter, not a bulk-ingest surface, so a handful of endpoints is

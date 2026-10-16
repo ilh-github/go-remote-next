@@ -455,8 +455,9 @@ user-owned webhook endpoint that receives that user's own device events.
 | `PATCH` | `/v1/me/notification-channels/:id` | same as create | Omit `enabled` to keep the current state; omit `secret` to keep the stored one. |
 | `DELETE` | `/v1/me/notification-channels/:id` | — | Owner-scoped. |
 | `POST` | `/v1/me/notification-channels/:id/test` | — | Fires a synthetic `test` event so the endpoint can be verified without waiting for device traffic. |
-| `GET` | `/v1/me/notification-channels/:id/deliveries?limit=` | — | Delivery history for the channel (newest first, default 50, max 200). Owner-scoped. |
+| `GET` | `/v1/me/notification-channels/:id/deliveries?limit=` | — | Delivery history for the channel (newest first, default 50, max 200), as `{items, unacked}`. `unacked` counts this channel's rows that were delivered (2xx) and never confirmed. Owner-scoped. |
 | `POST` | `/v1/me/notification-channels/:id/deliveries/:deliveryId/retry` | — | Re-arms a parked `failed` delivery (dead-letter replay). Returns `400` for rows that are not `failed`. Owner-scoped. |
+| `POST` | `/v1/me/notification-channels/:id/deliveries/:deliveryId/ack` | — | Records that somebody confirmed the delivery (`acked_at`). Idempotent — the first ack owns the timestamp and later ones return the same row. `409` for a row that is still `pending`/`delivering`, `404` when the id does not belong to that channel. Owner-scoped. |
 | `POST` | `/v1/me/notification-channels/:id/deliveries:retry-failed` | optional body | Re-arms parked `failed` deliveries for the channel. Owner-scoped. |
 | `POST` | `/v1/me/notification-channels:retry-failed` | optional body | Re-arms parked `failed` deliveries the caller owns, **across all of their channels** (one call after an outage that hit several endpoints). |
 
@@ -498,6 +499,26 @@ Payload shape (same as admin webhooks):
 `id` is the event envelope's stable identity. It is the same value across every
 delivery attempt of that event, so a receiver can key a dedupe table on it
 without depending on the shape of `data`.
+
+**Acknowledging is a different fact from delivering.** The outbox marks a row
+`delivered` when the endpoint answers `2xx`, which says the HTTP call succeeded
+and nothing more: a webhook that returns `200` and then drops the event looks
+exactly like one that acted on it. `POST .../deliveries/:deliveryId/ack`
+records the stronger claim — somebody (or the receiving system on their behalf)
+actually saw the alert — in `acked_at`, next to `delivered_at` rather than
+replacing it. The first ack wins the timestamp; asking again returns the same
+row instead of moving the clock, so a retry or two operators clicking at once
+cannot rewrite when the confirmation happened. A row that has not finished
+(`pending`, `delivering`) is a `409`: "somebody saw this" is a claim nothing
+supports yet, and recording it would turn the column into a lie. A parked
+`failed` row *can* be acknowledged, because an operator who saw the alert in
+their list has confirmed it even though the network never cooperated.
+
+The number to watch is `unacked` from the deliveries list (and `unacked` /
+`acked` on the admin `notification-deliveries:stats`): a channel that answers
+`200` into a void shows up there and nowhere else. Every other counter — status
+counts, last HTTP status, attempt counts — looks perfectly healthy in that
+case.
 
 Supported events today: `device.access.denied`, `device.access.granted`,
 `device.access.session_started`, `device.online.changed`,
@@ -1542,7 +1563,7 @@ request shapes; this section documents only the route table.
 | `GET` | `/v1/admin/recordings/:id/thumbnail` (cross-user preview; audit action `recording.thumbnail.download`) |
 | `GET` | `/v1/admin/recordings:storage` — `{artifact_count, total_bytes, retention_days, stale_after_minutes}` |
 | `POST` | `/v1/admin/recordings:sweep` — runs the stale + retention + orphan pass now; returns `{stale_marked_failed, artifacts_purged, bytes_freed, orphans_removed, uploads_reaped}` (`uploads_reaped` counts abandoned resumable-upload staging files older than six hours) and audits `recording.sweep` |
-| `GET` | `/v1/admin/notification-deliveries:stats` — `{total, by_status, retention_days, archive_retention_days, archive_dir}`; `by_status` always carries all four states (`pending`/`delivering`/`delivered`/`failed`), zeroes included |
+| `GET` | `/v1/admin/notification-deliveries:stats` — `{total, by_status, acked, unacked, retention_days, archive_retention_days, archive_dir}`; `by_status` always carries all four states (`pending`/`delivering`/`delivered`/`failed`), zeroes included; `acked` counts rows with `acked_at`, `unacked` counts rows that were delivered but never confirmed |
 | `POST` | `/v1/admin/notification-deliveries:sweep` — runs the outbox retention pass now. Optional body `{older_than_days: N}` overrides the configured window and `{archive_retention_days: N}` overrides how long the daily archive files are kept; either or both may be passed. Returns `{purged, older_than_days, cutoff, archive_retention_days, archive_removed, archive_moved, archive_deleted, archive_dir, archive_cold_dir}` and audits `notification_delivery.sweep`. `400` when none of the config or body supplies a bound (`NOTIFICATION_RETENTION_DAYS` / `NOTIFICATION_ARCHIVE_RETENTION_DAYS` or the matching body fields) and `400` when archive retention is asked for with `NOTIFICATION_ARCHIVE_DIR` unset; on an archive write failure nothing is deleted and the response is an error |
 | `GET` `PUT` | `/v1/admin/preset` |
 | `GET` `PUT` | `/v1/admin/settings` |

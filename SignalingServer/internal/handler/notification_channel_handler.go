@@ -184,7 +184,16 @@ func (h *NotificationChannelHandler) Deliveries(c *gin.Context) {
 		ProblemInternal(c, err.Error())
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"items": rows})
+	// `unacked` is the number of rows this channel accepted (2xx) that nobody
+	// has confirmed. It is the one number that shows an endpoint swallowing
+	// events with a cheerful status code, so the list carries it rather than
+	// leaving the caller to count rows by eye.
+	unacked, err := h.deliveries.UnackedDelivered(c.Request.Context(), id)
+	if err != nil {
+		ProblemInternal(c, err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"items": rows, "unacked": unacked})
 }
 
 // RetryDelivery re-arms a parked (`failed`) delivery so the worker tries it
@@ -215,6 +224,48 @@ func (h *NotificationChannelHandler) RetryDelivery(c *gin.Context) {
 			return
 		}
 		writeNotificationChannelError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, row)
+}
+
+// AcknowledgeDelivery records that somebody confirmed a finished delivery.
+// Owner-scoped via the parent channel, exactly like retry; it is a POST rather
+// than a PUT because the first call is the one that counts and later calls are
+// deliberately no-ops.
+func (h *NotificationChannelHandler) AcknowledgeDelivery(c *gin.Context) {
+	id, ok := notificationChannelID(c)
+	if !ok {
+		return
+	}
+	deliveryID, err := strconv.ParseUint(c.Param("deliveryId"), 10, 32)
+	if err != nil || deliveryID == 0 {
+		ProblemBadRequest(c, ProblemCodeInvalidRequest, "invalid delivery id")
+		return
+	}
+	uid := middleware.MustUserID(c)
+	if _, err := h.channels.Get(c.Request.Context(), uid, id); err != nil {
+		writeNotificationChannelError(c, err)
+		return
+	}
+	if h.deliveries == nil {
+		ProblemInternal(c, "delivery store is not configured")
+		return
+	}
+	row, err := h.deliveries.Acknowledge(c.Request.Context(), id, uint(deliveryID))
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrDeliveryNotConfirmable):
+			ProblemConflict(c, ProblemCodeConflict,
+				"only delivered or failed deliveries can be acknowledged")
+		case errors.Is(err, gorm.ErrRecordNotFound):
+			// Deliberately not writeNotificationChannelError: that one says
+			// "channel not found", and a missing delivery sitting under a
+			// channel the caller does own would be a lie.
+			ProblemNotFound(c, ProblemCodeNotFound, "Delivery not found")
+		default:
+			ProblemInternal(c, err.Error())
+		}
 		return
 	}
 	c.JSON(http.StatusOK, row)

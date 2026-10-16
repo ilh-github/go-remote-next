@@ -34,6 +34,12 @@ type NotificationDelivery struct {
 	LastStatus  int        `json:"last_status"` // HTTP status of the last attempt, 0 = transport error
 	LastError   string     `gorm:"size:255" json:"last_error"`
 	DeliveredAt *time.Time `json:"delivered_at"`
+	// AckedAt is when a human confirmed the delivery. It is deliberately
+	// separate from DeliveredAt: "the endpoint accepted the POST" (2xx) and
+	// "somebody actually looked at this" are different facts, and a webhook
+	// that answers 200 into a void is exactly the failure this column makes
+	// visible. Exactly one of the two can be set without the other.
+	AckedAt *time.Time `json:"acked_at"`
 
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`

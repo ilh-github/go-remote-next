@@ -506,6 +506,9 @@ func main() {
 			me.POST("/notification-channels/:id/test", notificationChannelHandler.Test)
 			me.GET("/notification-channels/:id/deliveries", notificationChannelHandler.Deliveries)
 			me.POST("/notification-channels/:id/deliveries/:deliveryId/retry", notificationChannelHandler.RetryDelivery)
+			// `ack` closes the loop the webhook POST cannot: a delivery the
+			// endpoint accepted is not the same fact as one a person saw.
+			me.POST("/notification-channels/:id/deliveries/:deliveryId/ack", notificationChannelHandler.AcknowledgeDelivery)
 			me.POST("/notification-channels/:id/deliveries:retry-failed", notificationChannelHandler.RetryFailedDeliveries)
 			me.POST("/notification-channels:retry-failed", notificationChannelHandler.RetryFailedDeliveriesForUser)
 
