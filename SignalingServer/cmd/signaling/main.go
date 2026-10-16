@@ -264,7 +264,7 @@ func main() {
 		MaxBytes:  int64(cfg.Recording.MaxUploadMB) * 1024 * 1024,
 		URLSecret: cfg.Recording.URLSecret,
 		TicketTTL: time.Duration(cfg.Recording.TicketTTLSeconds) * time.Second,
-	})
+	}, auditService)
 	hostHandler := handler.NewHostHandler(deviceService, tokenService, presenceService, settingsService, rateLimitService, deviceAccessService, deviceAccessPolicyService, deviceAccessGrantService, deviceAccessApprovalService, bus, cfg)
 	realtimeHandler := handler.NewRealtimeHandler(tokenService, bus, presenceService, db, deviceService, favoriteService, metricsService, deviceAccessService, deviceAccessPolicyService, redisClient)
 

@@ -56,6 +56,40 @@ func (s *AuditService) LogActor(ctx context.Context, actorUserID uint, action, r
 	s.db.WithContext(ctx).Create(entry)
 }
 
+// LogActorDeduped writes a user-side audit row only when the same actor has not
+// already produced an identical (action, resource) row within window, and
+// reports whether it wrote. It exists for media reads: a browser fetches a
+// recording in many range requests and re-renders thumbnails as the list
+// scrolls, so one row per HTTP request would bury the trail it is supposed to
+// be. A window <= 0 means "always write".
+//
+// The check is deliberately a plain read-then-insert rather than a lock: the
+// worst case for two concurrent reads is a duplicate row, which is exactly what
+// the caller would have written without dedupe, so there is nothing to protect.
+// A failed lookup is also treated as "no recent row", so a database hiccup can
+// only produce more rows, never lose one.
+func (s *AuditService) LogActorDeduped(
+	ctx context.Context,
+	actorUserID uint,
+	action, resourceType, resourceID, details, ip string,
+	window time.Duration,
+) bool {
+	if window <= 0 {
+		s.LogActor(ctx, actorUserID, action, resourceType, resourceID, details, ip)
+		return true
+	}
+	var recent int64
+	if err := s.db.WithContext(ctx).Model(&models.AuditLog{}).
+		Where("actor_user_id = ? AND action = ? AND resource_type = ? AND resource_id = ?",
+			actorUserID, action, resourceType, resourceID).
+		Where("created_at >= ?", time.Now().Add(-window)).
+		Count(&recent).Error; err == nil && recent > 0 {
+		return false
+	}
+	s.LogActor(ctx, actorUserID, action, resourceType, resourceID, details, ip)
+	return true
+}
+
 // AuditListParams is the cursor-keyset filter used by GET /v1/admin/audit-logs.
 type AuditListParams struct {
 	AfterID               uint

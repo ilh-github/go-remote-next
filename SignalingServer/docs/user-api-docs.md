@@ -848,6 +848,19 @@ API-key and user-auth groups because a top-level browser navigation carries
 neither header; the ticket is the credential. Each ticket is scoped to one
 media kind, so a playback link cannot be replayed against the preview route.
 
+**Media reads are audited, once per burst.** Every artifact and thumbnail read
+on the owner routes *and* on the ticket routes writes a `recording.download` /
+`recording.thumbnail.download` row with the reader in `actor_user_id` and their
+observed address in `ip` — the same action names the admin download routes use,
+so one filter shows every read and the actor column says whether it was the
+owner or an administrator. Because a browser fetches a recording in several
+range requests and re-renders thumbnails as the list scrolls, the write is
+deduplicated to one row per `(actor, action, recording)` within 5 minutes; the
+ticket route adds `via=ticket` to the details. The trail therefore answers "who
+opened this recording, roughly when, and where from" without recording transport
+details, and a leaked playback link shows up as a read by the user the ticket
+was minted for.
+
 Upload behaviour worth knowing:
 
 - the stored file name is derived from `(user_id, recording_id)` and a

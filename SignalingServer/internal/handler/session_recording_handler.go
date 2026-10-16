@@ -28,6 +28,7 @@ type SessionRecordingHandler struct {
 	recordings *service.SessionRecordingService
 	bus        *service.EventBus
 	store      SessionRecordingStore
+	audit      *service.AuditService
 }
 
 // SessionRecordingStore describes where uploaded media files live and how
@@ -47,8 +48,44 @@ func NewSessionRecordingHandler(
 	recordings *service.SessionRecordingService,
 	bus *service.EventBus,
 	store SessionRecordingStore,
+	audit *service.AuditService,
 ) *SessionRecordingHandler {
-	return &SessionRecordingHandler{recordings: recordings, bus: bus, store: store}
+	return &SessionRecordingHandler{recordings: recordings, bus: bus, store: store, audit: audit}
+}
+
+// recordingAuditWindow collapses the burst of requests one playback produces
+// into a single audit row. A browser fetching a recording issues several range
+// requests and re-renders thumbnails on every scroll; without a window the
+// trail would record transport details instead of "this actor read this
+// recording around this time".
+const recordingAuditWindow = 5 * time.Minute
+
+// auditMediaRead records a user reading recording media. The admin routes
+// audit the same act under the same action names, so `recording.download`
+// finds every download; the actor column says whether it was the owner or an
+// administrator. A missing audit service is not an error - the media read is
+// the point of the route, and the write is best-effort like every other audit
+// call in this package.
+func (h *SessionRecordingHandler) auditMediaRead(
+	c *gin.Context,
+	actorID uint,
+	action string,
+	recordingID uint,
+	details string,
+) {
+	if h.audit == nil {
+		return
+	}
+	h.audit.LogActorDeduped(
+		c.Request.Context(),
+		actorID,
+		action,
+		"session_recording",
+		strconv.FormatUint(uint64(recordingID), 10),
+		details,
+		c.ClientIP(),
+		recordingAuditWindow,
+	)
 }
 
 type createSessionRecordingReq struct {
@@ -542,6 +579,7 @@ func (h *SessionRecordingHandler) DownloadThumbnail(c *gin.Context) {
 		ProblemInternal(c, err.Error())
 		return
 	}
+	h.auditMediaRead(c, uid, "recording.thumbnail.download", uint(id), "")
 	serveThumbnail(c, row)
 }
 
@@ -562,6 +600,7 @@ func (h *SessionRecordingHandler) DownloadArtifact(c *gin.Context) {
 		ProblemInternal(c, err.Error())
 		return
 	}
+	h.auditMediaRead(c, uid, "recording.download", uint(id), fmt.Sprintf("size_bytes=%d", row.SizeBytes))
 	serveArtifact(c, row)
 }
 
@@ -754,6 +793,11 @@ func (h *SessionRecordingHandler) DownloadArtifactByTicket(c *gin.Context) {
 		ProblemInternal(c, err.Error())
 		return
 	}
+	// The playback ticket is the authorization for this read, so the actor is
+	// the user the ticket was minted for - recording it here is what makes a
+	// leaked ticket's use visible.
+	h.auditMediaRead(c, ticket.UserID, "recording.download", ticket.RecordingID,
+		fmt.Sprintf("size_bytes=%d via=ticket", row.SizeBytes))
 	serveArtifact(c, row)
 }
 
@@ -789,5 +833,6 @@ func (h *SessionRecordingHandler) DownloadThumbnailByTicket(c *gin.Context) {
 		ProblemInternal(c, err.Error())
 		return
 	}
+	h.auditMediaRead(c, ticket.UserID, "recording.thumbnail.download", ticket.RecordingID, "via=ticket")
 	serveThumbnail(c, row)
 }
