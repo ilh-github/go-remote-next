@@ -32,25 +32,27 @@ func NewDeviceAccessPolicyHandler(devices *service.DeviceService, policies *serv
 }
 
 type deviceAccessPolicyReq struct {
-	RemoteDisabled bool                          `json:"remote_disabled"`
-	AllowIPs       []string                      `json:"allow_ips"`
-	MaxSessions    int                           `json:"max_sessions"`
-	AllowedWindows []service.AccessWindow        `json:"allowed_windows"`
-	Timezone       string                        `json:"timezone"`
-	ExceptionDates []service.AccessExceptionDate `json:"exception_dates"`
+	RemoteDisabled   bool                          `json:"remote_disabled"`
+	AllowIPs         []string                      `json:"allow_ips"`
+	MaxSessions      int                           `json:"max_sessions"`
+	AllowedWindows   []service.AccessWindow        `json:"allowed_windows"`
+	Timezone         string                        `json:"timezone"`
+	ExceptionDates   []service.AccessExceptionDate `json:"exception_dates"`
+	ApprovalRequired bool                          `json:"approval_required"`
 }
 
 // deviceAccessPolicyView is the wire shape: `allow_ips` is returned as a real
 // array (the column stores JSON) so clients never parse a string-of-JSON.
 type deviceAccessPolicyView struct {
-	DeviceID       string                        `json:"device_id"`
-	RemoteDisabled bool                          `json:"remote_disabled"`
-	AllowIPs       []string                      `json:"allow_ips"`
-	MaxSessions    int                           `json:"max_sessions"`
-	AllowedWindows []service.AccessWindow        `json:"allowed_windows"`
-	Timezone       string                        `json:"timezone"`
-	ExceptionDates []service.AccessExceptionDate `json:"exception_dates"`
-	UpdatedAt      *time.Time                    `json:"updated_at,omitempty"`
+	DeviceID         string                        `json:"device_id"`
+	RemoteDisabled   bool                          `json:"remote_disabled"`
+	AllowIPs         []string                      `json:"allow_ips"`
+	MaxSessions      int                           `json:"max_sessions"`
+	AllowedWindows   []service.AccessWindow        `json:"allowed_windows"`
+	Timezone         string                        `json:"timezone"`
+	ExceptionDates   []service.AccessExceptionDate `json:"exception_dates"`
+	ApprovalRequired bool                          `json:"approval_required"`
+	UpdatedAt        *time.Time                    `json:"updated_at,omitempty"`
 }
 
 func (h *DeviceAccessPolicyHandler) Get(c *gin.Context) {
@@ -79,12 +81,13 @@ func (h *DeviceAccessPolicyHandler) Put(c *gin.Context) {
 	uid := middleware.MustUserID(c)
 	policy, err := h.policies.Upsert(c.Request.Context(), deviceID, uid,
 		service.UpsertDeviceAccessPolicyInput{
-			RemoteDisabled: req.RemoteDisabled,
-			AllowIPs:       req.AllowIPs,
-			MaxSessions:    req.MaxSessions,
-			AllowedWindows: req.AllowedWindows,
-			Timezone:       req.Timezone,
-			ExceptionDates: req.ExceptionDates,
+			RemoteDisabled:   req.RemoteDisabled,
+			AllowIPs:         req.AllowIPs,
+			MaxSessions:      req.MaxSessions,
+			AllowedWindows:   req.AllowedWindows,
+			Timezone:         req.Timezone,
+			ExceptionDates:   req.ExceptionDates,
+			ApprovalRequired: req.ApprovalRequired,
 		})
 	if err != nil {
 		if errors.Is(err, service.ErrInvalidAllowIP) ||
@@ -104,13 +107,14 @@ func (h *DeviceAccessPolicyHandler) Put(c *gin.Context) {
 			UserID:   uid,
 			DeviceID: deviceID,
 			Data: map[string]interface{}{
-				"device_id":       deviceID,
-				"remote_disabled": policy.RemoteDisabled,
-				"allow_ips":       decodeAllowIPsForEvent(policy.AllowIPs),
-				"max_sessions":    policy.MaxSessions,
-				"allowed_windows": decodeAccessWindowsForView(policy.AllowedWindows),
-				"timezone":        policy.Timezone,
-				"exception_dates": decodeAccessExceptionsForView(policy.ExceptionDates),
+				"device_id":         deviceID,
+				"remote_disabled":   policy.RemoteDisabled,
+				"allow_ips":         decodeAllowIPsForEvent(policy.AllowIPs),
+				"max_sessions":      policy.MaxSessions,
+				"allowed_windows":   decodeAccessWindowsForView(policy.AllowedWindows),
+				"timezone":          policy.Timezone,
+				"exception_dates":   decodeAccessExceptionsForView(policy.ExceptionDates),
+				"approval_required": policy.ApprovalRequired,
 			},
 		})
 	}
@@ -147,6 +151,7 @@ func policyView(deviceID string, policy *models.DeviceAccessPolicy) deviceAccess
 	view.Timezone = policy.Timezone
 	view.AllowedWindows = decodeAccessWindowsForView(policy.AllowedWindows)
 	view.ExceptionDates = decodeAccessExceptionsForView(policy.ExceptionDates)
+	view.ApprovalRequired = policy.ApprovalRequired
 	if entries := decodeAllowIPsForEvent(policy.AllowIPs); len(entries) > 0 {
 		view.AllowIPs = entries
 	}

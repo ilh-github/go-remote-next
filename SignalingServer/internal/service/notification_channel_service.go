@@ -27,6 +27,8 @@ var SupportedUserNotificationEvents = []string{
 	EventDeviceOnlineChanged,
 	EventDeviceBound,
 	EventDeviceUnbound,
+	EventDeviceAccessApprovalRequested,
+	EventDeviceAccessApprovalDecided,
 }
 
 // IsSupportedUserNotificationEvent reports whether evtType may be subscribed

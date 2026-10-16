@@ -86,6 +86,7 @@ func main() {
 			&models.DeviceAccessLog{},
 			&models.DeviceAccessPolicy{},
 			&models.DeviceAccessGrant{},
+			&models.DeviceAccessApproval{},
 			&models.Webhook{},
 			&models.UserNotificationChannel{},
 			&models.NotificationDelivery{},
@@ -129,6 +130,7 @@ func main() {
 	deviceAccessService := service.NewDeviceAccessService(db)
 	deviceAccessPolicyService := service.NewDeviceAccessPolicyService(db)
 	deviceAccessGrantService := service.NewDeviceAccessGrantService(db)
+	deviceAccessApprovalService := service.NewDeviceAccessApprovalService(db)
 	notificationDeliveryService := service.NewNotificationDeliveryService(db)
 	if cfg.Notification.ArchiveDir != "" {
 		notificationDeliveryService.WithArchiveDir(cfg.Notification.ArchiveDir)
@@ -219,13 +221,16 @@ func main() {
 	notificationChannelHandler := handler.NewNotificationChannelHandler(notificationChannelService, notificationDeliveryService)
 	deviceAccessPolicyHandler := handler.NewDeviceAccessPolicyHandler(deviceService, deviceAccessPolicyService, bus)
 	deviceAccessGrantHandler := handler.NewDeviceAccessGrantHandler(deviceService, deviceAccessGrantService, bus)
+	deviceAccessApprovalHandler := handler.NewDeviceAccessApprovalHandler(
+		deviceService, deviceAccessApprovalService, deviceAccessGrantService,
+		tokenService, presenceService, deviceAccessService, bus)
 	sessionRecordingHandler := handler.NewSessionRecordingHandler(sessionRecordingService, bus, handler.SessionRecordingStore{
 		Dir:       cfg.Recording.Dir,
 		MaxBytes:  int64(cfg.Recording.MaxUploadMB) * 1024 * 1024,
 		URLSecret: cfg.Recording.URLSecret,
 		TicketTTL: time.Duration(cfg.Recording.TicketTTLSeconds) * time.Second,
 	})
-	hostHandler := handler.NewHostHandler(deviceService, tokenService, presenceService, settingsService, rateLimitService, deviceAccessService, deviceAccessPolicyService, deviceAccessGrantService, bus, cfg)
+	hostHandler := handler.NewHostHandler(deviceService, tokenService, presenceService, settingsService, rateLimitService, deviceAccessService, deviceAccessPolicyService, deviceAccessGrantService, deviceAccessApprovalService, bus, cfg)
 	realtimeHandler := handler.NewRealtimeHandler(tokenService, bus, presenceService, db, deviceService, favoriteService, metricsService, deviceAccessService, deviceAccessPolicyService, redisClient)
 
 	adminAuthHandler := handler.NewAdminAuthHandler(adminUserService, tokenService, auditService)
@@ -327,6 +332,9 @@ func main() {
 			me.GET("/devices/:device_id/access-grants", deviceAccessGrantHandler.List)
 			me.POST("/devices/:device_id/access-grants", deviceAccessGrantHandler.Create)
 			me.DELETE("/devices/:device_id/access-grants/:grant_id", deviceAccessGrantHandler.Delete)
+			me.GET("/devices/:device_id/access-approvals", deviceAccessApprovalHandler.List)
+			me.POST("/devices/:device_id/access-approvals/:approval_id/approve", deviceAccessApprovalHandler.Approve)
+			me.POST("/devices/:device_id/access-approvals/:approval_id/deny", deviceAccessApprovalHandler.Deny)
 			me.PATCH("/devices/:device_id", deviceHandler.Patch)
 			me.DELETE("/devices/:device_id", deviceHandler.Unbind)
 			me.DELETE("/devices/:device_id/session", deviceHandler.ClearSession)
@@ -383,6 +391,12 @@ func main() {
 		// verify: X-API-Key OR Origin whitelist — apikey.Required()
 		// already implements the OR logic (§2.2 H1).
 		v1.POST("/devices/:device_id/access-code:verify", hostHandler.VerifyAccessCode)
+
+		// claim: the requesting controller exchanges a granted approval
+		// (approval_id + one-time secret from access-code:verify) for a
+		// signal token. No device secret or user token: the secret is the
+		// credential, which is why it is compared in constant time.
+		v1.POST("/devices/:device_id/access-approvals:claim", deviceAccessApprovalHandler.Claim)
 
 		// ice-config: X-API-Key (hosts additionally present Bearer
 		// device_secret, but apikey.Required() already covers both paths

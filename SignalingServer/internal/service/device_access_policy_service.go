@@ -32,12 +32,13 @@ func NewDeviceAccessPolicyService(db *gorm.DB) *DeviceAccessPolicyService {
 
 // UpsertDeviceAccessPolicyInput is the validated body of the policy endpoint.
 type UpsertDeviceAccessPolicyInput struct {
-	RemoteDisabled bool
-	AllowIPs       []string
-	MaxSessions    int
-	AllowedWindows []AccessWindow
-	Timezone       string
-	ExceptionDates []AccessExceptionDate
+	RemoteDisabled   bool
+	AllowIPs         []string
+	MaxSessions      int
+	AllowedWindows   []AccessWindow
+	Timezone         string
+	ExceptionDates   []AccessExceptionDate
+	ApprovalRequired bool
 }
 
 // Get returns the device policy, or (nil, nil) when the device has none: a
@@ -100,10 +101,17 @@ func (s *DeviceAccessPolicyService) Upsert(ctx context.Context, deviceID string,
 	row.AllowedWindows = string(windowsEncoded)
 	row.Timezone = strings.TrimSpace(in.Timezone)
 	row.ExceptionDates = string(exceptionsEncoded)
+	row.ApprovalRequired = in.ApprovalRequired
 	if err := s.db.WithContext(ctx).Save(row).Error; err != nil {
 		return nil, err
 	}
 	return row, nil
+}
+
+// RequiresApproval reports whether a device policy turns a matched access code
+// into a pending owner decision. A nil policy never does.
+func RequiresApproval(policy *models.DeviceAccessPolicy) bool {
+	return policy != nil && policy.ApprovalRequired
 }
 
 // Evaluate decides whether a client at clientIP may proceed with session

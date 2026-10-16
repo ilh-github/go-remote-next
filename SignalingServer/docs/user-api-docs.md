@@ -389,7 +389,8 @@ Payload shape (same as admin webhooks):
 
 Supported events today: `device.access.denied`, `device.access.granted`,
 `device.access.session_started`, `device.online.changed`, `device.bound`,
-`device.unbound`.
+`device.unbound`, `device.access_approval.requested`,
+`device.access_approval.decided`.
 
 When `secret` is set the raw body is signed with HMAC-SHA256 and sent as
 `X-Webhook-Signature: sha256=<hex>`, so receivers can share one verification
@@ -447,8 +448,8 @@ blocked client never gets to guess codes.
 
 | Method | Path | Body | Notes |
 |---|---|---|---|
-| `GET` | `/v1/me/devices/:device_id/access-policy` | — | Returns `{device_id, remote_disabled, allow_ips: [], max_sessions, allowed_windows: [], timezone, exception_dates: [], updated_at?}`. A device with no policy returns `remote_disabled: false, allow_ips: [], max_sessions: 0, allowed_windows: [], exception_dates: []`. |
-| `PUT` | `/v1/me/devices/:device_id/access-policy` | `{remote_disabled: bool, allow_ips: ["10.0.0.0/8"], max_sessions: 1, allowed_windows: [{"days":[1,2,3,4,5],"start":"09:00","end":"18:00"}], timezone: "Asia/Shanghai", exception_dates: [{"date":"2026-02-15","end_date":"2026-02-21","mode":"deny","repeat":"yearly"}]}` | Full replace. IP entries must be bare IPs or CIDR blocks; `0` max sessions means unlimited; negative is rejected. |
+| `GET` | `/v1/me/devices/:device_id/access-policy` | — | Returns `{device_id, remote_disabled, allow_ips: [], max_sessions, allowed_windows: [], timezone, exception_dates: [], approval_required, updated_at?}`. A device with no policy returns `remote_disabled: false, allow_ips: [], max_sessions: 0, allowed_windows: [], exception_dates: [], approval_required: false`. |
+| `PUT` | `/v1/me/devices/:device_id/access-policy` | `{remote_disabled: bool, allow_ips: ["10.0.0.0/8"], max_sessions: 1, allowed_windows: [{"days":[1,2,3,4,5],"start":"09:00","end":"18:00"}], timezone: "Asia/Shanghai", exception_dates: [{"date":"2026-02-15","end_date":"2026-02-21","mode":"deny","repeat":"yearly"}], approval_required: false}` | Full replace. IP entries must be bare IPs or CIDR blocks; `0` max sessions means unlimited; negative is rejected. |
 
 `max_sessions` is a concurrency cap on *controllers* (viewers count too, the
 host socket does not). It is enforced when a controller authenticates its
@@ -487,6 +488,11 @@ evaluated in the same `timezone`:
 
 Exception dates only decide the *time* rule. `remote_disabled` and `allow_ips`
 are still evaluated first, so an allow date cannot bypass either of them.
+
+`approval_required` adds a second factor on top of a correct access code
+(§5.3.5): every session on this device turns into a pending request the owner
+must approve, even when the code is right. It is not a substitute for the
+code — the code is still compared, and the policy gate above still runs.
 
 A controller outside every window is rejected at verify time with
 `ACCESS_POLICY_DENIED` / "outside the allowed access window" and shows up as
@@ -535,6 +541,53 @@ Grants also emit realtime events to the owner (§11):
   `{grant_id, label, uses, max_uses, client_id}`. Successful admissions are
   intentionally *not* audited (that would add an admin row per healthy session);
   they are visible on the owner-scoped access timeline instead.
+
+### 5.3.5 Device access approvals (second factor)
+
+`approval_required` on the device policy (§5.3.3) turns "right access code"
+into "right access code **and** the owner said yes". It exists for the case the
+code alone cannot cover: a guest who was given a code walks up at a bad moment,
+or the owner simply wants to see each session start.
+
+The flow:
+
+1. the controller calls `access-code:verify` (§6.5) with a correct code or
+   grant while the host is online;
+2. instead of a signal token, the server creates a pending approval and
+   answers `202` with `{approval_id, approval_secret, status: "pending",
+   expires_at, poll_after_ms}`. The secret is shown **once** and stored only as
+   a SHA-256 hash;
+3. the owner sees it on `GET /v1/me/devices/:device_id/access-approvals`
+   (the request also fans out as `device.access_approval.requested`), and
+   approves or denies;
+4. the controller polls `POST /v1/devices/:device_id/access-approvals:claim`
+   with `{approval_id, secret}` until it is granted, then receives the usual
+   `{signal_token, expires_at}`.
+
+| Method | Path | Auth | Body / notes |
+|---|---|---|---|
+| `GET` | `/v1/me/devices/:device_id/access-approvals` | user token | `?status=pending&limit=50`. `status` is a comma-separated subset of `pending,approved,denied,expired,consumed` and defaults to `pending`. Returns `{items: [...]}` newest first. |
+| `POST` | `/v1/me/devices/:device_id/access-approvals/:approval_id/approve` | user token | Optional `{reason}`. `200` with the updated row. A request that was already decided (or timed out) returns `409` with the current `status` instead of silently flipping it. |
+| `POST` | `/v1/me/devices/:device_id/access-approvals/:approval_id/deny` | user token | Optional `{reason}`. Same `200` / `409` shape. |
+| `POST` | `/v1/devices/:device_id/access-approvals:claim` | `X-API-Key` | `{approval_id, secret}` from step 2. `202` while pending, `200` with a signal token once approved, `403` when denied or expired, `404` for an unknown id *or* a wrong secret (they are deliberately indistinguishable), `409` when the approval was already used. |
+
+Rules that matter:
+
+- The approval is **single-use**. The `approved → consumed` transition is a
+  single `UPDATE` re-checking the status, so two controllers racing the same
+  approval cannot both mint a token — the loser gets `409`.
+- **The host is re-checked at claim time.** An approval is not consumed while
+  the host is offline; the controller gets `409 HOST_OFFLINE` and can claim
+  again once the device is back.
+- **A grant still spends its use only when the session can start.** For a
+  grant-backed approval, the grant counter is incremented during the claim,
+  after the host-online check — the same property as the non-approval path.
+- A pending approval **expires** after 2 minutes (`DeviceAccessApprovalDefaultTTL`);
+  the client then sees `403` on claim and the row reads `expired`.
+- Access-timeline rows read `pending_approval` on request, `denied_approval`
+  when the owner refuses, and `granted` when the claim succeeds. Approving or
+  denying is also written to the admin audit trail (it is an admission
+  decision), while healthy admissions stay owner-scoped.
 
 ### 5.4 Connections (history)
 
@@ -750,6 +803,20 @@ Response (200):
 
 ```json
 { "signal_token": "stk_01H...", "expires_at": "2026-05-12T08:53:39Z" }
+```
+
+When the device policy has `approval_required` (§5.3.3), a correct code returns
+`202` instead, and no token is minted until the owner approves and the
+controller claims the approval (§5.3.5):
+
+```json
+{
+  "approval_id": 42,
+  "approval_secret": "9c5cabcd...",
+  "status": "pending",
+  "expires_at": "2026-10-16T00:40:18Z",
+  "poll_after_ms": 2000
+}
 ```
 
 Error path:
@@ -1039,6 +1106,8 @@ include access-code plaintext, `device_secret`, or `refresh_token`.
 | `device.access_policy.changed` | owner changed the device access policy (§5.3.3) | `{device_id, remote_disabled, allow_ips, max_sessions, allowed_windows, timezone, exception_dates}` |
 | `device.access_grant.changed` | owner created or revoked a guest grant (§5.3.4) | `{action: "created"\|"revoked", grant_id, label, expires_at, max_uses, uses}` (never the code) |
 | `device.access_grant.used` | a grant just admitted a session | `{grant_id, label, uses, max_uses, client_id}` |
+| `device.access_approval.requested` | a correct code is waiting for the owner's yes/no (§5.3.5) | `{approval_id, client_id, client_ip, source, expires_at}` (never the secret) |
+| `device.access_approval.decided` | owner approved or denied a waiting session | `{approval_id, status: "approved"\|"denied", source, client_id, reason?}` |
 
 Event envelope (always present):
 

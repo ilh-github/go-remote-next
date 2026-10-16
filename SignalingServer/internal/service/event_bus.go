@@ -55,6 +55,12 @@ const (
 	// carries the grant code - the owner already got it in the create response.
 	EventDeviceAccessGrantChanged = "device.access_grant.changed"
 	EventDeviceAccessGrantUsed    = "device.access_grant.used"
+	// Second-factor approval. `requested` tells the owner "someone with the
+	// right code is waiting for your yes/no"; `decided` fires when the owner
+	// approves or denies (and, for the requesting client, when the deadline
+	// passes). Neither carries the access code or the claim secret.
+	EventDeviceAccessApprovalRequested = "device.access_approval.requested"
+	EventDeviceAccessApprovalDecided   = "device.access_approval.decided"
 
 	EventFavoriteAdded   = "favorite.added"
 	EventFavoriteUpdated = "favorite.updated"

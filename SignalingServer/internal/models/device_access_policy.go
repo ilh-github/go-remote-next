@@ -39,6 +39,11 @@ type DeviceAccessPolicy struct {
 	// blocks the whole day, "allow" permits it and overrides AllowedWindows.
 	// Empty means "no exceptions".
 	ExceptionDates string `gorm:"type:text" json:"exception_dates"`
+	// ApprovalRequired turns a matched access code (or grant) into a pending
+	// request the owner must approve before the controller gets a signal
+	// token. It is a second factor on top of the code, never a replacement:
+	// the code is still compared first, and the policy gate above still runs.
+	ApprovalRequired bool `gorm:"not null;default:false" json:"approval_required"`
 
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`

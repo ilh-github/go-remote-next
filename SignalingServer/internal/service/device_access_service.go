@@ -37,6 +37,13 @@ const (
 	// DeviceAccessDeniedSessionLimit means the access code was accepted but
 	// the device already had as many controllers as its policy allows.
 	DeviceAccessDeniedSessionLimit = "denied_session_limit"
+	// DeviceAccessPendingApproval means the code matched but the device
+	// policy requires the owner to approve the session first. The access log
+	// shows it as neither granted nor denied until the owner decides.
+	DeviceAccessPendingApproval = "pending_approval"
+	// DeviceAccessDeniedApproval means the owner (or the approval deadline)
+	// refused the session even though the code was correct.
+	DeviceAccessDeniedApproval = "denied_approval"
 )
 
 // ErrInvalidDeviceAccessResult is returned when a caller passes a result
@@ -52,7 +59,9 @@ func IsDeviceAccessResult(result string) bool {
 		DeviceAccessHostOffline,
 		DeviceAccessSessionStarted,
 		DeviceAccessDeniedPolicy,
-		DeviceAccessDeniedSessionLimit:
+		DeviceAccessDeniedSessionLimit,
+		DeviceAccessPendingApproval,
+		DeviceAccessDeniedApproval:
 		return true
 	default:
 		return false

@@ -29,17 +29,18 @@ import (
 //
 // See docs §2.5, §2.6, §2.10, §2.19, §2.23.
 type HostHandler struct {
-	devices      *service.DeviceService
-	tokens       *service.TokenService
-	presence     *service.PresenceService
-	settings     *service.SettingsService
-	rateLimit    *service.RateLimitService
-	access       *service.DeviceAccessService
-	accessPolicy *service.DeviceAccessPolicyService
-	accessGrants *service.DeviceAccessGrantService
-	bus          *service.EventBus
-	serverSince  time.Time
-	appConfig    *config.Config
+	devices         *service.DeviceService
+	tokens          *service.TokenService
+	presence        *service.PresenceService
+	settings        *service.SettingsService
+	rateLimit       *service.RateLimitService
+	access          *service.DeviceAccessService
+	accessPolicy    *service.DeviceAccessPolicyService
+	accessGrants    *service.DeviceAccessGrantService
+	accessApprovals *service.DeviceAccessApprovalService
+	bus             *service.EventBus
+	serverSince     time.Time
+	appConfig       *config.Config
 }
 
 func NewHostHandler(
@@ -51,21 +52,23 @@ func NewHostHandler(
 	access *service.DeviceAccessService,
 	accessPolicy *service.DeviceAccessPolicyService,
 	accessGrants *service.DeviceAccessGrantService,
+	accessApprovals *service.DeviceAccessApprovalService,
 	bus *service.EventBus,
 	appConfig *config.Config,
 ) *HostHandler {
 	return &HostHandler{
-		devices:      devices,
-		tokens:       tokens,
-		presence:     presence,
-		settings:     settings,
-		rateLimit:    rateLimit,
-		access:       access,
-		accessPolicy: accessPolicy,
-		accessGrants: accessGrants,
-		bus:          bus,
-		serverSince:  time.Now().UTC(),
-		appConfig:    appConfig,
+		devices:         devices,
+		tokens:          tokens,
+		presence:        presence,
+		settings:        settings,
+		rateLimit:       rateLimit,
+		access:          access,
+		accessPolicy:    accessPolicy,
+		accessGrants:    accessGrants,
+		accessApprovals: accessApprovals,
+		bus:             bus,
+		serverSince:     time.Now().UTC(),
+		appConfig:       appConfig,
 	}
 }
 
@@ -350,6 +353,24 @@ type verifyCodeResp struct {
 	ExpiresAt   string `json:"expires_at"`
 }
 
+// approvalRequiredResp is the 202 the controller gets instead of a token when
+// the device policy wants the owner to confirm the session. The client polls
+// /v1/devices/:id/access-approvals:claim with approval_id + approval_secret.
+type approvalRequiredResp struct {
+	ApprovalID     uint   `json:"approval_id"`
+	ApprovalSecret string `json:"approval_secret"`
+	Status         string `json:"status"`
+	ExpiresAt      string `json:"expires_at"`
+	PollAfterMS    int    `json:"poll_after_ms"`
+}
+
+func approvalSource(grant *models.DeviceAccessGrant) string {
+	if grant != nil {
+		return models.ApprovalSourceGrant
+	}
+	return models.ApprovalSourceDeviceCode
+}
+
 func (h *HostHandler) VerifyAccessCode(c *gin.Context) {
 	deviceID := c.Param("device_id")
 	ip := c.ClientIP()
@@ -375,12 +396,14 @@ func (h *HostHandler) VerifyAccessCode(c *gin.Context) {
 	// remote access switched off, or a client outside the allow list, never
 	// reaches the access-code comparison at all. Checked after the rate
 	// limiter so a blocked caller cannot use this path to spray requests.
+	var policy *models.DeviceAccessPolicy
 	if h.accessPolicy != nil {
-		policy, err := h.accessPolicy.Get(c.Request.Context(), deviceID)
+		loaded, err := h.accessPolicy.Get(c.Request.Context(), deviceID)
 		if err != nil {
 			ProblemInternal(c, err.Error())
 			return
 		}
+		policy = loaded
 		if allowed, reason := service.EvaluateDeviceAccessPolicy(policy, ip); !allowed {
 			h.recordDeviceAccess(c, deviceID, "", service.DeviceAccessDeniedPolicy, reason)
 			observability.Event("access_verify", "policy_denied", map[string]interface{}{
@@ -472,6 +495,67 @@ func (h *HostHandler) VerifyAccessCode(c *gin.Context) {
 	// Code matched → reset counters and mint a single-use signal_token.
 	h.rateLimit.ResetVerifyFailures(c.Request.Context(), deviceID, ip)
 
+	// Second factor: the code is right, but this device's owner wants to say
+	// yes first. Instead of a token, the controller gets a pending request it
+	// polls with the one-time secret until the owner decides.
+	if service.RequiresApproval(policy) {
+		// Fail closed: a policy that demands approval must never fall through
+		// to "mint a token anyway" because the service was not wired.
+		if h.accessApprovals == nil {
+			ProblemInternal(c, "approval service is not configured")
+			return
+		}
+		var grantID *uint
+		if usedGrant != nil {
+			grantID = &usedGrant.ID
+		}
+		ownerID := uint(0)
+		if h.access != nil {
+			ownerID = h.access.OwnerID(c.Request.Context(), deviceID)
+		}
+		row, secret, aerr := h.accessApprovals.Create(c.Request.Context(),
+			service.CreateDeviceAccessApprovalInput{
+				DeviceID: deviceID,
+				OwnerID:  ownerID,
+				ClientID: req.ClientID,
+				ClientIP: ip,
+				Source:   approvalSource(usedGrant),
+				GrantID:  grantID,
+			})
+		if aerr != nil {
+			ProblemInternal(c, aerr.Error())
+			return
+		}
+		h.recordDeviceAccess(c, deviceID, req.ClientID, service.DeviceAccessPendingApproval,
+			"waiting for owner approval")
+		observability.Event("access_verify", "approval_pending", map[string]interface{}{
+			"device_id": deviceID, "ip": ip, "approval_id": row.ID,
+			"request_id": c.GetString("request_id"),
+		})
+		if h.bus != nil && ownerID != 0 {
+			h.bus.Publish(c.Request.Context(), service.Event{
+				Type:     service.EventDeviceAccessApprovalRequested,
+				UserID:   ownerID,
+				DeviceID: deviceID,
+				Data: map[string]interface{}{
+					"approval_id": row.ID,
+					"client_id":   req.ClientID,
+					"client_ip":   ip,
+					"source":      row.Source,
+					"expires_at":  row.ExpiresAt.UTC().Format(time.RFC3339),
+				},
+			})
+		}
+		c.JSON(http.StatusAccepted, approvalRequiredResp{
+			ApprovalID:     row.ID,
+			ApprovalSecret: secret,
+			Status:         models.ApprovalPending,
+			ExpiresAt:      row.ExpiresAt.UTC().Format(time.RFC3339),
+			PollAfterMS:    2000,
+		})
+		return
+	}
+
 	// A grant only counts a use once a session can actually start. Consume
 	// re-checks the window and quota in its own UPDATE, so two controllers
 	// racing the last slot cannot both win.
@@ -551,6 +635,13 @@ func (h *HostHandler) recordDeviceAccess(c *gin.Context, deviceID, clientID, res
 		return
 	}
 	if row.OwnerID == 0 || h.bus == nil {
+		return
+	}
+	// A pending approval is not a denial: the caller publishes
+	// device.access_approval.requested separately. Keep it out of the
+	// approved/denied realtime stream so the owner is not told "denied" while
+	// they still have a request to answer.
+	if result == service.DeviceAccessPendingApproval {
 		return
 	}
 	eventType := service.EventDeviceAccessGranted

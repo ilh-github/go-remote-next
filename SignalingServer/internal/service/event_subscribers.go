@@ -70,7 +70,10 @@ func (s *auditSubscriber) HandleEvent(ctx context.Context, evt Event) {
 		// Changing who may reach a device is itself an auditable act.
 		EventDevicePolicyChanged,
 		// Issuing or cancelling a shared guest code is the same kind of act.
-		EventDeviceAccessGrantChanged:
+		EventDeviceAccessGrantChanged,
+		// Approving or denying a waiting session is a deliberate admission
+		// decision and belongs in the admin trail alongside policy changes.
+		EventDeviceAccessApprovalDecided:
 	default:
 		return
 	}

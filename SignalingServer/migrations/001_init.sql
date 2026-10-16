@@ -257,11 +257,17 @@ CREATE TABLE IF NOT EXISTS device_access_policies (
     allowed_windows TEXT        NOT NULL DEFAULT '[]',
     timezone        VARCHAR(64) NOT NULL DEFAULT '',
     exception_dates TEXT        NOT NULL DEFAULT '[]',
+    approval_required BOOLEAN   NOT NULL DEFAULT FALSE,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_device_access_policies_owner_id ON device_access_policies (owner_id);
+
+-- Second factor: a matched access code becomes a pending owner decision.
+-- Added after the table shipped, so existing installs need the ALTER too.
+ALTER TABLE device_access_policies
+    ADD COLUMN IF NOT EXISTS approval_required BOOLEAN NOT NULL DEFAULT FALSE;
 
 -- ---------------------------------------------------------------
 -- Device access grants (owner-issued, time-boxed, optionally single-use)
@@ -291,6 +297,47 @@ CREATE INDEX IF NOT EXISTS idx_device_access_grants_code
 
 CREATE INDEX IF NOT EXISTS idx_device_access_grants_owner_id
     ON device_access_grants (owner_id);
+
+-- ---------------------------------------------------------------
+-- Device access approvals (second factor for high-risk sessions)
+-- Created by `access-code:verify` when the policy has approval_required set.
+-- The controller polls/claims with a one-time secret (stored as a SHA-256
+-- hash); the owner approves or denies. The approved -> consumed transition is
+-- a single UPDATE, so only one claim can mint a signal token.
+-- ---------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS device_access_approvals (
+    id          BIGSERIAL PRIMARY KEY,
+    device_id   VARCHAR(20) NOT NULL,
+    owner_id    BIGINT      NOT NULL DEFAULT 0,
+    client_id   VARCHAR(64) NOT NULL DEFAULT '',
+    client_ip   VARCHAR(50) NOT NULL DEFAULT '',
+    source      VARCHAR(16) NOT NULL DEFAULT 'device_code',
+    grant_id    BIGINT,
+    secret_hash VARCHAR(64) NOT NULL DEFAULT '',
+    status      VARCHAR(16) NOT NULL DEFAULT 'pending',
+    expires_at  TIMESTAMPTZ NOT NULL,
+    decided_at  TIMESTAMPTZ,
+    decided_by  BIGINT      NOT NULL DEFAULT 0,
+    reason      VARCHAR(255) NOT NULL DEFAULT '',
+    consumed_at TIMESTAMPTZ,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_device_access_approvals_device_id
+    ON device_access_approvals (device_id);
+
+CREATE INDEX IF NOT EXISTS idx_device_access_approvals_owner_id
+    ON device_access_approvals (owner_id);
+
+CREATE INDEX IF NOT EXISTS idx_device_access_approvals_status
+    ON device_access_approvals (status);
+
+CREATE INDEX IF NOT EXISTS idx_device_access_approvals_expires_at
+    ON device_access_approvals (expires_at);
+
+CREATE INDEX IF NOT EXISTS idx_device_access_approvals_grant_id
+    ON device_access_approvals (grant_id);
 
 -- ---------------------------------------------------------------
 -- Webhooks (system/admin scope, per §2.17 M4)
