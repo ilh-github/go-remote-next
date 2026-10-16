@@ -820,6 +820,8 @@ async function runSoak(conn, credFor) {
 
   let refreshesOK = 0;
   let refreshesFailed = 0;
+  let permsOK = 0;
+  let permsFailed = 0;
   let lastError = '';
   const started = Date.now();
   let lastReport = started;
@@ -852,6 +854,19 @@ async function runSoak(conn, credFor) {
         refreshesFailed += 1;
         lastError = String(err.message ?? err);
       }
+      // A TURN permission lives for 300s by default and refreshing the
+      // allocation does NOT extend it: coturn keeps both allocations alive and
+      // silently drops every datagram once the permission lapses. The first
+      // hour-scale run died at exactly t+300s with 100% loss for this reason,
+      // which is why permissions are now re-issued on the same timer.
+      try {
+        await createPermission(a, b.relayed);
+        await createPermission(b, a.relayed);
+        permsOK += 1;
+      } catch (err) {
+        permsFailed += 1;
+        lastError = `permission: ${String(err.message ?? err)}`;
+      }
     }
 
     if (now - lastReport >= reportEverySec * 1000) {
@@ -861,7 +876,8 @@ async function runSoak(conn, credFor) {
       const windowLoss = windowSent > 0 ? ((windowSent - (received - lastReceived)) / windowSent) * 100 : 0;
       console.log(
         `  t+${Math.round((now - started) / 1000)}s  relayed ${instKbps.toFixed(0)} kbps  ` +
-          `loss ${windowLoss.toFixed(1)}%  refreshes ok/fail ${refreshesOK}/${refreshesFailed}`,
+          `loss ${windowLoss.toFixed(1)}%  refreshes ok/fail ${refreshesOK}/${refreshesFailed}  ` +
+          `permissions ok/fail ${permsOK}/${permsFailed}`,
       );
       lastReport = now;
       lastSent = sent;
@@ -883,6 +899,7 @@ async function runSoak(conn, credFor) {
   console.log(`loss:      ${lossPercent.toFixed(1)} %`);
   console.log(`sustained goodput: ~${sustainedKbps.toFixed(0)} kbps`);
   console.log(`allocations refreshed: ok ${refreshesOK}, failed ${refreshesFailed}${lastError ? ` (${lastError})` : ''}`);
+  console.log(`permissions re-issued: ok ${permsOK}, failed ${permsFailed}`);
   console.log(`A integrity: ${a.integrityOK}  B integrity: ${b.integrityOK}`);
 
   await Promise.all([deallocate(a), deallocate(b)]);
@@ -893,6 +910,10 @@ async function runSoak(conn, credFor) {
   }
   if (refreshesFailed > 0) {
     console.error(`FAIL: ${refreshesFailed} refresh cycle(s) failed`);
+    return 2;
+  }
+  if (permsFailed > 0) {
+    console.error(`FAIL: ${permsFailed} permission refresh cycle(s) failed`);
     return 2;
   }
 
