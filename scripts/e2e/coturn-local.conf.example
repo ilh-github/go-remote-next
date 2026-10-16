@@ -29,6 +29,12 @@ fingerprint
 no-multicast-peers
 allow-loopback-peers
 
+# Relay bandwidth cap. coturn's `max-bps` is in BYTES per second, per session
+# (50000 B/s = 400 kbps). The signaling server only signs credentials, so this
+# is the one place a relay cap can actually be enforced - verified in the E2E
+# log section 28. Leave it commented out for an uncapped local test.
+# max-bps=50000
+
 # Local test convenience; drop these for a real deployment.
 simple-log
 log-file=/tmp/qd-turn.log

@@ -10,6 +10,12 @@
 //   QD_TURN_URL=... QD_TURN_QUALITY=1 QD_TURN_PACKETS=200 QD_TURN_PAYLOAD=1024 \
 //   node turn-capacity.mjs
 //
+// Soak run (sustained relayed traffic + periodic allocation refresh):
+//   QD_TURN_URL=... QD_TURN_SOAK=1 QD_TURN_SOAK_SECONDS=300 QD_TURN_PAYLOAD=1200 \
+//   node turn-capacity.mjs
+//   # add QD_TURN_SEND_KBPS=1000 and QD_TURN_EXPECT_KBPS_MAX=400 to verify a
+//   # coturn `max-bps` cap, or QD_TURN_MAX_LOSS_PERCENT=5 to gate on loss.
+//
 // Credentials come from QD_TURN_SECRET (minted locally) or, if unset, from the
 // signaling server's GET /v1/ice-config (QD_SIGNALING_URL + QD_API_KEY).
 //
@@ -244,6 +250,12 @@ class TurnSocket {
     });
   }
 
+  /** Fire-and-forget send, for sustained traffic where awaiting each packet
+   *  would throttle the sender more than the relay does. */
+  sendNoWait(buf) {
+    this.socket.send(buf, this.port, this.host);
+  }
+
   request(type, attrs, key, timeoutMs) {
     const txId = crypto.randomBytes(12);
     const buf = buildMessage(type, txId, attrs, key);
@@ -400,6 +412,32 @@ function sendData(alloc, peer, payload) {
     null,
   );
   return alloc.socket.send(buf);
+}
+
+function sendDataNoWait(alloc, peer, payload) {
+  const txId = crypto.randomBytes(12);
+  const buf = buildMessage(
+    T.SendInd,
+    txId,
+    [xorAddressAttr(A.XorPeer, peer), attr(A.Data, payload)],
+    null,
+  );
+  alloc.socket.sendNoWait(buf);
+}
+
+/**
+ * Refresh an allocation's lifetime. coturn grants a finite lifetime (600s by
+ * default) and drops the allocation when it expires, so a long session must
+ * refresh; a soak that never refreshes only proves the first minute works.
+ */
+async function refreshAllocation(alloc, lifetimeSeconds) {
+  const reply = await authedRequest(
+    alloc,
+    T.Refresh,
+    [attr(A.Lifetime, u32(lifetimeSeconds))],
+    T.RefreshSuccess,
+  );
+  return reply.type === T.RefreshSuccess;
 }
 
 /**
@@ -570,6 +608,153 @@ async function runQuality({ host, port }, credFor) {
   return 0;
 }
 
+/**
+ * Sustained relay run. Holds two allocations open for a configured duration,
+ * keeps relaying datagrams through them, and refreshes the allocations on a
+ * timer. This is the mode that shows whether a long session stays up (the
+ * allocation would be dropped at its lifetime otherwise) and what sustained
+ * goodput the relay actually delivers - which is also how a coturn `max-bps`
+ * cap is verified.
+ */
+async function runSoak({ host, port }, credFor) {
+  const seconds = Number(process.env.QD_TURN_SOAK_SECONDS ?? 120);
+  const payloadSize = Number(process.env.QD_TURN_PAYLOAD ?? 1200);
+  const refreshEverySec = Number(process.env.QD_TURN_SOAK_REFRESH_SECONDS ?? 30);
+  const reportEverySec = Number(process.env.QD_TURN_SOAK_REPORT_SECONDS ?? 15);
+  // 0 = send as fast as the event loop allows. Set it (above the expected cap)
+  // to pace the sender, which is how a bandwidth cap is measured cleanly.
+  const sendKbps = Number(process.env.QD_TURN_SEND_KBPS ?? 0);
+
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const sendPace = sendKbps > 0 ? (sendKbps * 1000) / (payloadSize * 8) : 0; // packets/s
+  const tickMs = 10;
+  const perTick = sendPace > 0 ? Math.max(1, Math.round((sendPace * tickMs) / 1000)) : 25;
+
+  console.log(
+    `soak: ${payloadSize} B datagrams for ${seconds}s, refresh every ${refreshEverySec}s, ` +
+      `send rate ${sendKbps > 0 ? `${sendKbps} kbps` : 'unthrottled'}`,
+  );
+  const a = await allocate({ host, port, ...credFor(0) });
+  const b = await allocate({ host, port, ...credFor(1) });
+  console.log(`A relayed ${a.relayed.address}:${a.relayed.port}  B relayed ${b.relayed.address}:${b.relayed.port}`);
+
+  await createPermission(a, b.relayed);
+  await createPermission(b, a.relayed);
+
+  let sent = 0;
+  let received = 0;
+  let bytes = 0;
+  b.socket.indicationHandlers.push((msg) => {
+    const data = findAttr(msg, A.Data);
+    if (data) {
+      received += 1;
+      bytes += data.value.length;
+    }
+  });
+
+  // Warm the permission/relay path before measuring.
+  sendDataNoWait(a, b.relayed, Buffer.from('prime'));
+  await sleep(100);
+  b.socket.indications.length = 0;
+  sent = 0;
+  received = 0;
+  bytes = 0;
+
+  let refreshesOK = 0;
+  let refreshesFailed = 0;
+  let lastError = '';
+  const started = Date.now();
+  let lastReport = started;
+  let lastSent = 0;
+  let lastBytes = 0;
+  let lastReceived = 0;
+  let nextRefresh = started + refreshEverySec * 1000;
+  const payload = Buffer.alloc(payloadSize);
+
+  while (Date.now() - started < seconds * 1000) {
+    for (let i = 0; i < perTick; i += 1) {
+      payload.writeUInt32BE(sent & 0xffffffff, 0);
+      sendDataNoWait(a, b.relayed, payload);
+      sent += 1;
+    }
+    await sleep(tickMs);
+
+    const now = Date.now();
+    if (now >= nextRefresh) {
+      nextRefresh = now + refreshEverySec * 1000;
+      try {
+        const [okA, okB] = await Promise.all([refreshAllocation(a, 600), refreshAllocation(b, 600)]);
+        if (okA && okB) {
+          refreshesOK += 1;
+        } else {
+          refreshesFailed += 1;
+          lastError = 'refresh rejected';
+        }
+      } catch (err) {
+        refreshesFailed += 1;
+        lastError = String(err.message ?? err);
+      }
+    }
+
+    if (now - lastReport >= reportEverySec * 1000) {
+      const dtSec = (now - lastReport) / 1000;
+      const instKbps = ((bytes - lastBytes) * 8) / dtSec / 1000;
+      const windowSent = sent - lastSent;
+      const windowLoss = windowSent > 0 ? ((windowSent - (received - lastReceived)) / windowSent) * 100 : 0;
+      console.log(
+        `  t+${Math.round((now - started) / 1000)}s  relayed ${instKbps.toFixed(0)} kbps  ` +
+          `loss ${windowLoss.toFixed(1)}%  refreshes ok/fail ${refreshesOK}/${refreshesFailed}`,
+      );
+      lastReport = now;
+      lastSent = sent;
+      lastBytes = bytes;
+      lastReceived = received;
+    }
+  }
+
+  const elapsedMs = Date.now() - started;
+  // Let the relay drain whatever is still in flight before the final count.
+  await sleep(500);
+  // bits per millisecond is numerically kbps, so no extra /1000 here.
+  const sustainedKbps = (bytes * 8) / elapsedMs;
+  const lossPercent = sent > 0 ? ((sent - received) / sent) * 100 : 0;
+
+  console.log(`\n=== TURN soak (${(elapsedMs / 1000).toFixed(1)}s) ===`);
+  console.log(`sent:      ${sent} packets, ${sent * payloadSize} B`);
+  console.log(`received:  ${received} packets, ${bytes} B`);
+  console.log(`loss:      ${lossPercent.toFixed(1)} %`);
+  console.log(`sustained goodput: ~${sustainedKbps.toFixed(0)} kbps`);
+  console.log(`allocations refreshed: ok ${refreshesOK}, failed ${refreshesFailed}${lastError ? ` (${lastError})` : ''}`);
+  console.log(`A integrity: ${a.integrityOK}  B integrity: ${b.integrityOK}`);
+
+  await Promise.all([deallocate(a), deallocate(b)]);
+
+  if (received === 0) {
+    console.error('FAIL: nothing came back through the relay');
+    return 2;
+  }
+  if (refreshesFailed > 0) {
+    console.error(`FAIL: ${refreshesFailed} refresh cycle(s) failed`);
+    return 2;
+  }
+
+  const maxLoss = process.env.QD_TURN_MAX_LOSS_PERCENT ? Number(process.env.QD_TURN_MAX_LOSS_PERCENT) : null;
+  if (maxLoss !== null && lossPercent > maxLoss) {
+    console.error(`FAIL: loss ${lossPercent.toFixed(1)}% exceeded ${maxLoss}%`);
+    return 2;
+  }
+  if (process.env.QD_TURN_EXPECT_KBPS_MAX && sustainedKbps > Number(process.env.QD_TURN_EXPECT_KBPS_MAX)) {
+    console.error(`FAIL: sustained ${sustainedKbps.toFixed(0)} kbps exceeded the ${process.env.QD_TURN_EXPECT_KBPS_MAX} kbps cap`);
+    return 2;
+  }
+  if (process.env.QD_TURN_EXPECT_KBPS_MIN && sustainedKbps < Number(process.env.QD_TURN_EXPECT_KBPS_MIN)) {
+    console.error(`FAIL: sustained ${sustainedKbps.toFixed(0)} kbps below the ${process.env.QD_TURN_EXPECT_KBPS_MIN} kbps floor`);
+    return 2;
+  }
+  console.log('PASS');
+  return 0;
+}
+
 async function main() {
   const secret = process.env.QD_TURN_SECRET;
   let creds;
@@ -598,6 +783,9 @@ async function main() {
   console.log(`credentials: user=${creds.username} (secret ${secret ? 'minted locally' : 'from signaling'})`);
 
   try {
+    if (process.env.QD_TURN_SOAK) {
+      return await runSoak(opts, credFor);
+    }
     return process.env.QD_TURN_QUALITY
       ? await runQuality(opts, credFor)
       : await runCapacity(opts, credFor);

@@ -21,7 +21,6 @@ type IceConfig struct {
 	AuthSecret    string // shared secret with coturn (use-auth-secret mode)
 	CredentialTTL int    // TURN credential TTL in seconds
 	StunURLs      []string
-	MaxRateKbps   int // max bitrate (kbps) for TURN relayed connections; 0 means no cap
 }
 
 type AdminConfig struct {
@@ -136,7 +135,9 @@ func Load() *Config {
 	viper.SetDefault("TURN_AUTH_SECRET", "")
 	viper.SetDefault("TURN_CREDENTIAL_TTL", 86400)
 	viper.SetDefault("STUN_URLS", "")
-	viper.SetDefault("TURN_MAX_RATE_KBPS", 0)
+	// NOTE: relay bandwidth is capped in coturn (`max-bps`, bytes per second),
+	// not here - the signaling server only signs credentials. See
+	// scripts/e2e/coturn-local.conf.example and the E2E log section 28.
 
 	viper.SetDefault("ADMIN_USER", "admin")
 	viper.SetDefault("ADMIN_PASSWORD", "admin")
@@ -266,10 +267,10 @@ func Load() *Config {
 	if cfg.Security.APIKey != "" {
 		apiKeyStatus = "enabled"
 	}
-	log.Printf("Loaded config: Server=%s:%d, DB=%s:%d/%s, ICE TURN=%d STUN=%d TTL=%ds MaxRate=%dkbps, APIKey=%s, AllowedOrigins=%d, SMS=%v, AutoMigrate=%v, Pprof=%v, LogDir=%s",
+	log.Printf("Loaded config: Server=%s:%d, DB=%s:%d/%s, ICE TURN=%d STUN=%d TTL=%ds, APIKey=%s, AllowedOrigins=%d, SMS=%v, AutoMigrate=%v, Pprof=%v, LogDir=%s",
 		cfg.Server.Host, cfg.Server.Port,
 		cfg.Database.Host, cfg.Database.Port, cfg.Database.DBName,
-		len(cfg.Ice.TurnURLs), len(cfg.Ice.StunURLs), cfg.Ice.CredentialTTL, cfg.Ice.MaxRateKbps,
+		len(cfg.Ice.TurnURLs), len(cfg.Ice.StunURLs), cfg.Ice.CredentialTTL,
 		apiKeyStatus, len(cfg.Security.AllowedOrigins), cfg.Sms.Enabled, cfg.Runtime.RunAutoMigrate, cfg.Runtime.PprofAddr != "", cfg.Runtime.LogDir)
 
 	return cfg
@@ -288,7 +289,6 @@ func parseIceConfig() IceConfig {
 	ice := IceConfig{
 		CredentialTTL: viper.GetInt("TURN_CREDENTIAL_TTL"),
 		AuthSecret:    viper.GetString("TURN_AUTH_SECRET"),
-		MaxRateKbps:   viper.GetInt("TURN_MAX_RATE_KBPS"),
 	}
 	if urls := viper.GetString("TURN_URLS"); urls != "" {
 		ice.TurnURLs = splitAndTrim(urls)
