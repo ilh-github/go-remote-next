@@ -156,6 +156,16 @@ func (h *DeviceAccessPolicyHandler) ownedDeviceID(c *gin.Context) (string, bool)
 func policyView(deviceID string, policy *models.DeviceAccessPolicy) deviceAccessPolicyView {
 	view := deviceAccessPolicyView{DeviceID: deviceID, AllowIPs: []string{}}
 	if policy == nil {
+		// The endpoint documents "the documented no-policy defaults" and clients
+		// render their form straight from this response, so the empty case has to
+		// have the same shape as a stored one. Returning Go's zero values here
+		// gave clients `null` for three documented arrays and "" for
+		// `approval_mode`, which the conformance smoke caught on a device that
+		// never had a policy row.
+		view.AllowedWindows = []service.AccessWindow{}
+		view.ExceptionDates = []service.AccessExceptionDate{}
+		view.ApprovalMode = service.ApprovalModeOff
+		view.ApprovalTrustedIPs = []string{}
 		return view
 	}
 	view.RemoteDisabled = policy.RemoteDisabled

@@ -1,0 +1,189 @@
+name: SignalingServer verify
+
+# The other workflows here build clients and the server image. This one is the
+# gate on the server itself: unit tests against a real Postgres, the OpenAPI
+# contract against the committed client, and the conformance smoke against a
+# running server. It used to be manual - the docs carried "冒烟脚本要手动跑，没有
+# 接进任何流水线" as an open gap - which meant a spec change could land with
+# nothing checking it.
+on:
+  push:
+    paths:
+      - 'SignalingServer/**'
+      - 'sdk/**'
+      - 'scripts/sdk/**'
+      - '.github/workflows/signaling-server-verify.yml'
+  pull_request:
+    paths:
+      - 'SignalingServer/**'
+      - 'sdk/**'
+      - 'scripts/sdk/**'
+      - '.github/workflows/signaling-server-verify.yml'
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  go:
+    name: Go vet and tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: quickdesk
+          POSTGRES_PASSWORD: quickdesk
+          POSTGRES_DB: quickdesk_verify
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U quickdesk"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      # Set on purpose: without it the Postgres-backed tests skip themselves and
+      # the job would go green having checked nothing that needs a database.
+      QD_TEST_DATABASE_URL: host=localhost port=5432 user=quickdesk password=quickdesk dbname=quickdesk_verify sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: SignalingServer/go.mod
+          cache-dependency-path: SignalingServer/go.sum
+      - name: go vet
+        working-directory: SignalingServer
+        run: go vet ./...
+      - name: go test
+        working-directory: SignalingServer
+        run: go test ./... -count=1
+
+  contract:
+    name: OpenAPI contract and generated client
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Committed client matches the spec
+        run: ./scripts/sdk/check-generated-sdk.sh
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Generated client compiles
+        working-directory: sdk/ts
+        run: |
+          npm install --no-audit --no-fund
+          npm run build
+
+  smoke:
+    name: Conformance smoke against a live server
+    runs-on: ubuntu-latest
+    needs: [go]
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: quickdesk
+          POSTGRES_PASSWORD: quickdesk
+          POSTGRES_DB: quickdesk_verify
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U quickdesk"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      SERVER_HOST: 127.0.0.1
+      SERVER_PORT: '8000'
+      RUN_AUTO_MIGRATE: 'true'
+      LOG_DIR: /tmp/qd-ci-logs
+      DB_HOST: localhost
+      DB_PORT: '5432'
+      DB_USER: quickdesk
+      DB_PASSWORD: quickdesk
+      DB_NAME: quickdesk_verify
+      REDIS_HOST: localhost
+      REDIS_PORT: '6379'
+      API_KEY: ci-smoke-key
+      ADMIN_USER: admin
+      ADMIN_PASSWORD: admin
+      TURN_URLS: turn:127.0.0.1:3478?transport=udp
+      TURN_AUTH_SECRET: ci-turn-secret
+      # Nothing to schedule or watch in CI; the workers would only add noise.
+      SCHEDULED_TASK_INTERVAL_SECONDS: '0'
+      OFFLINE_ALERT_INTERVAL_SECONDS: '0'
+      QD_API_KEY: ci-smoke-key
+      QD_SERVER: http://127.0.0.1:8000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: SignalingServer/go.mod
+          cache-dependency-path: SignalingServer/go.sum
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Build the server
+        working-directory: SignalingServer
+        run: go build -o /tmp/qd-signaling ./cmd/signaling
+      - name: Start the server
+        working-directory: SignalingServer
+        run: |
+          mkdir -p "$LOG_DIR"
+          nohup /tmp/qd-signaling >"$LOG_DIR/ci-stdout.log" 2>&1 &
+          for _ in $(seq 1 60); do
+            if curl -fsS "$QD_SERVER/health" >/dev/null; then
+              echo "server is up"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "server did not become healthy in 60s" >&2
+          cat "$LOG_DIR/ci-stdout.log" >&2
+          exit 1
+      - name: Seed the smoke account and device
+        working-directory: SignalingServer
+        run: |
+          # The smoke needs an account and a device it can read; the device it
+          # would normally use is provisioned by a real controlled machine, so
+          # this creates one bound to a throwaway account instead.
+          go run ./cmd/seed-smoke \
+            -server "$QD_SERVER" \
+            -api-key "$QD_API_KEY" \
+            -admin-password "$ADMIN_PASSWORD" > /tmp/seed.out
+          cat /tmp/seed.out
+          grep -E '^QD_(IDENTIFIER|PASSWORD|SMOKE_DEVICE)=' /tmp/seed.out >> "$GITHUB_ENV"
+      - name: Run the conformance smoke
+        run: node scripts/sdk/openapi-smoke.mjs
+      - name: Upload the server log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: signaling-server-log
+          path: |
+            /tmp/qd-ci-logs/*.log
+            /tmp/seed.out
+          if-no-files-found: warn

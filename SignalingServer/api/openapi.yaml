@@ -25,7 +25,12 @@ info:
     the create-then-revoke probe, because revocation (not deletion) is how a
     grant is disabled.
 
-    Generate a client in any language from this file, for example:
+    A generated **TypeScript** client is committed under `sdk/ts` and is kept in
+    step with this file by `scripts/sdk/check-generated-sdk.sh`, which CI runs:
+    an edit here without a regenerated client fails the build. Regenerate it
+    with `scripts/sdk/generate-client.sh` (a pinned openapi-generator jar, so
+    local and CI output are byte-identical). For another language, use the
+    generator directly, for example:
 
         npx @openapitools/openapi-generator-cli generate \
           -i SignalingServer/api/openapi.yaml -g typescript-fetch -o sdk/ts
