@@ -715,6 +715,25 @@ set, every `YYYY.json` found there. The files use the public `holiday-cn`
 format (`{year, papers, days:[{name,date,isOffDay}]}`), so next year's file can
 be dropped in and the server restarted without a rebuild.
 
+`HOLIDAY_CALENDAR_URL` removes the "somebody has to notice the notice" step:
+when it is set the server downloads the year files itself into
+`HOLIDAY_CALENDAR_DIR` (which is then required) before loading them, so a fresh
+deployment starts with next year's arrangement already in place.
+`HOLIDAY_CALENDAR_REFRESH_MINUTES` re-checks on that interval; `0` means "fetch
+once at startup". The URL is either a template containing `{year}` or a base URL
+that `/<year>.json` is appended to, so the published dataset works directly:
+
+    HOLIDAY_CALENDAR_DIR=/var/lib/quickdesk/holidays
+    HOLIDAY_CALENDAR_URL=https://cdn.jsdelivr.net/npm/holiday-cn@latest/{year}.json
+    HOLIDAY_CALENDAR_REFRESH_MINUTES=1440
+
+Three failure rules matter here. A fetch that fails is logged and **never
+fatal**: the embedded year and whatever is already on disk stay in use. A file
+is validated before it is written - it has to parse *and* contain dates for the
+year it was requested for - so a redirect to an HTML error page cannot replace a
+good calendar. And a file whose bytes have not changed is not rewritten, so a
+refresh that finds nothing new costs one GET and no churn.
+
 Exception dates only decide the *time* rule. `remote_disabled` and `allow_ips`
 are still evaluated first, so an allow date cannot bypass either of them.
 

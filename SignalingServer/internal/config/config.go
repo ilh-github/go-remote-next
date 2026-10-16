@@ -79,6 +79,14 @@ func parseTrustedProxies(raw string) []string {
 // the calendar embedded in the binary.
 type HolidayConfig struct {
 	Dir string
+	// URL, when set, makes the server download the holiday-cn year files
+	// instead of waiting for someone to copy next year's notice in. Either a
+	// template containing `{year}` or a base URL that `/<year>.json` is
+	// appended to; a cache directory (Dir) is required alongside it.
+	URL string
+	// RefreshMinutes is how often the fetcher re-checks. 0 fetches once at
+	// startup and never again.
+	RefreshMinutes int
 }
 
 // RecordingConfig controls where uploaded session-recording artifacts land and
@@ -399,6 +407,11 @@ func Load() *Config {
 	// the year(s) embedded in the binary; point it at a directory of
 	// holiday-cn style YYYY.json files to add years without a rebuild.
 	viper.SetDefault("HOLIDAY_CALENDAR_DIR", "")
+	// Set the URL to have the server fetch those year files itself (the
+	// holiday-cn dataset publishes one JSON per year). 0 refresh minutes means
+	// "fetch once at startup".
+	viper.SetDefault("HOLIDAY_CALENDAR_URL", "")
+	viper.SetDefault("HOLIDAY_CALENDAR_REFRESH_MINUTES", 0)
 
 	// Aliyun SMS (optional – leave empty to disable phone features)
 	viper.SetDefault("ALIYUN_SMS_ACCESS_KEY_ID", "")
@@ -514,7 +527,9 @@ func Load() *Config {
 		DenialCooldownMaxSeconds: viper.GetInt("APPROVAL_DENIAL_COOLDOWN_MAX_SECONDS"),
 	}
 	cfg.Holiday = HolidayConfig{
-		Dir: viper.GetString("HOLIDAY_CALENDAR_DIR"),
+		Dir:            viper.GetString("HOLIDAY_CALENDAR_DIR"),
+		URL:            viper.GetString("HOLIDAY_CALENDAR_URL"),
+		RefreshMinutes: viper.GetInt("HOLIDAY_CALENDAR_REFRESH_MINUTES"),
 	}
 
 	// Aliyun SMS – enabled only when all four fields are set

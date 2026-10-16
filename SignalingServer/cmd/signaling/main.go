@@ -117,13 +117,61 @@ func main() {
 	// Statutory holiday calendar for device access policy exception dates.
 	// Loading it here (rather than lazily at first evaluate) means a broken
 	// override file fails at startup, not on someone's first connection.
+	//
+	// When HOLIDAY_CALENDAR_URL is set the year files are fetched before that
+	// first load, so a deployment gets next year's notice without anybody
+	// copying it in. A failed fetch is logged and never fatal: the embedded
+	// year and whatever is already on disk stay in use.
+	holidayURL := strings.TrimSpace(cfg.Holiday.URL)
+	var holidayFetcher *holiday.Fetcher
+	if holidayURL != "" {
+		if strings.TrimSpace(cfg.Holiday.Dir) == "" {
+			log.Fatalf("HOLIDAY_CALENDAR_URL is set but HOLIDAY_CALENDAR_DIR is empty; the fetcher needs a cache directory")
+		}
+		holidayFetcher = holiday.NewFetcher(holidayURL, cfg.Holiday.Dir)
+		changed, err := holidayFetcher.Refresh(context.Background())
+		if err != nil {
+			log.Printf("Holiday calendar fetch from %s failed (keeping the embedded and cached files): %v",
+				holidayURL, err)
+		}
+		if len(changed) > 0 {
+			log.Printf("Holiday calendar: fetched year files %v into %q", changed, cfg.Holiday.Dir)
+		}
+	}
 	holidayCalendar, err := holiday.Load(cfg.Holiday.Dir)
 	if err != nil {
-		log.Fatalf("load holiday calendar (HOLIDAY_CALENDAR_DIR=%q): %v", cfg.Holiday.Dir, err)
+		if holidayFetcher == nil {
+			log.Fatalf("load holiday calendar (HOLIDAY_CALENDAR_DIR=%q): %v", cfg.Holiday.Dir, err)
+		}
+		// A deployment that fetches its calendars can legitimately have an empty
+		// cache on the first boot - the directory exists, the network did not.
+		// The embedded year is a usable calendar, so start with it and let the
+		// next refresh fill the gap; refusing to boot over a flaky first fetch
+		// would be the worse failure.
+		log.Printf("Holiday calendar: no cached files yet (%v); using the embedded year until a fetch succeeds", err)
+		holidayCalendar, err = holiday.Load("")
+		if err != nil {
+			log.Fatalf("load embedded holiday calendar: %v", err)
+		}
 	}
 	service.SetHolidayCalendar(holidayCalendar)
 	log.Printf("Holiday calendar: %d dates across years %v (override dir=%q)",
 		holidayCalendar.Len(), holidayCalendar.Years(), cfg.Holiday.Dir)
+	if holidayFetcher != nil && cfg.Holiday.RefreshMinutes > 0 {
+		go holidayFetcher.Run(context.Background(),
+			time.Duration(cfg.Holiday.RefreshMinutes)*time.Minute,
+			func(changed []int) {
+				reloaded, err := holiday.Load(cfg.Holiday.Dir)
+				if err != nil {
+					log.Printf("[holiday] reloading the calendar after a fetch failed: %v", err)
+					return
+				}
+				service.SetHolidayCalendar(reloaded)
+				log.Printf("Holiday calendar refreshed (years %v): %d dates across years %v",
+					changed, reloaded.Len(), reloaded.Years())
+			})
+		log.Printf("Holiday calendar refresh: every %dm from %s", cfg.Holiday.RefreshMinutes, holidayURL)
+	}
 
 	settingsService := service.NewSettingsService(db)
 	settingsService.SeedFromEnv(service.EnvSeed{
