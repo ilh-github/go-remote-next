@@ -378,8 +378,24 @@ user-owned webhook endpoint that receives that user's own device events.
 | `POST` | `/v1/me/notification-channels/:id/test` | — | Fires a synthetic `test` event so the endpoint can be verified without waiting for device traffic. |
 | `GET` | `/v1/me/notification-channels/:id/deliveries?limit=` | — | Delivery history for the channel (newest first, default 50, max 200). Owner-scoped. |
 | `POST` | `/v1/me/notification-channels/:id/deliveries/:deliveryId/retry` | — | Re-arms a parked `failed` delivery (dead-letter replay). Returns `400` for rows that are not `failed`. Owner-scoped. |
-| `POST` | `/v1/me/notification-channels/:id/deliveries:retry-failed` | — | Re-arms **every** parked `failed` delivery for the channel. Returns `{success, requeued}`. Owner-scoped. |
-| `POST` | `/v1/me/notification-channels:retry-failed` | — | Re-arms every parked `failed` delivery the caller owns, **across all of their channels** (one call after an outage that hit several endpoints). Returns `{success, requeued}`. |
+| `POST` | `/v1/me/notification-channels/:id/deliveries:retry-failed` | optional body | Re-arms parked `failed` deliveries for the channel. Owner-scoped. |
+| `POST` | `/v1/me/notification-channels:retry-failed` | optional body | Re-arms parked `failed` deliveries the caller owns, **across all of their channels** (one call after an outage that hit several endpoints). |
+
+The two bulk-replay endpoints take the same optional body. Omitting it replays
+everything in scope, which is how they behaved before filters existed.
+
+| Field | Effect |
+|---|---|
+| `event_type` | only rows of this event type |
+| `device_id` | only rows about this device. Rows written before the `device_id` column existed have an empty value and only match an unfiltered replay |
+| `limit` | re-arm at most this many rows, **oldest first**, so repeated calls drain the backlog deterministically. `0` = no cap; anything above `1000` is clamped to `1000` and the response reports the effective value; negative is a `400` |
+| `dry_run` | count what *would* be re-armed and change nothing |
+
+Response: `{success, matched, requeued, dry_run, limit, filters}`. `matched` is
+how many parked rows satisfy the filters before `limit`; `requeued` is how many
+were actually re-armed (always `0` on a dry run). The dry run exists because
+re-arming wakes the delivery worker immediately, and "replay everything" is
+rarely the right first move when one endpoint is broken and another is healthy.
 
 Payload shape (same as admin webhooks):
 

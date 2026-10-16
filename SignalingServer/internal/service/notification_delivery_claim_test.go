@@ -565,3 +565,137 @@ func TestRetryAllFailedForUserIsUserScoped(t *testing.T) {
 		t.Error("retry-all-for-user(0) should refuse rather than touch every user")
 	}
 }
+
+// A blanket "replay everything" is often the wrong move - one broken endpoint
+// should not drag a healthy device's backlog back through the worker. These
+// tests pin the filters, the dry run and the batch cap.
+func TestRetryFailedFiltersDryRunAndLimit(t *testing.T) {
+	dsn := os.Getenv("QD_TEST_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("set QD_TEST_DATABASE_URL to a throwaway Postgres to run the replay-filter tests")
+	}
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := db.AutoMigrate(&models.NotificationDelivery{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	if err := db.Exec("TRUNCATE notification_deliveries").Error; err != nil {
+		t.Fatalf("truncate: %v", err)
+	}
+	svc := NewNotificationDeliveryService(db)
+	ctx := context.Background()
+
+	const (
+		denied = "device.access.denied"
+		online = "device.online.changed"
+	)
+	now := time.Now().UTC()
+	seed := []models.NotificationDelivery{
+		// channel 42, user 1
+		{ChannelID: 42, UserID: 1, EventType: denied, DeviceID: "dev-A", Payload: "{}", Status: DeliveryStatusFailed, Attempts: 8, NextAttemptAt: now},
+		{ChannelID: 42, UserID: 1, EventType: denied, DeviceID: "dev-A", Payload: "{}", Status: DeliveryStatusFailed, Attempts: 8, NextAttemptAt: now},
+		{ChannelID: 42, UserID: 1, EventType: denied, DeviceID: "dev-B", Payload: "{}", Status: DeliveryStatusFailed, Attempts: 8, NextAttemptAt: now},
+		{ChannelID: 42, UserID: 1, EventType: denied, DeviceID: "dev-B", Payload: "{}", Status: DeliveryStatusFailed, Attempts: 8, NextAttemptAt: now},
+		{ChannelID: 42, UserID: 1, EventType: online, DeviceID: "dev-A", Payload: "{}", Status: DeliveryStatusFailed, Attempts: 8, NextAttemptAt: now},
+		// A row written before the device_id column existed.
+		{ChannelID: 42, UserID: 1, EventType: denied, DeviceID: "", Payload: "{}", Status: DeliveryStatusFailed, Attempts: 8, NextAttemptAt: now},
+		// Delivered rows are never in scope, whatever the filters say.
+		{ChannelID: 42, UserID: 1, EventType: denied, DeviceID: "dev-A", Payload: "{}", Status: DeliveryStatusDelivered, Attempts: 1, NextAttemptAt: now},
+		// Another user's row on another channel, as a scope control.
+		{ChannelID: 43, UserID: 2, EventType: denied, DeviceID: "dev-A", Payload: "{}", Status: DeliveryStatusFailed, Attempts: 8, NextAttemptAt: now},
+	}
+	if err := db.Create(&seed).Error; err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	failedCount := func(t *testing.T) int64 {
+		t.Helper()
+		var n int64
+		if err := db.Model(&models.NotificationDelivery{}).
+			Where("user_id = ? AND status = ?", 1, DeliveryStatusFailed).Count(&n).Error; err != nil {
+			t.Fatalf("count failed: %v", err)
+		}
+		return n
+	}
+
+	// 1. A dry run reports the size of the backlog and changes nothing.
+	res, err := svc.RetryFailedForUser(ctx, 1, RetryFailedFilters{}, true)
+	if err != nil {
+		t.Fatalf("dry run: %v", err)
+	}
+	if res.Matched != 6 || res.Requeued != 0 {
+		t.Fatalf("dry run = %+v, want matched 6 / requeued 0", res)
+	}
+	if n := failedCount(t); n != 6 {
+		t.Fatalf("dry run changed the table: %d failed rows left, want 6", n)
+	}
+
+	// 2. Filters narrow the match without touching the table.
+	res, _ = svc.RetryFailedForUser(ctx, 1, RetryFailedFilters{EventType: denied}, true)
+	if res.Matched != 5 {
+		t.Fatalf("event_type filter matched %d, want 5 (the online.changed row is out)", res.Matched)
+	}
+	res, _ = svc.RetryFailedForUser(ctx, 1, RetryFailedFilters{DeviceID: "dev-A"}, true)
+	if res.Matched != 3 {
+		t.Fatalf("device filter matched %d, want 3 (2 denied + 1 online.changed)", res.Matched)
+	}
+	res, _ = svc.RetryFailedForUser(ctx, 1, RetryFailedFilters{EventType: denied, DeviceID: "dev-A"}, true)
+	if res.Matched != 2 {
+		t.Fatalf("combined filter matched %d, want 2", res.Matched)
+	}
+	res, _ = svc.RetryFailedForUser(ctx, 1, RetryFailedFilters{DeviceID: "dev-Z"}, true)
+	if res.Matched != 0 {
+		t.Fatalf("unknown device matched %d, want 0", res.Matched)
+	}
+
+	// 3. The cap re-arms the oldest rows first and reports both numbers.
+	var minFailedID uint
+	if err := db.Model(&models.NotificationDelivery{}).
+		Where("channel_id = ? AND status = ?", 42, DeliveryStatusFailed).
+		Select("MIN(id)").Scan(&minFailedID).Error; err != nil {
+		t.Fatalf("min failed id: %v", err)
+	}
+	res, err = svc.RetryFailedForChannel(ctx, 42, RetryFailedFilters{Limit: 1}, false)
+	if err != nil {
+		t.Fatalf("capped replay: %v", err)
+	}
+	if res.Matched != 6 || res.Requeued != 1 {
+		t.Fatalf("capped replay = %+v, want matched 6 / requeued 1", res)
+	}
+	var oldest models.NotificationDelivery
+	if err := db.Where("channel_id = ? AND status = ?", 42, DeliveryStatusPending).
+		Order("id ASC").First(&oldest).Error; err != nil {
+		t.Fatalf("load re-armed row: %v", err)
+	}
+	if oldest.ID != minFailedID {
+		t.Fatalf("re-armed row %d, want the oldest failed row (%d)", oldest.ID, minFailedID)
+	}
+	if n := failedCount(t); n != 5 {
+		t.Fatalf("after a capped replay %d failed rows left, want 5", n)
+	}
+
+	// 4. A filtered replay only touches its own slice.
+	res, err = svc.RetryFailedForUser(ctx, 1, RetryFailedFilters{EventType: denied, DeviceID: "dev-A"}, false)
+	if err != nil {
+		t.Fatalf("filtered replay: %v", err)
+	}
+	if res.Matched != 1 || res.Requeued != 1 {
+		// One of the two dev-A denied rows was already re-armed by the cap.
+		t.Fatalf("filtered replay = %+v, want matched 1 / requeued 1", res)
+	}
+	// The other user's identical backlog is untouched.
+	var otherFailed int64
+	if err := db.Model(&models.NotificationDelivery{}).
+		Where("user_id = ? AND status = ?", 2, DeliveryStatusFailed).Count(&otherFailed).Error; err != nil {
+		t.Fatalf("count other user: %v", err)
+	}
+	if otherFailed != 1 {
+		t.Fatalf("other user's row changed: %d failed rows, want 1", otherFailed)
+	}
+
+	// 5. The user-scoped entry point still refuses a zero id.
+	if _, err := svc.RetryFailedForUser(ctx, 0, RetryFailedFilters{}, true); err == nil {
+		t.Fatal("RetryFailedForUser(0) must refuse rather than touch every user")
+	}
+}

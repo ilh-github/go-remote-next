@@ -419,6 +419,7 @@ CREATE TABLE IF NOT EXISTS notification_deliveries (
     channel_id      BIGINT       NOT NULL,
     user_id         BIGINT       NOT NULL,
     event_type      VARCHAR(64)  NOT NULL,
+    device_id       VARCHAR(20)  NOT NULL DEFAULT '',
     payload         TEXT         NOT NULL,
     status          VARCHAR(16)  NOT NULL DEFAULT 'pending',
     attempts        INTEGER      NOT NULL DEFAULT 0,
@@ -438,6 +439,16 @@ CREATE INDEX IF NOT EXISTS idx_notification_deliveries_channel_id
 
 CREATE INDEX IF NOT EXISTS idx_notification_deliveries_user_id
     ON notification_deliveries (user_id);
+
+-- Denormalised device id so a bulk replay can target one device with an index
+-- instead of scanning the payload JSON. Added after the table shipped; rows
+-- written before this column have an empty value and only match an unfiltered
+-- replay.
+ALTER TABLE notification_deliveries
+    ADD COLUMN IF NOT EXISTS device_id VARCHAR(20) NOT NULL DEFAULT '';
+
+CREATE INDEX IF NOT EXISTS idx_notification_deliveries_device_id
+    ON notification_deliveries (device_id);
 
 -- ---------------------------------------------------------------
 -- Preset (single-row server config distributed to clients)

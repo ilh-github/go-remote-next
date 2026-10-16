@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"quickdesk/signaling/internal/middleware"
 	"quickdesk/signaling/internal/service"
@@ -217,9 +218,61 @@ func (h *NotificationChannelHandler) RetryDelivery(c *gin.Context) {
 	c.JSON(http.StatusOK, row)
 }
 
-// RetryFailedDeliveries re-arms every parked (`failed`) delivery for a channel
-// in one call, for an operator who fixed the endpoint and wants the whole
-// backlog retried. Owner-scoped via the parent channel.
+// retryFailedReq is the optional body of both bulk-replay endpoints. An empty
+// body keeps the original behaviour: replay everything in scope.
+type retryFailedReq struct {
+	EventType string `json:"event_type"`
+	DeviceID  string `json:"device_id"`
+	Limit     int    `json:"limit"`
+	DryRun    bool   `json:"dry_run"`
+}
+
+// parseRetryFailedRequest reads the optional body and clamps the batch cap.
+// Returns ok=false after writing a 400/500 of its own.
+func parseRetryFailedRequest(c *gin.Context) (service.RetryFailedFilters, bool, bool) {
+	var req retryFailedReq
+	if c.Request != nil && c.Request.ContentLength > 0 {
+		if err := c.ShouldBindJSON(&req); err != nil {
+			ProblemBadRequest(c, ProblemCodeInvalidRequest, err.Error())
+			return service.RetryFailedFilters{}, false, false
+		}
+	}
+	if req.Limit < 0 {
+		ProblemBadRequest(c, ProblemCodeInvalidRequest, "limit must be zero (no cap) or positive")
+		return service.RetryFailedFilters{}, false, false
+	}
+	limit := req.Limit
+	if limit > service.MaxRetryFailedLimit {
+		// Clamp rather than reject: the caller asked to drain the backlog, and
+		// the response reports the effective cap so nothing is hidden.
+		limit = service.MaxRetryFailedLimit
+	}
+	filters := service.RetryFailedFilters{
+		EventType: strings.TrimSpace(req.EventType),
+		DeviceID:  strings.TrimSpace(req.DeviceID),
+		Limit:     limit,
+	}
+	return filters, req.DryRun, true
+}
+
+func retryFailedResponse(filters service.RetryFailedFilters, dryRun bool, res service.RetryFailedResult) gin.H {
+	return gin.H{
+		"success":  true,
+		"matched":  res.Matched,
+		"requeued": res.Requeued,
+		"dry_run":  dryRun,
+		"limit":    filters.Limit,
+		"filters": gin.H{
+			"event_type": filters.EventType,
+			"device_id":  filters.DeviceID,
+		},
+	}
+}
+
+// RetryFailedDeliveries re-arms parked (`failed`) deliveries for a channel, for
+// an operator who fixed the endpoint. Optional filters narrow the replay and a
+// dry run reports what would happen without waking the delivery worker.
+// Owner-scoped via the parent channel.
 func (h *NotificationChannelHandler) RetryFailedDeliveries(c *gin.Context) {
 	id, ok := notificationChannelID(c)
 	if !ok {
@@ -234,29 +287,37 @@ func (h *NotificationChannelHandler) RetryFailedDeliveries(c *gin.Context) {
 		ProblemInternal(c, "delivery store is not configured")
 		return
 	}
-	requeued, err := h.deliveries.RetryAllFailed(c.Request.Context(), id)
+	filters, dryRun, ok := parseRetryFailedRequest(c)
+	if !ok {
+		return
+	}
+	res, err := h.deliveries.RetryFailedForChannel(c.Request.Context(), id, filters, dryRun)
 	if err != nil {
 		ProblemInternal(c, err.Error())
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "requeued": requeued})
+	c.JSON(http.StatusOK, retryFailedResponse(filters, dryRun, res))
 }
 
-// RetryFailedDeliveriesForUser re-arms every parked (`failed`) delivery the
-// caller owns, across all of their channels. One call is enough after an outage
-// that took several endpoints down at once.
+// RetryFailedDeliveriesForUser re-arms parked (`failed`) deliveries the caller
+// owns, across all of their channels. One call is enough after an outage that
+// took several endpoints down at once; the same filters and dry run apply.
 func (h *NotificationChannelHandler) RetryFailedDeliveriesForUser(c *gin.Context) {
 	if h.deliveries == nil {
 		ProblemInternal(c, "delivery store is not configured")
 		return
 	}
 	uid := middleware.MustUserID(c)
-	requeued, err := h.deliveries.RetryAllFailedForUser(c.Request.Context(), uid)
+	filters, dryRun, ok := parseRetryFailedRequest(c)
+	if !ok {
+		return
+	}
+	res, err := h.deliveries.RetryFailedForUser(c.Request.Context(), uid, filters, dryRun)
 	if err != nil {
 		ProblemInternal(c, err.Error())
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "requeued": requeued})
+	c.JSON(http.StatusOK, retryFailedResponse(filters, dryRun, res))
 }
 
 func notificationChannelID(c *gin.Context) (uint, bool) {

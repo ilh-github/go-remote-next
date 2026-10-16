@@ -64,7 +64,7 @@ QuickDesk 已经覆盖了远程控制最核心、最难实现的画面、输入�
 | 权限角色 | 多角色、租户、权限 | 有 admin 角色，但没有我们的租户模型 | 部分 | 后续按业务需要扩展 |
 | 2FA | 管理员双因素 | Admin TOTP 已有 | 已有 | 保留 |
 | SSO | 企业单点登录 | 未发现完整接入 | 缺失 | 明确暂不做，后续评估 |
-| 通知 | 设备上下线、异常、任务 | 管理端 webhook 已有；**用户级通知通道已完成**（`/v1/me/notification-channels`，订阅访问拒绝/会话开始/设备上下线等事件，HMAC 签名 + 持久 outbox、至少一次投递、单条/按通道/跨通道死信重放、保留策略含先归档再删），管理端有 `notification-deliveries:stats|sweep` | 部分 | 服务端投递链路与运维入口已具备；还缺 WebClient 的通道管理页面与聚合降噪 |
+| 通知 | 设备上下线、异常、任务 | 管理端 webhook 已有；**用户级通知通道已完成**（`/v1/me/notification-channels`，订阅访问拒绝/会话开始/设备上下线等事件，HMAC 签名 + 持久 outbox、至少一次投递、单条/按通道/跨通道死信重放（可按事件类型/设备筛选、支持 dry-run 与批量上限）、保留策略含先归档再删），管理端有 `notification-deliveries:stats|sweep` | 部分 | 服务端投递链路与运维入口已具备；还缺 WebClient 的通道管理页面与聚合降噪 |
 | 设备策略 | 限制设备、会话策略 | 设备配额、管理端 IP 白名单有基础；**设备级访问策略已完成**（`/v1/me/devices/:id/access-policy`：远程访问开关 + 来访 IP/CIDR 白名单 + 允许时段 + 例外日（固定日/区间/年度重复/法定节假日日历/农历重复），在 `access-code:verify` 前置拦截；`max_sessions` 并发上限在控制端 `auth_ok` 之前拦截），**临时授权已完成**（`/v1/me/devices/:id/access-grants`：限时/限次/可撤销的访客码 + `bound_client_id`/`bound_ips` 绑定 + 记录实际兑换者，策略仍优先），**二次审批已完成**（`approval_mode` = off/always/grant/untrusted_ip 决定何时要批，房主侧 `/v1/me/devices/:id/access-approvals` 批准/拒绝，控制端 claim 单次换 token） | 部分 | 还缺策略变更的多端同步；节假日日历只内置 2026，年度更新靠放文件（无自动拉取）；`bound_client_id` 只是客户端自述，真正的身份证明未做 |
 | 计划任务 | 定时连接、批量运维 | MCP/工作流可扩展，但无完整调度 | 缺失 | 放到 P2 |
 | 开放 API | 业务系统集成 | Signaling API 和管理 API 已有 | 部分 | 补稳定的业务 API 和 SDK |
@@ -131,7 +131,8 @@ QuickDesk 已经覆盖了远程控制最核心、最难实现的画面、输入�
 5. 用户通知和 webhook 模板。**服务端已完成**：`/v1/me/notification-channels` 用户级通道
    （HMAC 签名 + `last_status`），**投递 outbox 已完成**：持久队列、至少一次投递、
    多 worker 领取互斥（`SKIP LOCKED`，有并发单测）、单条/批量死信重放、保留/TTL
-   （见第 21-24 节）；还缺 WebClient 管理页面与聚合降噪。
+   （见第 21-24 节）；**重投运维也已补齐**（见第 40 节：按事件类型/设备筛选、`limit` 按最老优先、
+   `dry_run` 预演）；还缺 WebClient 管理页面与聚合降噪。
 6. 设备策略和会话策略。**已完成设备侧**：远程开关、来访 IP/CIDR 白名单、控制端并发上限、
    允许时段（IANA 时区 + 跨午夜窗口）、**一次性例外日（节假日 / 临时加班，见第 26 节）**；
    例外日支持区间与年度重复（见第 27 节）、**临时授权（限时/限次/可撤销访客码，见第 32 节）**；

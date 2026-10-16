@@ -11,7 +11,11 @@ type NotificationDelivery struct {
 	ChannelID uint   `gorm:"not null;index" json:"channel_id"`
 	UserID    uint   `gorm:"not null;index" json:"user_id"`
 	EventType string `gorm:"size:64;not null" json:"event_type"`
-	Payload   string `gorm:"type:text;not null" json:"payload"` // JSON body actually posted
+	// DeviceID is the device the event was about, when there is one. It is
+	// denormalised out of the payload so an operator can replay "just this
+	// device's backlog" with an indexed column instead of a JSON scan.
+	DeviceID string `gorm:"size:20;index" json:"device_id"`
+	Payload  string `gorm:"type:text;not null" json:"payload"` // JSON body actually posted
 
 	// Status is pending | delivering | delivered | failed.
 	Status string `gorm:"size:16;not null;index" json:"status"`

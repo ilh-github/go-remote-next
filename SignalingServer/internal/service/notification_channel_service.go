@@ -198,7 +198,7 @@ func (s *NotificationChannelService) DispatchEvent(ctx context.Context, evt Even
 				evt.Type, ch.ID)
 			continue
 		}
-		if err := s.deliveries.Enqueue(ctx, ch, evt.Type, payload); err != nil {
+		if err := s.deliveries.Enqueue(ctx, ch, evt.Type, evt.DeviceID, payload); err != nil {
 			log.Printf("[notification] enqueue %s for channel %d failed: %v", evt.Type, ch.ID, err)
 		}
 	}
@@ -221,7 +221,7 @@ func (s *NotificationChannelService) SendTest(ctx context.Context, userID, id ui
 	if s.deliveries == nil {
 		return errors.New("delivery queue is not configured")
 	}
-	return s.deliveries.Enqueue(ctx, *row, "test", payload)
+	return s.deliveries.Enqueue(ctx, *row, "test", "", payload)
 }
 
 func validateChannelInput(in UpsertNotificationChannelInput) error {

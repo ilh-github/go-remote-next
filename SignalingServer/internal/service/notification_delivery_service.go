@@ -103,7 +103,7 @@ func (s *NotificationDeliveryService) CountByStatus(ctx context.Context) (map[st
 
 // Enqueue stores one delivery attempt for a channel. Called from the event
 // subscriber, so it must stay cheap: no HTTP here.
-func (s *NotificationDeliveryService) Enqueue(ctx context.Context, ch models.UserNotificationChannel, eventType string, payload interface{}) error {
+func (s *NotificationDeliveryService) Enqueue(ctx context.Context, ch models.UserNotificationChannel, eventType, deviceID string, payload interface{}) error {
 	encoded, err := json.Marshal(payload)
 	if err != nil {
 		return err
@@ -112,6 +112,7 @@ func (s *NotificationDeliveryService) Enqueue(ctx context.Context, ch models.Use
 		ChannelID:     ch.ID,
 		UserID:        ch.UserID,
 		EventType:     eventType,
+		DeviceID:      deviceID,
 		Payload:       string(encoded),
 		Status:        DeliveryStatusPending,
 		NextAttemptAt: time.Now().UTC(),
@@ -411,41 +412,116 @@ func (s *NotificationDeliveryService) Retry(ctx context.Context, channelID, deli
 	return &row, nil
 }
 
-// RetryAllFailed re-arms every parked (`failed`) delivery for one channel and
-// returns how many rows were queued for another pass. It is the bulk form of
-// Retry, for an operator who fixed a flaky endpoint and wants the whole backlog
-// retried without clicking each row.
-func (s *NotificationDeliveryService) RetryAllFailed(ctx context.Context, channelID uint) (int64, error) {
-	now := time.Now().UTC()
-	result := s.db.WithContext(ctx).Model(&models.NotificationDelivery{}).
-		Where("channel_id = ? AND status = ?", channelID, DeliveryStatusFailed).
-		Updates(map[string]interface{}{
-			"status":          DeliveryStatusPending,
-			"attempts":        0,
-			"next_attempt_at": now,
-			"updated_at":      now,
-		})
-	return result.RowsAffected, result.Error
+// MaxRetryFailedLimit bounds RetryFailedFilters.Limit so one request cannot
+// arm an unbounded batch.
+const MaxRetryFailedLimit = 1000
+
+// RetryFailedFilters narrows a bulk replay. The zero value means "every parked
+// delivery in scope", which is how the endpoints behaved before filters
+// existed.
+type RetryFailedFilters struct {
+	// EventType limits the replay to one event type, e.g.
+	// "device.access.denied".
+	EventType string
+	// DeviceID limits the replay to deliveries about one device. Rows written
+	// before the device_id column existed have an empty value and are never
+	// matched by this filter (they still replay without one).
+	DeviceID string
+	// Limit caps how many rows a single call re-arms, oldest first. 0 means no
+	// cap; the handler clamps anything above MaxRetryFailedLimit.
+	Limit int
 }
 
-// RetryAllFailedForUser is the cross-channel form of RetryAllFailed: it re-arms
-// every parked delivery belonging to one user, whatever channel it came from.
-// Handy after an outage that took several endpoints down at once, and still
-// scoped strictly by user_id so one account can never replay another's backlog.
-func (s *NotificationDeliveryService) RetryAllFailedForUser(ctx context.Context, userID uint) (int64, error) {
+// RetryFailedResult reports what a bulk replay matched and what it did.
+type RetryFailedResult struct {
+	// Matched counts parked rows that satisfy the filters, before Limit.
+	Matched int64
+	// Requeued counts rows actually re-armed. Always 0 on a dry run.
+	Requeued int64
+}
+
+// retryFailedQuery builds the "which parked rows are in scope" predicate. It is
+// called once per statement (count, then select) because reusing a GORM chain
+// after Count can carry statement state.
+func retryFailedQuery(ctx context.Context, db *gorm.DB, scopeColumn string, scopeValue uint, f RetryFailedFilters) *gorm.DB {
+	q := db.WithContext(ctx).Model(&models.NotificationDelivery{}).
+		Where(scopeColumn+" = ? AND status = ?", scopeValue, DeliveryStatusFailed)
+	if et := strings.TrimSpace(f.EventType); et != "" {
+		q = q.Where("event_type = ?", et)
+	}
+	if d := strings.TrimSpace(f.DeviceID); d != "" {
+		q = q.Where("device_id = ?", d)
+	}
+	return q
+}
+
+// RetryFailedForChannel re-arms parked (`failed`) deliveries for one channel.
+// It is the bulk form of Retry, for an operator who fixed a flaky endpoint and
+// wants the backlog retried without clicking each row.
+//
+// A dry run counts what would be re-armed and changes nothing, so an operator
+// can look before they leap; that matters because re-arming immediately wakes
+// the delivery worker, and the obvious fix ("replay everything") is often not
+// what the situation calls for.
+func (s *NotificationDeliveryService) RetryFailedForChannel(ctx context.Context, channelID uint, f RetryFailedFilters, dryRun bool) (RetryFailedResult, error) {
+	return s.retryFailed(ctx, "channel_id", channelID, f, dryRun)
+}
+
+// RetryFailedForUser is the cross-channel form: every parked delivery for one
+// user, whatever channel it came from. Handy after an outage that took several
+// endpoints down at once, and still scoped strictly by user_id so one account
+// can never replay another's backlog.
+func (s *NotificationDeliveryService) RetryFailedForUser(ctx context.Context, userID uint, f RetryFailedFilters, dryRun bool) (RetryFailedResult, error) {
 	if userID == 0 {
-		return 0, errors.New("user id is required")
+		// The whole point of the scope is that a zero value must never turn
+		// into "every user's backlog".
+		return RetryFailedResult{}, errors.New("user id is required")
+	}
+	return s.retryFailed(ctx, "user_id", userID, f, dryRun)
+}
+
+func (s *NotificationDeliveryService) retryFailed(ctx context.Context, scopeColumn string, scopeValue uint, f RetryFailedFilters, dryRun bool) (RetryFailedResult, error) {
+	var out RetryFailedResult
+	if err := retryFailedQuery(ctx, s.db, scopeColumn, scopeValue, f).Count(&out.Matched).Error; err != nil {
+		return out, err
+	}
+	if dryRun || out.Matched == 0 {
+		return out, nil
+	}
+
+	// Oldest first, so a capped replay drains the backlog deterministically
+	// instead of re-arming an arbitrary slice each call.
+	ids := retryFailedQuery(ctx, s.db, scopeColumn, scopeValue, f).Select("id").Order("id ASC")
+	if f.Limit > 0 {
+		ids = ids.Limit(f.Limit)
 	}
 	now := time.Now().UTC()
 	result := s.db.WithContext(ctx).Model(&models.NotificationDelivery{}).
-		Where("user_id = ? AND status = ?", userID, DeliveryStatusFailed).
+		Where("id IN (?)", ids).
 		Updates(map[string]interface{}{
 			"status":          DeliveryStatusPending,
 			"attempts":        0,
 			"next_attempt_at": now,
 			"updated_at":      now,
 		})
-	return result.RowsAffected, result.Error
+	if result.Error != nil {
+		return out, result.Error
+	}
+	out.Requeued = result.RowsAffected
+	return out, nil
+}
+
+// RetryAllFailed is RetryFailedForChannel with no filters, kept for callers
+// written before filters existed.
+func (s *NotificationDeliveryService) RetryAllFailed(ctx context.Context, channelID uint) (int64, error) {
+	res, err := s.RetryFailedForChannel(ctx, channelID, RetryFailedFilters{}, false)
+	return res.Requeued, err
+}
+
+// RetryAllFailedForUser is RetryFailedForUser with no filters.
+func (s *NotificationDeliveryService) RetryAllFailedForUser(ctx context.Context, userID uint) (int64, error) {
+	res, err := s.RetryFailedForUser(ctx, userID, RetryFailedFilters{}, false)
+	return res.Requeued, err
 }
 
 // notificationBackoff grows 2s, 4s, 8s … up to the cap.
