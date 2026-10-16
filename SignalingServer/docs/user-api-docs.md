@@ -41,10 +41,12 @@ offline. `sdk/go/examples/recordinglifecycle` runs a whole write workflow
 (create a recording, upload the media, patch the row, find it in the index, mint
 a playback ticket, read the bytes back through that ticket - the route a
 `<video>` tag uses, with no Authorization header - and delete the row).
-`sdk/go/examples/resumableupload` covers the chunked half of the same contract:
-two PATCH chunks with a declared total, an `Upload-Probe` offset probe, a 409
-resynchronisation, server-side finalisation, and a byte-identical read back
-through a ticket.
+`sdk/go/examples/resumableupload`, `sdk/python/examples/resumable_upload.py`,
+`sdk/ts/examples/resumable-upload.js` and
+`sdk/java/src/main/java/org/openapitools/client/examples/ResumableUpload.java`
+cover the chunked half of the same contract: two PATCH chunks with a declared
+total, an `Upload-Probe` offset probe, a 409 resynchronisation, server-side
+finalisation, and a byte-identical read back through a ticket.
 `sdk/go/examples/approvalflow`, `sdk/python/examples/approval_flow.py`,
 `sdk/ts/examples/approval-flow.js` and
 `sdk/java/src/main/java/org/openapitools/client/examples/ApprovalFlow.java` all

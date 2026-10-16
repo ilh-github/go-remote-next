@@ -316,6 +316,23 @@ jobs:
         # a playback ticket.
         working-directory: sdk/go
         run: go run ./examples/resumableupload
+      - name: Run a resumable upload through the generated Python client
+        # The chunked upload does not need an online host, so unlike the
+        # approval examples this can run after the conformance smoke took the
+        # seeded device offline.
+        working-directory: sdk/python
+        run: python examples/resumable_upload.py
+      - name: Run a resumable upload through the generated TypeScript client
+        # The approval step above already installed and built the client.
+        working-directory: sdk/ts
+        run: node examples/resumable-upload.js
+      - name: Run a resumable upload through the generated Java client
+        # The approval step above already compiled the client and wrote the
+        # classpath file.
+        working-directory: sdk/java
+        run: |
+          java -cp "target/classes:$(cat /tmp/qd-java-classpath.txt)" \
+            org.openapitools.client.examples.ResumableUpload
       - name: Run the generated Python client
         # Same argument as the Go client: the freshness check proves the tree
         # matches the spec, only a real call proves it can talk to the server.
