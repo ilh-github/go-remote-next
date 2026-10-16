@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import net from 'node:net';
 // Conformance smoke for SignalingServer/api/openapi.yaml.
 //
 // The spec is the contract business systems generate clients from, so it has to
@@ -13,8 +14,9 @@
 // short-lived guest code, the wrong-access-code rejection (which writes an
 // access-log row and may notify the owner), the whole recording lifecycle (which
 // the smoke creates and deletes itself) and the approval flow (which needs the
-// device to be online and drives both triggers, the pending-queue cap and the
-// denial cooldown by switching approval_mode temporarily).
+// device to be online and drives both triggers, the pending-queue cap, the
+// denial cooldown and an optional host-offline claim by switching policy and
+// presence temporarily).
 //
 // Usage:
 //   QD_IDENTIFIER=user QD_PASSWORD=secret scripts/sdk/openapi-smoke.mjs
@@ -29,6 +31,10 @@
 //                                 deny arms the per-(device, source) cooldown,
 //                                 so a second run against the same device would
 //                                 be refused while it lasts
+//   QD_SMOKE_HOST_OFFLINE         set to 1 to delete the seeded device's Redis
+//                                 heartbeat mid-approval and assert the claim
+//                                 is refused with 409 HOST_OFFLINE
+//   QD_REDIS_HOST / QD_REDIS_PORT used only by the host-offline check
 //
 // Exit codes: 0 = the documented shapes hold, 3 = a documented field is missing
 // or mistyped, 4 = the server could not be reached or returned an unexpected
@@ -114,6 +120,47 @@ function problemShape(json, where, expectedCode) {
   if (expectedCode) {
     check(code === expectedCode, `${where}: code is "${code}", spec documents "${expectedCode}"`);
   }
+}
+
+// A tiny RESP client for the one destructive Redis operation the smoke needs:
+// removing the seeded device's heartbeat so the server observes it as offline.
+// Keeping this dependency-free avoids pulling a Redis package into the smoke.
+function redisCommand(...args) {
+  const host = process.env.QD_REDIS_HOST || 'localhost';
+  const port = Number(process.env.QD_REDIS_PORT || 6379);
+  return new Promise((resolve, reject) => {
+    const socket = net.createConnection({ host, port });
+    let buffer = '';
+    let settled = false;
+    const finish = (err, value) => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      if (err) reject(err);
+      else resolve(value);
+    };
+    socket.setTimeout(2000);
+    socket.on('connect', () => {
+      const parts = [`*${args.length}\r\n`];
+      for (const arg of args) {
+        const value = String(arg);
+        parts.push(`$${Buffer.byteLength(value)}\r\n${value}\r\n`);
+      }
+      socket.write(parts.join(''));
+    });
+    socket.on('data', (chunk) => {
+      buffer += chunk.toString('utf8');
+      const end = buffer.indexOf('\r\n');
+      if (end === -1) return;
+      const line = buffer.slice(0, end);
+      if (line.startsWith(':')) finish(null, Number(line.slice(1)));
+      else if (line.startsWith('+')) finish(null, line.slice(1));
+      else if (line.startsWith('-')) finish(new Error(line.slice(1)));
+      else finish(new Error(`unexpected Redis reply: ${line}`));
+    });
+    socket.on('error', (err) => finish(err));
+    socket.on('timeout', () => finish(new Error('Redis command timed out')));
+  });
 }
 
 // 1. POST /v1/auth/sessions
@@ -763,6 +810,44 @@ if (smokeDevice) {
       expect: 403,
     });
     problemShape(claimDenied.json, 'POST access-approvals:claim (denied)');
+  }
+
+  // Host disappears while the owner is deciding. The approval can still be
+  // approved, but claim must refuse with HOST_OFFLINE and leave the row
+  // approved rather than consuming a session secret against an offline host.
+  // This is opt-in because it needs Redis access and deliberately leaves the
+  // disposable seeded device offline at the end of the run.
+  if (process.env.QD_SMOKE_HOST_OFFLINE === '1') {
+    const offlinePending = await call('POST', `/v1/devices/${deviceId}/access-code:verify`, {
+      body: { code: deviceAccessCode, client_id: `${approvalClient}-offline` },
+      extraHeaders: { 'X-Forwarded-For': `${queueBaseIP}88` },
+      expect: 202,
+    });
+    const deleted = await redisCommand('DEL', `qd:presence:device:${deviceId}:hb`);
+    check(deleted === 1,
+      `host-offline setup deleted ${deleted} heartbeat keys, want 1`);
+
+    const offlineApproved = await call('POST', `/v1/me/devices/${deviceId}/access-approvals/${offlinePending.json.approval_id}/approve`, {
+      token,
+      body: { reason: 'openapi-smoke-host-offline' },
+      expect: 200,
+    });
+    check(offlineApproved.json.status === 'approved',
+      `host-offline approve returned status "${offlineApproved.json.status}", want approved`);
+
+    const hostOffline = await call('POST', `/v1/devices/${deviceId}/access-approvals:claim`, {
+      body: { approval_id: offlinePending.json.approval_id, secret: offlinePending.json.approval_secret },
+      expect: 409,
+    });
+    problemShape(hostOffline.json, 'approval claim with host offline', 'HOST_OFFLINE');
+
+    const approvedList = await call('GET', `/v1/me/devices/${deviceId}/access-approvals?status=approved`, { token, expect: 200 });
+    const stillApproved = (approvedList.json?.items ?? []).find((a) => a.id === offlinePending.json.approval_id);
+    check(stillApproved !== undefined, 'host-offline approval disappeared after the refused claim');
+    if (stillApproved) {
+      check(stillApproved.status === 'approved',
+        `host-offline approval became "${stillApproved.status}", want approved`);
+    }
   }
 
   // Put the policy back exactly as it was before the flow.

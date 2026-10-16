@@ -150,6 +150,11 @@ jobs:
       # The seeder creates a new device for every run, so driving the deny
       # outcome (which arms a per-device cooldown) cannot affect anything later.
       QD_SMOKE_APPROVAL_DENY: '1'
+      # The seed is disposable, so also remove its heartbeat mid-approval and
+      # assert the claim is refused as HOST_OFFLINE.
+      QD_SMOKE_HOST_OFFLINE: '1'
+      QD_REDIS_HOST: localhost
+      QD_REDIS_PORT: '6379'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
