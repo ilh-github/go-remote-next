@@ -31,6 +31,40 @@ type AdminConfig struct {
 type SecurityConfig struct {
 	APIKey         string   // API Key for client authentication; empty means disabled
 	AllowedOrigins []string // Allowed Origin domains for WebClient; empty means disabled
+	// TrustedProxies are the peers whose X-Forwarded-For header is believed.
+	// Everyone else's header is ignored and the socket address is used, which
+	// is what stops a client from choosing its own client_ip.
+	TrustedProxies []string
+}
+
+// DefaultTrustedProxies is the reverse-proxy topology a self-hosted install
+// normally has: the proxy is on the same host or on the LAN. Only these peers
+// may set X-Forwarded-For; a request arriving from anywhere else is attributed
+// to its socket address no matter what the header says.
+var DefaultTrustedProxies = []string{
+	"127.0.0.1/32", "::1/128",
+	"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",
+	"fc00::/7",
+}
+
+// parseTrustedProxies reads TRUSTED_PROXIES. Empty means the defaults above;
+// the literal `none` means trust nobody (every request is attributed to its
+// socket address), which is the right setting for a server exposed directly.
+func parseTrustedProxies(raw string) []string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return append([]string(nil), DefaultTrustedProxies...)
+	}
+	if strings.EqualFold(trimmed, "none") {
+		return nil
+	}
+	out := make([]string, 0, 4)
+	for _, part := range strings.Split(trimmed, ",") {
+		if p := strings.TrimSpace(part); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // HolidayConfig points device access policies at the statutory holiday
@@ -166,6 +200,9 @@ func Load() *Config {
 
 	viper.SetDefault("API_KEY", "")
 	viper.SetDefault("ALLOWED_ORIGINS", "")
+	// Reverse proxies whose X-Forwarded-For is believed. Empty = loopback and
+	// private ranges; `none` = trust nobody.
+	viper.SetDefault("TRUSTED_PROXIES", "")
 
 	viper.SetDefault("RECORDING_DIR", "data/recordings")
 	viper.SetDefault("RECORDING_MAX_UPLOAD_MB", 2048)
@@ -251,6 +288,7 @@ func Load() *Config {
 	cfg.Security = SecurityConfig{
 		APIKey:         viper.GetString("API_KEY"),
 		AllowedOrigins: allowedOrigins,
+		TrustedProxies: parseTrustedProxies(viper.GetString("TRUSTED_PROXIES")),
 	}
 	// Playback tickets reuse the API key when no dedicated secret is set, so a
 	// self-hosted deployment that already gates its API gets working playback

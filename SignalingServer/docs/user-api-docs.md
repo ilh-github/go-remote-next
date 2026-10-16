@@ -578,18 +578,22 @@ reason) and fan out as the usual `device.access.denied` event, so notification
 channels subscribed to denials see policy blocks too. Policy changes are
 audited as `device.access_policy.changed`.
 
-> **Where `client_ip` comes from (known limitation).** Everything that keys on
-> a client address — `allow_ips`, `approval_trusted_ips`, the per-IP rate
-> limiters, the access log, and the per-source half of the approval queue guard
-> — uses gin's `ClientIP()`, which trusts `X-Forwarded-For` **from any peer** by
-> default. A client that can send the header therefore chooses its own
-> `client_ip`; verified locally by sending `X-Forwarded-For: 198.51.100.77`
-> from loopback and seeing the access log record that address. Behind a reverse
-> proxy this is fine as long as the proxy sets or strips the header (the
-> supplied Nginx config does), but it must not be assumed: a directly exposed
-> server makes the IP-based gates advisory. The fix is to make the trusted
-> proxies configurable and default to loopback/private ranges; until then,
-> deploy behind a proxy that owns the header.
+> **Where `client_ip` comes from.** Everything that keys on a client address —
+> `allow_ips`, `approval_trusted_ips`, the per-IP rate limiters, the access log,
+> and the per-source half of the approval queue guard (§5.3.5) — derives it
+> from the request peer, honouring `X-Forwarded-For` **only when that peer is a
+> trusted proxy**. The default list is loopback plus the private ranges
+> (`127.0.0.1/32`, `::1/128`, `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`,
+> `fc00::/7`), which is the usual "reverse proxy on this host or on the LAN"
+> topology. Set `TRUSTED_PROXIES` to name a different proxy, or to the literal
+> `none` when the server is exposed directly; an unparseable entry is fatal at
+> startup rather than ignored, because falling back silently would leave the IP
+> gates spoofable while looking configured. Verified with the same
+> `X-Forwarded-For: 198.51.100.77` on two peers in one run: from the LAN
+> (`192.168.8.81`, untrusted) the server recorded and enforced
+> `192.168.8.81` and denied the request on `allow_ips`, while from loopback
+> (trusted) it recorded `198.51.100.77` and let the request through to the code
+> check. The header is a claim; only a proxy's claim is believed.
 
 ### 5.3.4 Device access grants (time-boxed guest codes)
 

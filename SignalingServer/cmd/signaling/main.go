@@ -306,6 +306,20 @@ func main() {
 	// -------------------------------------------------------------------
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
+	// Only peers on this list may set X-Forwarded-For; every other request is
+	// attributed to its socket address. Without the call gin believes the
+	// header from any peer, which hands every IP-based gate - allow_ips,
+	// approval_trusted_ips, the per-IP rate limits, the access log - to the
+	// client. An invalid entry is fatal rather than ignored: falling back
+	// silently would leave the gates spoofable while looking configured.
+	if err := router.SetTrustedProxies(cfg.Security.TrustedProxies); err != nil {
+		log.Fatalf("TRUSTED_PROXIES is invalid: %v", err)
+	}
+	if len(cfg.Security.TrustedProxies) == 0 {
+		log.Println("Trusted proxies: none (X-Forwarded-For is ignored everywhere)")
+	} else {
+		log.Printf("Trusted proxies: %s", strings.Join(cfg.Security.TrustedProxies, ", "))
+	}
 	router.Use(gin.Recovery())
 	router.Use(middleware.RequestID())
 	router.Use(middleware.LoggerMiddleware(metricsService))
