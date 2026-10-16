@@ -893,6 +893,8 @@ request shapes; this section documents only the route table.
 | `GET` | `/v1/admin/recordings/:id/thumbnail` (cross-user preview; audit action `recording.thumbnail.download`) |
 | `GET` | `/v1/admin/recordings:storage` — `{artifact_count, total_bytes, retention_days, stale_after_minutes}` |
 | `POST` | `/v1/admin/recordings:sweep` — runs the stale + retention + orphan pass now; returns `{stale_marked_failed, artifacts_purged, bytes_freed, orphans_removed}` and audits `recording.sweep` |
+| `GET` | `/v1/admin/notification-deliveries:stats` — `{total, by_status, retention_days, archive_dir}`; `by_status` always carries all four states (`pending`/`delivering`/`delivered`/`failed`), zeroes included |
+| `POST` | `/v1/admin/notification-deliveries:sweep` — runs the outbox retention pass now. Optional body `{older_than_days: N}` overrides the configured window. Returns `{purged, older_than_days, cutoff, archive_dir}` and audits `notification_delivery.sweep`. `400` when neither the config nor the body supplies a window; on an archive write failure nothing is deleted and the response is an error |
 | `GET` `PUT` | `/v1/admin/preset` |
 | `GET` `PUT` | `/v1/admin/settings` |
 | `GET` `POST` `PATCH` `DELETE` | `/v1/admin/webhooks[/:id]` |

@@ -69,6 +69,38 @@ func (s *NotificationDeliveryService) WithArchiveDir(dir string) *NotificationDe
 	return s
 }
 
+// ArchiveDir reports the configured archive directory ("" = plain delete).
+func (s *NotificationDeliveryService) ArchiveDir() string {
+	return s.archiveDir
+}
+
+// CountByStatus returns one count per delivery status, including zeroes, so an
+// operator can see the whole outbox at a glance.
+func (s *NotificationDeliveryService) CountByStatus(ctx context.Context) (map[string]int64, error) {
+	type row struct {
+		Status string
+		Total  int64
+	}
+	var rows []row
+	if err := s.db.WithContext(ctx).
+		Model(&models.NotificationDelivery{}).
+		Select("status, count(*) AS total").
+		Group("status").
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	counts := map[string]int64{
+		DeliveryStatusPending:    0,
+		DeliveryStatusDelivering: 0,
+		DeliveryStatusDelivered:  0,
+		DeliveryStatusFailed:     0,
+	}
+	for _, r := range rows {
+		counts[r.Status] = r.Total
+	}
+	return counts, nil
+}
+
 // Enqueue stores one delivery attempt for a channel. Called from the event
 // subscriber, so it must stay cheap: no HTTP here.
 func (s *NotificationDeliveryService) Enqueue(ctx context.Context, ch models.UserNotificationChannel, eventType string, payload interface{}) error {

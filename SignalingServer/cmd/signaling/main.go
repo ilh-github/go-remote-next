@@ -236,6 +236,8 @@ func main() {
 	adminSessionRecordingHandler := handler.NewAdminSessionRecordingHandler(
 		sessionRecordingService, auditService, recordingLifecycle,
 		cfg.Recording.RetentionDays, cfg.Recording.StaleMinutes)
+	adminNotificationDeliveryHandler := handler.NewAdminNotificationDeliveryHandler(
+		notificationDeliveryService, auditService, cfg.Notification.RetentionDays)
 	adminLogsHandler := handler.NewAdminLogsHandler(
 		auditService,
 		db,
@@ -468,6 +470,10 @@ func main() {
 		// literal segment against the ":id" wildcard above.
 		adminGuarded.GET("/recordings:storage", adminSessionRecordingHandler.Storage)
 		adminGuarded.POST("/recordings:sweep", adminSessionRecordingHandler.Sweep)
+
+		// User-notification outbox (delivery states + on-demand retention).
+		adminGuarded.GET("/notification-deliveries:stats", adminNotificationDeliveryHandler.Stats)
+		adminGuarded.POST("/notification-deliveries:sweep", adminNotificationDeliveryHandler.Sweep)
 
 		// Raw operational log downloads are intentionally restricted to
 		// super administrators and a fixed server-side file allow-list.

@@ -461,3 +461,49 @@ func TestPurgeTerminalKeepsRowsWhenArchiveFails(t *testing.T) {
 		t.Errorf("kept %d rows, want the expired row to survive a failed archive", count)
 	}
 }
+
+// TestCountByStatusCoversEveryState checks the admin summary: every status is
+// reported, including the ones with no rows, so a dashboard never has to guess
+// whether a missing key means zero or "unknown".
+func TestCountByStatusCoversEveryState(t *testing.T) {
+	db := newPurgeTestDB(t)
+	ctx := context.Background()
+	svc := NewNotificationDeliveryService(db)
+	now := time.Now().UTC()
+
+	empty, err := svc.CountByStatus(ctx)
+	if err != nil {
+		t.Fatalf("count on empty table: %v", err)
+	}
+	for _, status := range []string{DeliveryStatusPending, DeliveryStatusDelivering, DeliveryStatusDelivered, DeliveryStatusFailed} {
+		if empty[status] != 0 {
+			t.Errorf("empty table %s = %d, want 0", status, empty[status])
+		}
+	}
+
+	seed := []models.NotificationDelivery{
+		{ChannelID: 9, UserID: 1, EventType: "test", Payload: "{}", Status: DeliveryStatusDelivered, Attempts: 1, NextAttemptAt: now},
+		{ChannelID: 9, UserID: 1, EventType: "test", Payload: "{}", Status: DeliveryStatusDelivered, Attempts: 1, NextAttemptAt: now},
+		{ChannelID: 9, UserID: 1, EventType: "test", Payload: "{}", Status: DeliveryStatusFailed, Attempts: 8, NextAttemptAt: now},
+		{ChannelID: 9, UserID: 1, EventType: "test", Payload: "{}", Status: DeliveryStatusPending, Attempts: 0, NextAttemptAt: now},
+	}
+	if err := db.Create(&seed).Error; err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	counts, err := svc.CountByStatus(ctx)
+	if err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	want := map[string]int64{
+		DeliveryStatusPending:    1,
+		DeliveryStatusDelivering: 0,
+		DeliveryStatusDelivered:  2,
+		DeliveryStatusFailed:     1,
+	}
+	for status, expected := range want {
+		if counts[status] != expected {
+			t.Errorf("%s = %d, want %d", status, counts[status], expected)
+		}
+	}
+}
