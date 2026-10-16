@@ -158,6 +158,27 @@ unset.
 
 Use as Kubernetes readiness/liveness probe directly.
 
+### `GET /metrics` (Prometheus, opt-in)
+
+Prometheus text exposition is disabled unless `METRICS_TOKEN` is set. When it
+is set, scrapers must send `Authorization: Bearer <METRICS_TOKEN>`; a missing
+or wrong token is `401`. The route lives outside `/v1` and is not counted by
+the API request counter, so the metric endpoint does not inflate its own
+traffic.
+
+The response is `text/plain; version=0.0.4` and currently exposes:
+`quickdesk_signaling_build_info`, `quickdesk_signaling_uptime_seconds`,
+`quickdesk_signaling_api_requests_total`,
+`quickdesk_signaling_api_requests_today`,
+`quickdesk_signaling_websocket_connections`,
+`quickdesk_signaling_signal_hosts`,
+`quickdesk_signaling_signal_clients`,
+`quickdesk_signaling_event_streams`,
+`quickdesk_signaling_go_goroutines`,
+`quickdesk_signaling_go_mem_alloc_bytes`, and
+`quickdesk_signaling_go_mem_sys_bytes`. `api_requests_total` is process-local
+and monotonic; `api_requests_today` is a UTC-day gauge that resets at midnight.
+
 ### 3.2 `GET /v1/preset`
 
 Returns the unified preset bundle (announcements, links, WebClient URL,

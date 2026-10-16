@@ -8,17 +8,19 @@ import (
 )
 
 type MetricsService struct {
+	apiRequestsTotal atomic.Int64
 	apiRequestsToday atomic.Int64
 	apiDay           atomic.Int64
 
 	mu            sync.RWMutex
 	signalHosts   map[string]struct{}
 	signalClients map[string]map[string]struct{}
-	eventUsers     map[uint]int
+	eventUsers    map[uint]int
 }
 
 type MetricsSnapshot struct {
-	APIRequestsToday    int64 `json:"api_requests_today"`
+	APIRequestsTotal     int64 `json:"api_requests_total"`
+	APIRequestsToday     int64 `json:"api_requests_today"`
 	WebSocketConnections int   `json:"websocket_connections"`
 	SignalHosts          int   `json:"signal_hosts"`
 	SignalClients        int   `json:"signal_clients"`
@@ -29,7 +31,7 @@ func NewMetricsService() *MetricsService {
 	m := &MetricsService{
 		signalHosts:   map[string]struct{}{},
 		signalClients: map[string]map[string]struct{}{},
-		eventUsers:     map[uint]int{},
+		eventUsers:    map[uint]int{},
 	}
 	m.apiDay.Store(dayKey(time.Now().UTC()))
 	return m
@@ -40,6 +42,7 @@ func (m *MetricsService) RecordHTTPRequest(path string) {
 		return
 	}
 	m.rollToday(time.Now().UTC())
+	m.apiRequestsTotal.Add(1)
 	m.apiRequestsToday.Add(1)
 }
 
@@ -121,7 +124,8 @@ func (m *MetricsService) Snapshot() MetricsSnapshot {
 	}
 
 	return MetricsSnapshot{
-		APIRequestsToday:    m.apiRequestsToday.Load(),
+		APIRequestsTotal:     m.apiRequestsTotal.Load(),
+		APIRequestsToday:     m.apiRequestsToday.Load(),
 		WebSocketConnections: len(m.signalHosts) + signalClients + eventStreams,
 		SignalHosts:          len(m.signalHosts),
 		SignalClients:        signalClients,

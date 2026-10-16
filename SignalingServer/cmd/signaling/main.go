@@ -390,6 +390,7 @@ func main() {
 	// Router
 	// -------------------------------------------------------------------
 	gin.SetMode(gin.ReleaseMode)
+	metricsHandler := handler.NewMetricsHandler(metricsService, Version, cfg.Metrics.Token)
 	router := gin.New()
 	// Only peers on this list may set X-Forwarded-For; every other request is
 	// attributed to its socket address. Without the call gin believes the
@@ -412,6 +413,10 @@ func main() {
 
 	// Health + public surface.
 	router.GET("/health", publicHandler.Health)
+	if cfg.Metrics.Token != "" {
+		router.GET("/metrics", metricsHandler.Prometheus)
+		log.Println("Prometheus metrics: enabled at /metrics (bearer token required)")
+	}
 
 	// Every v1 endpoint — including public read-only ones — sits behind
 	// APIKeyAuth.Required() (§2.1 "所有调用官方服务器的接口带 header").
@@ -420,10 +425,10 @@ func main() {
 	// self-hosted deployment without the gate still works.
 	//
 	// The only routes outside this group are /health (unauthenticated by
-	// design for k8s readiness probes) and the two /v1/realtime/* WS
-	// upgrades — browsers can't attach custom headers to a WebSocket
-	// handshake, so those authenticate via first-frame auth instead
-	// (§2.13).
+	// design for k8s readiness probes), the opt-in /metrics endpoint
+	// (bearer-token protected) and the two /v1/realtime/* WS upgrades —
+	// browsers can't attach custom headers to a WebSocket handshake, so
+	// those authenticate via first-frame auth instead (§2.13).
 	v1 := router.Group("/v1")
 	v1.Use(apiKeyAuth.Required())
 	{

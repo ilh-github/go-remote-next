@@ -37,6 +37,13 @@ type SecurityConfig struct {
 	TrustedProxies []string
 }
 
+// MetricsConfig controls the optional Prometheus text endpoint. It is disabled
+// unless a token is configured, so a self-hosted install does not accidentally
+// expose operational counters on the public listener.
+type MetricsConfig struct {
+	Token string
+}
+
 // DefaultTrustedProxies is the reverse-proxy topology a self-hosted install
 // normally has: the proxy is on the same host or on the LAN. Only these peers
 // may set X-Forwarded-For; a request arriving from anywhere else is attributed
@@ -102,6 +109,7 @@ type Config struct {
 	Ice           IceConfig
 	Admin         AdminConfig
 	Security      SecurityConfig
+	Metrics       MetricsConfig
 	Recording     RecordingConfig
 	Notification  NotificationConfig
 	Audit         AuditConfig
@@ -288,6 +296,9 @@ func Load() *Config {
 	// Reverse proxies whose X-Forwarded-For is believed. Empty = loopback and
 	// private ranges; `none` = trust nobody.
 	viper.SetDefault("TRUSTED_PROXIES", "")
+	// Prometheus text endpoint. Empty disables /metrics entirely; when set,
+	// scrapers must send `Authorization: Bearer <token>`.
+	viper.SetDefault("METRICS_TOKEN", "")
 
 	viper.SetDefault("RECORDING_DIR", "data/recordings")
 	viper.SetDefault("RECORDING_MAX_UPLOAD_MB", 2048)
@@ -420,6 +431,9 @@ func Load() *Config {
 		APIKey:         viper.GetString("API_KEY"),
 		AllowedOrigins: allowedOrigins,
 		TrustedProxies: parseTrustedProxies(viper.GetString("TRUSTED_PROXIES")),
+	}
+	cfg.Metrics = MetricsConfig{
+		Token: viper.GetString("METRICS_TOKEN"),
 	}
 	// Playback tickets reuse the API key when no dedicated secret is set, so a
 	// self-hosted deployment that already gates its API gets working playback
