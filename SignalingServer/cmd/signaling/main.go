@@ -231,7 +231,9 @@ func main() {
 	// Owner-scheduled control-plane actions. Only kinds whose whole effect
 	// lives in the control plane are registered: a task that needed a client to
 	// cooperate could be scheduled but never actually run.
-	scheduledTaskService := service.NewScheduledTaskService(db).WithAudit(auditService)
+	scheduledTaskService := service.NewScheduledTaskService(db).
+		WithAudit(auditService).
+		WithNotifier(bus)
 	scheduledTaskService.RegisterAction(
 		models.ScheduledTaskSignOutAllSessions,
 		service.NewSignOutAllSessionsAction(tokenService, bus),

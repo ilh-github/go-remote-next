@@ -57,14 +57,22 @@ type ScheduledTaskAction interface {
 	Run(ctx context.Context, task models.ScheduledTask) error
 }
 
+// ScheduledTaskNotifier receives the events the scheduler emits. It is an
+// interface rather than *EventBus so a test can capture what was published
+// without standing up a Redis-backed bus.
+type ScheduledTaskNotifier interface {
+	Publish(ctx context.Context, evt Event)
+}
+
 // ScheduledTaskService owns owner-scheduled control-plane actions: the row,
 // the due-claim, and the execution. It deliberately starts with kinds whose
 // whole effect lives in the control plane, so a task cannot silently depend on
 // a client that is not there.
 type ScheduledTaskService struct {
-	db      *gorm.DB
-	actions map[string]ScheduledTaskAction
-	audit   *AuditService
+	db       *gorm.DB
+	actions  map[string]ScheduledTaskAction
+	audit    *AuditService
+	notifier ScheduledTaskNotifier
 }
 
 func NewScheduledTaskService(db *gorm.DB) *ScheduledTaskService {
@@ -75,6 +83,15 @@ func NewScheduledTaskService(db *gorm.DB) *ScheduledTaskService {
 // audit service still gets the task's own last_status/last_error.
 func (s *ScheduledTaskService) WithAudit(a *AuditService) *ScheduledTaskService {
 	s.audit = a
+	return s
+}
+
+// WithNotifier emits a `scheduled_task.failed` event when a task spends its
+// retry budget, so the owner's notification channels can tell them a scheduled
+// action never succeeded. Optional: without it the failure is still on the row
+// and in the audit trail.
+func (s *ScheduledTaskService) WithNotifier(n ScheduledTaskNotifier) *ScheduledTaskService {
+	s.notifier = n
 	return s
 }
 
@@ -253,6 +270,7 @@ func (s *ScheduledTaskService) runOne(ctx context.Context, task models.Scheduled
 		"last_error":  message,
 		"updated_at":  now,
 	}
+	giveUp := false
 	switch {
 	case status == ScheduledTaskStatusOK:
 		// Success ends the occurrence: clear the counter so the next period (or
@@ -274,6 +292,7 @@ func (s *ScheduledTaskService) runOne(ctx context.Context, task models.Scheduled
 		// Out of attempts. A one-shot stays disabled and keeps the count so the
 		// operator can see it tried; a recurring task keeps the period the claim
 		// advanced and starts the next occurrence with a clean counter.
+		giveUp = true
 		if task.RepeatSeconds > 0 {
 			updates["attempts"] = 0
 		} else {
@@ -292,6 +311,21 @@ func (s *ScheduledTaskService) runOne(ctx context.Context, task models.Scheduled
 			fmt.Sprintf("kind=%s status=%s attempt=%d/%d error=%q",
 				task.Kind, status, attempted, scheduledTaskMaxAttempts(task), message),
 			"")
+	}
+	// Only the terminal failure is an event: the retries are visible on the row
+	// and in the audit trail, and alerting on each one would bury the signal.
+	if giveUp && s.notifier != nil {
+		s.notifier.Publish(ctx, Event{
+			Type:   EventScheduledTaskFailed,
+			UserID: task.UserID,
+			Data: map[string]interface{}{
+				"task_id":  task.ID,
+				"kind":     task.Kind,
+				"status":   status,
+				"attempts": attempted,
+				"error":    message,
+			},
+		})
 	}
 }
 

@@ -31,6 +31,9 @@ var SupportedUserNotificationEvents = []string{
 	EventDeviceUnbound,
 	EventDeviceAccessApprovalRequested,
 	EventDeviceAccessApprovalDecided,
+	// A scheduled task that has spent its retry budget is an operational
+	// failure the owner asked to be told about by scheduling it.
+	EventScheduledTaskFailed,
 }
 
 // IsSupportedUserNotificationEvent reports whether evtType may be subscribed

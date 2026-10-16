@@ -450,7 +450,8 @@ without depending on the shape of `data`.
 Supported events today: `device.access.denied`, `device.access.granted`,
 `device.access.session_started`, `device.online.changed`,
 `device.offline.sustained` (§5.3.6), `device.bound`, `device.unbound`,
-`device.access_approval.requested`, `device.access_approval.decided`.
+`device.access_approval.requested`, `device.access_approval.decided`,
+`scheduled_task.failed` (§5.6).
 
 When `secret` is set the raw body is signed with HMAC-SHA256 and sent as
 `X-Webhook-Signature: sha256=<hex>`, so receivers can share one verification
@@ -1038,6 +1039,15 @@ without drifting the schedule. The live counter is `attempts`: reset to `0` on
 success, kept on a parked one-shot so the operator can see how many tries it
 got, and reset for a recurring task so the next period starts fresh. A parked
 one-shot stays `enabled: false` with `last_error` set.
+
+**Giving up is announced.** When a task spends its retry budget the scheduler
+publishes a user-scoped `scheduled_task.failed` event carrying `task_id`,
+`kind`, `status`, `attempts` and `error`. It fans out to the owner's realtime
+WebSocket and to any notification channel that subscribed to it (§5.5), so
+"I scheduled something and it silently never ran" is answerable without polling
+the row. Per-attempt failures are deliberately *not* events - they live on the
+row (`attempts`, `last_error`) and in the audit trail - because an alert per
+retry teaches the owner to ignore it.
 
 The worker (`SCHEDULED_TASK_INTERVAL_SECONDS`, default `30`; `0` disables it)
 claims due rows with `FOR UPDATE SKIP LOCKED` and advances the schedule *inside*

@@ -77,6 +77,13 @@ const (
 
 	EventSessionRevoked  = "session.revoked"
 	EventTurnConfigChang = "turn.config.changed"
+
+	// EventScheduledTaskFailed fires once per occurrence, when a scheduled
+	// task has spent its retry budget and will not be attempted again. Per-
+	// attempt failures are deliberately not events: they are visible on the
+	// row (`attempts`, `last_error`) and in the audit trail, and paging the
+	// owner on every retry would train them to ignore the alert.
+	EventScheduledTaskFailed = "scheduled_task.failed"
 )
 
 // EventSubscriber is the in-process interface for anything that wants to

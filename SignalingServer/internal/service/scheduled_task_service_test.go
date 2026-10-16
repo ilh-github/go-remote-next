@@ -433,3 +433,99 @@ func TestScheduledTaskRecurringRetryRunsBeforeTheNextPeriod(t *testing.T) {
 		t.Fatal("last_error is empty; a retried failure must still be readable")
 	}
 }
+
+// capturingNotifier records the events the scheduler publishes, so a test can
+// tell "gave up" from "retrying" without a Redis-backed bus.
+type capturingNotifier struct {
+	mu     sync.Mutex
+	events []Event
+}
+
+func (n *capturingNotifier) Publish(_ context.Context, evt Event) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.events = append(n.events, evt)
+}
+
+func (n *capturingNotifier) all() []Event {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return append([]Event(nil), n.events...)
+}
+
+// Alerting has to fire exactly once, when the task gives up. Emitting on every
+// retry would train the owner to ignore it, and emitting on success would be
+// worse.
+func TestScheduledTaskPublishesOnlyWhenItGivesUp(t *testing.T) {
+	db := newScheduledTaskTestDB(t)
+	action := &flakyAction{failures: 99}
+	notifier := &capturingNotifier{}
+	svc := NewScheduledTaskService(db).RegisterAction("probe", action).WithNotifier(notifier)
+	ctx := context.Background()
+
+	now := time.Now().UTC()
+	task := seedScheduledTask(t, db, models.ScheduledTask{
+		UserID:      7,
+		Kind:        "probe",
+		NextRunAt:   now.Add(-time.Second),
+		Enabled:     true,
+		MaxAttempts: 2,
+	})
+
+	// First failure still has budget: the task is retried and nothing is posted.
+	if n, _ := svc.RunDue(ctx, now); n != 1 {
+		t.Fatalf("first pass ran %d tasks, want 1", n)
+	}
+	if got := notifier.all(); len(got) != 0 {
+		t.Fatalf("published %d events on a retryable failure, want 0", len(got))
+	}
+
+	// Second failure spends the budget: exactly one terminal event.
+	row := loadScheduledTask(t, db, task.ID)
+	if n, _ := svc.RunDue(ctx, row.NextRunAt.Add(time.Second)); n != 1 {
+		t.Fatalf("second pass ran %d tasks, want 1", n)
+	}
+	events := notifier.all()
+	if len(events) != 1 {
+		t.Fatalf("published %d events after giving up, want exactly 1", len(events))
+	}
+	if events[0].Type != EventScheduledTaskFailed || events[0].UserID != 7 {
+		t.Fatalf("event = %+v, want scheduled_task.failed for user 7", events[0])
+	}
+	if events[0].Data["kind"] != "probe" || events[0].Data["attempts"] != 2 {
+		t.Fatalf("event data = %+v, want kind=probe attempts=2", events[0].Data)
+	}
+}
+
+// A task that succeeds must not notify at all.
+func TestScheduledTaskSuccessPublishesNothing(t *testing.T) {
+	db := newScheduledTaskTestDB(t)
+	action := &flakyAction{}
+	notifier := &capturingNotifier{}
+	svc := NewScheduledTaskService(db).RegisterAction("probe", action).WithNotifier(notifier)
+	ctx := context.Background()
+
+	now := time.Now().UTC()
+	seedScheduledTask(t, db, models.ScheduledTask{
+		UserID:      7,
+		Kind:        "probe",
+		NextRunAt:   now.Add(-time.Second),
+		Enabled:     true,
+		MaxAttempts: 3,
+	})
+
+	if n, _ := svc.RunDue(ctx, now); n != 1 {
+		t.Fatalf("pass ran %d tasks, want 1", n)
+	}
+	if got := notifier.all(); len(got) != 0 {
+		t.Fatalf("published %d events for a successful run, want 0", len(got))
+	}
+}
+
+// The event has to be subscribable, or DispatchEvent would drop it and the
+// alert would exist only in the audit trail.
+func TestScheduledTaskFailedIsSubscribable(t *testing.T) {
+	if !IsSupportedUserNotificationEvent(EventScheduledTaskFailed) {
+		t.Fatal("scheduled_task.failed is not in SupportedUserNotificationEvents")
+	}
+}
