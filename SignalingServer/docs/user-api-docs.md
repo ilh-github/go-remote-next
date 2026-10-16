@@ -1601,7 +1601,7 @@ request shapes; this section documents only the route table.
 | `GET` | `/v1/admin/connections` |
 | `GET` | `/v1/admin/activity` |
 | `GET` | `/v1/admin/trends?range=24h\|7d\|30d` |
-| `GET` | `/v1/admin/audit-logs` (filters `action` / `admin` / `actor_user_id` / `date_from` / `date_to`; a non-numeric `actor_user_id` is `400` rather than a filter that quietly matches everything) |
+| `GET` | `/v1/admin/audit-logs` (filters `action` / `admin` / `username` / `actor_user_id` / `date_from` / `date_to`; `username` is a case-insensitive substring that matches either an administrator name or an end-user account in one pass, so the caller does not need to know which table the account lives in; a non-numeric `actor_user_id` is `400` rather than a filter that quietly matches everything) |
 | `POST` | `/v1/admin/audit-logs:sweep` — run the audit-retention purge now. Optional body `{older_than_days: N}` overrides the configured age window, `{max_rows: N}` the table-wide row cap, `{max_rows_per_actor: N}` the per-actor row cap, `{max_rows_per_device: N}` the per-device row cap, `{max_rows_per_action: N}` the per-action row cap and `{archive_retention_days: N}` how long the daily archive files are kept; any combination may be passed. Returns `{purged, older_than_days, cutoff, max_rows, cap_removed, max_rows_per_actor, actor_cap_removed, max_rows_per_device, device_cap_removed, max_rows_per_action, action_cap_removed, archive_retention_days, archive_removed, archive_moved, archive_deleted, archive_dir, archive_cold_dir}` and audits `audit.sweep`. `400` when none of the config or body supplies any bound (`AUDIT_RETENTION_DAYS` / `AUDIT_MAX_ROWS` / `AUDIT_MAX_ROWS_PER_ACTOR` / `AUDIT_MAX_ROWS_PER_DEVICE` / `AUDIT_MAX_ROWS_PER_ACTION` / `AUDIT_ARCHIVE_RETENTION_DAYS` or the matching body fields), and `400` when archive retention is asked for while `AUDIT_ARCHIVE_DIR` is unset; when `AUDIT_ARCHIVE_DIR` is set an archive write failure deletes nothing |
 | `GET` | `/v1/admin/audit-archive:search` — read back a day's archive that retention wrote. `?date=` (`YYYY-MM-DD`, default today in UTC), `&q=` (case-insensitive substring over action/resource/details/ip/admin), `&action=` (exact), `&admin=` (substring), `&actor_user_id=` (positive integer), `&limit=` (default 50, clamped to 500). Returns `{items, count, date, file, scanned_bytes, scanned_lines, truncated, has_more, archive_dir}` newest first and audits `audit.archive.search`. `400` when `AUDIT_ARCHIVE_DIR` is unset or `date`/`limit`/`actor_user_id` is malformed; `404` when that day has no archive file |
 | `GET` `DELETE` | `/v1/admin/recordings[/:id]` (list filters `user_id` / `device_id` / `status` / `q`; delete writes audit action `recording.delete`) |
@@ -1634,7 +1634,18 @@ User-side rows also record the actor's observed client IP, the same column the
 admin path fills, so the trail answers "from where" regardless of who acted.
 The CSV export (`/v1/admin/audit-logs:export?format=csv`) carries
 `actor_user_id` as its own column; without it a mixed export could not tell an
-owner's deletion from an administrator's.
+owner's deletion from an administrator's. The export accepts the same filters
+as the list, `username` included, so the narrowed view can be taken away rather
+than only looked at.
+
+A third filter, `?username=`, covers the case where the operator knows the
+account name but neither its id nor which side of the trail it sits on: it
+matches `admin_username` and resolves an end-user name through the `users`
+table in one query, so "what did wei do" returns the administrator's rows and
+the end user's rows together. Resolving the user side through a join rather
+than copying a name onto every row is deliberate - a renamed account's history
+follows the account, and the write path pays nothing. Like `?admin=`, it is a
+case-insensitive substring.
 
 **Audit retention is opt-in and off by default.** `audit_logs` has no terminal
 state, so without retention it only ever grows. `AUDIT_RETENTION_DAYS` (default

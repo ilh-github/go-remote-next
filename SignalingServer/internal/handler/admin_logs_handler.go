@@ -275,9 +275,16 @@ func (h *AdminLogsHandler) ExportAudit(c *gin.Context) {
 		ProblemBadRequest(c, ProblemCodeInvalidRequest, "format must be csv or json")
 		return
 	}
+	actorUserID, err := parseActorUserID(c.Query("actor_user_id"))
+	if err != nil {
+		ProblemBadRequest(c, ProblemCodeInvalidRequest, err.Error())
+		return
+	}
 	logs, _, err := h.audit.List(c.Request.Context(), service.AuditListParams{
 		Action: c.Query("action"), AdminUsername: c.Query("admin"),
-		DateFrom: c.Query("date_from"), DateTo: c.Query("date_to"), Limit: 100000,
+		Username:    strings.TrimSpace(c.Query("username")),
+		ActorUserID: actorUserID,
+		DateFrom:    c.Query("date_from"), DateTo: c.Query("date_to"), Limit: 100000,
 	})
 	if err != nil {
 		ProblemInternal(c, err.Error())

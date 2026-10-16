@@ -683,6 +683,13 @@ type AuditListParams struct {
 	// is what the admin-activity view wants; user-side rows carry actor ids and
 	// leave admin_id zero, so this is the only way to ask "what did user N do".
 	ActorUserID uint
+	// Username narrows to one acting name, whichever side of the trail it is:
+	// an administrator matches the denormalised `admin_username` column, and an
+	// end user is resolved through the users table. One filter rather than two
+	// because the operator asking "what did wei do" does not know - or care -
+	// which table that account lives in. Substring, case-insensitive, matching
+	// the existing `admin` filter.
+	Username string
 }
 
 func (s *AuditService) List(ctx context.Context, p AuditListParams) ([]models.AuditLog, int64, error) {
@@ -693,6 +700,16 @@ func (s *AuditService) List(ctx context.Context, p AuditListParams) ([]models.Au
 	}
 	if p.AdminUsername != "" {
 		query = query.Where("admin_username LIKE ?", "%"+p.AdminUsername+"%")
+	}
+	if p.Username != "" {
+		like := "%" + p.Username + "%"
+		// The subquery resolves an end-user name to the actor rows it owns. It
+		// is evaluated per query rather than copied onto the row at write time,
+		// so a renamed account's history follows the account - which is what
+		// "what has this account done" means - and the write path pays nothing.
+		query = query.Where(
+			"admin_username LIKE ? OR actor_user_id IN (SELECT id FROM users WHERE username LIKE ?)",
+			like, like)
 	}
 	if p.ActorUserID > 0 {
 		query = query.Where("actor_user_id = ?", p.ActorUserID)

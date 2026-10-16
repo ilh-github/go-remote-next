@@ -54,6 +54,7 @@ func (h *AdminAuditHandler) List(c *gin.Context) {
 		Limit:         p.Limit + 1,
 		Action:        c.Query("action"),
 		AdminUsername: c.Query("admin"),
+		Username:      strings.TrimSpace(c.Query("username")),
 		ActorUserID:   actorUserID,
 		DateFrom:      c.Query("date_from"),
 		DateTo:        c.Query("date_to"),
