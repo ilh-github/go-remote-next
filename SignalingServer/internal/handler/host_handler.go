@@ -371,6 +371,20 @@ func approvalSource(grant *models.DeviceAccessGrant) string {
 	return models.ApprovalSourceDeviceCode
 }
 
+// approvalReason is the access-log reason for a pending approval. It names the
+// rule that asked, so the owner's timeline says "guest code" or "unrecognized
+// IP" instead of an unexplained waiting state.
+func approvalReason(trigger string) string {
+	switch trigger {
+	case service.ApprovalTriggerGrant:
+		return "waiting for owner approval (guest code)"
+	case service.ApprovalTriggerUntrustedIP:
+		return "waiting for owner approval (unrecognized IP)"
+	default:
+		return "waiting for owner approval"
+	}
+}
+
 func (h *HostHandler) VerifyAccessCode(c *gin.Context) {
 	deviceID := c.Param("device_id")
 	ip := c.ClientIP()
@@ -498,7 +512,9 @@ func (h *HostHandler) VerifyAccessCode(c *gin.Context) {
 	// Second factor: the code is right, but this device's owner wants to say
 	// yes first. Instead of a token, the controller gets a pending request it
 	// polls with the one-time secret until the owner decides.
-	if service.RequiresApproval(policy) {
+	source := approvalSource(usedGrant)
+	approval := service.DecideApproval(policy, source, ip)
+	if approval.Required {
 		// Fail closed: a policy that demands approval must never fall through
 		// to "mint a token anyway" because the service was not wired.
 		if h.accessApprovals == nil {
@@ -519,7 +535,7 @@ func (h *HostHandler) VerifyAccessCode(c *gin.Context) {
 				OwnerID:  ownerID,
 				ClientID: req.ClientID,
 				ClientIP: ip,
-				Source:   approvalSource(usedGrant),
+				Source:   source,
 				GrantID:  grantID,
 			})
 		if aerr != nil {
@@ -527,10 +543,10 @@ func (h *HostHandler) VerifyAccessCode(c *gin.Context) {
 			return
 		}
 		h.recordDeviceAccess(c, deviceID, req.ClientID, service.DeviceAccessPendingApproval,
-			"waiting for owner approval")
+			approvalReason(approval.Trigger))
 		observability.Event("access_verify", "approval_pending", map[string]interface{}{
 			"device_id": deviceID, "ip": ip, "approval_id": row.ID,
-			"request_id": c.GetString("request_id"),
+			"trigger": approval.Trigger, "request_id": c.GetString("request_id"),
 		})
 		if h.bus != nil && ownerID != 0 {
 			h.bus.Publish(c.Request.Context(), service.Event{
@@ -542,6 +558,7 @@ func (h *HostHandler) VerifyAccessCode(c *gin.Context) {
 					"client_id":   req.ClientID,
 					"client_ip":   ip,
 					"source":      row.Source,
+					"trigger":     approval.Trigger,
 					"expires_at":  row.ExpiresAt.UTC().Format(time.RFC3339),
 				},
 			})

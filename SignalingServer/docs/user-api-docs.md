@@ -448,8 +448,8 @@ blocked client never gets to guess codes.
 
 | Method | Path | Body | Notes |
 |---|---|---|---|
-| `GET` | `/v1/me/devices/:device_id/access-policy` | — | Returns `{device_id, remote_disabled, allow_ips: [], max_sessions, allowed_windows: [], timezone, exception_dates: [], approval_required, updated_at?}`. A device with no policy returns `remote_disabled: false, allow_ips: [], max_sessions: 0, allowed_windows: [], exception_dates: [], approval_required: false`. |
-| `PUT` | `/v1/me/devices/:device_id/access-policy` | `{remote_disabled: bool, allow_ips: ["10.0.0.0/8"], max_sessions: 1, allowed_windows: [{"days":[1,2,3,4,5],"start":"09:00","end":"18:00"}], timezone: "Asia/Shanghai", exception_dates: [{"holiday":"春节","mode":"deny"},{"repeat":"lunar","lunar_month":8,"lunar_day":15,"mode":"deny"},{"date":"2026-10-17","mode":"allow"}], approval_required: false}` | Full replace. IP entries must be bare IPs or CIDR blocks; `0` max sessions means unlimited; negative is rejected. |
+| `GET` | `/v1/me/devices/:device_id/access-policy` | — | Returns `{device_id, remote_disabled, allow_ips: [], max_sessions, allowed_windows: [], timezone, exception_dates: [], approval_required, approval_mode, approval_trusted_ips: [], updated_at?}`. A device with no policy returns `remote_disabled: false, allow_ips: [], max_sessions: 0, allowed_windows: [], exception_dates: [], approval_required: false, approval_mode: "off", approval_trusted_ips: []`. |
+| `PUT` | `/v1/me/devices/:device_id/access-policy` | `{remote_disabled: bool, allow_ips: ["10.0.0.0/8"], max_sessions: 1, allowed_windows: [{"days":[1,2,3,4,5],"start":"09:00","end":"18:00"}], timezone: "Asia/Shanghai", exception_dates: [{"holiday":"春节","mode":"deny"},{"repeat":"lunar","lunar_month":8,"lunar_day":15,"mode":"deny"},{"date":"2026-10-17","mode":"allow"}], approval_mode: "grant", approval_trusted_ips: ["10.211.55.0/24"]}` | Full replace. IP entries must be bare IPs or CIDR blocks; `0` max sessions means unlimited; negative is rejected. An unknown `approval_mode` is a `400`. |
 
 `max_sessions` is a concurrency cap on *controllers* (viewers count too, the
 host socket does not). It is enforced when a controller authenticates its
@@ -509,10 +509,30 @@ be dropped in and the server restarted without a rebuild.
 Exception dates only decide the *time* rule. `remote_disabled` and `allow_ips`
 are still evaluated first, so an allow date cannot bypass either of them.
 
-`approval_required` adds a second factor on top of a correct access code
-(§5.3.5): every session on this device turns into a pending request the owner
-must approve, even when the code is right. It is not a substitute for the
-code — the code is still compared, and the policy gate above still runs.
+`approval_mode` adds a second factor on top of a correct access code
+(§5.3.5): instead of a signal token, the session becomes a pending request the
+owner must approve. It is not a substitute for the code — the code is still
+compared, and the policy gate above still runs. The mode decides *which*
+sessions are worth interrupting the owner for:
+
+| `approval_mode` | Asks for approval when… |
+|---|---|
+| `off` (default) | never |
+| `always` | every session, whatever the credential |
+| `grant` | the session used a time-boxed guest grant, not the device's own code — the "I lent someone a code" case |
+| `untrusted_ip` | the controller is outside `approval_trusted_ips` — the "someone from somewhere new" case |
+
+`approval_trusted_ips` is a list of IPs/CIDR blocks (same syntax as
+`allow_ips`) and is **required** for `untrusted_ip`; an empty list there is a
+`400` rather than a silent "trust everyone". `approval_required: true` is kept
+for compatibility and means `approval_mode: "always"`; the response always
+reports the resolved mode, so `{"approval_required": true}` reads back as
+`{"approval_required": true, "approval_mode": "always"}`. An unrecognised mode
+is rejected at write time — a typo must never quietly turn the gate off.
+
+Approval requests carry a `trigger` (`always` / `grant` / `untrusted_ip`) on
+the `device.access_approval.requested` event, and the access timeline says
+which rule asked, e.g. `waiting for owner approval (guest code)`.
 
 A controller outside every window is rejected at verify time with
 `ACCESS_POLICY_DENIED` / "outside the allowed access window" and shows up as
@@ -564,10 +584,11 @@ Grants also emit realtime events to the owner (§11):
 
 ### 5.3.5 Device access approvals (second factor)
 
-`approval_required` on the device policy (§5.3.3) turns "right access code"
-into "right access code **and** the owner said yes". It exists for the case the
-code alone cannot cover: a guest who was given a code walks up at a bad moment,
-or the owner simply wants to see each session start.
+`approval_mode` on the device policy (§5.3.3) turns "right access code" into
+"right access code **and** the owner said yes", for the sessions the owner
+chose to gate (`always`, `grant`, or `untrusted_ip`). It exists for the case
+the code alone cannot cover: a guest who was given a code walks up at a bad
+moment, or someone connects from an address the owner does not recognise.
 
 The flow:
 
@@ -1126,7 +1147,7 @@ include access-code plaintext, `device_secret`, or `refresh_token`.
 | `device.access_policy.changed` | owner changed the device access policy (§5.3.3) | `{device_id, remote_disabled, allow_ips, max_sessions, allowed_windows, timezone, exception_dates}` |
 | `device.access_grant.changed` | owner created or revoked a guest grant (§5.3.4) | `{action: "created"\|"revoked", grant_id, label, expires_at, max_uses, uses}` (never the code) |
 | `device.access_grant.used` | a grant just admitted a session | `{grant_id, label, uses, max_uses, client_id}` |
-| `device.access_approval.requested` | a correct code is waiting for the owner's yes/no (§5.3.5) | `{approval_id, client_id, client_ip, source, expires_at}` (never the secret) |
+| `device.access_approval.requested` | a correct code is waiting for the owner's yes/no (§5.3.5) | `{approval_id, client_id, client_ip, source, trigger, expires_at}`, where `trigger` is `always` / `grant` / `untrusted_ip` (never the secret) |
 | `device.access_approval.decided` | owner approved or denied a waiting session | `{approval_id, status: "approved"\|"denied", source, client_id, reason?}` |
 
 Event envelope (always present):

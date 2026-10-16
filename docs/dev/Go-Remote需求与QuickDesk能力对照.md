@@ -65,7 +65,7 @@ QuickDesk 已经覆盖了远程控制最核心、最难实现的画面、输入�
 | 2FA | 管理员双因素 | Admin TOTP 已有 | 已有 | 保留 |
 | SSO | 企业单点登录 | 未发现完整接入 | 缺失 | 明确暂不做，后续评估 |
 | 通知 | 设备上下线、异常、任务 | 管理端 webhook 已有；**用户级通知通道已完成**（`/v1/me/notification-channels`，订阅访问拒绝/会话开始/设备上下线等事件，HMAC 签名 + 持久 outbox、至少一次投递、单条/按通道/跨通道死信重放、保留策略含先归档再删），管理端有 `notification-deliveries:stats|sweep` | 部分 | 服务端投递链路与运维入口已具备；还缺 WebClient 的通道管理页面与聚合降噪 |
-| 设备策略 | 限制设备、会话策略 | 设备配额、管理端 IP 白名单有基础；**设备级访问策略已完成**（`/v1/me/devices/:id/access-policy`：远程访问开关 + 来访 IP/CIDR 白名单 + 允许时段 + 例外日（固定日/区间/年度重复/法定节假日日历/农历重复），在 `access-code:verify` 前置拦截；`max_sessions` 并发上限在控制端 `auth_ok` 之前拦截），**临时授权已完成**（`/v1/me/devices/:id/access-grants`：限时/限次/可撤销的访客码，策略仍优先），**二次审批已完成**（`approval_required` + `/v1/me/devices/:id/access-approvals`，正确验证码改走 202 待审批，房主批准后控制端 claim 换 token） | 部分 | 还缺策略变更的多端同步；节假日日历只内置 2026，年度更新靠放文件（无自动拉取） |
+| 设备策略 | 限制设备、会话策略 | 设备配额、管理端 IP 白名单有基础；**设备级访问策略已完成**（`/v1/me/devices/:id/access-policy`：远程访问开关 + 来访 IP/CIDR 白名单 + 允许时段 + 例外日（固定日/区间/年度重复/法定节假日日历/农历重复），在 `access-code:verify` 前置拦截；`max_sessions` 并发上限在控制端 `auth_ok` 之前拦截），**临时授权已完成**（`/v1/me/devices/:id/access-grants`：限时/限次/可撤销的访客码，策略仍优先），**二次审批已完成**（`approval_mode` = off/always/grant/untrusted_ip 决定何时要批，房主侧 `/v1/me/devices/:id/access-approvals` 批准/拒绝，控制端 claim 单次换 token） | 部分 | 还缺策略变更的多端同步；节假日日历只内置 2026，年度更新靠放文件（无自动拉取） |
 | 计划任务 | 定时连接、批量运维 | MCP/工作流可扩展，但无完整调度 | 缺失 | 放到 P2 |
 | 开放 API | 业务系统集成 | Signaling API 和管理 API 已有 | 部分 | 补稳定的业务 API 和 SDK |
 | 插件系统 | 自定义采集、编码、能力 | MCP 和 skill host 可扩展，不是通用插件系统 | 部分 | 先不做通用插件市场 |
@@ -140,7 +140,9 @@ QuickDesk 已经覆盖了远程控制最核心、最难实现的画面、输入�
    **节假日日历与农历重复（见第 36 节）**：例外日可直接写 `{"holiday":"春节","mode":"deny"}`
    （内嵌 2026 法定安排 + `HOLIDAY_CALENDAR_DIR` 年度覆盖，能区分放假与调休上班），
    或用 `{"repeat":"lunar","lunar_month":8,"lunar_day":15}` 按农历自动换算（真机已验证）。
-   还缺审批触发条件的细化（如"仅访客码要批"）与节假日日历的自动更新。
+   **审批触发条件细化（见第 37 节）**：`approval_mode` 支持"仅访客码要批""仅陌生 IP 要批"，
+   房主自己的设备码不再被打扰（真机已验证）。
+   还缺节假日日历的自动更新。
 7. WebClient 产品化定制。
 8. 长稳、并发和 TURN 容量压测。**并发压测台已完成**（`scripts/e2e/signal-load.mjs`：
    突发/轮转两种模式，含并发上限断言与连接延迟分位，见第 19 节）；**TURN 容量与中继质量也已压测**

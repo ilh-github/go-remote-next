@@ -258,6 +258,8 @@ CREATE TABLE IF NOT EXISTS device_access_policies (
     timezone        VARCHAR(64) NOT NULL DEFAULT '',
     exception_dates TEXT        NOT NULL DEFAULT '[]',
     approval_required BOOLEAN   NOT NULL DEFAULT FALSE,
+    approval_mode   VARCHAR(16) NOT NULL DEFAULT '',
+    approval_trusted_ips TEXT   NOT NULL DEFAULT '[]',
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -268,6 +270,14 @@ CREATE INDEX IF NOT EXISTS idx_device_access_policies_owner_id ON device_access_
 -- Added after the table shipped, so existing installs need the ALTER too.
 ALTER TABLE device_access_policies
     ADD COLUMN IF NOT EXISTS approval_required BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- Approval triggers: off / always / grant / untrusted_ip, plus the trusted
+-- addresses that "untrusted_ip" exempts.
+ALTER TABLE device_access_policies
+    ADD COLUMN IF NOT EXISTS approval_mode VARCHAR(16) NOT NULL DEFAULT '';
+
+ALTER TABLE device_access_policies
+    ADD COLUMN IF NOT EXISTS approval_trusted_ips TEXT NOT NULL DEFAULT '[]';
 
 -- ---------------------------------------------------------------
 -- Device access grants (owner-issued, time-boxed, optionally single-use)

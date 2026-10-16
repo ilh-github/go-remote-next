@@ -43,7 +43,22 @@ type DeviceAccessPolicy struct {
 	// request the owner must approve before the controller gets a signal
 	// token. It is a second factor on top of the code, never a replacement:
 	// the code is still compared first, and the policy gate above still runs.
+	//
+	// Kept for wire compatibility; ApprovalMode is the real switch. When
+	// ApprovalMode is empty, ApprovalRequired=true still means "always".
 	ApprovalRequired bool `gorm:"not null;default:false" json:"approval_required"`
+	// ApprovalMode decides *when* a matched code needs the owner's yes:
+	//   ""             - fall back to ApprovalRequired (off / always);
+	//   "off"          - never require approval;
+	//   "always"       - every session, whatever the credential;
+	//   "grant"        - only sessions admitted with a time-boxed grant, i.e.
+	//                    the guest code, never the device's own code;
+	//   "untrusted_ip" - only clients outside ApprovalTrustedIPs, i.e. the
+	//                    "someone from somewhere new" case.
+	ApprovalMode string `gorm:"size:16;not null;default:''" json:"approval_mode"`
+	// ApprovalTrustedIPs is a JSON array of IPs/CIDRs that skip approval when
+	// ApprovalMode is "untrusted_ip". Required (non-empty) in that mode.
+	ApprovalTrustedIPs string `gorm:"type:text" json:"approval_trusted_ips"`
 
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`

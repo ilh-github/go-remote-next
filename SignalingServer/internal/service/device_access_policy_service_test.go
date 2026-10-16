@@ -111,3 +111,143 @@ func TestSessionLimitReached(t *testing.T) {
 		})
 	}
 }
+
+// The approval switch started as an all-or-nothing boolean; modes let the
+// owner target the sessions that are actually risky (a guest code, an
+// unfamiliar address) instead of approving every login from their own laptop.
+func TestDecideApprovalModes(t *testing.T) {
+	policy := func(mode, trusted string) *models.DeviceAccessPolicy {
+		return &models.DeviceAccessPolicy{ApprovalMode: mode, ApprovalTrustedIPs: trusted}
+	}
+	const (
+		deviceCode = models.ApprovalSourceDeviceCode
+		grant      = models.ApprovalSourceGrant
+	)
+
+	tests := []struct {
+		name     string
+		policy   *models.DeviceAccessPolicy
+		source   string
+		ip       string
+		want     bool
+		wantTrig string
+	}{
+		{"nil policy never asks", nil, deviceCode, "203.0.113.9", false, ""},
+		{"off never asks", policy(ApprovalModeOff, ""), grant, "203.0.113.9", false, ""},
+		{"always asks for the device code", policy(ApprovalModeAlways, ""), deviceCode, "10.0.0.1", true, ApprovalTriggerAlways},
+		{"always asks for a grant", policy(ApprovalModeAlways, ""), grant, "10.0.0.1", true, ApprovalTriggerAlways},
+		{"grant mode ignores the device code", policy(ApprovalModeGrant, ""), deviceCode, "203.0.113.9", false, ""},
+		{"grant mode asks for a guest code", policy(ApprovalModeGrant, ""), grant, "203.0.113.9", true, ApprovalTriggerGrant},
+		{"untrusted_ip exempts a trusted address", policy(ApprovalModeUntrustedIP, `["10.211.55.0/24"]`), deviceCode, "10.211.55.4", false, ""},
+		{"untrusted_ip asks for an outside address", policy(ApprovalModeUntrustedIP, `["10.211.55.0/24"]`), deviceCode, "203.0.113.9", true, ApprovalTriggerUntrustedIP},
+		{"untrusted_ip asks for a grant from outside", policy(ApprovalModeUntrustedIP, `["10.211.55.0/24"]`), grant, "203.0.113.9", true, ApprovalTriggerUntrustedIP},
+		// A hand-edited row with no trusted addresses must fail closed rather
+		// than treat "empty list" as "trust everyone".
+		{"untrusted_ip with no trusted list fails closed", policy(ApprovalModeUntrustedIP, `[]`), deviceCode, "10.0.0.1", true, ApprovalTriggerUntrustedIP},
+		{"unparseable client ip is untrusted", policy(ApprovalModeUntrustedIP, `["10.0.0.0/8"]`), deviceCode, "", true, ApprovalTriggerUntrustedIP},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := DecideApproval(tt.policy, tt.source, tt.ip)
+			if got.Required != tt.want {
+				t.Fatalf("Required = %v, want %v", got.Required, tt.want)
+			}
+			if got.Trigger != tt.wantTrig {
+				t.Fatalf("Trigger = %q, want %q", got.Trigger, tt.wantTrig)
+			}
+		})
+	}
+}
+
+// The original boolean must keep working after modes were introduced, so a
+// policy written by an older client (or an existing row) is never silently
+// downgraded to "no approval".
+func TestNormalizeApprovalModeKeepsLegacyBoolean(t *testing.T) {
+	cases := []struct {
+		mode   string
+		legacy bool
+		want   string
+	}{
+		{"", false, ApprovalModeOff},
+		{"", true, ApprovalModeAlways},
+		{"always", true, ApprovalModeAlways},
+		{"off", true, ApprovalModeOff},
+		{" GRANT ", false, ApprovalModeGrant},
+		{"untrusted_ip", false, ApprovalModeUntrustedIP},
+		{"nonsense", true, ApprovalModeAlways},
+		{"nonsense", false, ApprovalModeOff},
+	}
+	for _, tc := range cases {
+		if got := NormalizeApprovalMode(tc.mode, tc.legacy); got != tc.want {
+			t.Fatalf("NormalizeApprovalMode(%q, %v) = %q, want %q", tc.mode, tc.legacy, got, tc.want)
+		}
+	}
+	if got := EffectiveApprovalMode(nil); got != ApprovalModeOff {
+		t.Fatalf("EffectiveApprovalMode(nil) = %q, want off", got)
+	}
+}
+
+func TestValidateApprovalMode(t *testing.T) {
+	tests := []struct {
+		name    string
+		mode    string
+		trusted []string
+		wantErr bool
+	}{
+		{"off", ApprovalModeOff, nil, false},
+		{"always", ApprovalModeAlways, nil, false},
+		{"grant", ApprovalModeGrant, nil, false},
+		{"untrusted_ip with a CIDR", ApprovalModeUntrustedIP, []string{"10.211.55.0/24"}, false},
+		{"untrusted_ip with an exact IP", ApprovalModeUntrustedIP, []string{"10.0.0.1"}, false},
+		{"untrusted_ip with an empty list", ApprovalModeUntrustedIP, nil, true},
+		{"untrusted_ip with blank entries only", ApprovalModeUntrustedIP, []string{"  "}, true},
+		{"untrusted_ip with junk", ApprovalModeUntrustedIP, []string{"example.com"}, true},
+		{"unknown mode", "maybe", nil, true},
+		{"bad trusted ip on any mode", ApprovalModeAlways, []string{"not-an-ip"}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateApprovalMode(tt.mode, tt.trusted)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("ValidateApprovalMode(%q, %v) = %v, wantErr %v", tt.mode, tt.trusted, err, tt.wantErr)
+			}
+			if tt.wantErr && err != nil && !errors.Is(err, ErrInvalidApprovalMode) {
+				t.Fatalf("error should wrap ErrInvalidApprovalMode, got %v", err)
+			}
+		})
+	}
+}
+
+// A typo in approval_mode must be a 400, not a silent "off": that particular
+// fallback would disable the very gate the caller asked to turn on. This caught
+// a live failure where {"approval_mode":"maybe"} was accepted and stored as
+// "off".
+func TestParseApprovalModeInputRejectsTypos(t *testing.T) {
+	ok := []struct {
+		mode   string
+		legacy bool
+		want   string
+	}{
+		{"", false, ApprovalModeOff},
+		{"", true, ApprovalModeAlways},
+		{"off", true, ApprovalModeOff},
+		{"always", false, ApprovalModeAlways},
+		{"grant", false, ApprovalModeGrant},
+		{"untrusted_ip", false, ApprovalModeUntrustedIP},
+		{"  GRANT  ", false, ApprovalModeGrant},
+		{"grant ", false, ApprovalModeGrant}, // surrounding space is tolerated
+	}
+	for _, tc := range ok {
+		got, err := ParseApprovalModeInput(tc.mode, tc.legacy)
+		if err != nil || got != tc.want {
+			t.Fatalf("ParseApprovalModeInput(%q, %v) = (%q, %v), want %q", tc.mode, tc.legacy, got, err, tc.want)
+		}
+	}
+	for _, bad := range []string{"maybe", "alwyas", "on", "true", "1"} {
+		if got, err := ParseApprovalModeInput(bad, true); err == nil {
+			t.Fatalf("ParseApprovalModeInput(%q) = %q with no error, want rejection", bad, got)
+		} else if !errors.Is(err, ErrInvalidApprovalMode) {
+			t.Fatalf("ParseApprovalModeInput(%q) error should wrap ErrInvalidApprovalMode, got %v", bad, err)
+		}
+	}
+}
