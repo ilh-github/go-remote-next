@@ -1328,6 +1328,87 @@ paths:
       x-accepts:
       - application/json
       - application/problem+json
+  /v1/update:check:
+    get:
+      description: |
+        The client-facing half of the self-hosted update channel. It is API-key
+        gated but not user-authenticated: a controlled machine checks for
+        updates before anyone logs in.
+
+        The server owns the index of published releases; the artifact itself
+        lives at `download_url` on whatever host the operator controls. The
+        index is managed through the admin API (`POST /v1/admin/update-releases`
+        and friends), which stays outside this business contract.
+
+        `current_version` is optional. Without it the newest release is returned
+        and `update_available` is true whenever one exists; with it,
+        `update_available` is true only when the published version is strictly
+        newer, and `mandatory` mirrors the release flag once an update is
+        available. `latest` is always present and is `null` when the channel has
+        no release for that platform/arch.
+      operationId: checkForUpdate
+      parameters:
+      - description: Which operating system the caller is running.
+        explode: true
+        in: query
+        name: platform
+        required: true
+        schema:
+          enum:
+          - windows
+          - macos
+          - linux
+          type: string
+        style: form
+      - description: Which architecture the caller is running.
+        explode: true
+        in: query
+        name: arch
+        required: true
+        schema:
+          enum:
+          - x64
+          - arm64
+          - universal
+          type: string
+        style: form
+      - description: Defaults to `stable`.
+        explode: true
+        in: query
+        name: channel
+        required: false
+        schema:
+          enum:
+          - stable
+          - beta
+          - nightly
+          type: string
+        style: form
+      - description: "The dotted numeric version the caller is running, e.g. `4.2.5.0`.\
+          \ A leading `v` is accepted."
+        explode: true
+        in: query
+        name: current_version
+        required: false
+        schema:
+          type: string
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpdateCheckResult"
+          description: "The newest release for that channel/platform/arch, or a null\
+            \ `latest` when the channel is empty."
+        "400":
+          $ref: "#/components/responses/BadRequest"
+      summary: Check the self-hosted update channel for a newer build
+      tags:
+      - update
+      x-accepts:
+      - application/json
+      - application/problem+json
 components:
   parameters:
     DeviceId:
@@ -2319,6 +2400,119 @@ components:
       - denied_sources
       - since
       - total
+    UpdateRelease:
+      description: One build published to the self-hosted update channel. The artifact
+        itself lives at `download_url`.
+      example:
+        size_bytes: 6
+        notes: notes
+        sha256: sha256
+        channel: stable
+        download_url: https://openapi-generator.tech
+        id: 0
+        arch: x64
+        published_at: 2000-01-23T04:56:07.000+00:00
+        version: version
+        mandatory: true
+        platform: windows
+      properties:
+        id:
+          format: int64
+          type: integer
+        channel:
+          enum:
+          - stable
+          - beta
+          - nightly
+          type: string
+        platform:
+          enum:
+          - windows
+          - macos
+          - linux
+          type: string
+        arch:
+          enum:
+          - x64
+          - arm64
+          - universal
+          type: string
+        version:
+          description: "Dotted numeric version, e.g. `4.2.5.0`."
+          type: string
+        download_url:
+          description: Absolute http(s) URL of the installer or archive.
+          format: uri
+          type: string
+        sha256:
+          description: Lowercase hex SHA-256 of the artifact; clients verify what
+            they downloaded.
+          type: string
+        size_bytes:
+          format: int64
+          type: integer
+        notes:
+          type: string
+        mandatory:
+          description: "When true, the update is not optional for older clients."
+          type: boolean
+        published_at:
+          format: date-time
+          type: string
+      required:
+      - arch
+      - channel
+      - download_url
+      - id
+      - mandatory
+      - platform
+      - published_at
+      - sha256
+      - size_bytes
+      - version
+    UpdateCheckResult:
+      example:
+        channel: channel
+        current_version: current_version
+        arch: arch
+        mandatory: true
+        update_available: true
+        platform: platform
+        latest:
+          size_bytes: 6
+          notes: notes
+          sha256: sha256
+          channel: stable
+          download_url: https://openapi-generator.tech
+          id: 0
+          arch: x64
+          published_at: 2000-01-23T04:56:07.000+00:00
+          version: version
+          mandatory: true
+          platform: windows
+      properties:
+        update_available:
+          type: boolean
+        mandatory:
+          type: boolean
+        channel:
+          type: string
+        platform:
+          type: string
+        arch:
+          type: string
+        current_version:
+          description: Echoed when the caller supplied it.
+          type: string
+        latest:
+          $ref: "#/components/schemas/UpdateRelease"
+      required:
+      - arch
+      - channel
+      - latest
+      - mandatory
+      - platform
+      - update_available
     Problem:
       description: "RFC 7807 problem details, served as `application/problem+json`."
       properties:

@@ -176,6 +176,7 @@ Class | Method | HTTP request | Description
 *RecordingsApi* | [**update_session_recording**](docs/RecordingsApi.md#update_session_recording) | **PATCH** /v1/me/recordings/{recording_id} | Update a recording&#39;s lifecycle metadata
 *RecordingsApi* | [**upload_recording_artifact**](docs/RecordingsApi.md#upload_recording_artifact) | **POST** /v1/me/recordings/{recording_id}/artifact | Upload a recording&#39;s media bytes
 *RecordingsApi* | [**upload_recording_thumbnail**](docs/RecordingsApi.md#upload_recording_thumbnail) | **POST** /v1/me/recordings/{recording_id}/thumbnail | Upload a recording&#39;s preview image
+*UpdateApi* | [**check_for_update**](docs/UpdateApi.md#check_for_update) | **GET** /v1/update:check | Check the self-hosted update channel for a newer build
 
 
 ## Documentation For Models
@@ -216,6 +217,8 @@ Class | Method | HTTP request | Description
  - [SessionRecordingInput](docs/SessionRecordingInput.md)
  - [SessionRecordingList](docs/SessionRecordingList.md)
  - [SessionRecordingPatch](docs/SessionRecordingPatch.md)
+ - [UpdateCheckResult](docs/UpdateCheckResult.md)
+ - [UpdateRelease](docs/UpdateRelease.md)
  - [User](docs/User.md)
 
 

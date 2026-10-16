@@ -58,6 +58,8 @@ type APIClient struct {
 	NotificationsAPI *NotificationsAPIService
 
 	RecordingsAPI *RecordingsAPIService
+
+	UpdateAPI *UpdateAPIService
 }
 
 type service struct {
@@ -81,6 +83,7 @@ func NewAPIClient(cfg *Configuration) *APIClient {
 	c.MeAPI = (*MeAPIService)(&c.common)
 	c.NotificationsAPI = (*NotificationsAPIService)(&c.common)
 	c.RecordingsAPI = (*RecordingsAPIService)(&c.common)
+	c.UpdateAPI = (*UpdateAPIService)(&c.common)
 
 	return c
 }

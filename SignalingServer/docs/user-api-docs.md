@@ -1133,6 +1133,29 @@ Both `offline_since` and `last_alerted_at` are written with conditional
 so two signaling instances cannot both start the same episode or both publish
 one alert for it.
 
+### 5.3.7 Self-hosted update channel
+
+The installed clients ask this server which build they should be running,
+instead of asking upstream. The server owns the **index** - which version
+exists for which channel/platform/arch, where the bytes live and what they hash
+to - and the artifact itself stays on whatever static host the operator
+controls (`download_url`, an absolute http(s) URL). Publishing is a
+super-admin operation.
+
+| Method | Path | Body | Notes |
+|---|---|---|---|
+| `GET` | `/v1/update:check?platform=&arch=&channel=&current_version=` | — | Client-facing. API-key gated, **not** user-authenticated: a controlled machine checks before anyone logs in. Returns `{update_available, mandatory, channel, platform, arch, current_version?, latest}`, where `latest` is always present and is `null` when the channel has no release for that platform/arch. `current_version` is optional; without it any release counts as an update. A publish that is not strictly newer than `current_version` reports `update_available: false`. |
+| `GET` | `/v1/admin/update-releases?channel=&platform=&arch=&limit=` | — | Super-admin. Newest first. |
+| `POST` | `/v1/admin/update-releases` | `{channel?, platform, arch, version, download_url, sha256, size_bytes?, notes?, mandatory?, published_at?}` | Super-admin. `channel` defaults to `stable`; `download_url` must be absolute http(s); `sha256` must be the 64-character hex digest of the artifact. Publishing the same channel/platform/arch/version twice is `409` rather than a silent replacement. Audited as `update_release.publish`. |
+| `DELETE` | `/v1/admin/update-releases/:id` | — | Super-admin. `404` for an unknown id. Audited as `update_release.delete`. |
+
+Versions are dotted numbers (`4.2.5.0`); a leading `v` is accepted and missing
+trailing parts count as zero, so `4.2` and `4.2.0.0` are equal. `channel` is
+`stable` (the default), `beta` or `nightly`; `platform` is `windows`, `macos`
+or `linux`; `arch` is `x64`, `arm64` or `universal`. `mandatory` is echoed only
+when an update is actually available, so a client can tell "this update is
+required" from "there is nothing to do".
+
 ### 5.4 Connections (history)
 
 | Method | Path | Body |

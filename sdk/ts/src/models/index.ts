@@ -36,4 +36,6 @@ export * from './SessionRecording';
 export * from './SessionRecordingInput';
 export * from './SessionRecordingList';
 export * from './SessionRecordingPatch';
+export * from './UpdateCheckResult';
+export * from './UpdateRelease';
 export * from './User';

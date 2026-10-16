@@ -1118,6 +1118,64 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/Problem'
+  /v1/update:check:
+    get:
+      tags: [update]
+      summary: Check the self-hosted update channel for a newer build
+      operationId: checkForUpdate
+      description: |
+        The client-facing half of the self-hosted update channel. It is API-key
+        gated but not user-authenticated: a controlled machine checks for
+        updates before anyone logs in.
+
+        The server owns the index of published releases; the artifact itself
+        lives at `download_url` on whatever host the operator controls. The
+        index is managed through the admin API (`POST /v1/admin/update-releases`
+        and friends), which stays outside this business contract.
+
+        `current_version` is optional. Without it the newest release is returned
+        and `update_available` is true whenever one exists; with it,
+        `update_available` is true only when the published version is strictly
+        newer, and `mandatory` mirrors the release flag once an update is
+        available. `latest` is always present and is `null` when the channel has
+        no release for that platform/arch.
+      parameters:
+        - name: platform
+          in: query
+          required: true
+          description: Which operating system the caller is running.
+          schema:
+            type: string
+            enum: [windows, macos, linux]
+        - name: arch
+          in: query
+          required: true
+          description: Which architecture the caller is running.
+          schema:
+            type: string
+            enum: [x64, arm64, universal]
+        - name: channel
+          in: query
+          required: false
+          description: Defaults to `stable`.
+          schema:
+            type: string
+            enum: [stable, beta, nightly]
+        - name: current_version
+          in: query
+          required: false
+          description: The dotted numeric version the caller is running, e.g. `4.2.5.0`. A leading `v` is accepted.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The newest release for that channel/platform/arch, or a null `latest` when the channel is empty.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpdateCheckResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
 components:
   securitySchemes:
     ApiKeyAuth:
@@ -1734,6 +1792,66 @@ components:
         denial_cooldown_max_seconds:
           type: integer
           description: The live APPROVAL_DENIAL_COOLDOWN_MAX_SECONDS, the ceiling the escalation cannot pass; 0 means uncapped.
+    UpdateRelease:
+      type: object
+      description: One build published to the self-hosted update channel. The artifact itself lives at `download_url`.
+      required: [id, channel, platform, arch, version, download_url, sha256, size_bytes, mandatory, published_at]
+      properties:
+        id:
+          type: integer
+          format: int64
+        channel:
+          type: string
+          enum: [stable, beta, nightly]
+        platform:
+          type: string
+          enum: [windows, macos, linux]
+        arch:
+          type: string
+          enum: [x64, arm64, universal]
+        version:
+          type: string
+          description: Dotted numeric version, e.g. `4.2.5.0`.
+        download_url:
+          type: string
+          format: uri
+          description: Absolute http(s) URL of the installer or archive.
+        sha256:
+          type: string
+          description: Lowercase hex SHA-256 of the artifact; clients verify what they downloaded.
+        size_bytes:
+          type: integer
+          format: int64
+        notes:
+          type: string
+        mandatory:
+          type: boolean
+          description: When true, the update is not optional for older clients.
+        published_at:
+          type: string
+          format: date-time
+    UpdateCheckResult:
+      type: object
+      required: [update_available, mandatory, channel, platform, arch, latest]
+      properties:
+        update_available:
+          type: boolean
+        mandatory:
+          type: boolean
+        channel:
+          type: string
+        platform:
+          type: string
+        arch:
+          type: string
+        current_version:
+          type: string
+          description: Echoed when the caller supplied it.
+        latest:
+          description: The newest release, or null when the channel has no release for that platform/arch.
+          oneOf:
+            - $ref: '#/components/schemas/UpdateRelease'
+            - type: 'null'
     Problem:
       type: object
       description: RFC 7807 problem details, served as `application/problem+json`.

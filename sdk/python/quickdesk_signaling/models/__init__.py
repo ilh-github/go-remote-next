@@ -50,4 +50,6 @@ from quickdesk_signaling.models.session_recording import SessionRecording
 from quickdesk_signaling.models.session_recording_input import SessionRecordingInput
 from quickdesk_signaling.models.session_recording_list import SessionRecordingList
 from quickdesk_signaling.models.session_recording_patch import SessionRecordingPatch
+from quickdesk_signaling.models.update_check_result import UpdateCheckResult
+from quickdesk_signaling.models.update_release import UpdateRelease
 from quickdesk_signaling.models.user import User

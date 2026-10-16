@@ -376,6 +376,53 @@ if (ticketedRecording) {
 const ghostTicket = await call('POST', '/v1/me/recordings/2147483647/artifact-ticket', { token, expect: 404 });
 problemShape(ghostTicket.json, 'POST artifact-ticket (unknown recording)');
 
+// 13. GET /v1/update:check - the self-hosted update channel.
+//
+// The smoke cannot publish a release (that is a super-admin write, documented
+// outside this contract), so this pins the shape and the one invariant that
+// holds on any database: `latest` is always present, and when it is null
+// nothing is available. A published release additionally has to carry the
+// documented fields.
+const updateCheck = await call('GET',
+  '/v1/update:check?platform=windows&arch=x64&channel=stable&current_version=4.2.0.0',
+  { expect: 200 });
+field(updateCheck.json, 'update_available', 'boolean', 'GET update:check');
+field(updateCheck.json, 'mandatory', 'boolean', 'GET update:check');
+field(updateCheck.json, 'latest', undefined, 'GET update:check');
+check(updateCheck.json.channel === 'stable',
+  `update check echo channel=${updateCheck.json.channel}, want stable`);
+check(updateCheck.json.platform === 'windows' && updateCheck.json.arch === 'x64',
+  `update check echo = ${JSON.stringify(updateCheck.json)}, want windows/x64`);
+check(updateCheck.json.current_version === '4.2.0.0',
+  `update check current_version=${updateCheck.json.current_version}, want the echoed 4.2.0.0`);
+if (updateCheck.json.latest === null) {
+  check(updateCheck.json.update_available === false && updateCheck.json.mandatory === false,
+    `an empty update channel reported ${JSON.stringify(updateCheck.json)}, want no update`);
+} else {
+  const latest = updateCheck.json.latest;
+  for (const name of ['id', 'channel', 'platform', 'arch', 'version', 'download_url', 'sha256', 'size_bytes', 'mandatory', 'published_at']) {
+    field(latest, name, undefined, 'GET update:check (latest)');
+  }
+  check(updateCheck.json.update_available === true,
+    'a published release did not report update_available');
+}
+
+const updateDefaultChannel = await call('GET',
+  '/v1/update:check?platform=macos&arch=arm64&current_version=4.2.0.0',
+  { expect: 200 });
+check(updateDefaultChannel.json.channel === 'stable',
+  `an omitted channel defaulted to "${updateDefaultChannel.json.channel}", want stable`);
+
+const updateBadPlatform = await call('GET',
+  '/v1/update:check?platform=solaris&arch=x64&current_version=4.2.0.0',
+  { expect: 400 });
+problemShape(updateBadPlatform.json, 'GET update:check (unknown platform)');
+
+const updateBadVersion = await call('GET',
+  '/v1/update:check?platform=windows&arch=x64&current_version=not-a-version',
+  { expect: 400 });
+problemShape(updateBadVersion.json, 'GET update:check (invalid version)');
+
 if (smokeDevice) {
   // 6. PUT the rule back unchanged, then restore the prior state exactly.
   const putBody = {

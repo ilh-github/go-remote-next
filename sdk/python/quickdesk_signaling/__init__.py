@@ -23,6 +23,7 @@ __all__ = [
     "MeApi",
     "NotificationsApi",
     "RecordingsApi",
+    "UpdateApi",
     "ApiResponse",
     "ApiClient",
     "Configuration",
@@ -68,6 +69,8 @@ __all__ = [
     "SessionRecordingInput",
     "SessionRecordingList",
     "SessionRecordingPatch",
+    "UpdateCheckResult",
+    "UpdateRelease",
     "User",
 ]
 
@@ -77,6 +80,7 @@ from quickdesk_signaling.api.devices_api import DevicesApi as DevicesApi
 from quickdesk_signaling.api.me_api import MeApi as MeApi
 from quickdesk_signaling.api.notifications_api import NotificationsApi as NotificationsApi
 from quickdesk_signaling.api.recordings_api import RecordingsApi as RecordingsApi
+from quickdesk_signaling.api.update_api import UpdateApi as UpdateApi
 
 # import ApiClient
 from quickdesk_signaling.api_response import ApiResponse as ApiResponse
@@ -126,4 +130,6 @@ from quickdesk_signaling.models.session_recording import SessionRecording as Ses
 from quickdesk_signaling.models.session_recording_input import SessionRecordingInput as SessionRecordingInput
 from quickdesk_signaling.models.session_recording_list import SessionRecordingList as SessionRecordingList
 from quickdesk_signaling.models.session_recording_patch import SessionRecordingPatch as SessionRecordingPatch
+from quickdesk_signaling.models.update_check_result import UpdateCheckResult as UpdateCheckResult
+from quickdesk_signaling.models.update_release import UpdateRelease as UpdateRelease
 from quickdesk_signaling.models.user import User as User

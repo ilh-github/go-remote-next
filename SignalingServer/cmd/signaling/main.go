@@ -101,6 +101,7 @@ func main() {
 			&models.DeviceOfflineAlertRule{},
 			&models.ScheduledTask{},
 			&models.InstanceLogEntry{},
+			&models.UpdateRelease{},
 			&models.Preset{},
 		} {
 			if err := db.AutoMigrate(model); err != nil {
@@ -416,6 +417,9 @@ func main() {
 		notificationQuietHoursService, notificationDeliveryService)
 	deviceAccessPolicyHandler := handler.NewDeviceAccessPolicyHandler(deviceService, deviceAccessPolicyService, bus)
 	deviceOfflineAlertHandler := handler.NewDeviceOfflineAlertHandler(deviceService, deviceOfflineAlertService)
+	updateReleaseService := service.NewUpdateReleaseService(db)
+	updateReleaseHandler := handler.NewUpdateReleaseHandler(updateReleaseService)
+	adminUpdateReleaseHandler := handler.NewAdminUpdateReleaseHandler(updateReleaseService, auditService)
 	scheduledTaskHandler := handler.NewScheduledTaskHandler(scheduledTaskService)
 	deviceAccessGrantHandler := handler.NewDeviceAccessGrantHandler(deviceService, deviceAccessGrantService, bus)
 	deviceAccessApprovalHandler := handler.NewDeviceAccessApprovalHandler(
@@ -523,6 +527,10 @@ func main() {
 		v1.GET("/settings/public", publicHandler.PublicSettings)
 		v1.GET("/features", publicHandler.Features)
 		v1.POST("/verification-codes", publicHandler.SendVerificationCode)
+		// Self-hosted update channel: the index the installed clients poll.
+		// API-key gated like every other v1 route, but not user-authenticated -
+		// a controlled machine checks for updates before anyone logs in.
+		v1.GET("/update:check", updateReleaseHandler.Check)
 
 		// Auth (public; no user token yet, but API key still required
 		// when configured — see note above).
@@ -787,6 +795,11 @@ func main() {
 		// is RESTful, gin-friendly and clients still POST against
 		// /webhooks/:id/test which reads naturally.
 		adminGuarded.POST("/webhooks/:id/test", adminWebhooksHandler.Test)
+
+		// Self-hosted update channel index.
+		adminGuarded.GET("/update-releases", adminUpdateReleaseHandler.List)
+		adminGuarded.POST("/update-releases", adminUpdateReleaseHandler.Publish)
+		adminGuarded.DELETE("/update-releases/:id", adminUpdateReleaseHandler.Delete)
 
 		// Device groups.
 		adminGuarded.GET("/groups", adminGroupsHandler.List)

@@ -7,6 +7,7 @@ api_devices.go
 api_me.go
 api_notifications.go
 api_recordings.go
+api_update.go
 client.go
 configuration.go
 docs/AccessApproval.md
@@ -50,6 +51,9 @@ docs/SessionRecording.md
 docs/SessionRecordingInput.md
 docs/SessionRecordingList.md
 docs/SessionRecordingPatch.md
+docs/UpdateAPI.md
+docs/UpdateCheckResult.md
+docs/UpdateRelease.md
 docs/User.md
 git_push.sh
 go.mod
@@ -90,6 +94,8 @@ model_session_recording.go
 model_session_recording_input.go
 model_session_recording_list.go
 model_session_recording_patch.go
+model_update_check_result.go
+model_update_release.go
 model_user.go
 response.go
 test/api_auth_test.go
@@ -97,4 +103,5 @@ test/api_devices_test.go
 test/api_me_test.go
 test/api_notifications_test.go
 test/api_recordings_test.go
+test/api_update_test.go
 utils.go

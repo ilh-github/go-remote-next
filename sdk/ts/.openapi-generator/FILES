@@ -7,6 +7,7 @@ src/apis/DevicesApi.ts
 src/apis/MeApi.ts
 src/apis/NotificationsApi.ts
 src/apis/RecordingsApi.ts
+src/apis/UpdateApi.ts
 src/apis/index.ts
 src/index.ts
 src/models/AccessApproval.ts
@@ -45,6 +46,8 @@ src/models/SessionRecording.ts
 src/models/SessionRecordingInput.ts
 src/models/SessionRecordingList.ts
 src/models/SessionRecordingPatch.ts
+src/models/UpdateCheckResult.ts
+src/models/UpdateRelease.ts
 src/models/User.ts
 src/models/index.ts
 src/runtime.ts

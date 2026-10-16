@@ -646,3 +646,27 @@ ALTER TABLE instance_log_entries
 
 CREATE INDEX IF NOT EXISTS idx_instance_log_entries_line_tsv
     ON instance_log_entries USING gin (line_tsv);
+
+-- Self-hosted update channel. The server owns the index (which version exists
+-- for which channel/platform/arch, where the bytes live and what they hash to);
+-- the artifact itself stays on whatever static host the operator controls.
+-- (channel, platform, arch, version) is unique so a re-run cannot silently
+-- replace the bytes behind a version clients have already installed.
+CREATE TABLE IF NOT EXISTS update_releases (
+    id           BIGSERIAL     PRIMARY KEY,
+    channel      VARCHAR(32)   NOT NULL DEFAULT 'stable',
+    platform     VARCHAR(32)   NOT NULL,
+    arch         VARCHAR(32)   NOT NULL,
+    version      VARCHAR(64)   NOT NULL,
+    download_url VARCHAR(1024) NOT NULL,
+    sha256       VARCHAR(64)   NOT NULL,
+    size_bytes   BIGINT        NOT NULL DEFAULT 0,
+    notes        TEXT          NOT NULL DEFAULT '',
+    mandatory    BOOLEAN       NOT NULL DEFAULT FALSE,
+    published_at TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+    created_at   TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+    updated_at   TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_update_release_version
+    ON update_releases (channel, platform, arch, version);
