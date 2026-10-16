@@ -227,21 +227,25 @@ func main() {
 	auditService := service.NewAuditService(db).WithArchiveDir(cfg.Audit.ArchiveDir)
 	if cfg.Audit.SweepIntervalMin > 0 &&
 		(cfg.Audit.RetentionDays > 0 || cfg.Audit.MaxRows > 0 ||
-			cfg.Audit.MaxRowsPerActor > 0 || cfg.Audit.ArchiveRetentionDays > 0) {
+			cfg.Audit.MaxRowsPerActor > 0 || cfg.Audit.MaxRowsPerDevice > 0 ||
+			cfg.Audit.MaxRowsPerAction > 0 || cfg.Audit.ArchiveRetentionDays > 0) {
 		go auditService.RunRetention(
 			context.Background(),
 			time.Duration(cfg.Audit.SweepIntervalMin)*time.Minute,
 			cfg.Audit.RetentionDays,
 			cfg.Audit.MaxRows,
 			cfg.Audit.MaxRowsPerActor,
+			cfg.Audit.MaxRowsPerDevice,
+			cfg.Audit.MaxRowsPerAction,
 			cfg.Audit.ArchiveRetentionDays,
 		)
 		archive := cfg.Audit.ArchiveDir
 		if archive == "" {
 			archive = "(delete, no archive)"
 		}
-		log.Printf("Audit retention: retention_days=%d max_rows=%d max_rows_per_actor=%d archive_retention_days=%d sweep_interval=%dm archive=%s",
-			cfg.Audit.RetentionDays, cfg.Audit.MaxRows, cfg.Audit.MaxRowsPerActor, cfg.Audit.ArchiveRetentionDays,
+		log.Printf("Audit retention: retention_days=%d max_rows=%d max_rows_per_actor=%d max_rows_per_device=%d max_rows_per_action=%d archive_retention_days=%d sweep_interval=%dm archive=%s",
+			cfg.Audit.RetentionDays, cfg.Audit.MaxRows, cfg.Audit.MaxRowsPerActor,
+			cfg.Audit.MaxRowsPerDevice, cfg.Audit.MaxRowsPerAction, cfg.Audit.ArchiveRetentionDays,
 			cfg.Audit.SweepIntervalMin, archive)
 	}
 	webhookService := service.NewWebhookService(db)
@@ -348,7 +352,7 @@ func main() {
 	adminPresetHandler := handler.NewAdminPresetHandler(presetService, auditService)
 	adminAuditHandler := handler.NewAdminAuditHandler(
 		auditService, cfg.Audit.RetentionDays, cfg.Audit.MaxRows, cfg.Audit.MaxRowsPerActor,
-		cfg.Audit.ArchiveRetentionDays)
+		cfg.Audit.MaxRowsPerDevice, cfg.Audit.MaxRowsPerAction, cfg.Audit.ArchiveRetentionDays)
 	adminSessionRecordingHandler := handler.NewAdminSessionRecordingHandler(
 		sessionRecordingService, auditService, recordingLifecycle,
 		cfg.Recording.RetentionDays, cfg.Recording.StaleMinutes)

@@ -140,22 +140,32 @@ func (s *AuditService) CapRows(ctx context.Context, maxRows int) (int64, error) 
 	return res.RowsAffected, res.Error
 }
 
-// auditCapScopesPerPass bounds how many distinct actors one per-actor cap pass
-// looks at. The worker loops until a pass removes nothing, so a deployment with
-// many over-limit actors drains over several passes instead of doing all of it
+// auditCapScopesPerPass bounds how many distinct scopes one capped pass looks
+// at. The worker loops until a pass removes nothing, so a deployment with many
+// over-limit scopes drains over several passes instead of doing all of it
 // inside one long statement.
 const auditCapScopesPerPass = 20
 
-// Actor kinds for the per-actor cap. The kind is part of the identity: an admin
-// with id 7 and an end user with id 7 are different people, and merging them
-// into one bucket would let an admin's activity spend a user's budget.
+// Scope kinds. Actor kinds are part of the identity: an admin with id 7 and an
+// end user with id 7 are different people, and merging them into one bucket
+// would let an admin's activity spend a user's budget. Action and device scopes
+// answer the other two "who or what is making this table grow" questions.
 const (
-	auditScopeAdmin = "admin"
-	auditScopeUser  = "user"
+	auditScopeAdmin  = "admin"
+	auditScopeUser   = "user"
+	auditScopeAction = "action"
+	auditScopeDevice = "device"
 )
 
-// auditScope is one actor whose rows are being capped.
-type auditScope struct {
+// auditScope is one bucket whose rows are being capped. The interface keeps the
+// count/archive/delete path shared between actor, action and device rules.
+type auditScope interface {
+	predicate() (string, []interface{})
+	label() string
+}
+
+// auditActorScope is one admin or end user whose rows are being capped.
+type auditActorScope struct {
 	Kind string
 	ID   uint
 }
@@ -163,12 +173,36 @@ type auditScope struct {
 // predicate returns the SQL fragment (and its args) that selects exactly this
 // actor's rows. A row never counts as both kinds: the admin columns win when
 // they are set, matching how Log and LogActor write the two.
-func (s auditScope) predicate() (string, []interface{}) {
+func (s auditActorScope) predicate() (string, []interface{}) {
 	if s.Kind == auditScopeAdmin {
 		return "admin_id = ?", []interface{}{s.ID}
 	}
 	return "admin_id = 0 AND actor_user_id = ?", []interface{}{s.ID}
 }
+
+func (s auditActorScope) label() string { return "per-actor" }
+
+// auditTextScope is one action or device bucket. Device rows are identified by
+// the device id in resource_id; recording and other resource ids are excluded
+// by the resource_type predicate, and device batch operations have no single
+// device id so they are deliberately left to the action/table caps.
+type auditTextScope struct {
+	Kind  string
+	Value string
+}
+
+func (s auditTextScope) predicate() (string, []interface{}) {
+	switch s.Kind {
+	case auditScopeAction:
+		return "action = ?", []interface{}{s.Value}
+	case auditScopeDevice:
+		return "resource_id = ? AND resource_type IN (?, ?)", []interface{}{s.Value, "device", "event"}
+	default:
+		return "1 = 0", nil
+	}
+}
+
+func (s auditTextScope) label() string { return "per-" + s.Kind }
 
 // CapRowsPerActor trims the oldest rows of any single actor until each holds at
 // most maxRowsPerActor rows, and reports how many rows it removed.
@@ -193,16 +227,53 @@ func (s *AuditService) CapRowsPerActor(ctx context.Context, maxRowsPerActor int)
 	if maxRowsPerActor <= 0 {
 		return 0, nil
 	}
-	scopes, err := s.overLimitAuditScopes(ctx, maxRowsPerActor)
+	scopes, err := s.overLimitAuditActorScopes(ctx, maxRowsPerActor)
 	if err != nil {
 		return 0, err
 	}
+	return s.capScopes(ctx, scopes, maxRowsPerActor)
+}
+
+// CapRowsPerAction trims the oldest rows of any single action until each holds
+// at most maxRowsPerAction rows. It covers the case the actor and table caps
+// cannot: one action type - a failing login, a noisy export - can dominate the
+// trail even when its actor is otherwise quiet.
+func (s *AuditService) CapRowsPerAction(ctx context.Context, maxRowsPerAction int) (int64, error) {
+	if maxRowsPerAction <= 0 {
+		return 0, nil
+	}
+	scopes, err := s.overLimitAuditTextScopes(ctx, auditScopeAction, maxRowsPerAction)
+	if err != nil {
+		return 0, err
+	}
+	return s.capScopes(ctx, scopes, maxRowsPerAction)
+}
+
+// CapRowsPerDevice trims the oldest rows of any single device until each holds
+// at most maxRowsPerDevice rows. Device identity is carried in resource_id for
+// both explicit admin device actions (`resource_type=device`) and device-scoped
+// events (`resource_type=event`); unattributed batch rows are exempt because
+// they do not name one device to charge.
+func (s *AuditService) CapRowsPerDevice(ctx context.Context, maxRowsPerDevice int) (int64, error) {
+	if maxRowsPerDevice <= 0 {
+		return 0, nil
+	}
+	scopes, err := s.overLimitAuditTextScopes(ctx, auditScopeDevice, maxRowsPerDevice)
+	if err != nil {
+		return 0, err
+	}
+	return s.capScopes(ctx, scopes, maxRowsPerDevice)
+}
+
+// capScopes applies one per-scope cap to a bounded list of scopes, stopping
+// after auditPurgeBatch rows so the caller can loop without one long statement.
+func (s *AuditService) capScopes(ctx context.Context, scopes []auditScope, maxRows int) (int64, error) {
 	var removedTotal int64
 	for _, scope := range scopes {
 		if removedTotal >= auditPurgeBatch {
 			break
 		}
-		removed, err := s.capOneAuditScope(ctx, scope, maxRowsPerActor, auditPurgeBatch-int(removedTotal))
+		removed, err := s.capOneAuditScope(ctx, scope, maxRows, auditPurgeBatch-int(removedTotal))
 		if err != nil {
 			return removedTotal, err
 		}
@@ -211,9 +282,9 @@ func (s *AuditService) CapRowsPerActor(ctx context.Context, maxRowsPerActor int)
 	return removedTotal, nil
 }
 
-// overLimitAuditScopes lists the actors holding more than maxRowsPerActor rows,
-// oldest actor id first so repeated passes walk the same deterministic order.
-func (s *AuditService) overLimitAuditScopes(ctx context.Context, maxRowsPerActor int) ([]auditScope, error) {
+// overLimitAuditActorScopes lists the actors holding more than maxRowsPerActor
+// rows, oldest actor id first so repeated passes walk a deterministic order.
+func (s *AuditService) overLimitAuditActorScopes(ctx context.Context, maxRowsPerActor int) ([]auditScope, error) {
 	var rows []struct {
 		ActorKind string
 		ActorID   uint
@@ -234,14 +305,53 @@ func (s *AuditService) overLimitAuditScopes(ctx context.Context, maxRowsPerActor
 	}
 	scopes := make([]auditScope, 0, len(rows))
 	for _, row := range rows {
-		scopes = append(scopes, auditScope{Kind: row.ActorKind, ID: row.ActorID})
+		scopes = append(scopes, auditActorScope{Kind: row.ActorKind, ID: row.ActorID})
 	}
 	return scopes, nil
 }
 
-// capOneAuditScope removes this actor's oldest rows down to the cap, by at most
+// overLimitAuditTextScopes lists the action or device values holding more than
+// maxRows. Values are ordered so repeated passes are deterministic.
+func (s *AuditService) overLimitAuditTextScopes(ctx context.Context, kind string, maxRows int) ([]auditScope, error) {
+	var query string
+	switch kind {
+	case auditScopeAction:
+		query = `
+			SELECT action AS scope_value
+			FROM audit_logs
+			WHERE action <> ''
+			GROUP BY action
+			HAVING COUNT(*) > ?
+			ORDER BY action
+			LIMIT ?`
+	case auditScopeDevice:
+		query = `
+			SELECT resource_id AS scope_value
+			FROM audit_logs
+			WHERE resource_id <> '' AND resource_type IN ('device', 'event')
+			GROUP BY resource_id
+			HAVING COUNT(*) > ?
+			ORDER BY resource_id
+			LIMIT ?`
+	default:
+		return nil, fmt.Errorf("unknown audit scope kind %q", kind)
+	}
+	var rows []struct {
+		ScopeValue string `gorm:"column:scope_value"`
+	}
+	if err := s.db.WithContext(ctx).Raw(query, maxRows, auditCapScopesPerPass).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	scopes := make([]auditScope, 0, len(rows))
+	for _, row := range rows {
+		scopes = append(scopes, auditTextScope{Kind: kind, Value: row.ScopeValue})
+	}
+	return scopes, nil
+}
+
+// capOneAuditScope removes this scope's oldest rows down to the cap, by at most
 // `budget` rows.
-func (s *AuditService) capOneAuditScope(ctx context.Context, scope auditScope, maxRowsPerActor, budget int) (int64, error) {
+func (s *AuditService) capOneAuditScope(ctx context.Context, scope auditScope, maxRows, budget int) (int64, error) {
 	where, args := scope.predicate()
 	if budget <= 0 {
 		return 0, nil
@@ -251,7 +361,7 @@ func (s *AuditService) capOneAuditScope(ctx context.Context, scope auditScope, m
 		Where(where, args...).Count(&count).Error; err != nil {
 		return 0, err
 	}
-	overflow := int(count) - maxRowsPerActor
+	overflow := int(count) - maxRows
 	if overflow <= 0 {
 		return 0, nil
 	}
@@ -279,7 +389,7 @@ func (s *AuditService) capOneAuditScope(ctx context.Context, scope auditScope, m
 		return 0, nil
 	}
 	if err := s.archiveRows(rows); err != nil {
-		return 0, fmt.Errorf("archive audit logs before per-actor purge: %w", err)
+		return 0, fmt.Errorf("archive audit logs before %s purge: %w", scope.label(), err)
 	}
 	ids := make([]uint, 0, len(rows))
 	for _, row := range rows {
@@ -333,24 +443,26 @@ func (s *AuditService) SweepArchive(archiveRetentionDays int) (int, error) {
 
 // RunRetention sweeps expired rows on a ticker until ctx is cancelled.
 //
-// Four independent bounds are enforced, and any one alone is enough to make the
-// sweep run: `retentionDays` deletes rows older than the window, `maxRows`
-// trims the oldest rows so at most that many remain whatever their age,
-// `maxRowsPerActor` trims the oldest rows of any one actor, and
-// `archiveRetentionDays` deletes archive files older than its window. Keeping
-// them separate matters - a deployment may want "keep 30 days OR 100k rows,
-// whichever bites first" and must be able to set any one to 0 to disable that
-// bound without disabling the others.
+// Six independent bounds are enforced, and any one alone is enough to make the
+// sweep run: `retentionDays` deletes rows older than the window; `maxRows`
+// trims the oldest rows so at most that many remain whatever their age;
+// `maxRowsPerActor`, `maxRowsPerDevice` and `maxRowsPerAction` trim the oldest
+// rows of any one actor, device or action; and `archiveRetentionDays` deletes
+// archive files older than its window. Keeping them separate matters - a
+// deployment may want "keep 30 days OR 100k rows, whichever bites first" and
+// must be able to set any one to 0 to disable that bound without disabling the
+// others.
 //
-// The per-actor cap runs *before* the table-wide one on purpose: it is the
-// targeted rule (charge the noisy actor their own oldest rows), so letting it
-// fire first leaves the blunt rule less to do and less chance of evicting an
-// innocent actor's trail instead.
+// The scoped caps run *before* the table-wide one on purpose: they are the
+// targeted rules (charge the noisy actor, device or action its own oldest
+// rows), so letting them fire first leaves the blunt rule less to do and less
+// chance of evicting an innocent trail instead.
 //
 // interval <= 0 with every bound <= 0 means "keep every audit row (and every
 // archive file) forever", matching the recording and notification defaults.
-func (s *AuditService) RunRetention(ctx context.Context, interval time.Duration, retentionDays, maxRows, maxRowsPerActor, archiveRetentionDays int) {
-	if interval <= 0 || (retentionDays <= 0 && maxRows <= 0 && maxRowsPerActor <= 0 && archiveRetentionDays <= 0) {
+func (s *AuditService) RunRetention(ctx context.Context, interval time.Duration, retentionDays, maxRows, maxRowsPerActor, maxRowsPerDevice, maxRowsPerAction, archiveRetentionDays int) {
+	if interval <= 0 || (retentionDays <= 0 && maxRows <= 0 && maxRowsPerActor <= 0 &&
+		maxRowsPerDevice <= 0 && maxRowsPerAction <= 0 && archiveRetentionDays <= 0) {
 		return
 	}
 	ticker := time.NewTicker(interval)
@@ -397,6 +509,40 @@ func (s *AuditService) RunRetention(ctx context.Context, interval time.Duration,
 				}
 				if total > 0 {
 					log.Printf("[audit] per-actor row cap removed %d audit rows over %d", total, maxRowsPerActor)
+				}
+			}
+			if maxRowsPerDevice > 0 {
+				total := int64(0)
+				for {
+					removed, err := s.CapRowsPerDevice(ctx, maxRowsPerDevice)
+					if err != nil {
+						log.Printf("[audit] per-device row-cap sweep failed: %v", err)
+						break
+					}
+					total += removed
+					if removed == 0 {
+						break
+					}
+				}
+				if total > 0 {
+					log.Printf("[audit] per-device row cap removed %d audit rows over %d", total, maxRowsPerDevice)
+				}
+			}
+			if maxRowsPerAction > 0 {
+				total := int64(0)
+				for {
+					removed, err := s.CapRowsPerAction(ctx, maxRowsPerAction)
+					if err != nil {
+						log.Printf("[audit] per-action row-cap sweep failed: %v", err)
+						break
+					}
+					total += removed
+					if removed == 0 {
+						break
+					}
+				}
+				if total > 0 {
+					log.Printf("[audit] per-action row cap removed %d audit rows over %d", total, maxRowsPerAction)
 				}
 			}
 			if maxRows > 0 {

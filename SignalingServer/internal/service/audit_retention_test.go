@@ -409,3 +409,142 @@ func TestAuditCapRowsPerActorBatchesAndNoops(t *testing.T) {
 		t.Fatalf("actor holds %d rows after the cap, want 10", got)
 	}
 }
+
+func seedAuditScopedRow(t *testing.T, db *gorm.DB, action, resourceType, resourceID string) {
+	t.Helper()
+	if err := db.Create(&models.AuditLog{
+		Action:       action,
+		ResourceType: resourceType,
+		ResourceID:   resourceID,
+		CreatedAt:    time.Now(),
+	}).Error; err != nil {
+		t.Fatalf("seed scoped audit row: %v", err)
+	}
+}
+
+// A single action type can dominate the table even when every actor is quiet.
+// The action cap must charge that action and leave unrelated actions alone.
+func TestAuditCapRowsPerActionChargesOnlyTheNoisyAction(t *testing.T) {
+	db := newAuditTestDB(t)
+	svc := NewAuditService(db)
+	ctx := context.Background()
+
+	for i := 0; i < 5; i++ {
+		seedAuditScopedRow(t, db, "noisy.action", "device", "d-noisy")
+	}
+	for i := 0; i < 2; i++ {
+		seedAuditScopedRow(t, db, "quiet.action", "device", "d-quiet")
+	}
+	seedAuditScopedRow(t, db, "", "device", "d-actionless")
+
+	removed, err := svc.CapRowsPerAction(ctx, 2)
+	if err != nil {
+		t.Fatalf("per-action cap: %v", err)
+	}
+	if removed != 3 {
+		t.Fatalf("removed %d rows, want the noisy action's 3 oldest", removed)
+	}
+	if got := len(auditRowsFor(t, db, "action = ?", "noisy.action")); got != 2 {
+		t.Fatalf("noisy action holds %d rows, want 2", got)
+	}
+	if got := len(auditRowsFor(t, db, "action = ?", "quiet.action")); got != 2 {
+		t.Fatalf("quiet action holds %d rows, want its 2 untouched rows", got)
+	}
+	if got := len(auditRowsFor(t, db, "action = ?", "")); got != 1 {
+		t.Fatalf("actionless rows = %d, want the unattributed row left alone", got)
+	}
+}
+
+// Device rows live under two resource types, but both name the same device id.
+// The cap must combine them, and must not mistake a recording id or a batch
+// operation for a device.
+func TestAuditCapRowsPerDeviceChargesOnlyTheNoisyDevice(t *testing.T) {
+	db := newAuditTestDB(t)
+	svc := NewAuditService(db)
+	ctx := context.Background()
+
+	for i := 0; i < 5; i++ {
+		seedAuditScopedRow(t, db, "device.delete", "device", "d-noisy")
+	}
+	for i := 0; i < 5; i++ {
+		seedAuditScopedRow(t, db, "device.access.denied", "event", "d-noisy")
+	}
+	for i := 0; i < 2; i++ {
+		seedAuditScopedRow(t, db, "device.unbind", "device", "d-quiet")
+	}
+	seedAuditScopedRow(t, db, "device.batch", "device", "")
+	seedAuditScopedRow(t, db, "recording.delete", "session_recording", "d-noisy")
+
+	removed, err := svc.CapRowsPerDevice(ctx, 3)
+	if err != nil {
+		t.Fatalf("per-device cap: %v", err)
+	}
+	if removed != 7 {
+		t.Fatalf("removed %d rows, want the noisy device's 7 oldest", removed)
+	}
+	if got := len(auditRowsFor(t, db, "resource_id = ? AND resource_type IN (?, ?)", "d-noisy", "device", "event")); got != 3 {
+		t.Fatalf("noisy device holds %d device/event rows, want 3", got)
+	}
+	if got := len(auditRowsFor(t, db, "resource_id = ?", "d-quiet")); got != 2 {
+		t.Fatalf("quiet device holds %d rows, want its 2 untouched rows", got)
+	}
+	if got := len(auditRowsFor(t, db, "action = ?", "device.batch")); got != 1 {
+		t.Fatalf("unattributed batch rows = %d, want the batch row left alone", got)
+	}
+	if got := len(auditRowsFor(t, db, "action = ?", "recording.delete")); got != 1 {
+		t.Fatalf("recording rows = %d, want the recording row left alone", got)
+	}
+}
+
+// The new device cap must follow the same archive-before-delete rule as the
+// older retention bounds.
+func TestAuditCapRowsPerDeviceArchivesBeforeDeleting(t *testing.T) {
+	db := newAuditTestDB(t)
+	archiveDir := t.TempDir()
+	svc := NewAuditService(db).WithArchiveDir(archiveDir)
+	ctx := context.Background()
+
+	for _, action := range []string{"device.old1", "device.old2", "device.new"} {
+		seedAuditScopedRow(t, db, action, "device", "d-archive")
+	}
+
+	removed, err := svc.CapRowsPerDevice(ctx, 1)
+	if err != nil {
+		t.Fatalf("per-device cap: %v", err)
+	}
+	if removed != 2 {
+		t.Fatalf("removed %d rows, want 2", removed)
+	}
+	matches, _ := filepath.Glob(filepath.Join(archiveDir, "*.jsonl"))
+	if len(matches) != 1 {
+		t.Fatalf("archive files = %v, want exactly one daily file", matches)
+	}
+	body, err := os.ReadFile(matches[0])
+	if err != nil {
+		t.Fatalf("read archive: %v", err)
+	}
+	if !strings.Contains(string(body), "device.old1") || !strings.Contains(string(body), "device.old2") {
+		t.Fatalf("archive is missing a capped row:\n%s", body)
+	}
+	if strings.Contains(string(body), "device.new") {
+		t.Fatalf("archive holds a row that should have been kept:\n%s", body)
+	}
+}
+
+// Disabled action and device caps are no-ops, just like the older bounds.
+func TestAuditCapRowsPerActionAndDeviceNoopWhenDisabled(t *testing.T) {
+	db := newAuditTestDB(t)
+	svc := NewAuditService(db)
+	ctx := context.Background()
+	seedAuditScopedRow(t, db, "noop.action", "device", "d-noop")
+
+	if removed, err := svc.CapRowsPerAction(ctx, 0); err != nil || removed != 0 {
+		t.Fatalf("disabled action cap = %d,%v, want 0,nil", removed, err)
+	}
+	if removed, err := svc.CapRowsPerDevice(ctx, 0); err != nil || removed != 0 {
+		t.Fatalf("disabled device cap = %d,%v, want 0,nil", removed, err)
+	}
+	if count := auditRowCount(t, db); count != 1 {
+		t.Fatalf("table holds %d rows, want the row kept", count)
+	}
+}

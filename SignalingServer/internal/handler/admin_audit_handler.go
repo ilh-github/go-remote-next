@@ -20,15 +20,19 @@ type AdminAuditHandler struct {
 	retentionDays        int
 	maxRows              int
 	maxRowsPerActor      int
+	maxRowsPerDevice     int
+	maxRowsPerAction     int
 	archiveRetentionDays int
 }
 
-func NewAdminAuditHandler(a *service.AuditService, retentionDays, maxRows, maxRowsPerActor, archiveRetentionDays int) *AdminAuditHandler {
+func NewAdminAuditHandler(a *service.AuditService, retentionDays, maxRows, maxRowsPerActor, maxRowsPerDevice, maxRowsPerAction, archiveRetentionDays int) *AdminAuditHandler {
 	return &AdminAuditHandler{
 		audit:                a,
 		retentionDays:        retentionDays,
 		maxRows:              maxRows,
 		maxRowsPerActor:      maxRowsPerActor,
+		maxRowsPerDevice:     maxRowsPerDevice,
+		maxRowsPerAction:     maxRowsPerAction,
 		archiveRetentionDays: archiveRetentionDays,
 	}
 }
@@ -91,6 +95,8 @@ type auditSweepReq struct {
 	OlderThanDays        *int `json:"older_than_days"`
 	MaxRows              *int `json:"max_rows"`
 	MaxRowsPerActor      *int `json:"max_rows_per_actor"`
+	MaxRowsPerDevice     *int `json:"max_rows_per_device"`
+	MaxRowsPerAction     *int `json:"max_rows_per_action"`
 	ArchiveRetentionDays *int `json:"archive_retention_days"`
 }
 
@@ -125,13 +131,22 @@ func (h *AdminAuditHandler) Sweep(c *gin.Context) {
 	if req.MaxRowsPerActor != nil {
 		maxRowsPerActor = *req.MaxRowsPerActor
 	}
+	maxRowsPerDevice := h.maxRowsPerDevice
+	if req.MaxRowsPerDevice != nil {
+		maxRowsPerDevice = *req.MaxRowsPerDevice
+	}
+	maxRowsPerAction := h.maxRowsPerAction
+	if req.MaxRowsPerAction != nil {
+		maxRowsPerAction = *req.MaxRowsPerAction
+	}
 	archiveDays := h.archiveRetentionDays
 	if req.ArchiveRetentionDays != nil {
 		archiveDays = *req.ArchiveRetentionDays
 	}
-	if days <= 0 && maxRows <= 0 && maxRowsPerActor <= 0 && archiveDays <= 0 {
+	if days <= 0 && maxRows <= 0 && maxRowsPerActor <= 0 && maxRowsPerDevice <= 0 &&
+		maxRowsPerAction <= 0 && archiveDays <= 0 {
 		ProblemBadRequest(c, ProblemCodeInvalidRequest,
-			"retention is not configured; set AUDIT_RETENTION_DAYS / AUDIT_MAX_ROWS / AUDIT_MAX_ROWS_PER_ACTOR / AUDIT_ARCHIVE_RETENTION_DAYS or pass older_than_days / max_rows / max_rows_per_actor / archive_retention_days")
+			"retention is not configured; set AUDIT_RETENTION_DAYS / AUDIT_MAX_ROWS / AUDIT_MAX_ROWS_PER_ACTOR / AUDIT_MAX_ROWS_PER_DEVICE / AUDIT_MAX_ROWS_PER_ACTION / AUDIT_ARCHIVE_RETENTION_DAYS or pass older_than_days / max_rows / max_rows_per_actor / max_rows_per_device / max_rows_per_action / archive_retention_days")
 		return
 	}
 
@@ -169,8 +184,40 @@ func (h *AdminAuditHandler) Sweep(c *gin.Context) {
 			}
 		}
 	}
-	// The table-wide row cap is a third, age-independent bound; it runs after
-	// the targeted one so a row that both rules would drop is only counted once.
+	// Device and action caps are the other two targeted bounds. They run before
+	// the table-wide cap so a hot device or action pays its own oldest rows
+	// instead of spending everyone else's history.
+	var deviceCapRemoved int64
+	if maxRowsPerDevice > 0 {
+		for {
+			removed, err := h.audit.CapRowsPerDevice(c.Request.Context(), maxRowsPerDevice)
+			if err != nil {
+				ProblemInternal(c, "per-device row cap failed, nothing deleted: "+err.Error())
+				return
+			}
+			deviceCapRemoved += removed
+			if removed == 0 {
+				break
+			}
+		}
+	}
+	var actionCapRemoved int64
+	if maxRowsPerAction > 0 {
+		for {
+			removed, err := h.audit.CapRowsPerAction(c.Request.Context(), maxRowsPerAction)
+			if err != nil {
+				ProblemInternal(c, "per-action row cap failed, nothing deleted: "+err.Error())
+				return
+			}
+			actionCapRemoved += removed
+			if removed == 0 {
+				break
+			}
+		}
+	}
+	// The table-wide row cap is the blunt, age-independent bound. It runs after
+	// the targeted scopes so a row that both rules would drop is only counted
+	// once.
 	var capRemoved int64
 	if maxRows > 0 {
 		for {
@@ -204,8 +251,9 @@ func (h *AdminAuditHandler) Sweep(c *gin.Context) {
 	if h.audit != nil {
 		h.audit.Log(c.Request.Context(), middleware.MustAdminID(c), "", "audit.sweep",
 			"audit_log", "",
-			fmt.Sprintf("older_than_days=%d cutoff=%s purged=%d max_rows=%d cap_removed=%d max_rows_per_actor=%d actor_cap_removed=%d archive_retention_days=%d archive_removed=%d archive=%s",
+			fmt.Sprintf("older_than_days=%d cutoff=%s purged=%d max_rows=%d cap_removed=%d max_rows_per_actor=%d actor_cap_removed=%d max_rows_per_device=%d device_cap_removed=%d max_rows_per_action=%d action_cap_removed=%d archive_retention_days=%d archive_removed=%d archive=%s",
 				days, cutoff, purged, maxRows, capRemoved, maxRowsPerActor, actorCapRemoved,
+				maxRowsPerDevice, deviceCapRemoved, maxRowsPerAction, actionCapRemoved,
 				archiveDays, archiveRemoved, h.audit.ArchiveDir()),
 			c.ClientIP())
 	}
@@ -217,6 +265,10 @@ func (h *AdminAuditHandler) Sweep(c *gin.Context) {
 		"cap_removed":            capRemoved,
 		"max_rows_per_actor":     maxRowsPerActor,
 		"actor_cap_removed":      actorCapRemoved,
+		"max_rows_per_device":    maxRowsPerDevice,
+		"device_cap_removed":     deviceCapRemoved,
+		"max_rows_per_action":    maxRowsPerAction,
+		"action_cap_removed":     actionCapRemoved,
 		"archive_retention_days": archiveDays,
 		"archive_removed":        archiveRemoved,
 		"archive_dir":            h.audit.ArchiveDir(),

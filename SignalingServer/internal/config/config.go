@@ -167,6 +167,16 @@ type AuditConfig struct {
 	// migration - from filling the table and evicting every other actor's
 	// trail. 0 = no per-actor cap.
 	MaxRowsPerActor int
+	// MaxRowsPerDevice, when positive, caps how many rows any single device may
+	// hold. Device ids come from resource_id on both explicit device actions
+	// and device-scoped events; batch operations that do not name one device
+	// remain governed by the action and table caps. 0 = no per-device cap.
+	MaxRowsPerDevice int
+	// MaxRowsPerAction, when positive, caps how many rows any single action may
+	// hold. This catches one action type - a failing login, a noisy export -
+	// dominating the trail even when its actors are otherwise quiet. 0 = no
+	// per-action cap.
+	MaxRowsPerAction int
 	// ArchiveDir, when set, makes retention append expired rows to a daily
 	// JSONL file there before deleting them. Empty = plain delete. Audit rows
 	// are evidence, so an operator turning retention on should normally set it.
@@ -321,6 +331,10 @@ func Load() *Config {
 	// holds more than this, so one noisy actor cannot evict everyone else's
 	// trail. 0 = no per-actor cap.
 	viper.SetDefault("AUDIT_MAX_ROWS_PER_ACTOR", 0)
+	// Per-device and per-action row caps: targeted bounds for a hot device or a
+	// noisy action. Both are independent of every other audit bound.
+	viper.SetDefault("AUDIT_MAX_ROWS_PER_DEVICE", 0)
+	viper.SetDefault("AUDIT_MAX_ROWS_PER_ACTION", 0)
 
 	// Cross-instance log shipping. Off by default: enabling it writes every log
 	// line into the shared database so `scope=all` can search every instance.
@@ -435,6 +449,8 @@ func Load() *Config {
 		SweepIntervalMin:     viper.GetInt("AUDIT_SWEEP_INTERVAL_MINUTES"),
 		MaxRows:              viper.GetInt("AUDIT_MAX_ROWS"),
 		MaxRowsPerActor:      viper.GetInt("AUDIT_MAX_ROWS_PER_ACTOR"),
+		MaxRowsPerDevice:     viper.GetInt("AUDIT_MAX_ROWS_PER_DEVICE"),
+		MaxRowsPerAction:     viper.GetInt("AUDIT_MAX_ROWS_PER_ACTION"),
 		ArchiveDir:           viper.GetString("AUDIT_ARCHIVE_DIR"),
 		ArchiveRetentionDays: viper.GetInt("AUDIT_ARCHIVE_RETENTION_DAYS"),
 	}
