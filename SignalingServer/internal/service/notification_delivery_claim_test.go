@@ -2,8 +2,11 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -312,5 +315,149 @@ func TestRetryAllFailedRequeuesOnlyFailedRows(t *testing.T) {
 
 	if n, err := svc.RetryAllFailed(ctx, 12345); err != nil || n != 0 {
 		t.Errorf("retry-all on empty channel = (%d, %v), want (0, nil)", n, err)
+	}
+}
+
+// newPurgeTestDB opens the throwaway database and truncates the outbox, the
+// shared preamble for the retention tests.
+func newPurgeTestDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	dsn := os.Getenv("QD_TEST_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("set QD_TEST_DATABASE_URL to a throwaway Postgres to run the retention tests")
+	}
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := db.AutoMigrate(&models.NotificationDelivery{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	if err := db.Exec("TRUNCATE notification_deliveries").Error; err != nil {
+		t.Fatalf("truncate: %v", err)
+	}
+	return db
+}
+
+// TestPurgeTerminalArchivesBeforeDeleting checks the whole point of the archive
+// path: the expired rows reach disk before they leave the database.
+func TestPurgeTerminalArchivesBeforeDeleting(t *testing.T) {
+	db := newPurgeTestDB(t)
+	ctx := context.Background()
+	archiveDir := t.TempDir()
+	svc := NewNotificationDeliveryService(db).WithArchiveDir(archiveDir)
+
+	now := time.Now().UTC()
+	old := now.AddDate(0, 0, -30)
+	seed := []models.NotificationDelivery{
+		{ChannelID: 5, UserID: 1, EventType: "test", Payload: `{"n":1}`, Status: DeliveryStatusDelivered, Attempts: 1, NextAttemptAt: old},
+		{ChannelID: 5, UserID: 1, EventType: "test", Payload: `{"n":2}`, Status: DeliveryStatusFailed, Attempts: 8, NextAttemptAt: old},
+		{ChannelID: 5, UserID: 1, EventType: "test", Payload: `{"n":3}`, Status: DeliveryStatusDelivered, Attempts: 1, NextAttemptAt: now},
+		{ChannelID: 5, UserID: 1, EventType: "test", Payload: `{"n":4}`, Status: DeliveryStatusPending, Attempts: 2, NextAttemptAt: old},
+	}
+	if err := db.Create(&seed).Error; err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	for i, row := range seed {
+		stamp := old
+		if i == 2 {
+			stamp = now
+		}
+		if err := db.Model(&models.NotificationDelivery{}).Where("id = ?", row.ID).Update("updated_at", stamp).Error; err != nil {
+			t.Fatalf("backdate %d: %v", row.ID, err)
+		}
+	}
+
+	removed, err := svc.PurgeTerminal(ctx, now.AddDate(0, 0, -7))
+	if err != nil {
+		t.Fatalf("purge: %v", err)
+	}
+	if removed != 2 {
+		t.Errorf("purged %d rows, want 2", removed)
+	}
+
+	var remaining []models.NotificationDelivery
+	if err := db.Order("id").Find(&remaining).Error; err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if len(remaining) != 2 {
+		t.Fatalf("kept %d rows, want 2 (recent delivered + old pending)", len(remaining))
+	}
+	for _, row := range remaining {
+		if row.Status == DeliveryStatusDelivered && row.Payload == `{"n":1}` {
+			t.Error("an expired delivered row survived")
+		}
+	}
+
+	entries, err := os.ReadDir(archiveDir)
+	if err != nil {
+		t.Fatalf("read archive dir: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("archive dir has %d files, want 1", len(entries))
+	}
+	if !strings.HasPrefix(entries[0].Name(), "notification-deliveries-") || !strings.HasSuffix(entries[0].Name(), ".jsonl") {
+		t.Errorf("unexpected archive file name %q", entries[0].Name())
+	}
+	raw, err := os.ReadFile(filepath.Join(archiveDir, entries[0].Name()))
+	if err != nil {
+		t.Fatalf("read archive: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("archive has %d lines, want 2", len(lines))
+	}
+	seen := map[string]string{}
+	for _, line := range lines {
+		var row models.NotificationDelivery
+		if err := json.Unmarshal([]byte(line), &row); err != nil {
+			t.Fatalf("archive line is not valid JSON: %v (%q)", err, line)
+		}
+		seen[row.Payload] = row.Status
+	}
+	if seen[`{"n":1}`] != DeliveryStatusDelivered || seen[`{"n":2}`] != DeliveryStatusFailed {
+		t.Errorf("archived rows = %v, want n:1 delivered and n:2 failed", seen)
+	}
+}
+
+// TestPurgeTerminalKeepsRowsWhenArchiveFails is the safety property: if the
+// archive cannot be written, retention must abort instead of deleting the rows.
+func TestPurgeTerminalKeepsRowsWhenArchiveFails(t *testing.T) {
+	db := newPurgeTestDB(t)
+	ctx := context.Background()
+
+	// A regular file where the archive directory should be: MkdirAll fails.
+	blocker := filepath.Join(t.TempDir(), "not-a-dir")
+	if err := os.WriteFile(blocker, []byte("x"), 0o644); err != nil {
+		t.Fatalf("write blocker: %v", err)
+	}
+	svc := NewNotificationDeliveryService(db).WithArchiveDir(filepath.Join(blocker, "archive"))
+
+	now := time.Now().UTC()
+	old := now.AddDate(0, 0, -30)
+	row := &models.NotificationDelivery{
+		ChannelID: 5, UserID: 1, EventType: "test", Payload: `{"n":1}`,
+		Status: DeliveryStatusFailed, Attempts: 8, NextAttemptAt: old,
+	}
+	if err := db.Create(row).Error; err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if err := db.Model(&models.NotificationDelivery{}).Where("id = ?", row.ID).Update("updated_at", old).Error; err != nil {
+		t.Fatalf("backdate: %v", err)
+	}
+
+	removed, err := svc.PurgeTerminal(ctx, now.AddDate(0, 0, -7))
+	if err == nil {
+		t.Fatal("purge should fail when the archive cannot be written")
+	}
+	if removed != 0 {
+		t.Errorf("purged %d rows despite a failed archive, want 0", removed)
+	}
+	var count int64
+	if err := db.Model(&models.NotificationDelivery{}).Count(&count).Error; err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("kept %d rows, want the expired row to survive a failed archive", count)
 	}
 }

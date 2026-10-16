@@ -128,6 +128,9 @@ func main() {
 	deviceAccessService := service.NewDeviceAccessService(db)
 	deviceAccessPolicyService := service.NewDeviceAccessPolicyService(db)
 	notificationDeliveryService := service.NewNotificationDeliveryService(db)
+	if cfg.Notification.ArchiveDir != "" {
+		notificationDeliveryService.WithArchiveDir(cfg.Notification.ArchiveDir)
+	}
 	notificationChannelService := service.NewNotificationChannelService(db, notificationDeliveryService)
 	sessionRecordingService := service.NewSessionRecordingService(db)
 	recordingLifecycle := service.NewRecordingLifecycle(
@@ -149,8 +152,12 @@ func main() {
 			time.Duration(cfg.Notification.SweepIntervalMin)*time.Minute,
 			cfg.Notification.RetentionDays,
 		)
-		log.Printf("Notification retention: retention_days=%d sweep_interval=%dm",
-			cfg.Notification.RetentionDays, cfg.Notification.SweepIntervalMin)
+		archive := cfg.Notification.ArchiveDir
+		if archive == "" {
+			archive = "(delete, no archive)"
+		}
+		log.Printf("Notification retention: retention_days=%d sweep_interval=%dm archive=%s",
+			cfg.Notification.RetentionDays, cfg.Notification.SweepIntervalMin, archive)
 	}
 	tokenService := service.NewTokenService(redisClient)
 	rateLimitService := service.NewRateLimitService(redisClient)

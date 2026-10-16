@@ -72,6 +72,9 @@ type Config struct {
 type NotificationConfig struct {
 	RetentionDays    int
 	SweepIntervalMin int
+	// ArchiveDir, when set, makes retention append expired rows to a daily
+	// JSONL file there before deleting them. Empty = plain delete.
+	ArchiveDir string
 }
 
 type RuntimeConfig struct {
@@ -161,6 +164,9 @@ func Load() *Config {
 	// (pending/delivering rows are never touched).
 	viper.SetDefault("NOTIFICATION_RETENTION_DAYS", 0)
 	viper.SetDefault("NOTIFICATION_SWEEP_INTERVAL_MINUTES", 60)
+	// When set, expired delivery rows are appended to a daily JSONL file here
+	// before being deleted, so retention never destroys the only copy.
+	viper.SetDefault("NOTIFICATION_ARCHIVE_DIR", "")
 
 	// Aliyun SMS (optional – leave empty to disable phone features)
 	viper.SetDefault("ALIYUN_SMS_ACCESS_KEY_ID", "")
@@ -238,6 +244,7 @@ func Load() *Config {
 	cfg.Notification = NotificationConfig{
 		RetentionDays:    viper.GetInt("NOTIFICATION_RETENTION_DAYS"),
 		SweepIntervalMin: viper.GetInt("NOTIFICATION_SWEEP_INTERVAL_MINUTES"),
+		ArchiveDir:       viper.GetString("NOTIFICATION_ARCHIVE_DIR"),
 	}
 
 	// Aliyun SMS – enabled only when all four fields are set

@@ -429,6 +429,14 @@ are never touched, so a long backoff is not mistaken for history. The sweep runs
 every `NOTIFICATION_SWEEP_INTERVAL_MINUTES` (default `60`); when retention is `0`
 the worker is not started at all.
 
+Set `NOTIFICATION_ARCHIVE_DIR` to make retention **archive before deleting**:
+expired rows are appended (one JSON object per line) to a daily
+`notification-deliveries-YYYY-MM-DD.jsonl` under that directory and only removed
+after the file is flushed to disk. If the archive cannot be written the purge
+aborts with an error and the rows stay, so retention can never be the step that
+destroys the only copy of a delivery history. Leave it empty for the plain
+delete.
+
 ### 5.3.3 Device access policy (who is allowed to connect)
 
 The access log records who *tried*; the policy decides who *may*. The owner of

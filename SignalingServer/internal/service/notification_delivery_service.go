@@ -1,11 +1,16 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"quickdesk/signaling/internal/models"
@@ -35,6 +40,9 @@ const (
 	notificationClaimBatch = 20
 	// notificationWorkerInterval is the queue poll interval.
 	notificationWorkerInterval = 2 * time.Second
+	// notificationPurgeBatch bounds how many rows one archive-then-delete pass
+	// reads into memory.
+	notificationPurgeBatch = 1000
 )
 
 // NotificationDeliveryService is the durable half of user notifications: it
@@ -44,10 +52,21 @@ const (
 // `event` + `timestamp` + `data.log_id` as an idempotency key.
 type NotificationDeliveryService struct {
 	db *gorm.DB
+	// archiveDir, when set, makes retention append expired rows to a JSONL file
+	// before deleting them. Empty means the old behaviour: hard delete.
+	archiveDir string
 }
 
 func NewNotificationDeliveryService(db *gorm.DB) *NotificationDeliveryService {
 	return &NotificationDeliveryService{db: db}
+}
+
+// WithArchiveDir enables archive-before-delete for retention: expired terminal
+// rows are appended to a daily JSONL file under dir, and only deleted once that
+// write has been flushed to disk. Returns the receiver so it can be chained.
+func (s *NotificationDeliveryService) WithArchiveDir(dir string) *NotificationDeliveryService {
+	s.archiveDir = strings.TrimSpace(dir)
+	return s
 }
 
 // Enqueue stores one delivery attempt for a channel. Called from the event
@@ -85,12 +104,78 @@ func (s *NotificationDeliveryService) Run(ctx context.Context) {
 // PurgeTerminal deletes finished rows (delivered or failed) that have not been
 // touched since cutoff. In-flight rows (pending/delivering) are never touched,
 // so a long backoff is not mistaken for history.
+//
+// When an archive directory is configured the rows are appended to a daily
+// JSONL file first and only deleted after that write lands on disk. A failed
+// archive write therefore aborts the purge: retention must not be the step that
+// silently destroys the only copy of a delivery history.
 func (s *NotificationDeliveryService) PurgeTerminal(ctx context.Context, cutoff time.Time) (int64, error) {
-	result := s.db.WithContext(ctx).
-		Where("status IN ?", []string{DeliveryStatusDelivered, DeliveryStatusFailed}).
+	if s.archiveDir == "" {
+		result := s.db.WithContext(ctx).
+			Where("status IN ?", terminalDeliveryStatuses()).
+			Where("updated_at < ?", cutoff.UTC()).
+			Delete(&models.NotificationDelivery{})
+		return result.RowsAffected, result.Error
+	}
+
+	var rows []models.NotificationDelivery
+	if err := s.db.WithContext(ctx).
+		Where("status IN ?", terminalDeliveryStatuses()).
 		Where("updated_at < ?", cutoff.UTC()).
+		Order("id").
+		Limit(notificationPurgeBatch).
+		Find(&rows).Error; err != nil {
+		return 0, err
+	}
+	if len(rows) == 0 {
+		return 0, nil
+	}
+	if err := s.archiveRows(rows); err != nil {
+		return 0, fmt.Errorf("archive notification deliveries before purge: %w", err)
+	}
+	ids := make([]uint, 0, len(rows))
+	for _, row := range rows {
+		ids = append(ids, row.ID)
+	}
+	// Re-check the status in the delete so a row that went back to pending
+	// between the read and the delete is not removed by the archive path.
+	result := s.db.WithContext(ctx).
+		Where("id IN ?", ids).
+		Where("status IN ?", terminalDeliveryStatuses()).
 		Delete(&models.NotificationDelivery{})
 	return result.RowsAffected, result.Error
+}
+
+// archiveRows appends one JSON object per row to the day's archive file and
+// fsyncs it, so the bytes are durable before the caller deletes them.
+func (s *NotificationDeliveryService) archiveRows(rows []models.NotificationDelivery) error {
+	if err := os.MkdirAll(s.archiveDir, 0o755); err != nil {
+		return err
+	}
+	name := fmt.Sprintf("notification-deliveries-%s.jsonl", time.Now().UTC().Format("2006-01-02"))
+	path := filepath.Join(s.archiveDir, name)
+
+	var buf bytes.Buffer
+	encoder := json.NewEncoder(&buf)
+	for _, row := range rows {
+		if err := encoder.Encode(row); err != nil {
+			return err
+		}
+	}
+
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	if _, err := file.Write(buf.Bytes()); err != nil {
+		return err
+	}
+	return file.Sync()
+}
+
+func terminalDeliveryStatuses() []string {
+	return []string{DeliveryStatusDelivered, DeliveryStatusFailed}
 }
 
 // RunRetention sweeps expired terminal rows on a ticker until ctx is
