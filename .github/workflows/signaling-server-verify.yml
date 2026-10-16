@@ -243,6 +243,17 @@ jobs:
             -admin-password "$ADMIN_PASSWORD" > /tmp/seed.out
           cat /tmp/seed.out
           grep -E '^QD_(IDENTIFIER|PASSWORD|SMOKE_DEVICE)=' /tmp/seed.out >> "$GITHUB_ENV"
+      - name: Run the approval workflow through the generated Go client
+        # This runs before the conformance smoke, and the ordering matters: the
+        # smoke's host-offline check deletes the seeded device's heartbeat on
+        # purpose, and an approval request needs an online host. The second
+        # factor flow used to be undrivable from a typed client because the 202
+        # answer is a different schema and a generated client declares one
+        # success type; the contract now puts the approval fields on that type,
+        # and this example proves a Go caller can read them, poll, and exchange
+        # the approval for a signal token.
+        working-directory: sdk/go
+        run: go run ./examples/approvalflow
       - name: Run the conformance smoke
         run: node scripts/sdk/openapi-smoke.mjs
       - name: Run the realtime conformance smoke
@@ -263,14 +274,6 @@ jobs:
         # rather than in someone's integration.
         working-directory: sdk/go
         run: go run ./examples/recordinglifecycle
-      - name: Run the approval workflow through the generated Go client
-        # The second-factor flow used to be undrivable from a typed client: the
-        # 202 answer is a different schema and a generated client declares one
-        # success type. The contract now puts the approval fields on that type,
-        # and this example is what proves a Go caller can read them, poll, and
-        # exchange the approval for a signal token.
-        working-directory: sdk/go
-        run: go run ./examples/approvalflow
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'

@@ -11,6 +11,10 @@
 // Usage:
 //
 //	QD_IDENTIFIER=user QD_PASSWORD=secret QD_SMOKE_DEVICE=123456789 go run ./examples/approvalflow
+//
+// Precondition: the device must be online. An approval request is only created
+// for a host the server currently sees, so a deleted or expired heartbeat makes
+// `access-code:verify` answer 409 HOST_OFFLINE before the owner is ever asked.
 package main
 
 import (
