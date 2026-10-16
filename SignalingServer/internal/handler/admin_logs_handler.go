@@ -117,9 +117,13 @@ func (h *AdminLogsHandler) Search(c *gin.Context) {
 	if file == "" {
 		file = service.DefaultLogSourceName
 	}
-	if _, ok := h.files[file]; !ok {
-		ProblemBadRequest(c, ProblemCodeInvalidRequest, fmt.Sprintf("unknown log file %q", file))
-		return
+	if file != service.AllLogSources {
+		if _, ok := h.files[file]; !ok {
+			ProblemBadRequest(c, ProblemCodeInvalidRequest,
+				fmt.Sprintf("unknown log file %q (use %q to search every configured source)",
+					file, service.AllLogSources))
+			return
+		}
 	}
 	limit := service.DefaultLogQueryLimit
 	if raw := strings.TrimSpace(c.Query("limit")); raw != "" {

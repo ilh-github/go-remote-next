@@ -1390,7 +1390,7 @@ request shapes; this section documents only the route table.
 | `GET` | `/v1/admin/stats` |
 | `GET` | `/v1/admin/system/status` |
 | `GET` | `/v1/admin/system/logs` — the operational files an operator may read: `{items: [{name, size_bytes, modified_at}]}` from a fixed server-side allow-list (`signaling.log`, plus `postgres.log` / `redis.log` when `POSTGRES_LOG_FILE` / `REDIS_LOG_FILE` are set). Super-admin only |
-| `GET` | `/v1/admin/system/logs:search` — search a log instead of downloading it. `?q=` (case-insensitive substring), `&file=` (which configured log: `signaling.log` by default, or `postgres.log` / `redis.log` when `POSTGRES_LOG_FILE` / `REDIS_LOG_FILE` is set; an unknown name is `400`), `&component=` (whole-token match on the structured `component=` field, so `component=api` does not match `api_auth`), `&since=` / `&until=` (RFC3339, inclusive, compared against the line's own UTC timestamp), `&limit=` (default 200, clamped to 2000). Returns `{items: [{timestamp, line}], count, limit, file, files, scanned_bytes, scanned_lines, truncated}` newest first. Audited as `log.search` with the file name as the resource id. Super-admin only |
+| `GET` | `/v1/admin/system/logs:search` — search a log instead of downloading it. `?q=` (case-insensitive substring), `&file=` (which configured log: `signaling.log` by default, `postgres.log` / `redis.log` when `POSTGRES_LOG_FILE` / `REDIS_LOG_FILE` are set, or **`all`** to search every configured source in one pass; an unknown name is `400`), `&component=` (whole-token match on the structured `component=` field, so `component=api` does not match `api_auth`), `&since=` / `&until=` (RFC3339, inclusive, compared against the line's own UTC timestamp), `&limit=` (default 200, clamped to 2000). Returns `{items: [{timestamp, line, file}], count, limit, file, files, scanned_bytes, scanned_lines, truncated}` newest first; each item carries the source it came from. Audited as `log.search` with the file name as the resource id. Super-admin only |
 | `GET` | `/v1/admin/system/logs/:name` — download one allow-listed file; audited as `log.download`. Super-admin only |
 | `GET` | `/v1/admin/connections` |
 | `GET` | `/v1/admin/activity` |
@@ -1507,6 +1507,16 @@ log, because "no results" and "you searched a different file than you thought"
 are very different answers during an incident. The `log.search` audit row
 records the file name as its resource id, so "who read the database log" is
 answerable afterwards.
+
+**`file=all` searches every source at once, with one budget.** An incident
+usually spans more than one log, and making the operator guess whether to look
+at the application log or the database log first is work the server can do
+instead. `file=all` walks each configured source newest-file-first, in
+registration order, and every returned item carries a `file` field naming the
+source it came from. The 8 MiB budget is **shared** across the sources rather
+than granted per file, so "search everything" is still one bounded read -
+`truncated: true` means that shared budget ran out, and the entries already
+found are still returned.
 
 > **Why `webhooks/:id/test` and not `webhooks/:id:test`** — gin's httprouter
 > cannot register a literal suffix on a wildcard segment. The AIP-136-style

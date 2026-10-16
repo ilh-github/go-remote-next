@@ -68,6 +68,10 @@ type LogEntry struct {
 	// Timestamp is RFC3339 UTC, or empty when the line has no parseable prefix.
 	Timestamp string `json:"timestamp,omitempty"`
 	Line      string `json:"line"`
+	// File names the source the line came from (`signaling.log`, `postgres.log`,
+	// …). It is set on every entry so a search across all sources can still say
+	// which file each hit belongs to.
+	File string `json:"file,omitempty"`
 }
 
 // LogFileInfo describes one file the query walked.
@@ -111,6 +115,13 @@ type LogQueryService struct {
 // DefaultLogSourceName is the application log's source name. It is also the
 // file the search endpoint uses when the caller does not pass `file=`.
 const DefaultLogSourceName = "signaling.log"
+
+// AllLogSources is the reserved `file=` value that scans every registered
+// source in one pass with one shared byte budget. Reading the sources one at a
+// time was the practical complaint: an incident usually spans the application
+// log and the database log, and making the operator guess which one to look at
+// first is work the server can do.
+const AllLogSources = "all"
 
 // NewLogQueryService points the service at the directory the logger writes to.
 func NewLogQueryService(dir string) *LogQueryService {
@@ -179,12 +190,6 @@ func (s *LogQueryService) Query(ctx context.Context, q LogQuery) (LogQueryResult
 		out.Files = []LogFileInfo{}
 		return out, nil
 	}
-	sourceName, sourcePath, ok := s.resolveSource(q.File)
-	if !ok {
-		out.Entries = []LogEntry{}
-		out.Files = []LogFileInfo{}
-		return out, nil
-	}
 	limit := q.Limit
 	if limit <= 0 {
 		limit = DefaultLogQueryLimit
@@ -193,8 +198,20 @@ func (s *LogQueryService) Query(ctx context.Context, q LogQuery) (LogQueryResult
 		limit = MaxLogQueryLimit
 	}
 
-	files := logFilesFor(sourceName, sourcePath)
-	out.Files = files
+	// `file=all` scans every registered source; anything else resolves to one.
+	var names []string
+	if strings.TrimSpace(q.File) == AllLogSources {
+		names = append(names, s.order...)
+	} else {
+		sourceName, _, ok := s.resolveSource(q.File)
+		if !ok {
+			out.Entries = []LogEntry{}
+			out.Files = []LogFileInfo{}
+			return out, nil
+		}
+		names = []string{sourceName}
+	}
+
 	out.Entries = make([]LogEntry, 0, min(limit, 64))
 
 	budget := s.scanBudget
@@ -202,7 +219,7 @@ func (s *LogQueryService) Query(ctx context.Context, q LogQuery) (LogQueryResult
 		budget = logScanBudget
 	}
 	totalBudget := budget
-	for _, file := range files {
+	for _, name := range names {
 		if ctx.Err() != nil {
 			return out, ctx.Err()
 		}
@@ -213,23 +230,55 @@ func (s *LogQueryService) Query(ctx context.Context, q LogQuery) (LogQueryResult
 			out.Truncated = true
 			break
 		}
-		exhausted, err := forEachLineReverse(file.path, &budget, func(line string) bool {
-			out.ScannedLines++
-			if !logLineMatches(line, q) {
-				return true
-			}
-			out.Entries = append(out.Entries, logEntry(line))
-			return len(out.Entries) < limit
-		})
-		if err != nil && !os.IsNotExist(err) {
-			return out, fmt.Errorf("read %s: %w", file.Name, err)
+		if err := s.scanSource(name, q, limit, &budget, &out); err != nil {
+			return out, err
 		}
-		if exhausted {
-			out.Truncated = true
+		if out.Truncated {
+			break
 		}
 	}
 	out.ScannedBytes = totalBudget - budget
 	return out, nil
+}
+
+// scanSource walks one source's rotated files newest-first, appending matches
+// to out and spending from the shared budget. The budget stays shared across
+// sources on purpose: "search everything" must still be one bounded read, not
+// one full read per file.
+func (s *LogQueryService) scanSource(
+	sourceName string,
+	q LogQuery,
+	limit int,
+	budget *int64,
+	out *LogQueryResult,
+) error {
+	files := logFilesFor(sourceName, s.sources[sourceName])
+	out.Files = append(out.Files, files...)
+	for _, file := range files {
+		if len(out.Entries) >= limit || *budget <= 0 {
+			return nil
+		}
+		exhausted, err := forEachLineReverse(file.path, budget, func(line string) bool {
+			out.ScannedLines++
+			if !logLineMatches(line, q) {
+				return true
+			}
+			entry := logEntry(line)
+			entry.File = sourceName
+			out.Entries = append(out.Entries, entry)
+			return len(out.Entries) < limit
+		})
+		if err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("read %s: %w", file.Name, err)
+		}
+		if exhausted {
+			// The budget ran out inside this source: stop the whole scan rather
+			// than silently continuing with a different file.
+			out.Truncated = true
+			return nil
+		}
+	}
+	return nil
 }
 
 // resolveSource picks the file to scan. An empty name means the application

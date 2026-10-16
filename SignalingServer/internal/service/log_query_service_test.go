@@ -335,3 +335,75 @@ func TestLogQueryFollowsExtraSourceRotation(t *testing.T) {
 		t.Fatalf("Sources() = %v, want registration order with the app log first", names)
 	}
 }
+
+// `file=all` searches every configured source in one pass and labels each hit
+// with the source it came from, so an operator does not have to guess which log
+// to look at first during an incident.
+func TestLogQueryAllSourcesScansEveryRegisteredSource(t *testing.T) {
+	dir := t.TempDir()
+	base := time.Date(2026, 10, 16, 10, 0, 0, 0, time.UTC)
+	writeLogFile(t, dir, "signaling.log", []string{
+		stamp(base) + " component=api shared-marker from the app log",
+	})
+	pgDir := t.TempDir()
+	pgPath := filepath.Join(pgDir, "postgres.log")
+	writeLogFile(t, pgDir, "postgres.log", []string{
+		stamp(base.Add(time.Second)) + " LOG: shared-marker from the database log",
+	})
+	redisDir := t.TempDir()
+	redisPath := filepath.Join(redisDir, "redis.log")
+	writeLogFile(t, redisDir, "redis.log", []string{
+		stamp(base.Add(2*time.Second)) + " notice shared-marker from redis",
+	})
+
+	svc := NewLogQueryService(dir).
+		AddFile("postgres.log", pgPath).
+		AddFile("redis.log", redisPath)
+
+	all, err := svc.Query(context.Background(), LogQuery{Query: "shared-marker", File: AllLogSources})
+	if err != nil {
+		t.Fatalf("all-source query: %v", err)
+	}
+	if len(all.Entries) != 3 {
+		t.Fatalf("all-source query returned %d entries, want one per source: %+v", len(all.Entries), all.Entries)
+	}
+	seen := map[string]int{}
+	for _, e := range all.Entries {
+		seen[e.File]++
+	}
+	for _, name := range []string{"signaling.log", "postgres.log", "redis.log"} {
+		if seen[name] != 1 {
+			t.Fatalf("source %q appeared %d times, want once (entries=%+v)", name, seen[name], all.Entries)
+		}
+	}
+	if len(all.Files) != 3 {
+		t.Fatalf("all-source query reported %d files, want the three logged sources", len(all.Files))
+	}
+
+	// A single-source query still labels its entries, so the field is safe to
+	// rely on whichever form the caller uses.
+	one, err := svc.Query(context.Background(), LogQuery{Query: "shared-marker", File: "redis.log"})
+	if err != nil {
+		t.Fatalf("redis query: %v", err)
+	}
+	if len(one.Entries) != 1 || one.Entries[0].File != "redis.log" {
+		t.Fatalf("redis query entries = %+v, want one labelled redis.log", one.Entries)
+	}
+
+	// The budget is shared across sources: a tiny budget must bound the whole
+	// scan, not be handed out per file.
+	tiny := NewLogQueryService(dir).
+		AddFile("postgres.log", pgPath).
+		AddFile("redis.log", redisPath)
+	tiny.scanBudget = 8
+	limited, err := tiny.Query(context.Background(), LogQuery{File: AllLogSources})
+	if err != nil {
+		t.Fatalf("tiny budget query: %v", err)
+	}
+	if !limited.Truncated {
+		t.Fatal("an 8-byte budget across all sources did not report truncated")
+	}
+	if limited.ScannedBytes > 8 {
+		t.Fatalf("scanned %d bytes with an 8-byte budget, want the budget to bound the whole scan", limited.ScannedBytes)
+	}
+}
