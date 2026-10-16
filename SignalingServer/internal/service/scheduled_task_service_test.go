@@ -281,6 +281,12 @@ func TestScheduledTaskCreateRejectsMixedOrBrokenCalendarSchedules(t *testing.T) 
 		{name: "unknown timezone", spec: ScheduledTaskSpec{
 			Kind: "probe", Schedule: "daily@05:30", Timezone: "Mars/Olympus",
 		}},
+		{name: "skip_holidays without a calendar schedule", spec: ScheduledTaskSpec{
+			Kind: "probe", RunAt: future, SkipHolidays: true,
+		}},
+		{name: "skip_holidays on an interval task", spec: ScheduledTaskSpec{
+			Kind: "probe", RunAt: future, RepeatSeconds: 3600, SkipHolidays: true,
+		}},
 	}
 	for _, tc := range cases {
 		if _, err := svc.Create(ctx, 1, tc.spec); !errors.Is(err, ErrInvalidScheduledTaskCalendar) {

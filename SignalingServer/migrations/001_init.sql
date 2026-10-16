@@ -568,10 +568,14 @@ CREATE TABLE IF NOT EXISTS scheduled_tasks (
     next_run_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     repeat_seconds INTEGER      NOT NULL DEFAULT 0,
     enabled        BOOLEAN      NOT NULL DEFAULT TRUE,
-    -- Optional calendar recurrence: daily@HH:MM, weekly@<dow>@HH:MM or
-    -- monthly@<dom>@HH:MM. When set it *is* the period, so repeat_seconds
-    -- must be 0 and next_run_at is recomputed from it after every run.
+    -- Optional calendar recurrence: daily@HH:MM, weekdays@HH:MM,
+    -- weekly@<dow>@HH:MM, monthly@<dom>@HH:MM or every@<N>@days@HH:MM. When set
+    -- it *is* the period, so repeat_seconds must be 0 and next_run_at is
+    -- recomputed from it after every run.
     schedule       VARCHAR(64)  NOT NULL DEFAULT '',
+    -- Move a calendar occurrence off a statutory day off, keeping the time of
+    -- day. Only meaningful with a calendar schedule.
+    skip_holidays  BOOLEAN      NOT NULL DEFAULT FALSE,
     -- IANA zone the calendar schedule is evaluated in; '' means UTC.
     timezone       VARCHAR(64)  NOT NULL DEFAULT '',
     max_attempts   INTEGER      NOT NULL DEFAULT 1,
@@ -588,6 +592,11 @@ CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_due
 
 CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_user_id
     ON scheduled_tasks (user_id);
+
+-- Added after the table shipped: existing deployments get the column from
+-- AutoMigrate, and this keeps the schema file self-sufficient for a fresh one.
+ALTER TABLE scheduled_tasks
+    ADD COLUMN IF NOT EXISTS skip_holidays BOOLEAN NOT NULL DEFAULT FALSE;
 
 -- ---------------------------------------------------------------
 -- Cross-instance log shipping ("search the log of the instance that actually

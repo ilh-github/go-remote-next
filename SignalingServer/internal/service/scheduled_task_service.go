@@ -59,11 +59,14 @@ type ScheduledTaskSpec struct {
 	RunAt         time.Time
 	RepeatSeconds int
 	MaxAttempts   int
-	// Schedule is a calendar recurrence: `daily@HH:MM`,
-	// `weekly@<dow>@HH:MM` or `monthly@<dom>@HH:MM`.
+	// Schedule is a calendar recurrence: `daily@HH:MM`, `weekdays@HH:MM`,
+	// `weekly@<dow>@HH:MM`, `monthly@<dom>@HH:MM` or `every@<N>@days@HH:MM`.
 	Schedule string
 	// Timezone is the IANA zone Schedule is evaluated in; empty means UTC.
 	Timezone string
+	// SkipHolidays moves a calendar occurrence off a statutory day off, using
+	// the same calendar the device access policy resolves holidays with.
+	SkipHolidays bool
 }
 
 // ScheduledTaskAction is the server-side work one kind performs. Actions must
@@ -158,6 +161,11 @@ func (s *ScheduledTaskService) Create(
 		Enabled:     true,
 		MaxAttempts: maxAttempts,
 	}
+	if spec.SkipHolidays && schedule == "" {
+		// An interval task has no calendar day to skip, and accepting the flag
+		// would create a task whose stored row claims a rule that never applies.
+		return nil, fmt.Errorf("%w: skip_holidays is only meaningful with schedule", ErrInvalidScheduledTaskCalendar)
+	}
 	if schedule != "" {
 		// A calendar task derives every occurrence, the first one included, so a
 		// caller-supplied run_at would be a second, contradictory schedule.
@@ -177,7 +185,13 @@ func (s *ScheduledTaskService) Create(
 		}
 		row.Schedule = schedule
 		row.Timezone = timezone
-		row.NextRunAt = parsed.next(now, loc)
+		row.SkipHolidays = spec.SkipHolidays
+		row.CreatedAt = now
+		next := parsed.next(now, loc, row.CreatedAt)
+		if row.SkipHolidays {
+			next = advancePastHolidays(next, loc, currentHolidayCalendar())
+		}
+		row.NextRunAt = next
 	} else {
 		if timezone != "" {
 			return nil, fmt.Errorf("%w: timezone is only meaningful with schedule", ErrInvalidScheduledTaskCalendar)

@@ -33,10 +33,16 @@ type ScheduledTask struct {
 	RepeatSeconds int  `gorm:"not null;default:0" json:"repeat_seconds"`
 	Enabled       bool `gorm:"not null;default:true" json:"enabled"`
 	// Schedule is an optional calendar recurrence: `daily@HH:MM`,
-	// `weekly@<dow>@HH:MM` or `monthly@<dom>@HH:MM`. When it is set it *is* the
-	// recurrence, so RepeatSeconds must be 0 and NextRunAt is derived from it
-	// after every run rather than by adding a fixed period.
+	// `weekdays@HH:MM`, `weekly@<dow>@HH:MM`, `monthly@<dom>@HH:MM` or
+	// `every@<N>@days@HH:MM`. When it is set it *is* the recurrence, so
+	// RepeatSeconds must be 0 and NextRunAt is derived from it after every run
+	// rather than by adding a fixed period.
 	Schedule string `gorm:"size:64;not null;default:''" json:"schedule"`
+	// SkipHolidays moves a calendar occurrence off a statutory day off (the
+	// same calendar the device access policy uses), keeping the wall-clock time.
+	// It is rejected without a Schedule because an interval task has no calendar
+	// day to skip.
+	SkipHolidays bool `gorm:"not null;default:false" json:"skip_holidays"`
 	// Timezone is the IANA zone the calendar schedule is evaluated in; empty
 	// means UTC. It is ignored for an interval task.
 	Timezone string `gorm:"size:64;not null;default:''" json:"timezone"`

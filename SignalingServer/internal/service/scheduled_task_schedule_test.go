@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"quickdesk/signaling/internal/holiday"
 	"quickdesk/signaling/internal/models"
 )
 
@@ -63,11 +64,186 @@ func TestParseCalendarScheduleRejectsMalformed(t *testing.T) {
 		"monthly@0@10:00",
 		"monthly@32@10:00",
 		"monthly@jan@10:00",
+		"weekdays",
+		"weekdays@10:00@extra",
+		"every@10:00",
+		"every@0@days@10:00",
+		"every@366@days@10:00",
+		"every@3@weeks@10:00",
+		"every@x@days@10:00",
 	}
 	for _, spec := range specs {
 		if _, err := parseCalendarSchedule(spec); !errors.Is(err, ErrInvalidScheduledTaskCalendar) {
 			t.Fatalf("parse %q err = %v, want ErrInvalidScheduledTaskCalendar", spec, err)
 		}
+	}
+}
+
+// `weekdays@HH:MM` is Monday to Friday by the calendar, which is deliberately
+// not the same question as "is this a statutory day off": 调休 workdays are
+// weekdays, and skipping them is the separate `skip_holidays` rule.
+func TestCalendarScheduleWeekdaysSkipsTheWeekend(t *testing.T) {
+	spec, err := parseCalendarSchedule("weekdays@09:00")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	cases := []struct {
+		name  string
+		after time.Time
+		want  time.Time
+	}{
+		{
+			name:  "friday morning runs the same day",
+			after: time.Date(2026, 10, 16, 8, 0, 0, 0, time.UTC), // Friday
+			want:  time.Date(2026, 10, 16, 9, 0, 0, 0, time.UTC),
+		},
+		{
+			name:  "friday after the time jumps the weekend",
+			after: time.Date(2026, 10, 16, 9, 30, 0, 0, time.UTC),
+			want:  time.Date(2026, 10, 19, 9, 0, 0, 0, time.UTC), // Monday
+		},
+		{
+			name:  "saturday jumps to monday",
+			after: time.Date(2026, 10, 17, 12, 0, 0, 0, time.UTC),
+			want:  time.Date(2026, 10, 19, 9, 0, 0, 0, time.UTC),
+		},
+		{
+			name:  "sunday jumps to monday",
+			after: time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC),
+			want:  time.Date(2026, 10, 19, 9, 0, 0, 0, time.UTC),
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := spec.next(tc.after, time.UTC, time.Time{}); !got.Equal(tc.want) {
+				t.Fatalf("next(%s) = %s, want %s", tc.after, got, tc.want)
+			}
+		})
+	}
+}
+
+// `every@N@days@HH:MM` is anchored to the task's creation date, so a late run
+// does not shift the phase and a missed occurrence does not become a cascade.
+func TestCalendarScheduleEveryDaysKeepsItsPhase(t *testing.T) {
+	spec, err := parseCalendarSchedule("every@3@days@09:00")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	anchor := time.Date(2026, 10, 1, 14, 30, 0, 0, time.UTC) // created mid-afternoon
+	cases := []struct {
+		name  string
+		after time.Time
+		want  time.Time
+	}{
+		{
+			name:  "first occurrence after creation",
+			after: anchor,
+			want:  time.Date(2026, 10, 4, 9, 0, 0, 0, time.UTC),
+		},
+		{
+			name:  "between occurrences",
+			after: time.Date(2026, 10, 5, 0, 0, 0, 0, time.UTC),
+			want:  time.Date(2026, 10, 7, 9, 0, 0, 0, time.UTC),
+		},
+		{
+			name:  "a missed occurrence does not shift the series",
+			after: time.Date(2026, 10, 8, 0, 0, 0, 0, time.UTC),
+			want:  time.Date(2026, 10, 10, 9, 0, 0, 0, time.UTC),
+		},
+		{
+			name:  "the same phase months later",
+			after: time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC),
+			// Oct 1 + 20*3 days = Nov 30, already past, so the series continues
+			// on Dec 3.
+			want: time.Date(2026, 12, 3, 9, 0, 0, 0, time.UTC),
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := spec.next(tc.after, time.UTC, anchor)
+			if !got.Equal(tc.want) {
+				t.Fatalf("next(%s) = %s, want %s", tc.after, got, tc.want)
+			}
+			// The phase is a property of the series, not of the call: asking
+			// again from the answer has to land on the following one.
+			next := spec.next(got, time.UTC, anchor)
+			if !next.Equal(tc.want.AddDate(0, 0, 3)) {
+				t.Fatalf("following occurrence = %s, want %s", next, tc.want.AddDate(0, 0, 3))
+			}
+		})
+	}
+}
+
+// skip_holidays moves an occurrence off a statutory day off and keeps the time
+// of day, without touching tasks that did not ask for it.
+func TestScheduledTaskSkipHolidays(t *testing.T) {
+	previous := currentHolidayCalendar()
+	defer SetHolidayCalendar(previous)
+
+	calendar := holiday.New()
+	if err := calendar.Add([]holiday.Day{
+		{Date: "2026-10-05", Name: "Test Day Off", IsOffDay: true},
+		{Date: "2026-10-06", Name: "Second Day Off", IsOffDay: true},
+		{Date: "2026-10-07", Name: "Adjusted Workday", IsOffDay: false},
+	}); err != nil {
+		t.Fatalf("build calendar: %v", err)
+	}
+	SetHolidayCalendar(calendar)
+
+	after := time.Date(2026, 10, 4, 12, 0, 0, 0, time.UTC)
+	task := models.ScheduledTask{
+		Schedule:     "daily@09:00",
+		SkipHolidays: true,
+		CreatedAt:    time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC),
+	}
+	next, err := scheduledTaskNextOccurrence(task, after)
+	if err != nil {
+		t.Fatalf("next occurrence: %v", err)
+	}
+	// 05:00 and 06:00 are off, so the first real occurrence is the 7th at 09:00
+	// - an adjusted workday still runs, because the calendar says it is not a
+	// day off.
+	if want := time.Date(2026, 10, 7, 9, 0, 0, 0, time.UTC); !next.Equal(want) {
+		t.Fatalf("next = %s, want %s", next, want)
+	}
+
+	task.SkipHolidays = false
+	next, err = scheduledTaskNextOccurrence(task, after)
+	if err != nil {
+		t.Fatalf("next occurrence without the flag: %v", err)
+	}
+	if want := time.Date(2026, 10, 5, 9, 0, 0, 0, time.UTC); !next.Equal(want) {
+		t.Fatalf("next without skip_holidays = %s, want %s (the flag has to be opt-in)", next, want)
+	}
+}
+
+// A calendar that marks everything as a holiday must not trap a task forever:
+// the walk is bounded and gives up on the last candidate rather than looping.
+func TestScheduledTaskSkipHolidaysIsBounded(t *testing.T) {
+	previous := currentHolidayCalendar()
+	defer SetHolidayCalendar(previous)
+
+	calendar := holiday.New()
+	days := make([]holiday.Day, 0, 60)
+	for day := 1; day <= 30; day++ {
+		days = append(days, holiday.Day{
+			Date:     time.Date(2026, 10, day, 0, 0, 0, 0, time.UTC).Format("2006-01-02"),
+			Name:     "Everything Is Closed",
+			IsOffDay: true,
+		})
+	}
+	if err := calendar.Add(days); err != nil {
+		t.Fatalf("build calendar: %v", err)
+	}
+	SetHolidayCalendar(calendar)
+
+	task := models.ScheduledTask{Schedule: "daily@09:00", SkipHolidays: true}
+	next, err := scheduledTaskNextOccurrence(task, time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("next occurrence: %v", err)
+	}
+	if next.IsZero() {
+		t.Fatal("a bounded walk must still return a candidate")
 	}
 }
 
@@ -80,16 +256,16 @@ func TestCalendarScheduleNextIsStrictlyAfter(t *testing.T) {
 		t.Fatalf("parse: %v", err)
 	}
 	before := time.Date(2026, 10, 16, 8, 0, 0, 0, time.UTC)
-	if got := daily.next(before, time.UTC); !got.Equal(time.Date(2026, 10, 16, 9, 0, 0, 0, time.UTC)) {
+	if got := daily.next(before, time.UTC, time.Time{}); !got.Equal(time.Date(2026, 10, 16, 9, 0, 0, 0, time.UTC)) {
 		t.Fatalf("daily next from 08:00 = %v, want 2026-10-16T09:00Z", got)
 	}
 	exact := time.Date(2026, 10, 16, 9, 0, 0, 0, time.UTC)
-	if got := daily.next(exact, time.UTC); !got.Equal(time.Date(2026, 10, 17, 9, 0, 0, 0, time.UTC)) {
+	if got := daily.next(exact, time.UTC, time.Time{}); !got.Equal(time.Date(2026, 10, 17, 9, 0, 0, 0, time.UTC)) {
 		t.Fatalf("daily next at the occurrence = %v, want the next day", got)
 	}
 	// The month and the year have to roll over without help.
 	monthEnd := time.Date(2026, 12, 31, 12, 0, 0, 0, time.UTC)
-	if got := daily.next(monthEnd, time.UTC); !got.Equal(time.Date(2027, 1, 1, 9, 0, 0, 0, time.UTC)) {
+	if got := daily.next(monthEnd, time.UTC, time.Time{}); !got.Equal(time.Date(2027, 1, 1, 9, 0, 0, 0, time.UTC)) {
 		t.Fatalf("daily next across new year = %v, want 2027-01-01T09:00Z", got)
 	}
 }
@@ -104,7 +280,7 @@ func TestCalendarScheduleWeeklyAndMonthly(t *testing.T) {
 		t.Fatalf("parse: %v", err)
 	}
 	friday := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
-	if got := monday.next(friday, time.UTC); !got.Equal(time.Date(2026, 10, 19, 9, 0, 0, 0, time.UTC)) {
+	if got := monday.next(friday, time.UTC, time.Time{}); !got.Equal(time.Date(2026, 10, 19, 9, 0, 0, 0, time.UTC)) {
 		t.Fatalf("weekly next from Friday = %v, want Monday 2026-10-19T09:00Z", got)
 	}
 	// A weekly schedule whose weekday is today, already spent, waits a week.
@@ -112,7 +288,7 @@ func TestCalendarScheduleWeeklyAndMonthly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	if got := fridaySchedule.next(friday, time.UTC); !got.Equal(time.Date(2026, 10, 23, 9, 0, 0, 0, time.UTC)) {
+	if got := fridaySchedule.next(friday, time.UTC, time.Time{}); !got.Equal(time.Date(2026, 10, 23, 9, 0, 0, 0, time.UTC)) {
 		t.Fatalf("weekly next from later the same day = %v, want the following Friday", got)
 	}
 
@@ -123,16 +299,16 @@ func TestCalendarScheduleWeeklyAndMonthly(t *testing.T) {
 	// February cannot hold the 31st: clamp to the last day instead of skipping
 	// the month, which is what the docs promise.
 	jan31 := time.Date(2027, 1, 31, 3, 0, 0, 0, time.UTC)
-	if got := monthly31.next(jan31, time.UTC); !got.Equal(time.Date(2027, 2, 28, 2, 0, 0, 0, time.UTC)) {
+	if got := monthly31.next(jan31, time.UTC, time.Time{}); !got.Equal(time.Date(2027, 2, 28, 2, 0, 0, 0, time.UTC)) {
 		t.Fatalf("monthly@31 from Jan 31 = %v, want 2027-02-28T02:00Z", got)
 	}
 	leapJan31 := time.Date(2028, 1, 31, 3, 0, 0, 0, time.UTC)
-	if got := monthly31.next(leapJan31, time.UTC); !got.Equal(time.Date(2028, 2, 29, 2, 0, 0, 0, time.UTC)) {
+	if got := monthly31.next(leapJan31, time.UTC, time.Time{}); !got.Equal(time.Date(2028, 2, 29, 2, 0, 0, 0, time.UTC)) {
 		t.Fatalf("monthly@31 in a leap year = %v, want 2028-02-29T02:00Z", got)
 	}
 	// Days in a month that is shorter than 31 by two: April.
 	mar31 := time.Date(2027, 3, 31, 3, 0, 0, 0, time.UTC)
-	if got := monthly31.next(mar31, time.UTC); !got.Equal(time.Date(2027, 4, 30, 2, 0, 0, 0, time.UTC)) {
+	if got := monthly31.next(mar31, time.UTC, time.Time{}); !got.Equal(time.Date(2027, 4, 30, 2, 0, 0, 0, time.UTC)) {
 		t.Fatalf("monthly@31 from Mar 31 = %v, want 2027-04-30T02:00Z", got)
 	}
 }
@@ -152,7 +328,7 @@ func TestCalendarScheduleHonoursTimezone(t *testing.T) {
 	// has already gone: the next one is 05:30 on the 17th, i.e. 21:30 the same
 	// UTC day.
 	after := time.Date(2026, 10, 15, 22, 0, 0, 0, time.UTC)
-	got := daily.next(after, shanghai)
+	got := daily.next(after, shanghai, time.Time{})
 	want := time.Date(2026, 10, 16, 21, 30, 0, 0, time.UTC)
 	if !got.Equal(want) {
 		t.Fatalf("daily@05:30 Asia/Shanghai next = %v, want %v", got, want)
@@ -178,7 +354,7 @@ func TestCalendarScheduleAcrossSpringForward(t *testing.T) {
 	}
 	// 2026-03-07T08:00Z is 03:00 EST on the 7th: that day's 02:30 is spent.
 	after := time.Date(2026, 3, 7, 8, 0, 0, 0, time.UTC)
-	got := daily.next(after, newYork)
+	got := daily.next(after, newYork, time.Time{})
 	if !got.After(after) {
 		t.Fatalf("next occurrence %v is not after %v", got, after)
 	}
@@ -190,7 +366,7 @@ func TestCalendarScheduleAcrossSpringForward(t *testing.T) {
 	// The ambiguous hour of a fall-back day resolves to a real instant and does
 	// not repeat or move backwards.
 	afterFall := time.Date(2026, 11, 1, 0, 0, 0, 0, newYork)
-	gotFall := daily.next(afterFall, newYork)
+	gotFall := daily.next(afterFall, newYork, time.Time{})
 	if !gotFall.After(afterFall) {
 		t.Fatalf("fall-back occurrence %v is not after %v", gotFall, afterFall)
 	}

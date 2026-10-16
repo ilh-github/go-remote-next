@@ -43,10 +43,14 @@ type scheduledTaskReq struct {
 	// 1, the default, means "no retry".
 	MaxAttempts int `json:"max_attempts"`
 	// Schedule is an optional calendar recurrence: `daily@HH:MM`,
-	// `weekly@<dow>@HH:MM` or `monthly@<dom>@HH:MM`.
+	// `weekdays@HH:MM`, `weekly@<dow>@HH:MM`, `monthly@<dom>@HH:MM` or
+	// `every@<N>@days@HH:MM`.
 	Schedule string `json:"schedule"`
 	// Timezone is the IANA zone Schedule is evaluated in; empty means UTC.
 	Timezone string `json:"timezone"`
+	// SkipHolidays moves a calendar occurrence off a statutory day off. Only
+	// meaningful together with Schedule.
+	SkipHolidays bool `json:"skip_holidays"`
 }
 
 // scheduledTaskView is the wire shape. The outcome fields are exposed so an
@@ -59,6 +63,7 @@ type scheduledTaskView struct {
 	Enabled       bool       `json:"enabled"`
 	Schedule      string     `json:"schedule,omitempty"`
 	Timezone      string     `json:"timezone,omitempty"`
+	SkipHolidays  bool       `json:"skip_holidays"`
 	MaxAttempts   int        `json:"max_attempts"`
 	Attempts      int        `json:"attempts"`
 	LastRunAt     *time.Time `json:"last_run_at,omitempty"`
@@ -77,6 +82,7 @@ func scheduledTaskViewOf(row models.ScheduledTask) scheduledTaskView {
 		Enabled:       row.Enabled,
 		Schedule:      row.Schedule,
 		Timezone:      row.Timezone,
+		SkipHolidays:  row.SkipHolidays,
 		MaxAttempts:   row.MaxAttempts,
 		Attempts:      row.Attempts,
 		LastRunAt:     row.LastRunAt,
@@ -141,6 +147,7 @@ func (h *ScheduledTaskHandler) Create(c *gin.Context) {
 		MaxAttempts:   req.MaxAttempts,
 		Schedule:      req.Schedule,
 		Timezone:      req.Timezone,
+		SkipHolidays:  req.SkipHolidays,
 	})
 	if err != nil {
 		if errors.Is(err, service.ErrInvalidScheduledTaskKind) ||

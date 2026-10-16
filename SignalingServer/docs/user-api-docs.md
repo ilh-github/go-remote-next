@@ -1256,7 +1256,7 @@ cannot be reaped.
 | Method | Path | Body |
 |---|---|---|
 | `GET` | `/v1/me/scheduled-tasks` | — |
-| `POST` | `/v1/me/scheduled-tasks` | `{kind, run_at?, repeat_seconds?, max_attempts?, schedule?, timezone?}` |
+| `POST` | `/v1/me/scheduled-tasks` | `{kind, run_at?, repeat_seconds?, max_attempts?, schedule?, timezone?, skip_holidays?}` |
 | `DELETE` | `/v1/me/scheduled-tasks/:id` | — |
 
 `run_at` is RFC3339 and must be in the future; `repeat_seconds` is `0` for a
@@ -1274,8 +1274,10 @@ execute.
 | Form | Meaning |
 |---|---|
 | `daily@HH:MM` | every day at that local time |
+| `weekdays@HH:MM` | Monday to Friday at that local time |
 | `weekly@<dow>@HH:MM` | that weekday — `mon`…`sun`, or `0`…`6` with `0` = Sunday |
 | `monthly@<dom>@HH:MM` | that day of the month, `1`…`31` |
+| `every@<N>@days@HH:MM` | every `N` days (`1`…`365`), phased from the task's creation date |
 
 `HH:MM` is a 24-hour clock time. `timezone` is an IANA zone name
 (`Asia/Shanghai`), and it is the local clock the schedule is read on; omitting it
@@ -1294,8 +1296,22 @@ Two rules the server states up front rather than leaving to inspection:
   the first real instant at or after it, so a `daily@02:30` in a US spring
   forward runs at 03:00 rather than an hour early. This is the rule cron and
   systemd timers use for a skipped hour.
+- `every@<N>@days@HH:MM` keeps its **phase**: it is anchored to the day the
+  task was created, so "every 3 days" runs on the same dates forever even if
+  one occurrence runs late or the server restarts. It is not "N days from the
+  last run", which would drift.
 
-Every response row carries `schedule` and `timezone` back, and `next_run_at` is
+**`skip_holidays`** moves a calendar occurrence off a statutory day off — the
+same calendar the device access policy uses for its `holiday` exception
+entries — keeping the time of day, and only applies together with `schedule`
+(an interval task has no calendar day to skip, so the combination is a `400`).
+The walk is day by day because the Spring Festival break is longer than a week,
+and it is bounded so a broken calendar file cannot trap a task forever.
+`weekdays@HH:MM` and `skip_holidays` are separate on purpose: "Monday to
+Friday" and "not a national holiday" are different questions, and a 调休
+make-up workday is still a weekday.
+
+Every response row carries `schedule`, `timezone` and `skip_holidays` back, and `next_run_at` is
 always the concrete occurrence the worker will fire — which is also how you can
 confirm that "05:30 Shanghai" was understood as 05:30 Shanghai and not 05:30
 UTC.

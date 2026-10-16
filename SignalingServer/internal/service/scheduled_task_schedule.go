@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"quickdesk/signaling/internal/holiday"
 	"quickdesk/signaling/internal/models"
 )
 
@@ -22,9 +23,11 @@ var ErrInvalidScheduledTaskCalendar = errors.New("invalid calendar schedule")
 // API can explain back in a 400 message instead of leaving them to count
 // asterisks.
 const (
-	calendarScheduleDaily   = "daily"
-	calendarScheduleWeekly  = "weekly"
-	calendarScheduleMonthly = "monthly"
+	calendarScheduleDaily    = "daily"
+	calendarScheduleWeekdays = "weekdays"
+	calendarScheduleWeekly   = "weekly"
+	calendarScheduleMonthly  = "monthly"
+	calendarScheduleEvery    = "every"
 )
 
 // SupportedCalendarSchedules lists the accepted forms, for the API's discovery
@@ -32,8 +35,10 @@ const (
 func SupportedCalendarSchedules() []string {
 	return []string{
 		"daily@HH:MM",
+		"weekdays@HH:MM",
 		"weekly@<dow>@HH:MM",
 		"monthly@<dom>@HH:MM",
+		"every@<N>@days@HH:MM",
 	}
 }
 
@@ -46,6 +51,8 @@ type calendarSchedule struct {
 	// dow and dom are only meaningful for the matching kind.
 	dow time.Weekday
 	dom int
+	// everyDays is the interval for `every@<N>@days@HH:MM`.
+	everyDays int
 }
 
 var calendarWeekdayNames = map[string]time.Weekday{
@@ -58,8 +65,9 @@ var calendarWeekdayNames = map[string]time.Weekday{
 	"sat": time.Saturday, "saturday": time.Saturday,
 }
 
-// parseCalendarSchedule accepts `daily@05:30`, `weekly@mon@09:00` (weekday
-// names or 0..6, Sunday = 0) and `monthly@1@02:00` (day 1..31).
+// parseCalendarSchedule accepts `daily@05:30`, `weekdays@09:00`,
+// `weekly@mon@09:00` (weekday names or 0..6, Sunday = 0),
+// `monthly@1@02:00` (day 1..31) and `every@3@days@09:00`.
 func parseCalendarSchedule(spec string) (calendarSchedule, error) {
 	var out calendarSchedule
 	trimmed := strings.TrimSpace(spec)
@@ -67,18 +75,43 @@ func parseCalendarSchedule(spec string) (calendarSchedule, error) {
 		return out, calendarFormatError(trimmed, "empty schedule")
 	}
 	parts := strings.Split(trimmed, "@")
-	if len(parts) < 2 || len(parts) > 3 {
+	if len(parts) < 2 {
 		return out, calendarFormatError(trimmed, "expected one of "+strings.Join(SupportedCalendarSchedules(), ", "))
 	}
 	out.kind = strings.ToLower(strings.TrimSpace(parts[0]))
+
+	// `every@<N>@days@HH:MM` is the one form with a unit in the middle, so it is
+	// parsed before the generic clock handling below.
+	if out.kind == calendarScheduleEvery {
+		if len(parts) != 4 {
+			return out, calendarFormatError(trimmed, "expected every@<N>@days@HH:MM")
+		}
+		days, err := parseCalendarInterval(parts[1])
+		if err != nil {
+			return out, calendarFormatError(trimmed, err.Error())
+		}
+		unit := strings.ToLower(strings.TrimSpace(parts[2]))
+		if unit != "days" {
+			return out, calendarFormatError(trimmed,
+				"only whole days are supported, so the unit must be `days`")
+		}
+		hour, minute, err := parseCalendarClock(strings.TrimSpace(parts[3]))
+		if err != nil {
+			return out, calendarFormatError(trimmed, err.Error())
+		}
+		out.everyDays = days
+		out.hour, out.minute = hour, minute
+		return out, nil
+	}
+
 	switch out.kind {
-	case calendarScheduleDaily, calendarScheduleWeekly, calendarScheduleMonthly:
+	case calendarScheduleDaily, calendarScheduleWeekdays, calendarScheduleWeekly, calendarScheduleMonthly:
 	default:
 		return out, calendarFormatError(trimmed,
-			"unknown cadence "+strconv.Quote(out.kind)+"; expected daily, weekly or monthly")
+			"unknown cadence "+strconv.Quote(out.kind)+"; expected daily, weekdays, weekly, monthly or every")
 	}
 	wantParts := 2
-	if out.kind != calendarScheduleDaily {
+	if out.kind == calendarScheduleWeekly || out.kind == calendarScheduleMonthly {
 		wantParts = 3
 	}
 	if len(parts) != wantParts {
@@ -89,7 +122,7 @@ func parseCalendarSchedule(spec string) (calendarSchedule, error) {
 		return out, calendarFormatError(trimmed, err.Error())
 	}
 	out.hour, out.minute = hour, minute
-	if out.kind == calendarScheduleDaily {
+	if out.kind == calendarScheduleDaily || out.kind == calendarScheduleWeekdays {
 		return out, nil
 	}
 	selector := strings.ToLower(strings.TrimSpace(parts[1]))
@@ -149,6 +182,17 @@ func parseCalendarMonthDay(value string) (int, error) {
 	return n, nil
 }
 
+// parseCalendarInterval reads the N of `every@N@days@HH:MM`. The ceiling exists
+// so a typo cannot create a task whose next occurrence is decades away, which
+// would look like a silently dead row.
+func parseCalendarInterval(value string) (int, error) {
+	n, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil || n < 1 || n > 365 {
+		return 0, errors.New("interval must be 1..365 days")
+	}
+	return n, nil
+}
+
 // next returns the first occurrence strictly after `after`, evaluated on the
 // wall clock of loc. Wall-clock semantics are the point: a task written as
 // "03:00" has to stay 03:00 local across a DST change, not drift to 02:00.
@@ -157,7 +201,7 @@ func parseCalendarMonthDay(value string) (int, error) {
 // transition can normalise a candidate onto the wrong side of `after` (a
 // skipped hour moves forward, an ambiguous one picks a side), and one extra
 // comparison is cheaper than the special cases.
-func (c calendarSchedule) next(after time.Time, loc *time.Location) time.Time {
+func (c calendarSchedule) next(after time.Time, loc *time.Location, anchor time.Time) time.Time {
 	local := after.In(loc)
 	switch c.kind {
 	case calendarScheduleDaily:
@@ -168,6 +212,50 @@ func (c calendarSchedule) next(after time.Time, loc *time.Location) time.Time {
 			}
 		}
 		return c.onDay(local.AddDate(0, 0, 3), loc)
+	case calendarScheduleWeekdays:
+		// Working days by the calendar only: statutory days off are a separate,
+		// opt-in rule (`skip_holidays`), because "weekdays" and "not a national
+		// holiday" are different questions and 调休 workdays are still weekdays.
+		for day := 0; day <= 7; day++ {
+			dayInLoc := local.AddDate(0, 0, day)
+			switch dayInLoc.Weekday() {
+			case time.Saturday, time.Sunday:
+				continue
+			}
+			candidate := c.onDay(dayInLoc, loc)
+			if candidate.After(after) {
+				return candidate
+			}
+		}
+		return c.onDay(local.AddDate(0, 0, 7), loc)
+	case calendarScheduleEvery:
+		// The phase is anchored to the task's creation date, not to the previous
+		// run: "every 3 days" has to mean the same dates even if one occurrence
+		// ran late, and a worker restart must not shift the series.
+		days := c.everyDays
+		if days <= 0 {
+			days = 1
+		}
+		base := anchor
+		if base.IsZero() {
+			// Only possible for a row written outside the API; falling back to
+			// "from now" keeps the task alive instead of failing it every tick.
+			base = after
+		}
+		baseLocal := base.In(loc)
+		baseDay := time.Date(baseLocal.Year(), baseLocal.Month(), baseLocal.Day(), 0, 0, 0, 0, loc)
+		today := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, loc)
+		periods := civilDaysBetween(baseDay, today) / days
+		if periods < 0 {
+			periods = 0
+		}
+		for k := periods; k <= periods+2; k++ {
+			candidate := c.onDay(baseDay.AddDate(0, 0, k*days), loc)
+			if candidate.After(after) {
+				return candidate
+			}
+		}
+		return c.onDay(baseDay.AddDate(0, 0, (periods+3)*days), loc)
 	case calendarScheduleWeekly:
 		for day := 0; day <= 14; day++ {
 			dayOfWeek := local.AddDate(0, 0, day)
@@ -195,8 +283,38 @@ func (c calendarSchedule) next(after time.Time, loc *time.Location) time.Time {
 		year, month := offsetMonth(startYear, startMonth, 3)
 		return c.onMonth(year, time.Month(month), loc)
 	}
-	// Unreachable: the parser only produces the three kinds above.
+	// Unreachable: the parser only produces the kinds handled above.
 	return local.Add(time.Minute)
+}
+
+// civilDaysBetween counts calendar days between two instants, comparing their
+// civil date rather than their duration. A duration-based count is off by one
+// across a DST change, because one of those days is 23 or 25 hours long.
+func civilDaysBetween(from, to time.Time) int {
+	a := time.Date(from.Year(), from.Month(), from.Day(), 0, 0, 0, 0, time.UTC)
+	b := time.Date(to.Year(), to.Month(), to.Day(), 0, 0, 0, 0, time.UTC)
+	return int(b.Sub(a).Hours() / 24)
+}
+
+// advancePastHolidays moves an occurrence off a statutory day off, keeping the
+// wall-clock time, and returns the first non-holiday instant at or after it.
+//
+// The walk is day by day because the Spring Festival break is more than a week
+// long and hard-coding its length would be wrong every year. The bound is a
+// safety net against a calendar file that marks every day as a holiday: a task
+// that can never run is worse than one that runs on a holiday.
+func advancePastHolidays(occurrence time.Time, loc *time.Location, calendar *holiday.Calendar) time.Time {
+	if calendar == nil {
+		return occurrence
+	}
+	for i := 0; i < 30; i++ {
+		local := occurrence.In(loc)
+		if day, ok := calendar.Lookup(local); !ok || !day.IsOffDay {
+			return occurrence
+		}
+		occurrence = resolveWallClock(local.Year(), local.Month(), local.Day()+1, local.Hour(), local.Minute(), loc)
+	}
+	return occurrence
 }
 
 // onDay is the schedule's time of day on whichever calendar day `day` is.
@@ -289,7 +407,11 @@ func scheduledTaskNextOccurrence(task models.ScheduledTask, after time.Time) (ti
 		if err != nil {
 			return time.Time{}, err
 		}
-		return spec.next(after, loc), nil
+		next := spec.next(after, loc, task.CreatedAt)
+		if task.SkipHolidays {
+			next = advancePastHolidays(next, loc, currentHolidayCalendar())
+		}
+		return next, nil
 	}
 	if task.RepeatSeconds > 0 {
 		return after.Add(time.Duration(task.RepeatSeconds) * time.Second), nil
