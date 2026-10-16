@@ -35,6 +35,13 @@
           @keyup.enter="runSearch"
         />
         <el-input
+          v-model="filters.match"
+          :placeholder="t('systemLogs.matchPlaceholder')"
+          clearable
+          style="width: 240px"
+          @keyup.enter="runSearch"
+        />
+        <el-input
           v-model="filters.component"
           :placeholder="t('systemLogs.componentPlaceholder')"
           clearable
@@ -136,6 +143,7 @@ const filters = ref({
   scope: 'local',
   file: 'signaling.log',
   q: '',
+  match: '',
   component: '',
   instance: '',
   limit: 200,
@@ -224,6 +232,7 @@ async function runSearch() {
       scope: filters.value.scope,
       file: filters.value.file,
       q: filters.value.q?.trim(),
+      match: filters.value.match?.trim(),
       component: filters.value.component?.trim(),
       instance: filters.value.scope === 'all' ? filters.value.instance?.trim() : undefined,
       since: toRFC3339(since),

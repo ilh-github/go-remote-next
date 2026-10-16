@@ -339,6 +339,7 @@ export default {
     source: '来源',
     sourceAll: '全部来源',
     queryPlaceholder: '要查找的子串',
+    matchPlaceholder: '全文表达式（词 AND、"短语"、or、-排除）',
     componentPlaceholder: 'component（整词）',
     startTime: '开始',
     endTime: '结束',

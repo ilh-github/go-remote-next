@@ -102,13 +102,16 @@ func (h *AdminLogsHandler) List(c *gin.Context) {
 // Search answers `GET /v1/admin/system/logs:search`.
 //
 //	?q=          case-insensitive substring over the whole line
+//	&match=      full-text expression (words ANDed, "a phrase", or, -negation)
 //	&component=  whole-token match on the structured `component=` field
 //	&since=&until=  RFC3339 bounds on the line's own timestamp (the logger
 //	                writes UTC)
 //	&limit=      default 200, clamped to 2000
 //	&scope=      `local` (default) reads this instance's files; `all` reads the
 //	             lines every instance shipped into the shared database, so a
-//	             multi-instance deployment can be searched from one place
+//	             multi-instance deployment can be searched from one place.
+//	             `match=` works on both: the file scanner compiles the same
+//	             expression itself instead of deferring to Postgres
 //	&instance=   with scope=all, narrow to one instance id
 //
 // Downloading the whole file works too, but it means pulling tens of megabytes
@@ -219,6 +222,7 @@ func (h *AdminLogsHandler) Search(c *gin.Context) {
 
 	result, err := h.logQuery.Query(c.Request.Context(), service.LogQuery{
 		Query:     strings.TrimSpace(c.Query("q")),
+		Match:     strings.TrimSpace(c.Query("match")),
 		Component: strings.TrimSpace(c.Query("component")),
 		Since:     since,
 		Until:     until,
@@ -229,8 +233,8 @@ func (h *AdminLogsHandler) Search(c *gin.Context) {
 		ProblemInternal(c, err.Error())
 		return
 	}
-	filter := fmt.Sprintf("file=%q q=%q component=%q limit=%d scanned_bytes=%d truncated=%t",
-		file, c.Query("q"), c.Query("component"), limit, result.ScannedBytes, result.Truncated)
+	filter := fmt.Sprintf("file=%q q=%q match=%q component=%q limit=%d scanned_bytes=%d truncated=%t",
+		file, c.Query("q"), c.Query("match"), c.Query("component"), limit, result.ScannedBytes, result.Truncated)
 	h.audit.Log(c.Request.Context(), admin.ID, admin.Username, "log.search", "log_file", file, filter, c.ClientIP())
 
 	c.JSON(http.StatusOK, gin.H{
@@ -239,6 +243,7 @@ func (h *AdminLogsHandler) Search(c *gin.Context) {
 		"limit":         limit,
 		"scope":         scope,
 		"file":          file,
+		"match":         result.Match,
 		"files":         result.Files,
 		"scanned_bytes": result.ScannedBytes,
 		"scanned_lines": result.ScannedLines,

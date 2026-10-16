@@ -45,6 +45,12 @@ const (
 type LogQuery struct {
 	// Query is a case-insensitive substring match over the whole line.
 	Query string
+	// Match is a full-text expression with the same grammar the aggregated
+	// store gets from `websearch_to_tsquery('simple', …)`: words are ANDed,
+	// "quoted text" is a phrase, `or` alternates and a leading `-` negates.
+	// It is a separate mode from Query on purpose: substring finds a request
+	// id, full text finds words without matching them apart.
+	Match string
 	// Component matches the `component=...` field the structured log helpers
 	// write, as a whole token (`component=api` does not match `component=api_auth`).
 	Component string
@@ -89,6 +95,9 @@ type LogFileInfo struct {
 type LogQueryResult struct {
 	Entries []LogEntry    `json:"items"`
 	Files   []LogFileInfo `json:"files"`
+	// Match echoes the full-text expression that was applied, so "nothing
+	// matched" can be told from "the mode I asked for was not used".
+	Match string `json:"match,omitempty"`
 	// ScannedBytes is how much of the log this query read.
 	ScannedBytes int64 `json:"scanned_bytes"`
 	// ScannedLines counts lines the scan looked at, matched or not.
@@ -206,6 +215,12 @@ func (s *LogQueryService) Query(ctx context.Context, q LogQuery) (LogQueryResult
 	if limit > MaxLogQueryLimit {
 		limit = MaxLogQueryLimit
 	}
+	// Compile the full-text expression once for the whole scan rather than per
+	// candidate line.
+	match := parseLogMatch(q.Match)
+	if strings.TrimSpace(q.Match) != "" {
+		out.Match = strings.TrimSpace(q.Match)
+	}
 
 	// `file=all` scans every registered source; anything else resolves to one.
 	var names []string
@@ -239,7 +254,7 @@ func (s *LogQueryService) Query(ctx context.Context, q LogQuery) (LogQueryResult
 			out.Truncated = true
 			break
 		}
-		if err := s.scanSource(name, q, limit, &budget, &out); err != nil {
+		if err := s.scanSource(name, q, match, limit, &budget, &out); err != nil {
 			return out, err
 		}
 		if out.Truncated {
@@ -257,6 +272,7 @@ func (s *LogQueryService) Query(ctx context.Context, q LogQuery) (LogQueryResult
 func (s *LogQueryService) scanSource(
 	sourceName string,
 	q LogQuery,
+	match logMatchQuery,
 	limit int,
 	budget *int64,
 	out *LogQueryResult,
@@ -269,7 +285,7 @@ func (s *LogQueryService) scanSource(
 		}
 		exhausted, err := forEachLineReverse(file.path, budget, func(line string) bool {
 			out.ScannedLines++
-			if !logLineMatches(line, q) {
+			if !logLineMatches(line, q, match) {
 				return true
 			}
 			entry := logEntry(line)
@@ -411,7 +427,10 @@ func forEachLineReverse(path string, budget *int64, fn func(line string) bool) (
 }
 
 // logLineMatches applies the query filters to one line.
-func logLineMatches(line string, q LogQuery) bool {
+func logLineMatches(line string, q LogQuery, match logMatchQuery) bool {
+	if q.Match != "" && !match.matches(line) {
+		return false
+	}
 	if q.Query != "" && !strings.Contains(strings.ToLower(line), strings.ToLower(q.Query)) {
 		return false
 	}

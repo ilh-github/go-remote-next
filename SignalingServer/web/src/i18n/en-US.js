@@ -336,6 +336,7 @@ export default {
     source: 'Source',
     sourceAll: 'All sources',
     queryPlaceholder: 'Substring to look for',
+    matchPlaceholder: 'Full-text expression (words, "a phrase", or, -excluded)',
     componentPlaceholder: 'component (whole word)',
     startTime: 'From',
     endTime: 'To',

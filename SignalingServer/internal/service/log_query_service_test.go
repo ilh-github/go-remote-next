@@ -407,3 +407,58 @@ func TestLogQueryAllSourcesScansEveryRegisteredSource(t *testing.T) {
 		t.Fatalf("scanned %d bytes with an 8-byte budget, want the budget to bound the whole scan", limited.ScannedBytes)
 	}
 }
+
+// The file scanner answers the same `match=` expression the aggregated store
+// hands to Postgres. The counts here are the same ones the aggregated test
+// pins, so a change that makes one backend diverge is caught by the other.
+func TestLogQueryFullTextMatch(t *testing.T) {
+	dir := t.TempDir()
+	writeLogFile(t, dir, "signaling.log", []string{
+		"component=dial event=failed error=\"connection refused by peer\"",
+		"component=dial event=failed error=\"connection reset by peer\"",
+		"component=dial event=closed peer connection dropped",
+	})
+	svc := NewLogQueryService(dir)
+
+	cases := []struct {
+		name  string
+		match string
+		want  int
+	}{
+		{name: "quoted phrase", match: `"connection refused"`, want: 1},
+		{name: "two words are ANDed", match: "connection refused", want: 1},
+		{name: "negation", match: "connection -refused", want: 2},
+		{name: "OR", match: "refused OR reset", want: 2},
+		{name: "no match", match: "nonexistent-marker", want: 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			res, err := svc.Query(context.Background(), LogQuery{Match: tc.match})
+			if err != nil {
+				t.Fatalf("query: %v", err)
+			}
+			if len(res.Entries) != tc.want {
+				t.Fatalf("match %q returned %d lines, want %d (%v)",
+					tc.match, len(res.Entries), tc.want, lineTexts(res.Entries))
+			}
+			if res.Match != tc.match {
+				t.Fatalf("result echoed match %q, want %q", res.Match, tc.match)
+			}
+		})
+	}
+
+	// The substring mode keeps its own semantics: it finds the phrase inside
+	// the line, which is what substring search means, and it does not claim to
+	// have applied full text.
+	fragment, err := svc.Query(context.Background(), LogQuery{Query: "connection refused"})
+	if err != nil {
+		t.Fatalf("substring query: %v", err)
+	}
+	if len(fragment.Entries) != 1 {
+		t.Fatalf("substring query returned %d lines, want the one that contains the phrase",
+			len(fragment.Entries))
+	}
+	if fragment.Match != "" {
+		t.Fatalf("a substring-only query reported match=%q", fragment.Match)
+	}
+}
