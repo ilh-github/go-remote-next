@@ -12,6 +12,7 @@ import (
 
 	"quickdesk/signaling/internal/models"
 
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
@@ -185,11 +186,7 @@ func (s *NotificationChannelService) DispatchEvent(ctx context.Context, evt Even
 	if len(channels) == 0 {
 		return
 	}
-	payload := map[string]interface{}{
-		"event":     evt.Type,
-		"timestamp": evt.Ts.UTC().Format(time.RFC3339),
-		"data":      evt.Data,
-	}
+	payload := notificationEventPayload(evt)
 	for _, ch := range channels {
 		if !channelSubscribes(ch.Events, evt.Type) {
 			continue
@@ -205,6 +202,23 @@ func (s *NotificationChannelService) DispatchEvent(ctx context.Context, evt Even
 	}
 }
 
+// notificationEventPayload is the body posted to a user's channel. The top
+// level `id` is the event envelope's stable identity: delivery is
+// at-least-once, so a receiver needs a value it can key a dedupe table on even
+// when the event data itself carries no unique field. It is echoed back in the
+// X-Webhook-Event-Id header on the outbox POST.
+func notificationEventPayload(evt Event) map[string]interface{} {
+	payload := map[string]interface{}{
+		"event":     evt.Type,
+		"timestamp": evt.Ts.UTC().Format(time.RFC3339),
+		"data":      evt.Data,
+	}
+	if evt.ID != "" {
+		payload["id"] = evt.ID
+	}
+	return payload
+}
+
 // SendTest delivers a synthetic `test` event so a user can verify their
 // endpoint without waiting for real device traffic.
 func (s *NotificationChannelService) SendTest(ctx context.Context, userID, id uint) error {
@@ -212,13 +226,14 @@ func (s *NotificationChannelService) SendTest(ctx context.Context, userID, id ui
 	if err != nil {
 		return err
 	}
-	payload := map[string]interface{}{
-		"event":     "test",
-		"timestamp": time.Now().UTC().Format(time.RFC3339),
-		"data": map[string]string{
+	payload := notificationEventPayload(Event{
+		ID:   "evt_" + uuid.New().String(),
+		Type: "test",
+		Ts:   time.Now().UTC(),
+		Data: map[string]interface{}{
 			"message": "This is a test notification from QuickDesk",
 		},
-	}
+	})
 	if s.deliveries == nil {
 		return errors.New("delivery queue is not configured")
 	}

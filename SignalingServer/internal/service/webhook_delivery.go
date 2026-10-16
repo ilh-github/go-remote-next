@@ -15,7 +15,12 @@ import (
 // set the body is signed with HMAC-SHA256 and the digest is sent as
 // `X-Webhook-Signature: sha256=<hex>`, the same scheme the admin webhooks use
 // — receivers can share one verification routine.
-func postWebhookOnce(url, secret string, payload interface{}) (int, error) {
+//
+// headers carries extra identity headers a caller wants on the request (the
+// notification outbox uses them to give receivers a stable dedupe key); they
+// are applied before the signature header so a caller cannot override the
+// digest.
+func postWebhookOnce(url, secret string, payload interface{}, headers map[string]string) (int, error) {
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return 0, err
@@ -25,6 +30,12 @@ func postWebhookOnce(url, secret string, payload interface{}) (int, error) {
 		return 0, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	for name, value := range headers {
+		if name == "" || value == "" {
+			continue
+		}
+		req.Header.Set(name, value)
+	}
 	if secret != "" {
 		mac := hmac.New(sha256.New, []byte(secret))
 		mac.Write(body)
@@ -44,7 +55,7 @@ func postWebhookOnce(url, secret string, payload interface{}) (int, error) {
 func postWebhook(url, secret string, payload interface{}) int {
 	var lastStatus int
 	for attempt := 0; attempt < 3; attempt++ {
-		status, err := postWebhookOnce(url, secret, payload)
+		status, err := postWebhookOnce(url, secret, payload, nil)
 		lastStatus = status
 		if err == nil && status >= 200 && status < 300 {
 			break

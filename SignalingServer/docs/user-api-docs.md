@@ -413,8 +413,12 @@ moment of the call.
 Payload shape (same as admin webhooks):
 
 ```json
-{"event": "device.access.denied", "timestamp": "2026-10-16T03:35:23Z", "data": {"device_id": "...", "ip": "...", "reason": "..."}}
+{"id": "evt_1a2b3c4d-...", "event": "device.access.denied", "timestamp": "2026-10-16T03:35:23Z", "data": {"device_id": "...", "ip": "...", "reason": "..."}}
 ```
+
+`id` is the event envelope's stable identity. It is the same value across every
+delivery attempt of that event, so a receiver can key a dedupe table on it
+without depending on the shape of `data`.
 
 Supported events today: `device.access.denied`, `device.access.granted`,
 `device.access.session_started`, `device.online.changed`,
@@ -446,10 +450,26 @@ instances) and posts them one at a time:
   silently dropped) and still shows up in the history.
 
 Each attempt also records `last_status` (the HTTP code, `0` on a transport
-error) and `last_error` on both the row and the channel row. Because delivery
-is *at-least-once*, a receiver that fails after processing may see an event
-twice — consumers should treat `event` + `timestamp` + `data.log_id` as an
-idempotency key. The `:id/deliveries` endpoint is the operator-facing log:
+error) and `last_error` on both the row and the channel row.
+
+**Dedupe contract.** Delivery is *at-least-once*: a retry, a bulk replay, or a
+delivery whose response was lost re-POSTs a body the receiver may already have
+processed. Every POST therefore carries two identity headers:
+
+- `X-Webhook-Delivery-Id` — the outbox row id. It is stable across the retry
+  loop *and* across a manual replay of that same row, so it identifies "this
+  one attempt to deliver this one row". Two distinct rows for the same event
+  (for example the same event delivered to two channels) have different
+  delivery ids.
+- `X-Webhook-Event-Id` — the event envelope `id`, identical to the `id` field
+  in the body. It is stable for the event itself, so a receiver that wants
+  "process each event once" dedupes on this rather than on the delivery id.
+
+Either header is omitted when its value is unknown (a row queued before the
+event id existed has no `X-Webhook-Event-Id`), so a receiver must treat a
+missing header as "no key", not as the empty string. The simplest correct
+receiver stores `X-Webhook-Event-Id` in a unique index and ignores a repeat.
+The `:id/deliveries` endpoint is the operator-facing log:
 it shows what was queued, how many attempts it took, and whether it is still
 `pending`, `delivering`, `delivered` or `failed`.
 

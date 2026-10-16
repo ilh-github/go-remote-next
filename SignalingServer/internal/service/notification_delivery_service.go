@@ -26,6 +26,17 @@ const (
 	DeliveryStatusFailed     = "failed"
 )
 
+// Header names the outbox puts on every POST so a receiver can deduplicate.
+// Delivery is at-least-once: a retry, a bulk replay, or a delivery whose
+// response was lost all re-send a body the receiver may already have seen.
+// X-Webhook-Delivery-Id is stable for one outbox row across every attempt,
+// and X-Webhook-Event-Id is stable for the event itself even if the same
+// event were ever enqueued to a channel twice.
+const (
+	HeaderWebhookDeliveryID = "X-Webhook-Delivery-Id"
+	HeaderWebhookEventID    = "X-Webhook-Event-Id"
+)
+
 // ErrDeliveryNotRetryable means the caller asked to replay a delivery that is
 // already delivered (or not parked as failed), so there is nothing to re-arm.
 var ErrDeliveryNotRetryable = errors.New("delivery is not retryable")
@@ -345,7 +356,7 @@ func (s *NotificationDeliveryService) deliver(ctx context.Context, row models.No
 		return
 	}
 
-	status, err := postWebhookOnce(channel.URL, channel.Secret, payload)
+	status, err := postWebhookOnce(channel.URL, channel.Secret, payload, notificationWebhookHeaders(row.ID, payload))
 	attempts := row.Attempts + 1
 	now := time.Now().UTC()
 
@@ -372,6 +383,23 @@ func (s *NotificationDeliveryService) deliver(ctx context.Context, row models.No
 		log.Printf("[notification] reschedule delivery %d failed: %v", row.ID, uerr)
 	}
 	s.touchChannel(ctx, channel.ID, status, now)
+}
+
+// notificationWebhookHeaders is the dedupe contract for an outbox delivery.
+// The delivery id is the outbox row, so it survives the retry/backoff loop and
+// a manual replay; the event id comes from the payload the subscriber stored
+// and lets a receiver collapse the same event arriving on two attempts. Either
+// header is omitted when its value is unknown (for example a row queued before
+// the event id was added to the payload), so receivers must treat a missing
+// header as "no key" rather than as the empty key.
+func notificationWebhookHeaders(deliveryID uint, payload map[string]interface{}) map[string]string {
+	headers := map[string]string{
+		HeaderWebhookDeliveryID: strconv.FormatUint(uint64(deliveryID), 10),
+	}
+	if eventID, ok := payload["id"].(string); ok && eventID != "" {
+		headers[HeaderWebhookEventID] = eventID
+	}
+	return headers
 }
 
 // finishDelivery writes a terminal state and records the outcome on the
