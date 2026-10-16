@@ -552,3 +552,30 @@ CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_due
 
 CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_user_id
     ON scheduled_tasks (user_id);
+
+-- ---------------------------------------------------------------
+-- Cross-instance log shipping ("search the log of the instance that actually
+-- served the request"). Each instance copies its own log lines here when
+-- INSTANCE_LOG_SINK is on, and an admin search with scope=all reads this table
+-- instead of only the files on the machine that answered.
+--
+-- The row is a *copy*: the authoritative log is still the rotating file on the
+-- instance that wrote the line, which is why retention here deletes without
+-- archiving. (instance_id, source, seq) is unique so a re-sent batch is
+-- ignored rather than duplicated.
+-- ---------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS instance_log_entries (
+    id          BIGSERIAL PRIMARY KEY,
+    instance_id VARCHAR(64)  NOT NULL,
+    source      VARCHAR(64)  NOT NULL DEFAULT '',
+    seq         BIGINT       NOT NULL,
+    logged_at   TIMESTAMPTZ  NOT NULL,
+    line        TEXT         NOT NULL,
+    created_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_instance_log_seq
+    ON instance_log_entries (instance_id, source, seq);
+
+CREATE INDEX IF NOT EXISTS idx_instance_log_entries_logged_at
+    ON instance_log_entries (logged_at);

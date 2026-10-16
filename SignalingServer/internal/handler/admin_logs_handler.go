@@ -25,10 +25,11 @@ import (
 // PostgreSQL and Redis logs are opt-in because they are normally owned by
 // separate containers; set POSTGRES_LOG_FILE / REDIS_LOG_FILE to bind them.
 type AdminLogsHandler struct {
-	audit    *service.AuditService
-	db       *gorm.DB
-	files    map[string]string
-	logQuery *service.LogQueryService
+	audit      *service.AuditService
+	db         *gorm.DB
+	files      map[string]string
+	logQuery   *service.LogQueryService
+	aggregated *service.AggregatedLogQueryService
 }
 
 func NewAdminLogsHandler(
@@ -36,6 +37,7 @@ func NewAdminLogsHandler(
 	db *gorm.DB,
 	logDir, postgresLogFile, redisLogFile string,
 	logQuery *service.LogQueryService,
+	aggregated *service.AggregatedLogQueryService,
 ) *AdminLogsHandler {
 	files := map[string]string{}
 	if strings.TrimSpace(logDir) != "" {
@@ -55,7 +57,13 @@ func NewAdminLogsHandler(
 			logQuery.AddFile(name, path)
 		}
 	}
-	return &AdminLogsHandler{audit: audit, db: db, files: files, logQuery: logQuery}
+	return &AdminLogsHandler{
+		audit:      audit,
+		db:         db,
+		files:      files,
+		logQuery:   logQuery,
+		aggregated: aggregated,
+	}
 }
 
 func (h *AdminLogsHandler) requireSuperAdmin(c *gin.Context) (*models.AdminUser, bool) {
@@ -98,6 +106,10 @@ func (h *AdminLogsHandler) List(c *gin.Context) {
 //	&since=&until=  RFC3339 bounds on the line's own timestamp (the logger
 //	                writes UTC)
 //	&limit=      default 200, clamped to 2000
+//	&scope=      `local` (default) reads this instance's files; `all` reads the
+//	             lines every instance shipped into the shared database, so a
+//	             multi-instance deployment can be searched from one place
+//	&instance=   with scope=all, narrow to one instance id
 //
 // Downloading the whole file works too, but it means pulling tens of megabytes
 // through a browser to answer "what happened around 3pm". This reads the file
@@ -113,11 +125,20 @@ func (h *AdminLogsHandler) Search(c *gin.Context) {
 		ProblemBadRequest(c, ProblemCodeInvalidRequest, "log directory is not configured")
 		return
 	}
+	scope := strings.ToLower(strings.TrimSpace(c.Query("scope")))
+	if scope == "" {
+		scope = service.LogScopeLocal
+	}
+	if scope != service.LogScopeLocal && scope != service.LogScopeAll {
+		ProblemBadRequest(c, ProblemCodeInvalidRequest,
+			fmt.Sprintf("scope must be %q or %q", service.LogScopeLocal, service.LogScopeAll))
+		return
+	}
 	file := strings.TrimSpace(c.Query("file"))
-	if file == "" {
+	if file == "" && scope == service.LogScopeLocal {
 		file = service.DefaultLogSourceName
 	}
-	if file != service.AllLogSources {
+	if scope == service.LogScopeLocal && file != service.AllLogSources {
 		if _, ok := h.files[file]; !ok {
 			ProblemBadRequest(c, ProblemCodeInvalidRequest,
 				fmt.Sprintf("unknown log file %q (use %q to search every configured source)",
@@ -156,6 +177,43 @@ func (h *AdminLogsHandler) Search(c *gin.Context) {
 		ProblemBadRequest(c, ProblemCodeInvalidRequest, "since must not be later than until")
 		return
 	}
+	if scope == service.LogScopeAll {
+		if h.aggregated == nil {
+			ProblemBadRequest(c, ProblemCodeInvalidRequest,
+				"cross-instance log aggregation is not enabled; set INSTANCE_LOG_SINK=true to ship this instance's log into the shared store")
+			return
+		}
+		result, err := h.aggregated.Query(c.Request.Context(), service.AggregatedLogQuery{
+			Query:     strings.TrimSpace(c.Query("q")),
+			Component: strings.TrimSpace(c.Query("component")),
+			Since:     since,
+			Until:     until,
+			Limit:     limit,
+			Instance:  strings.TrimSpace(c.Query("instance")),
+			Source:    file,
+		})
+		if err != nil {
+			ProblemInternal(c, err.Error())
+			return
+		}
+		filter := fmt.Sprintf("scope=%q q=%q component=%q instance=%q file=%q limit=%d truncated=%t instances=%d",
+			scope, c.Query("q"), c.Query("component"), c.Query("instance"), file, limit,
+			result.Truncated, len(result.Instances))
+		h.audit.Log(c.Request.Context(), admin.ID, admin.Username, "log.search", "log_store", "aggregated", filter, c.ClientIP())
+		c.JSON(http.StatusOK, gin.H{
+			"items":         result.Entries,
+			"count":         len(result.Entries),
+			"limit":         limit,
+			"scope":         scope,
+			"file":          file,
+			"instance":      strings.TrimSpace(c.Query("instance")),
+			"instances":     result.Instances,
+			"truncated":     result.Truncated,
+			"stored_lines":  result.Stored,
+			"dropped_lines": result.Dropped,
+		})
+		return
+	}
 
 	result, err := h.logQuery.Query(c.Request.Context(), service.LogQuery{
 		Query:     strings.TrimSpace(c.Query("q")),
@@ -177,6 +235,7 @@ func (h *AdminLogsHandler) Search(c *gin.Context) {
 		"items":         result.Entries,
 		"count":         len(result.Entries),
 		"limit":         limit,
+		"scope":         scope,
 		"file":          file,
 		"files":         result.Files,
 		"scanned_bytes": result.ScannedBytes,

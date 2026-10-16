@@ -99,6 +99,7 @@ func main() {
 			&models.NotificationDelivery{},
 			&models.DeviceOfflineAlertRule{},
 			&models.ScheduledTask{},
+			&models.InstanceLogEntry{},
 			&models.Preset{},
 		} {
 			if err := db.AutoMigrate(model); err != nil {
@@ -206,6 +207,22 @@ func main() {
 	instanceID := uuid.NewString()
 	presenceService := service.NewPresenceService(redisClient, instanceID)
 	presenceService.Start(context.Background())
+	// Cross-instance log shipping. Attaching the sink after the database is open
+	// (rather than inside observability.Configure) is what makes it possible at
+	// all: the store is the database. Lines logged before this point - the
+	// startup banner included - are only in the local file, which the docs say.
+	var instanceLogSink *service.InstanceLogSink
+	if cfg.InstanceLog.Sink {
+		instanceLogSink = service.NewInstanceLogSink(db, instanceID)
+		observability.AttachLogSink(instanceLogSink)
+		go instanceLogSink.Run(context.Background())
+		go instanceLogSink.RunRetention(context.Background(),
+			time.Duration(cfg.InstanceLog.SweepIntervalMin)*time.Minute,
+			cfg.InstanceLog.RetentionDays)
+		log.Printf("Instance log aggregation: sink=on retention_days=%d sweep_interval=%dm buffer=%d instance=%s",
+			cfg.InstanceLog.RetentionDays, cfg.InstanceLog.SweepIntervalMin,
+			service.DefaultInstanceLogBufferLines, instanceID)
+	}
 	smsService := service.NewSmsService(redisClient, settingsService)
 	auditService := service.NewAuditService(db).WithArchiveDir(cfg.Audit.ArchiveDir)
 	if cfg.Audit.SweepIntervalMin > 0 &&
@@ -338,6 +355,12 @@ func main() {
 	adminNotificationDeliveryHandler := handler.NewAdminNotificationDeliveryHandler(
 		notificationDeliveryService, auditService,
 		cfg.Notification.RetentionDays, cfg.Notification.ArchiveRetentionDays)
+	// Cross-instance search is only offered when this instance is shipping into
+	// the shared store; otherwise `scope=all` would read a table nobody fills.
+	var aggregatedLogs *service.AggregatedLogQueryService
+	if instanceLogSink != nil {
+		aggregatedLogs = service.NewAggregatedLogQueryService(db).WithSink(instanceLogSink)
+	}
 	adminLogsHandler := handler.NewAdminLogsHandler(
 		auditService,
 		db,
@@ -345,6 +368,7 @@ func main() {
 		cfg.Runtime.PostgresLogFile,
 		cfg.Runtime.RedisLogFile,
 		service.NewLogQueryService(cfg.Runtime.LogDir),
+		aggregatedLogs,
 	)
 	adminWebhooksHandler := handler.NewAdminWebhooksHandler(webhookService, auditService)
 	adminGroupsHandler := handler.NewAdminGroupsHandler(groupService, auditService)

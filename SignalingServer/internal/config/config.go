@@ -105,12 +105,29 @@ type Config struct {
 	Recording     RecordingConfig
 	Notification  NotificationConfig
 	Audit         AuditConfig
+	InstanceLog   InstanceLogConfig
 	OfflineAlert  OfflineAlertConfig
 	ScheduledTask ScheduledTaskConfig
 	Approval      ApprovalConfig
 	Holiday       HolidayConfig
 	Sms           SmsConfig
 	Runtime       RuntimeConfig
+}
+
+// InstanceLogConfig controls shipping this process's log lines into the shared
+// database, which is what lets one search cover every instance in a
+// multi-instance deployment. It is off by default: shipping writes rows, so a
+// single-instance deployment should not pay for them.
+type InstanceLogConfig struct {
+	// Sink enables shipping.
+	Sink bool
+	// RetentionDays bounds how long shipped lines are kept. The default is
+	// short on purpose - this table is a convenience copy for cross-instance
+	// search, not evidence; the authoritative log is the rotating file on the
+	// instance that wrote it.
+	RetentionDays int
+	// SweepIntervalMin is how often retention runs. 0 disables the sweep.
+	SweepIntervalMin int
 }
 
 // NotificationConfig controls how long the user-notification outbox keeps
@@ -305,6 +322,14 @@ func Load() *Config {
 	// trail. 0 = no per-actor cap.
 	viper.SetDefault("AUDIT_MAX_ROWS_PER_ACTOR", 0)
 
+	// Cross-instance log shipping. Off by default: enabling it writes every log
+	// line into the shared database so `scope=all` can search every instance.
+	viper.SetDefault("INSTANCE_LOG_SINK", false)
+	// How long shipped log lines are kept. Short by default - this table is a
+	// convenience copy for cross-instance search, not the authoritative log.
+	viper.SetDefault("INSTANCE_LOG_RETENTION_DAYS", 7)
+	viper.SetDefault("INSTANCE_LOG_SWEEP_INTERVAL_MINUTES", 30)
+
 	// Background evaluator for per-device offline alerts. 0 disables it.
 	viper.SetDefault("OFFLINE_ALERT_INTERVAL_SECONDS", 30)
 
@@ -412,6 +437,12 @@ func Load() *Config {
 		MaxRowsPerActor:      viper.GetInt("AUDIT_MAX_ROWS_PER_ACTOR"),
 		ArchiveDir:           viper.GetString("AUDIT_ARCHIVE_DIR"),
 		ArchiveRetentionDays: viper.GetInt("AUDIT_ARCHIVE_RETENTION_DAYS"),
+	}
+
+	cfg.InstanceLog = InstanceLogConfig{
+		Sink:             viper.GetBool("INSTANCE_LOG_SINK"),
+		RetentionDays:    viper.GetInt("INSTANCE_LOG_RETENTION_DAYS"),
+		SweepIntervalMin: viper.GetInt("INSTANCE_LOG_SWEEP_INTERVAL_MINUTES"),
 	}
 	cfg.OfflineAlert = OfflineAlertConfig{
 		IntervalSeconds: viper.GetInt("OFFLINE_ALERT_INTERVAL_SECONDS"),

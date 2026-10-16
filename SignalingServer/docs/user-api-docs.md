@@ -1450,7 +1450,7 @@ request shapes; this section documents only the route table.
 | `GET` | `/v1/admin/stats` |
 | `GET` | `/v1/admin/system/status` |
 | `GET` | `/v1/admin/system/logs` — the operational files an operator may read: `{items: [{name, size_bytes, modified_at}]}` from a fixed server-side allow-list (`signaling.log`, plus `postgres.log` / `redis.log` when `POSTGRES_LOG_FILE` / `REDIS_LOG_FILE` are set). Super-admin only |
-| `GET` | `/v1/admin/system/logs:search` — search a log instead of downloading it. `?q=` (case-insensitive substring), `&file=` (which configured log: `signaling.log` by default, `postgres.log` / `redis.log` when `POSTGRES_LOG_FILE` / `REDIS_LOG_FILE` are set, or **`all`** to search every configured source in one pass; an unknown name is `400`), `&component=` (whole-token match on the structured `component=` field, so `component=api` does not match `api_auth`), `&since=` / `&until=` (RFC3339, inclusive, compared against the line's own UTC timestamp), `&limit=` (default 200, clamped to 2000). Returns `{items: [{timestamp, line, file}], count, limit, file, files, scanned_bytes, scanned_lines, truncated}` newest first; each item carries the source it came from. Audited as `log.search` with the file name as the resource id. Super-admin only |
+| `GET` | `/v1/admin/system/logs:search` — search a log instead of downloading it. `?q=` (case-insensitive substring), `&file=` (which configured log: `signaling.log` by default, `postgres.log` / `redis.log` when `POSTGRES_LOG_FILE` / `REDIS_LOG_FILE` are set, or **`all`** to search every configured source in one pass; an unknown name is `400`), `&component=` (whole-token match on the structured `component=` field, so `component=api` does not match `api_auth`), `&since=` / `&until=` (RFC3339, inclusive, compared against the line's own UTC timestamp), `&limit=` (default 200, clamped to 2000), `&scope=` (`local`, the default, reads this instance's files; **`all`** reads the lines every instance shipped into the shared store, and needs `INSTANCE_LOG_SINK=true` or it is a `400` naming the setting), `&instance=` (with `scope=all`, narrow to one instance id). Local returns `{items: [{timestamp, line, file}], count, limit, scope, file, files, scanned_bytes, scanned_lines, truncated}`; `scope=all` returns `{items: [{instance, source, timestamp, line}], count, limit, scope, instance, instances, truncated, stored_lines, dropped_lines}`. Audited as `log.search` (`log_file` resource locally, `log_store:aggregated` for the merged view). Super-admin only |
 | `GET` | `/v1/admin/system/logs/:name` — download one allow-listed file; audited as `log.download`. Super-admin only |
 | `GET` | `/v1/admin/connections` |
 | `GET` | `/v1/admin/activity` |
@@ -1594,6 +1594,38 @@ source it came from. The 8 MiB budget is **shared** across the sources rather
 than granted per file, so "search everything" is still one bounded read -
 `truncated: true` means that shared budget ran out, and the entries already
 found are still returned.
+
+**`scope=all` searches every instance, not just the one that answered.** A
+multi-instance deployment behind a load balancer answers `logs:search` on
+whichever instance took the request, so `scope=local` (the default, and the
+behaviour every earlier version had) can only ever see that machine's files -
+"the error is in the other instance's log" was unfixable from the admin UI. With
+`INSTANCE_LOG_SINK=true`, each instance copies its own log lines into the shared
+database and `scope=all` reads that table instead:
+
+- every entry carries `instance` (the id the server logs at startup and registers
+  with presence) and `source`, so a merged view is still attributable, and
+  `instances` lists everyone who has shipped at least one line - which is what
+  makes an empty result interpretable;
+- `instance=<id>` narrows to one instance, and `component=` keeps its whole-token
+  rule, so the aggregate answers the same questions as the file scan;
+- shipping is **best effort by design**. The authoritative log is still the
+  rotating file on the instance that wrote the line, so shipping must never
+  block or fail a caller: lines queue in a 4096-line buffer, and if that fills -
+  or the database refuses a batch - the copy is dropped and counted. The
+  response reports this instance's `stored_lines` and `dropped_lines`, so "the
+  line is missing" can be told apart from "shipping dropped it under load";
+- a re-sent batch is ignored rather than duplicated: every shipped line carries
+  a per-instance sequence number and `(instance_id, source, seq)` is unique;
+- lines logged **before** the database is open are not shipped - the startup
+  banner included. Shipping begins when the sink attaches, and the local file
+  remains the record of everything before that;
+- `INSTANCE_LOG_RETENTION_DAYS` (default `7`) bounds the shared table and
+  `INSTANCE_LOG_SWEEP_INTERVAL_MINUTES` (default `30`) sets how often it is
+  swept. Shipped lines are deleted without archiving - unlike the audit trail,
+  the row is a copy of a line that is still in the file on the instance that
+  wrote it. With the sink off, `scope=all` is a `400` rather than an empty
+  result, because "nobody is shipping" must not read as "nothing happened".
 
 > **Why `webhooks/:id/test` and not `webhooks/:id:test`** — gin's httprouter
 > cannot register a literal suffix on a wildcard segment. The AIP-136-style

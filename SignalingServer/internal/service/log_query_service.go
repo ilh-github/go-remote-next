@@ -123,6 +123,15 @@ const DefaultLogSourceName = "signaling.log"
 // first is work the server can do.
 const AllLogSources = "all"
 
+// Log search scopes. `local` reads the files on the instance that answered the
+// request, which is what the endpoint always did; `all` reads the lines every
+// instance shipped into the shared database, which is what makes a
+// multi-instance deployment answerable from one place.
+const (
+	LogScopeLocal = "local"
+	LogScopeAll   = "all"
+)
+
 // NewLogQueryService points the service at the directory the logger writes to.
 func NewLogQueryService(dir string) *LogQueryService {
 	s := &LogQueryService{dir: dir, sources: map[string]string{}, scanBudget: logScanBudget}
