@@ -389,13 +389,23 @@ everything in scope, which is how they behaved before filters existed.
 | `event_type` | only rows of this event type |
 | `device_id` | only rows about this device. Rows written before the `device_id` column existed have an empty value and only match an unfiltered replay |
 | `limit` | re-arm at most this many rows, **oldest first**, so repeated calls drain the backlog deterministically. `0` = no cap; anything above `1000` is clamped to `1000` and the response reports the effective value; negative is a `400` |
+| `spread_over_minutes` | pace the replay across this many minutes instead of making the whole backlog due at once. `0` = everything due immediately (the default); anything above `1440` is clamped and the response reports the effective value; negative is a `400` |
 | `dry_run` | count what *would* be re-armed and change nothing |
 
-Response: `{success, matched, requeued, dry_run, limit, filters}`. `matched` is
-how many parked rows satisfy the filters before `limit`; `requeued` is how many
-were actually re-armed (always `0` on a dry run). The dry run exists because
-re-arming wakes the delivery worker immediately, and "replay everything" is
-rarely the right first move when one endpoint is broken and another is healthy.
+Response: `{success, matched, requeued, dry_run, limit, spread_over_minutes,
+filters}`. `matched` is how many parked rows satisfy the filters before
+`limit`; `requeued` is how many were actually re-armed (always `0` on a dry
+run). The dry run exists because re-arming wakes the delivery worker
+immediately, and "replay everything" is rarely the right first move when one
+endpoint is broken and another is healthy.
+
+`spread_over_minutes` is the tool for the other half of that problem: after an
+outage the whole backlog is due at once, which can knock the endpoint over again
+the moment it recovers. A spread replay re-arms every matched row as `pending`
+straight away but staggers `next_attempt_at` across the window, so the existing
+worker delivers the backlog in waves. The first wave is due one bucket interval
+after the call and the last at the end of the window; nothing is due at the
+moment of the call.
 
 Payload shape (same as admin webhooks):
 
@@ -420,6 +430,12 @@ loses the event. A background worker polls the outbox every 2s, claims due
 rows with `SELECT ... FOR UPDATE SKIP LOCKED` (safe across two server
 instances) and posts them one at a time:
 
+- the claim is **per-channel fair**: phase one picks the channels holding the
+  oldest due work, phase two takes at most 5 rows from each. Ordering the whole
+  table by id would let one channel with a deep backlog fill every batch, so
+  every other endpoint's notifications would wait behind it no matter how small
+  their own backlog is. The trade-off is that a batch comes out shorter than 20
+  rows when few channels have due work;
 - success (`2xx`) → `status: "delivered"`, `delivered_at` is stamped;
 - failure → the row is rescheduled with exponential backoff
   (2s, 4s, 8s … capped at 5m);

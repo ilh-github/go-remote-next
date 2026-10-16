@@ -38,6 +38,11 @@ const (
 	notificationBackoffCap = 5 * time.Minute
 	// notificationClaimBatch is how many due rows one worker pass takes.
 	notificationClaimBatch = 20
+	// notificationPerChannelBatch caps how many of those rows may come from a
+	// single channel. The worker delivers a batch sequentially, so without this
+	// cap one endpoint's backlog fills every batch and every other channel's
+	// notifications wait behind it (head-of-line blocking).
+	notificationPerChannelBatch = 5
 	// notificationWorkerInterval is the queue poll interval.
 	notificationWorkerInterval = 2 * time.Second
 	// notificationPurgeBatch bounds how many rows one archive-then-delete pass
@@ -252,19 +257,60 @@ func (s *NotificationDeliveryService) DrainOnce(ctx context.Context) {
 	}
 }
 
+// claimChannelRow is the single-column projection phase 1 needs: which
+// channels have due work. A named type keeps GORM's column mapping explicit.
+type claimChannelRow struct {
+	ChannelID uint
+}
+
 // claimDue atomically flips up to limit due rows to `delivering`. The
 // FOR UPDATE SKIP LOCKED claim keeps two workers (or two server instances)
 // from sending the same row twice.
+//
+// The claim is per-channel fair rather than strictly oldest-first. Ordering the
+// whole table by id looks right until one endpoint accumulates a backlog: from
+// then on every batch is filled by that channel's oldest rows and every other
+// channel's notifications sit behind them, no matter how small those channels
+// are. So phase 1 picks the channels that hold the oldest due work and phase 2
+// takes at most notificationPerChannelBatch rows from each. The batch can
+// therefore be shorter than limit when few channels have work; that is the
+// deliberate cost of never letting one channel monopolise the worker.
 func (s *NotificationDeliveryService) claimDue(ctx context.Context, limit int) ([]models.NotificationDelivery, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
 	var claimed []models.NotificationDelivery
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Raw(`SELECT * FROM notification_deliveries
+		now := time.Now().UTC()
+		// Phase 1: which channels have due work, oldest work first. This cannot
+		// carry FOR UPDATE - Postgres rejects FOR UPDATE together with the
+		// aggregates/window functions a per-channel pick needs - so the locking
+		// happens in phase 2, where SKIP LOCKED still guarantees each row goes
+		// to exactly one claimer.
+		var channelRows []claimChannelRow
+		if err := tx.Raw(`SELECT channel_id FROM notification_deliveries
 			WHERE status = ? AND next_attempt_at <= ?
-			ORDER BY id
-			LIMIT ?
-			FOR UPDATE SKIP LOCKED`,
-			DeliveryStatusPending, time.Now().UTC(), limit).Scan(&claimed).Error; err != nil {
+			GROUP BY channel_id
+			ORDER BY MIN(id)
+			LIMIT ?`,
+			DeliveryStatusPending, now, limit).Scan(&channelRows).Error; err != nil {
 			return err
+		}
+		for _, ch := range channelRows {
+			if len(claimed) >= limit {
+				break
+			}
+			want := min(notificationPerChannelBatch, limit-len(claimed))
+			var rows []models.NotificationDelivery
+			if err := tx.Raw(`SELECT * FROM notification_deliveries
+				WHERE status = ? AND next_attempt_at <= ? AND channel_id = ?
+				ORDER BY id
+				LIMIT ?
+				FOR UPDATE SKIP LOCKED`,
+				DeliveryStatusPending, now, ch.ChannelID, want).Scan(&rows).Error; err != nil {
+				return err
+			}
+			claimed = append(claimed, rows...)
 		}
 		if len(claimed) == 0 {
 			return nil
@@ -416,6 +462,18 @@ func (s *NotificationDeliveryService) Retry(ctx context.Context, channelID, deli
 // arm an unbounded batch.
 const MaxRetryFailedLimit = 1000
 
+// MaxRetryFailedSpreadMinutes bounds RetryFailedFilters.SpreadOverMinutes. A
+// day is plenty: the point of a spread replay is to smooth a burst, not to
+// schedule a backlog for later.
+const MaxRetryFailedSpreadMinutes = 1440
+
+// notificationReplaySpreadBuckets is how many due-times a spread replay uses.
+// Re-arming every row at once hands the endpoint the whole backlog in one burst
+// and can trip a rate limiter that would have coped with the same volume
+// spread out; a handful of buckets is enough to avoid that without turning the
+// replay into a drip.
+const notificationReplaySpreadBuckets = 20
+
 // RetryFailedFilters narrows a bulk replay. The zero value means "every parked
 // delivery in scope", which is how the endpoints behaved before filters
 // existed.
@@ -430,6 +488,11 @@ type RetryFailedFilters struct {
 	// Limit caps how many rows a single call re-arms, oldest first. 0 means no
 	// cap; the handler clamps anything above MaxRetryFailedLimit.
 	Limit int
+	// SpreadOverMinutes paces the replay across that many minutes instead of
+	// making every matched row due at once. 0 keeps the original behaviour
+	// (everything due immediately); the handler clamps anything above
+	// MaxRetryFailedSpreadMinutes.
+	SpreadOverMinutes int
 }
 
 // RetryFailedResult reports what a bulk replay matched and what it did.
@@ -495,6 +558,13 @@ func (s *NotificationDeliveryService) retryFailed(ctx context.Context, scopeColu
 	if f.Limit > 0 {
 		ids = ids.Limit(f.Limit)
 	}
+	if f.SpreadOverMinutes > 0 {
+		var idList []uint
+		if err := ids.Pluck("id", &idList).Error; err != nil {
+			return out, err
+		}
+		return s.rearmSpread(ctx, idList, f.SpreadOverMinutes, out)
+	}
 	now := time.Now().UTC()
 	result := s.db.WithContext(ctx).Model(&models.NotificationDelivery{}).
 		Where("id IN (?)", ids).
@@ -508,6 +578,48 @@ func (s *NotificationDeliveryService) retryFailed(ctx context.Context, scopeColu
 		return out, result.Error
 	}
 	out.Requeued = result.RowsAffected
+	return out, nil
+}
+
+// rearmSpread re-arms rows in staggered buckets so a bulk replay reaches the
+// endpoint gradually instead of all at once. The window is nailed to the
+// caller's number: the first bucket becomes due after one bucket interval and
+// the last at the end of the window, so `spread_over_minutes: N` really does
+// take N minutes to work through even though every row is already `pending`.
+//
+// Each bucket is its own UPDATE. That is deliberate: the status is re-checked
+// in every statement, so a row that something else re-armed (or a concurrent
+// retry of the same range) is left alone rather than being counted as ours.
+func (s *NotificationDeliveryService) rearmSpread(ctx context.Context, idList []uint, spreadMinutes int, out RetryFailedResult) (RetryFailedResult, error) {
+	if len(idList) == 0 {
+		return out, nil
+	}
+	buckets := notificationReplaySpreadBuckets
+	if len(idList) < buckets {
+		buckets = len(idList)
+	}
+	perBucket := (len(idList) + buckets - 1) / buckets
+	step := time.Duration(spreadMinutes) * time.Minute / time.Duration(buckets)
+	now := time.Now().UTC()
+	var requeued int64
+	for start := 0; start < len(idList); start += perBucket {
+		end := min(start+perBucket, len(idList))
+		bucket := start / perBucket
+		due := now.Add(time.Duration(bucket+1) * step)
+		result := s.db.WithContext(ctx).Model(&models.NotificationDelivery{}).
+			Where("id IN ? AND status = ?", idList[start:end], DeliveryStatusFailed).
+			Updates(map[string]interface{}{
+				"status":          DeliveryStatusPending,
+				"attempts":        0,
+				"next_attempt_at": due,
+				"updated_at":      now,
+			})
+		if result.Error != nil {
+			return out, result.Error
+		}
+		requeued += result.RowsAffected
+	}
+	out.Requeued = requeued
 	return out, nil
 }
 

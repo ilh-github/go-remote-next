@@ -699,3 +699,149 @@ func TestRetryFailedFiltersDryRunAndLimit(t *testing.T) {
 		t.Fatal("RetryFailedForUser(0) must refuse rather than touch every user")
 	}
 }
+
+// TestClaimDueIsFairAcrossChannels pins the anti-starvation property: a channel
+// with a deep backlog must not fill the whole batch on its own, because a
+// batch is delivered sequentially and every row it takes from the busy channel
+// is a row some other endpoint has to wait behind.
+func TestClaimDueIsFairAcrossChannels(t *testing.T) {
+	db := newPurgeTestDB(t)
+	svc := NewNotificationDeliveryService(db)
+	ctx := context.Background()
+
+	// Channel 1 is seeded first so it owns the oldest ids - exactly the setup
+	// that made the previous oldest-first claim hand it the entire batch.
+	now := time.Now().UTC()
+	seed := make([]models.NotificationDelivery, 0, 33)
+	for i := 0; i < 30; i++ {
+		seed = append(seed, models.NotificationDelivery{
+			ChannelID: 1, UserID: 1, EventType: "test", Payload: "{}",
+			Status: DeliveryStatusPending, NextAttemptAt: now,
+		})
+	}
+	for i := 0; i < 3; i++ {
+		seed = append(seed, models.NotificationDelivery{
+			ChannelID: 2, UserID: 1, EventType: "test", Payload: "{}",
+			Status: DeliveryStatusPending, NextAttemptAt: now,
+		})
+	}
+	if err := db.Create(&seed).Error; err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	claimed, err := svc.claimDue(ctx, notificationClaimBatch)
+	if err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+	if len(claimed) == 0 {
+		t.Fatal("claimed nothing; both channels had due rows")
+	}
+	if len(claimed) > notificationClaimBatch {
+		t.Fatalf("claimed %d rows, want at most %d", len(claimed), notificationClaimBatch)
+	}
+
+	perChannel := map[uint]int{}
+	for _, row := range claimed {
+		perChannel[row.ChannelID]++
+	}
+	if perChannel[2] != 3 {
+		t.Fatalf("quiet channel contributed %d rows, want all 3 - it was starved", perChannel[2])
+	}
+	if perChannel[1] > notificationPerChannelBatch {
+		t.Fatalf("busy channel contributed %d rows, want at most %d", perChannel[1], notificationPerChannelBatch)
+	}
+
+	// The busy channel's backlog must still drain on later passes, so the cap
+	// is a share of the batch, not an admission limit.
+	second, err := svc.claimDue(ctx, notificationClaimBatch)
+	if err != nil {
+		t.Fatalf("second claim: %v", err)
+	}
+	secondFromBusy := 0
+	for _, row := range second {
+		if row.ChannelID == 1 {
+			secondFromBusy++
+		}
+	}
+	if secondFromBusy != notificationPerChannelBatch {
+		t.Fatalf("second pass took %d rows from the busy channel, want %d", secondFromBusy, notificationPerChannelBatch)
+	}
+}
+
+// TestRetryFailedSpreadStaggersReplay covers the pacing path: a mass replay
+// must not hand the endpoint (and the worker) the whole backlog at once, but it
+// must still finish inside the window the caller asked for.
+func TestRetryFailedSpreadStaggersReplay(t *testing.T) {
+	db := newPurgeTestDB(t)
+	svc := NewNotificationDeliveryService(db)
+	ctx := context.Background()
+
+	now := time.Now().UTC()
+	seed := make([]models.NotificationDelivery, 0, 100)
+	for i := 0; i < 100; i++ {
+		seed = append(seed, models.NotificationDelivery{
+			ChannelID: 42, UserID: 1, EventType: "test", Payload: "{}",
+			Status: DeliveryStatusFailed, Attempts: 8, NextAttemptAt: now,
+		})
+	}
+	if err := db.Create(&seed).Error; err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	started := time.Now().UTC()
+	res, err := svc.RetryFailedForChannel(ctx, 42, RetryFailedFilters{SpreadOverMinutes: 10}, false)
+	if err != nil {
+		t.Fatalf("spread replay: %v", err)
+	}
+	if res.Matched != 100 || res.Requeued != 100 {
+		t.Fatalf("spread replay = %+v, want matched 100 / requeued 100", res)
+	}
+
+	// Nothing may be due at the moment of the call: that is the whole point.
+	var immediatelyDue int64
+	if err := db.Model(&models.NotificationDelivery{}).
+		Where("channel_id = ? AND status = ? AND next_attempt_at <= ?", 42, DeliveryStatusPending, started).
+		Count(&immediatelyDue).Error; err != nil {
+		t.Fatalf("count immediately due: %v", err)
+	}
+	if immediatelyDue != 0 {
+		t.Fatalf("%d rows were due immediately, want a staggered replay", immediatelyDue)
+	}
+
+	// The replay must be spread, not queued behind one giant bucket.
+	var buckets int64
+	if err := db.Model(&models.NotificationDelivery{}).
+		Where("channel_id = ? AND status = ?", 42, DeliveryStatusPending).
+		Distinct("next_attempt_at").Count(&buckets).Error; err != nil {
+		t.Fatalf("count buckets: %v", err)
+	}
+	if buckets != notificationReplaySpreadBuckets {
+		t.Fatalf("replay used %d distinct due-times, want %d", buckets, notificationReplaySpreadBuckets)
+	}
+
+	// ... and it must be done inside the window: the last bucket lands at the
+	// end of it, not past it.
+	var lastDue time.Time
+	if err := db.Model(&models.NotificationDelivery{}).
+		Where("channel_id = ? AND status = ?", 42, DeliveryStatusPending).
+		Select("MAX(next_attempt_at)").Scan(&lastDue).Error; err != nil {
+		t.Fatalf("max due: %v", err)
+	}
+	windowEnd := started.Add(10 * time.Minute)
+	if lastDue.After(windowEnd.Add(time.Second)) {
+		t.Fatalf("last bucket due at %s, past the 10m window ending %s", lastDue, windowEnd)
+	}
+	if lastDue.Before(windowEnd.Add(-2 * time.Minute)) {
+		t.Fatalf("last bucket due at %s, well before the 10m window ending %s", lastDue, windowEnd)
+	}
+
+	// The attempt budget is reset, so a paced replay is a real second chance.
+	var stillExhausted int64
+	if err := db.Model(&models.NotificationDelivery{}).
+		Where("channel_id = ? AND attempts > 0", 42).Count(&stillExhausted).Error; err != nil {
+		t.Fatalf("count attempts: %v", err)
+	}
+	if stillExhausted != 0 {
+		t.Fatalf("%d rows kept their attempt count, want the budget reset", stillExhausted)
+	}
+}

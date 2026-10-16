@@ -225,6 +225,10 @@ type retryFailedReq struct {
 	DeviceID  string `json:"device_id"`
 	Limit     int    `json:"limit"`
 	DryRun    bool   `json:"dry_run"`
+	// SpreadOverMinutes paces the replay instead of making the whole backlog
+	// due at once, which matters when the outage that parked it also means the
+	// endpoint is fragile right now.
+	SpreadOverMinutes int `json:"spread_over_minutes"`
 }
 
 // parseRetryFailedRequest reads the optional body and clamps the batch cap.
@@ -241,27 +245,37 @@ func parseRetryFailedRequest(c *gin.Context) (service.RetryFailedFilters, bool, 
 		ProblemBadRequest(c, ProblemCodeInvalidRequest, "limit must be zero (no cap) or positive")
 		return service.RetryFailedFilters{}, false, false
 	}
+	if req.SpreadOverMinutes < 0 {
+		ProblemBadRequest(c, ProblemCodeInvalidRequest, "spread_over_minutes must be zero (no pacing) or positive")
+		return service.RetryFailedFilters{}, false, false
+	}
 	limit := req.Limit
 	if limit > service.MaxRetryFailedLimit {
 		// Clamp rather than reject: the caller asked to drain the backlog, and
 		// the response reports the effective cap so nothing is hidden.
 		limit = service.MaxRetryFailedLimit
 	}
+	spread := req.SpreadOverMinutes
+	if spread > service.MaxRetryFailedSpreadMinutes {
+		spread = service.MaxRetryFailedSpreadMinutes
+	}
 	filters := service.RetryFailedFilters{
-		EventType: strings.TrimSpace(req.EventType),
-		DeviceID:  strings.TrimSpace(req.DeviceID),
-		Limit:     limit,
+		EventType:         strings.TrimSpace(req.EventType),
+		DeviceID:          strings.TrimSpace(req.DeviceID),
+		Limit:             limit,
+		SpreadOverMinutes: spread,
 	}
 	return filters, req.DryRun, true
 }
 
 func retryFailedResponse(filters service.RetryFailedFilters, dryRun bool, res service.RetryFailedResult) gin.H {
 	return gin.H{
-		"success":  true,
-		"matched":  res.Matched,
-		"requeued": res.Requeued,
-		"dry_run":  dryRun,
-		"limit":    filters.Limit,
+		"success":             true,
+		"matched":             res.Matched,
+		"requeued":            res.Requeued,
+		"dry_run":             dryRun,
+		"limit":               filters.Limit,
+		"spread_over_minutes": filters.SpreadOverMinutes,
 		"filters": gin.H{
 			"event_type": filters.EventType,
 			"device_id":  filters.DeviceID,
