@@ -25,6 +25,13 @@ func auditFilterTestDB(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
+	// The scratch Postgres has a connection limit and this package opens a pool
+	// per test, so the pool is closed with the test rather than left idle.
+	t.Cleanup(func() {
+		if sqlDB, err := db.DB(); err == nil {
+			sqlDB.Close()
+		}
+	})
 	if err := db.AutoMigrate(&models.AuditLog{}, &models.User{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}

@@ -116,6 +116,36 @@ func (s *InstanceLogSink) WithFlushInterval(d time.Duration) *InstanceLogSink {
 	return s
 }
 
+// Enqueue puts an already-identified line into the shipping queue. The file
+// tailers use this rather than Write because a line they read already knows its
+// identity: the file it came from, a generation that changes when that file is
+// rotated or truncated, and the byte offset it started at. That tuple is what
+// makes a re-read idempotent, so it must not be replaced by this process's own
+// counter.
+//
+// Returns false when the queue is full; the caller does not need to react,
+// because the drop is counted either way and the authoritative copy is still
+// the file on disk.
+func (s *InstanceLogSink) Enqueue(entry models.InstanceLogEntry) bool {
+	if s == nil || s.db == nil || s.instanceID == "" {
+		return false
+	}
+	if entry.InstanceID == "" {
+		entry.InstanceID = s.instanceID
+	}
+	if entry.LoggedAt.IsZero() {
+		entry.LoggedAt = time.Now().UTC()
+	}
+	entry.Line = truncateInstanceLogLine(entry.Line)
+	select {
+	case s.lines <- entry:
+		return true
+	default:
+		s.dropped.Add(1)
+		return false
+	}
+}
+
 // Write implements io.Writer, so the sink can be attached to the logger. It
 // always reports the whole buffer as written and never returns an error: a
 // shipping problem is reported through Dropped/Stored, not by breaking the

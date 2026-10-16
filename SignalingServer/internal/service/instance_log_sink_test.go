@@ -25,6 +25,14 @@ func newInstanceLogTestDB(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
+	// The scratch Postgres has a connection limit and this package opens a pool
+	// per test; leaving them idle would eventually make an unrelated test fail
+	// with "too many clients".
+	t.Cleanup(func() {
+		if sqlDB, err := db.DB(); err == nil {
+			sqlDB.Close()
+		}
+	})
 	if err := db.AutoMigrate(&models.InstanceLogEntry{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}

@@ -1607,7 +1607,7 @@ request shapes; this section documents only the route table.
 | `GET` | `/v1/admin/stats` |
 | `GET` | `/v1/admin/system/status` |
 | `GET` | `/v1/admin/system/logs` — the operational files an operator may read: `{items: [{name, size_bytes, modified_at}]}` from a fixed server-side allow-list (`signaling.log`, plus `postgres.log` / `redis.log` when `POSTGRES_LOG_FILE` / `REDIS_LOG_FILE` are set). Super-admin only |
-| `GET` | `/v1/admin/system/logs:search` — search a log instead of downloading it. `?q=` (case-insensitive substring), `&file=` (which configured log: `signaling.log` by default, `postgres.log` / `redis.log` when `POSTGRES_LOG_FILE` / `REDIS_LOG_FILE` are set, or **`all`** to search every configured source in one pass; an unknown name is `400`), `&component=` (whole-token match on the structured `component=` field, so `component=api` does not match `api_auth`), `&since=` / `&until=` (RFC3339, inclusive, compared against the line's own UTC timestamp), `&limit=` (default 200, clamped to 2000), `&scope=` (`local`, the default, reads this instance's files; **`all`** reads the lines every instance shipped into the shared store, and needs `INSTANCE_LOG_SINK=true` or it is a `400` naming the setting), `&instance=` (with `scope=all`, narrow to one instance id). Local returns `{items: [{timestamp, line, file}], count, limit, scope, file, files, scanned_bytes, scanned_lines, truncated}`; `scope=all` returns `{items: [{instance, source, timestamp, line}], count, limit, scope, instance, instances, truncated, stored_lines, dropped_lines}`. Audited as `log.search` (`log_file` resource locally, `log_store:aggregated` for the merged view). Super-admin only |
+| `GET` | `/v1/admin/system/logs:search` — search a log instead of downloading it. `?q=` (case-insensitive substring), `&file=` (which configured log: `signaling.log` by default, `postgres.log` / `redis.log` when `POSTGRES_LOG_FILE` / `REDIS_LOG_FILE` are set, or **`all`** to search every configured source in one pass; an unknown name is `400`), `&component=` (whole-token match on the structured `component=` field, so `component=api` does not match `api_auth`), `&since=` / `&until=` (RFC3339, inclusive, compared against the line's own UTC timestamp), `&limit=` (default 200, clamped to 2000), `&scope=` (`local`, the default, reads this instance's files; **`all`** reads the lines every instance shipped into the shared store, and needs `INSTANCE_LOG_SINK=true` or it is a `400` naming the setting; with the sink on, the PostgreSQL and Redis logs are shipped too when `POSTGRES_LOG_FILE` / `REDIS_LOG_FILE` are configured, so `&file=postgres.log` narrows the aggregate the same way it narrows a local scan), `&instance=` (with `scope=all`, narrow to one instance id). Local returns `{items: [{timestamp, line, file}], count, limit, scope, file, files, scanned_bytes, scanned_lines, truncated}`; `scope=all` returns `{items: [{instance, source, timestamp, line}], count, limit, scope, instance, instances, truncated, stored_lines, dropped_lines}`. Audited as `log.search` (`log_file` resource locally, `log_store:aggregated` for the merged view). Super-admin only |
 | `GET` | `/v1/admin/system/logs/:name` — download one allow-listed file; audited as `log.download`. Super-admin only |
 | `GET` | `/v1/admin/connections` |
 | `GET` | `/v1/admin/activity` |
@@ -1808,6 +1808,17 @@ database and `scope=all` reads that table instead:
 - lines logged **before** the database is open are not shipped - the startup
   banner included. Shipping begins when the sink attaches, and the local file
   remains the record of everything before that;
+- the PostgreSQL and Redis logs are **tailed**, not written through: each
+  configured file gets its own reader that starts at the end of the file, ships
+  only whole lines (a fragment without its newline waits for the next poll), and
+  identifies a line by `(source, generation, offset)` rather than by the offset
+  alone. The generation increments when the file is rotated (the inode behind the
+  path changed) or truncated (the size went backwards), because offsets restart
+  after either and a post-rotation line at the same offset as a pre-rotation one
+  would otherwise be dropped as a duplicate. Rotation detection by inode is
+  Linux/macOS only; on Windows only the size-shrink case is visible, so a
+  rename-and-recreate that immediately grows past the old offset is not
+  detected there;
 - `INSTANCE_LOG_RETENTION_DAYS` (default `7`) bounds the shared table and
   `INSTANCE_LOG_SWEEP_INTERVAL_MINUTES` (default `30`) sets how often it is
   swept. Shipped lines are deleted without archiving - unlike the audit trail,

@@ -286,6 +286,22 @@ func main() {
 		log.Printf("Instance log aggregation: sink=on retention_days=%d sweep_interval=%dm buffer=%d instance=%s",
 			cfg.InstanceLog.RetentionDays, cfg.InstanceLog.SweepIntervalMin,
 			service.DefaultInstanceLogBufferLines, instanceID)
+		// The application log ships itself through the attached writer; the
+		// PostgreSQL and Redis logs are files nobody writes through this process,
+		// so they are tailed. Without this, `scope=all` covers the application
+		// log of every instance and the database logs of none.
+		for _, followed := range []struct{ source, path string }{
+			{service.PostgresLogSourceName, cfg.Runtime.PostgresLogFile},
+			{service.RedisLogSourceName, cfg.Runtime.RedisLogFile},
+		} {
+			if strings.TrimSpace(followed.path) == "" {
+				continue
+			}
+			tailer := service.NewFileLogTailer(instanceLogSink, followed.path, followed.source)
+			go tailer.Run(context.Background())
+			log.Printf("Instance log aggregation: tailing %s (source=%s) from the end of the file",
+				followed.path, followed.source)
+		}
 	}
 	smsService := service.NewSmsService(redisClient, settingsService)
 	auditService := service.NewAuditService(db).
