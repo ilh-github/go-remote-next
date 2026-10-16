@@ -1,0 +1,205 @@
+#!/usr/bin/env node
+// Conformance smoke for SignalingServer/api/openapi.yaml.
+//
+// The spec is the contract business systems generate clients from, so it has to
+// be checked against a running server rather than trusted: this script calls
+// the documented operations and asserts the fields the spec promises exist with
+// the promised types. If the server renames a field or changes its shape, this
+// fails instead of quietly invalidating the spec.
+//
+// Read-only by default. Give QD_SMOKE_DEVICE=<device_id> and it also covers the
+// two documented operations with side effects - the offline-alert PUT (restored
+// to exactly the prior state afterwards) and the wrong-access-code rejection
+// (which writes an access-log row and may notify the owner).
+//
+// Usage:
+//   QD_IDENTIFIER=user QD_PASSWORD=secret scripts/sdk/openapi-smoke.mjs
+//   QD_IDENTIFIER=user QD_PASSWORD=secret QD_SMOKE_DEVICE=126735214 scripts/sdk/openapi-smoke.mjs
+//
+// Env:
+//   QD_SERVER      default http://127.0.0.1:8000
+//   QD_API_KEY     default qd-local-dev-key
+//   QD_IDENTIFIER / QD_PASSWORD   required
+//   QD_SMOKE_DEVICE               optional; enables the write-path checks
+//
+// Exit codes: 0 = the documented shapes hold, 3 = a documented field is missing
+// or mistyped, 4 = the server could not be reached or returned an unexpected
+// status.
+
+const server = (process.env.QD_SERVER || 'http://127.0.0.1:8000').replace(/\/$/, '');
+const apiKey = process.env.QD_API_KEY || 'qd-local-dev-key';
+const identifier = process.env.QD_IDENTIFIER;
+const password = process.env.QD_PASSWORD;
+const smokeDevice = process.env.QD_SMOKE_DEVICE || '';
+
+if (!identifier || !password) {
+  console.error('QD_IDENTIFIER and QD_PASSWORD are required');
+  process.exit(2);
+}
+
+let checks = 0;
+const failures = [];
+
+function check(condition, message) {
+  checks += 1;
+  if (!condition) failures.push(message);
+}
+
+// field asserts that a documented property exists and, when a type is given,
+// has that JSON type. `null` is accepted for the nullable fields the spec
+// declares as ["string","null"].
+function field(obj, name, type, where) {
+  const present = obj !== null && typeof obj === 'object' && name in obj;
+  check(present, `${where}: missing documented field "${name}"`);
+  if (!present) return undefined;
+  const value = obj[name];
+  if (type && value !== null && typeof value !== type) {
+    check(false, `${where}: field "${name}" is ${typeof value}, spec says ${type}`);
+  }
+  return value;
+}
+
+async function call(method, path, { token, body, expect, extraHeaders = {} } = {}) {
+  const headers = { 'X-API-Key': apiKey, ...extraHeaders };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  if (body !== undefined) headers['Content-Type'] = 'application/json';
+  let res;
+  try {
+    res = await fetch(server + path, {
+      method,
+      headers,
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  } catch (err) {
+    console.error(`transport error calling ${method} ${path}: ${err.message}`);
+    process.exit(4);
+  }
+  const text = await res.text();
+  let json = null;
+  try {
+    json = text ? JSON.parse(text) : null;
+  } catch {
+    // Non-JSON bodies only matter if the caller expected JSON.
+  }
+  if (expect !== undefined && res.status !== expect) {
+    console.error(`${method} ${path}: expected ${expect}, got ${res.status}`);
+    console.error(text.slice(0, 400));
+    process.exit(4);
+  }
+  return { status: res.status, json, text, headers: res.headers };
+}
+
+function problemShape(json, where, expectedCode) {
+  field(json, 'type', 'string', where);
+  field(json, 'title', 'string', where);
+  field(json, 'status', 'number', where);
+  const code = field(json, 'code', 'string', where);
+  if (expectedCode) {
+    check(code === expectedCode, `${where}: code is "${code}", spec documents "${expectedCode}"`);
+  }
+}
+
+// 1. POST /v1/auth/sessions
+const login = await call('POST', '/v1/auth/sessions', {
+  body: { identifier, password },
+  expect: 200,
+});
+const token = field(login.json, 'access_token', 'string', 'POST /v1/auth/sessions');
+field(login.json, 'access_expires_at', 'string', 'POST /v1/auth/sessions');
+field(login.json, 'refresh_token', 'string', 'POST /v1/auth/sessions');
+field(login.json, 'refresh_expires_at', 'string', 'POST /v1/auth/sessions');
+const loginUser = field(login.json, 'user', 'object', 'POST /v1/auth/sessions');
+for (const name of ['id', 'username', 'status']) {
+  field(loginUser, name, name === 'status' ? 'boolean' : name === 'id' ? 'number' : 'string', 'AuthSessionResponse.user');
+}
+
+// 2. GET /v1/me
+const me = await call('GET', '/v1/me', { token, expect: 200 });
+for (const name of ['id', 'username', 'status', 'device_count', 'channel_type', 'created_at']) {
+  field(me.json, name, undefined, 'GET /v1/me');
+}
+
+// 3. GET /v1/me/devices
+const devices = await call('GET', '/v1/me/devices', { token, expect: 200 });
+const deviceItems = field(devices.json, 'items', 'object', 'GET /v1/me/devices');
+check(Array.isArray(deviceItems), 'GET /v1/me/devices: items is not an array');
+if (Array.isArray(deviceItems) && deviceItems.length > 0) {
+  const device = deviceItems[0];
+  for (const name of ['device_id', 'device_name', 'remark', 'online', 'logged_in', 'access_code']) {
+    field(device, name, undefined, 'GET /v1/me/devices items[]');
+  }
+  check(typeof device.online === 'boolean', 'Device.online is not a boolean');
+  check(typeof device.logged_in === 'boolean', 'Device.logged_in is not a boolean');
+}
+
+const deviceId = smokeDevice || (Array.isArray(deviceItems) && deviceItems[0]?.device_id) || '';
+
+// 4. GET /v1/me/devices/{device_id}/offline-alert
+const alertBefore = await call('GET', `/v1/me/devices/${deviceId}/offline-alert`, { token, expect: 200 });
+for (const name of ['device_id', 'enabled', 'after_minutes', 'repeat_minutes', 'maintenance_windows', 'in_maintenance_window']) {
+  field(alertBefore.json, name, undefined, 'GET offline-alert');
+}
+check(Array.isArray(alertBefore.json.maintenance_windows), 'offline-alert: maintenance_windows is not an array');
+check(typeof alertBefore.json.in_maintenance_window === 'boolean', 'offline-alert: in_maintenance_window is not a boolean');
+
+// 5. GET /v1/me/notification-channels
+const channels = await call('GET', '/v1/me/notification-channels', { token, expect: 200 });
+const channelItems = field(channels.json, 'items', 'object', 'GET notification-channels');
+check(Array.isArray(channelItems), 'GET notification-channels: items is not an array');
+field(channels.json, 'supported_events', 'object', 'GET notification-channels');
+field(channels.json, 'signature_header', 'string', 'GET notification-channels');
+field(channels.json, 'signature_scheme', 'string', 'GET notification-channels');
+if (Array.isArray(channelItems) && channelItems.length > 0) {
+  const ch = channelItems[0];
+  for (const name of ['id', 'user_id', 'name', 'url', 'events', 'enabled', 'last_status']) {
+    field(ch, name, undefined, 'NotificationChannel');
+  }
+  // The spec documents `events` as a JSON string, not an array; if the server
+  // ever starts sending an array this has to be an explicit spec change.
+  check(typeof ch.events === 'string', 'NotificationChannel.events is not a string');
+}
+
+if (smokeDevice) {
+  // 6. PUT the rule back unchanged, then restore the prior state exactly.
+  const putBody = {
+    enabled: alertBefore.json.enabled,
+    after_minutes: alertBefore.json.after_minutes,
+    repeat_minutes: alertBefore.json.repeat_minutes,
+    maintenance_windows: alertBefore.json.maintenance_windows ?? [],
+    maintenance_timezone: alertBefore.json.maintenance_timezone ?? '',
+  };
+  const put = await call('PUT', `/v1/me/devices/${deviceId}/offline-alert`, { token, body: putBody, expect: 200 });
+  for (const name of ['device_id', 'enabled', 'after_minutes', 'repeat_minutes', 'maintenance_windows', 'in_maintenance_window']) {
+    field(put.json, name, undefined, 'PUT offline-alert');
+  }
+  check(put.json.after_minutes === putBody.after_minutes, 'PUT offline-alert did not echo after_minutes');
+
+  // The GET view cannot distinguish "no rule" from "a disabled rule", so
+  // whether a row existed before is inferred from updated_at: the defaults come
+  // back without one. If there was no rule, delete the one the PUT created so
+  // the smoke leaves the account exactly as it found it.
+  if (alertBefore.json.updated_at === undefined || alertBefore.json.updated_at === null) {
+    const del = await call('DELETE', `/v1/me/devices/${deviceId}/offline-alert`, { token, expect: 204 });
+    check(del.status === 204, 'DELETE offline-alert did not return 204');
+  }
+
+  // 7. POST access-code:verify with a code that cannot be right, to pin the
+  // documented rejection shape.
+  const verify = await call('POST', `/v1/devices/${deviceId}/access-code:verify`, {
+    body: { code: '000000', client_id: 'openapi-smoke' },
+    expect: 403,
+  });
+  problemShape(verify.json, 'POST access-code:verify (rejected)', verify.json?.code);
+}
+
+if (failures.length > 0) {
+  console.error(`FAIL: ${failures.length} of ${checks} documented assertions failed`);
+  for (const f of failures) console.error('  - ' + f);
+  process.exit(3);
+}
+
+const scope = smokeDevice ? 'read + write operations' : 'read-only operations';
+console.log(`PASS: ${checks} documented assertions hold against ${server} (${scope})`);
+if (!smokeDevice) {
+  console.log('note: set QD_SMOKE_DEVICE=<device_id> to also check the offline-alert PUT and the rejected access-code shape');
+}

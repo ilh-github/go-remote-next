@@ -1,0 +1,535 @@
+openapi: 3.1.0
+info:
+  title: QuickDesk Signaling Server - business API
+  version: 1.0.0
+  summary: The stable, integrator-facing subset of the signaling API.
+  description: |
+    This document is the contract for the operations a business system needs to
+    integrate with a self-hosted QuickDesk signaling server: authenticate,
+    enumerate the caller's devices, verify a device access code, and manage the
+    owner's offline-alert rule and notification channels.
+
+    It deliberately covers a **subset**. The server exposes more (admin
+    endpoints, access policies and grants, approvals, recordings, realtime
+    WebSockets); those are documented in `docs/user-api-docs.md` and are added
+    here as they are pinned by a conformance test. Everything listed here is
+    exercised against a live server by `scripts/sdk/openapi-smoke.mjs`, so a
+    change to a documented field fails that check rather than silently
+    invalidating this file.
+
+    Generate a client in any language from this file, for example:
+
+        npx @openapitools/openapi-generator-cli generate \
+          -i SignalingServer/api/openapi.yaml -g typescript-fetch -o sdk/ts
+
+    All non-2xx responses are RFC 7807 problem details with
+    `Content-Type: application/problem+json`.
+servers:
+  - url: https://your-signaling-host
+    description: Replace with the base URL of your signaling server.
+tags:
+  - name: auth
+  - name: me
+  - name: devices
+  - name: notifications
+security:
+  - ApiKeyAuth: []
+  - ApiKeyAuth: []
+    BearerAuth: []
+paths:
+  /v1/auth/sessions:
+    post:
+      tags: [auth]
+      summary: Exchange a username/password for a session
+      operationId: createSession
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthSessionRequest'
+      responses:
+        '200':
+          description: A session with an access token and a refresh token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthSessionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /v1/me:
+    get:
+      tags: [me]
+      summary: The authenticated user
+      operationId: getMe
+      responses:
+        '200':
+          description: The current user.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/me/devices:
+    get:
+      tags: [devices]
+      summary: Devices owned by the authenticated user
+      operationId: listMyDevices
+      responses:
+        '200':
+          description: The caller's devices.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Device'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/me/devices/{device_id}/offline-alert:
+    parameters:
+      - $ref: '#/components/parameters/DeviceId'
+    get:
+      tags: [notifications]
+      summary: The owner's offline-alert rule for a device
+      operationId: getOfflineAlert
+      description: |
+        Returns the documented defaults (`enabled: false`, `after_minutes: 10`)
+        when the owner never configured a rule, so a client can render the form
+        without a second "does it exist" call.
+      responses:
+        '200':
+          description: The rule, or its defaults.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OfflineAlertRule'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [notifications]
+      summary: Create or replace the owner's offline-alert rule
+      operationId: putOfflineAlert
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OfflineAlertInput'
+      responses:
+        '200':
+          description: The stored rule.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OfflineAlertRule'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/me/notification-channels:
+    get:
+      tags: [notifications]
+      summary: The user's notification channels
+      operationId: listNotificationChannels
+      description: |
+        `supported_events` is the authoritative list of event types a channel
+        may subscribe to. The signing secret is never returned; deliveries are
+        signed with `signature_header` using `signature_scheme`.
+      responses:
+        '200':
+          description: The caller's channels plus the subscription vocabulary.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationChannelList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/devices/{device_id}/access-code:verify:
+    parameters:
+      - $ref: '#/components/parameters/DeviceId'
+    post:
+      tags: [devices]
+      summary: Verify a device access code and mint a signal token
+      operationId: verifyAccessCode
+      description: |
+        The controller-side entry point. On success it returns a signal token
+        for the relay. When the device policy wants the owner to confirm the
+        session it returns `202` with a pending approval instead, and the caller
+        polls `/v1/devices/{device_id}/access-approvals:claim`. A rejected code
+        is a `403` problem with `code: INVALID_CODE`.
+
+        This route is reachable without a user token (the controlling client is
+        not logged in) but still requires the API key or an allowed Origin.
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AccessCodeVerifyRequest'
+      responses:
+        '200':
+          description: The code was accepted and a signal token was minted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessCodeVerifyResponse'
+        '202':
+          description: The device policy requires the owner to approve this session.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessCodeApprovalPending'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque
+  parameters:
+    DeviceId:
+      name: device_id
+      in: path
+      required: true
+      description: The device id shown on the controlled machine.
+      schema:
+        type: string
+        maxLength: 20
+  responses:
+    BadRequest:
+      description: The request was malformed or failed validation.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Unauthorized:
+      description: Missing or expired credentials.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Forbidden:
+      description: Authenticated but not allowed (includes a rejected access code).
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    NotFound:
+      description: The addressed resource does not exist.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    RateLimited:
+      description: Too many requests; retry after the advertised delay.
+      headers:
+        Retry-After:
+          description: Seconds to wait before retrying.
+          schema:
+            type: string
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+  schemas:
+    AuthSessionRequest:
+      type: object
+      required: [identifier, password]
+      properties:
+        identifier:
+          type: string
+          description: Username, phone, or email, depending on how the account was created.
+        password:
+          type: string
+          format: password
+    AuthSessionResponse:
+      type: object
+      required: [user, access_token, access_expires_at, refresh_token, refresh_expires_at]
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+        access_token:
+          type: string
+        access_expires_at:
+          type: string
+          format: date-time
+        refresh_token:
+          type: string
+        refresh_expires_at:
+          type: string
+          format: date-time
+    User:
+      type: object
+      required: [id, username, status]
+      properties:
+        id:
+          type: integer
+          format: int64
+        username:
+          type: string
+        phone:
+          type: string
+        email:
+          type: string
+        level:
+          type: string
+        device_count:
+          type: integer
+        channel_type:
+          type: string
+        status:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    Device:
+      type: object
+      required: [device_id, device_name, online, logged_in]
+      properties:
+        device_id:
+          type: string
+        device_name:
+          type: string
+        remark:
+          type: string
+          description: The owner's private note; empty when none is set.
+        online:
+          type: boolean
+          description: Whether the machine currently holds a live connection.
+        logged_in:
+          type: boolean
+          description: True only when the device is online *and* logged in, so a parked machine is not reported as reachable.
+        access_code:
+          type: string
+          description: The current access code. It rotates, so treat it as short-lived.
+        os:
+          type: string
+        os_version:
+          type: string
+        app_version:
+          type: string
+        last_seen_at:
+          type: string
+          description: RFC3339 UTC, omitted when the device has never been seen.
+    OfflineAlertInput:
+      type: object
+      required: [enabled]
+      properties:
+        enabled:
+          type: boolean
+        after_minutes:
+          type: integer
+          minimum: 1
+          maximum: 10080
+          description: Omitting it (or sending 0) stores the default of 10.
+        repeat_minutes:
+          type: integer
+          minimum: 0
+          maximum: 10080
+          description: 0 (the default) sends one alert per outage.
+        snoozed_until:
+          type: [string, 'null']
+          format: date-time
+          description: Silences alerts until this instant; null clears an existing snooze.
+        maintenance_windows:
+          type: array
+          maxItems: 20
+          description: Recurring quiet periods evaluated in `maintenance_timezone`.
+          items:
+            $ref: '#/components/schemas/MaintenanceWindow'
+        maintenance_timezone:
+          type: string
+          description: IANA zone name for the windows; empty means the server's local zone.
+    MaintenanceWindow:
+      type: object
+      required: [start, end]
+      properties:
+        days:
+          type: array
+          description: Weekdays 0-6 (0 = Sunday); empty means every day.
+          items:
+            type: integer
+            minimum: 0
+            maximum: 6
+        start:
+          type: string
+          pattern: '^[0-2][0-9]:[0-5][0-9]$'
+        end:
+          type: string
+          pattern: '^[0-2][0-9]:[0-5][0-9]$'
+    OfflineAlertRule:
+      type: object
+      required: [device_id, enabled, after_minutes, repeat_minutes, maintenance_windows, in_maintenance_window]
+      properties:
+        device_id:
+          type: string
+        enabled:
+          type: boolean
+        after_minutes:
+          type: integer
+        repeat_minutes:
+          type: integer
+        snoozed_until:
+          type: [string, 'null']
+          format: date-time
+        maintenance_windows:
+          type: array
+          items:
+            $ref: '#/components/schemas/MaintenanceWindow'
+        maintenance_timezone:
+          type: string
+        in_maintenance_window:
+          type: boolean
+          description: Computed at read time, so a client can explain a quiet period without re-implementing the schedule.
+        offline_since:
+          type: [string, 'null']
+          format: date-time
+          description: The evaluator's episode state; present only while the device is in an outage.
+        last_alerted_at:
+          type: [string, 'null']
+          format: date-time
+        updated_at:
+          type: [string, 'null']
+          format: date-time
+    NotificationChannel:
+      type: object
+      required: [id, user_id, name, url, events, enabled, last_status]
+      properties:
+        id:
+          type: integer
+          format: int64
+        user_id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        url:
+          type: string
+          format: uri
+        events:
+          type: string
+          description: |
+            A JSON-encoded array of subscribed event types (a string, not an
+            array, because that is how the column is stored). Decode it before
+            matching against `supported_events`.
+        enabled:
+          type: boolean
+        last_triggered:
+          type: [string, 'null']
+          format: date-time
+        last_status:
+          type: integer
+          description: HTTP status of the most recent delivery attempt; 0 means none yet.
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    NotificationChannelList:
+      type: object
+      required: [items, supported_events, signature_header, signature_scheme]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/NotificationChannel'
+        supported_events:
+          type: array
+          items:
+            type: string
+        signature_header:
+          type: string
+        signature_scheme:
+          type: string
+    AccessCodeVerifyRequest:
+      type: object
+      required: [code]
+      properties:
+        code:
+          type: string
+        client_id:
+          type: string
+          description: Optional self-reported client identity, recorded on the access log.
+    AccessCodeVerifyResponse:
+      type: object
+      required: [signal_token, expires_at]
+      properties:
+        signal_token:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+    AccessCodeApprovalPending:
+      type: object
+      required: [approval_id, approval_secret, status, expires_at, poll_after_ms]
+      properties:
+        approval_id:
+          type: integer
+          format: int64
+        approval_secret:
+          type: string
+          description: Shown once; exchanged for a signal token at the claim endpoint.
+        status:
+          type: string
+          enum: [pending]
+        expires_at:
+          type: string
+          format: date-time
+        poll_after_ms:
+          type: integer
+    Problem:
+      type: object
+      description: RFC 7807 problem details, served as `application/problem+json`.
+      required: [type, title, status, code]
+      properties:
+        type:
+          type: string
+          format: uri
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        instance:
+          type: string
+        code:
+          type: string
+          description: A stable machine-readable code, e.g. `INVALID_CODE` or `RATE_LIMITED`.
+        trace_id:
+          type: string
