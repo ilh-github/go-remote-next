@@ -108,8 +108,43 @@ case "$lang" in
       "$out/.gitlab-ci.yml" \
       "$out/.github"
     ;;
+  java)
+    java -jar "$jar" generate \
+      -i "$spec" \
+      -g java \
+      -o "$out" \
+      --git-user-id=ilh-github \
+      --git-repo-id=go-remote-next \
+      --additional-properties=groupId=io.quickdesk,artifactId=quickdesk-signaling-client,artifactVersion=1.0.0,licenseName=MIT,licenseUrl=https://opensource.org/licenses/MIT,library=okhttp-gson,dateLibrary=java8,hideGenerationTimestamp=true
+
+    # The Java template writes a Maven pom *and* a Gradle build *and* an SBT
+    # build, plus the CI configs and release helper for shipping the client as
+    # its own project. CI can only verify one of them, and an unverified build
+    # file is a promise this repository does not keep, so Maven stays and the
+    # rest goes. The generated `test/` tree goes for the same reason it does in
+    # the Go and Python clients: nothing here runs it. (Java keeps its tests
+    # under `src/test`, which is why that path is removed rather than `test/`.)
+    rm -rf "$out/test" \
+      "$out/src/test" \
+      "$out/build.gradle" \
+      "$out/build.sbt" \
+      "$out/settings.gradle" \
+      "$out/gradlew" \
+      "$out/gradlew.bat" \
+      "$out/gradle" \
+      "$out/gradle.properties" \
+      "$out/git_push.sh" \
+      "$out/.travis.yml" \
+      "$out/.gitlab-ci.yml" \
+      "$out/.github"
+
+    # The Java template ignores --git-user-id/--git-repo-id and hard-codes the
+    # upstream project into the pom's url and scm block, which would point users
+    # at OpenAPI Generator's repository instead of this one.
+    perl -pi -e 's{openapitools/openapi-generator}{ilh-github/go-remote-next}g' "$out/pom.xml"
+    ;;
   *)
-    echo "unknown language '$lang': expected typescript-fetch, go or python" >&2
+    echo "unknown language '$lang': expected typescript-fetch, go, python or java" >&2
     exit 2
     ;;
 esac

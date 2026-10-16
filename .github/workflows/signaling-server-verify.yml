@@ -87,6 +87,9 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+          # The Java client is built below, so the local Maven repository is
+          # worth caching; without it each run re-downloads the plugin tree.
+          cache: maven
       - uses: actions/setup-go@v5
         with:
           # The nested Go client module has its own go.mod; it is deliberately
@@ -98,6 +101,7 @@ jobs:
           ./scripts/sdk/check-generated-sdk.sh
           ./scripts/sdk/check-generated-sdk.sh go
           ./scripts/sdk/check-generated-sdk.sh python
+          ./scripts/sdk/check-generated-sdk.sh java
       - name: Generated Go client vets and compiles
         # `go vet ./...` type-checks the hand-written examples/ package too, so a
         # change to the client's API surface that the example no longer matches
@@ -118,6 +122,13 @@ jobs:
         run: |
           pip install --quiet -r requirements.txt
           python -c "import quickdesk_signaling; from quickdesk_signaling.api import auth_api, devices_api, me_api, notifications_api, recordings_api; print('imported', len(quickdesk_signaling.__all__), 'symbols')"
+      - name: Generated Java client builds
+        # Maven only, on purpose: the generate script drops the Gradle and SBT
+        # builds so this repository verifies exactly one of them. `-DskipTests`
+        # because the generated JUnit tree is removed - the live smoke is what
+        # covers behaviour.
+        working-directory: sdk/java
+        run: mvn -B -q --no-transfer-progress -DskipTests package
       - uses: actions/setup-node@v4
         with:
           node-version: '20'

@@ -27,22 +27,24 @@ approval rows** on the smoke device - one approved and consumed, one denied
 - because a decision is history and the flow is auditable precisely by
 leaving it.
 
-Three generated clients are committed - **TypeScript** under `sdk/ts`,
-**Go** under `sdk/go` and **Python** under `sdk/python` - and all three are
-kept in step with this file by `scripts/sdk/check-generated-sdk.sh`, which CI
-runs: an edit here without a regenerated client fails the build. Regenerate
-them with `scripts/sdk/generate-client.sh sdk/ts`,
-`scripts/sdk/generate-client.sh sdk/go go` and
-`scripts/sdk/generate-client.sh sdk/python python` (a pinned
-openapi-generator jar, so local and CI output are byte-identical); the script
-takes the language as its last argument. Each generated client carries one
-hand-written `examples/` directory - the CI smoke job runs both the Go and
-the Python one against a live server - and that directory is excluded from
-the freshness comparison. For a fourth language, use the generator directly,
-for example:
+Four generated clients are committed - **TypeScript** under `sdk/ts`,
+**Go** under `sdk/go`, **Python** under `sdk/python` and **Java** under
+`sdk/java` - and all four are kept in step with this file by
+`scripts/sdk/check-generated-sdk.sh`, which CI runs: an edit here without a
+regenerated client fails the build. Regenerate them with
+`scripts/sdk/generate-client.sh sdk/ts`,
+`scripts/sdk/generate-client.sh sdk/go go`,
+`scripts/sdk/generate-client.sh sdk/python python` and
+`scripts/sdk/generate-client.sh sdk/java java` (a pinned openapi-generator
+jar, so local and CI output are byte-identical); the script takes the
+language as its last argument. The Go and Python clients each carry a
+hand-written `examples/` directory that the CI smoke job runs against a live
+server, and those directories are excluded from the freshness comparison;
+the Java client is compiled by Maven in CI. For a fifth language, use the
+generator directly, for example:
 
     npx @openapitools/openapi-generator-cli generate \\
-      -i SignalingServer/api/openapi.yaml -g java -o sdk/java
+      -i SignalingServer/api/openapi.yaml -g csharp -o sdk/csharp
 
 All non-2xx responses are RFC 7807 problem details with
 `Content-Type: application/problem+json`.

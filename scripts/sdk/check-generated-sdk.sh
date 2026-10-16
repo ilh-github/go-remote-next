@@ -2,7 +2,8 @@
 # Fails when a committed client no longer matches what the spec generates.
 #
 # Usage: check-generated-sdk.sh [language]
-#   language defaults to typescript-fetch; `go` checks sdk/go, `python` sdk/python.
+#   language defaults to typescript-fetch; `go` checks sdk/go, `python`
+#   sdk/python, `java` sdk/java.
 #
 # This is the gate that keeps `SignalingServer/api/openapi.yaml` and `sdk/ts`
 # from drifting: a spec edit without a regenerated client fails here, and so does
@@ -22,8 +23,11 @@ case "$lang" in
   python)
     committed="$root/sdk/python"
     ;;
+  java)
+    committed="$root/sdk/java"
+    ;;
   *)
-    echo "unknown language '$lang': expected typescript-fetch, go or python" >&2
+    echo "unknown language '$lang': expected typescript-fetch, go, python or java" >&2
     exit 2
     ;;
 esac
@@ -47,12 +51,13 @@ echo "generating a fresh $lang client to compare against ${committed#"$root"/}..
 #                     local Python state, for the same reason as node_modules.
 #                     (`build` and the egg-info tree are what `pip install .`
 #                     leaves behind in the source directory.)
+#   target            what `mvn package` leaves behind in the Java client.
 #   examples          the Go client's hand-written usage example, which the CI
 #                     smoke job runs against a live server. It is the only file
 #                     under sdk/ that is not generated, and excluding it here is
 #                     what keeps that distinction honest.
 if ! diff -r -x FILES -x node_modules -x dist -x package-lock.json \
-     -x __pycache__ -x '*.egg-info' -x build -x .venv -x examples \
+     -x __pycache__ -x '*.egg-info' -x build -x .venv -x target -x examples \
      "$committed" "$fresh/out"; then
   echo
   echo "${committed#"$root"/} is stale: run scripts/sdk/generate-client.sh and commit the result." >&2
