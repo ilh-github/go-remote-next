@@ -14,10 +14,10 @@ rationale for every decision is in
 [`SignalingServer/api/openapi.yaml`](../api/openapi.yaml) is an OpenAPI 3.1
 contract for the stable, integrator-facing subset of this API (authenticate,
 enumerate devices, verify an access code, and manage the access policy, guest
-access codes, approvals, offline-alert rule and notification channels) —
-generate a client in any language from it. It covers a documented subset rather
-than every route: operations are added as they are pinned by a conformance
-check, which is
+access codes, approvals, offline-alert rule, notification channels and the
+session-recording index) — generate a client in any language from it. It covers
+a documented subset rather than every route: operations are added as they are
+pinned by a conformance check, which is
 [`scripts/sdk/openapi-smoke.mjs`](../../scripts/sdk/openapi-smoke.mjs). That
 script calls the documented operations against a running server and asserts the
 fields the spec promises, so a rename or shape change fails the check instead of
@@ -892,6 +892,14 @@ recording engine owns the artifact and reports its metadata through
 `POST /v1/me/recordings/:id/artifact` and read back through the matching `GET`
 route — there is deliberately **no static directory mount**, every download is
 ownership-checked.
+
+`GET /v1/me/recordings` is cursor-paginated: it returns
+`{items, next_cursor}` newest-first, `limit` defaults to `50` and caps at `200`,
+and the envelope carries **no** `total` because the endpoint does not count the
+whole set on every page. Follow `next_cursor` until it is absent rather than
+trusting a count. This list endpoint is the one recordings route pinned by the
+machine-readable contract (`/v1/me/recordings` in `api/openapi.yaml`); the
+artifact/thumbnail routes and the write verbs are not in the contract yet.
 
 Signed playback links: `<video src>`, `window.open` and `<a download>` cannot
 carry an `Authorization` header, so those two routes have ticket variants.

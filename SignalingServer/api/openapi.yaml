@@ -170,6 +170,41 @@ paths:
                 $ref: '#/components/schemas/NotificationChannelList'
         '401':
           $ref: '#/components/responses/Unauthorized'
+  /v1/me/recordings:
+    get:
+      tags: [recordings]
+      summary: The caller's session-recording index
+      operationId: listSessionRecordings
+      description: |
+        Cursor-paginated, newest first. `next_cursor` is opaque: pass it back
+        as `?cursor=` to fetch the next page and stop when it is absent. The
+        envelope here has no `total` because this endpoint does not count the
+        whole set on every page, so an integrator must page until
+        `next_cursor` is empty rather than trusting a count. This is the
+        metadata index only; the media bytes live behind the per-recording
+        `.../artifact` routes documented in `docs/user-api-docs.md`.
+      parameters:
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: One page of the caller's recordings, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionRecordingList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
   /v1/devices/{device_id}/access-code:verify:
     parameters:
       - $ref: '#/components/parameters/DeviceId'
@@ -1009,4 +1044,95 @@ components:
           type: string
           description: A stable machine-readable code, e.g. `INVALID_CODE` or `RATE_LIMITED`.
         trace_id:
+          type: string
+    SessionRecording:
+      type: object
+      description: |
+        One indexed recording. The row is the control-plane metadata; the media
+        artifact is produced by the control engine and fetched through the
+        artifact routes. `artifact_path` is a server-side path and is not a
+        download URL - clients should call `.../artifact-ticket` and use the
+        URL they get back.
+      required:
+        - id
+        - user_id
+        - device_id
+        - device_name
+        - session_id
+        - status
+        - format
+        - artifact_path
+        - artifact_url
+        - thumbnail_path
+        - thumbnail_url
+        - duration_seconds
+        - size_bytes
+        - started_at
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: integer
+        user_id:
+          type: integer
+        device_id:
+          type: string
+        device_name:
+          type: string
+        session_id:
+          type: string
+        status:
+          type: string
+          enum: [recording, completed, failed]
+          description: |
+            `recording` while the capture is in progress, then `completed` or
+            `failed`. A stale `recording` row is swept to `failed` by the
+            recording lifecycle worker.
+        format:
+          type: string
+          description: Container/codec hint, e.g. `mp4`, `h264`, `grf`.
+        artifact_path:
+          type: string
+          description: Server-side stored path; not a client-fetchable URL.
+        artifact_url:
+          type: string
+        thumbnail_path:
+          type: string
+        thumbnail_url:
+          type: string
+        duration_seconds:
+          type: integer
+        size_bytes:
+          type: integer
+          format: int64
+        started_at:
+          type: string
+          format: date-time
+        ended_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        user:
+          type: object
+          description: |
+            The owning user, present when the server eager-loads it. Optional -
+            clients must not depend on this being present.
+    SessionRecordingList:
+      type: object
+      description: |
+        Cursor page of recordings. `next_cursor` is absent on the last page;
+        `total` is intentionally absent because this endpoint does not count the
+        whole set per page.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SessionRecording'
+        next_cursor:
           type: string

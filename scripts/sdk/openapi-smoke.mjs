@@ -210,6 +210,32 @@ if (Array.isArray(deniedSources) && deniedSources.length > 0) {
 const badSince = await call('GET', `/v1/me/devices/${deviceId}/access-approvals:summary?since=nope`, { token, expect: 400 });
 problemShape(badSince.json, 'GET access-approvals:summary (bad since)');
 
+// 10. GET /v1/me/recordings (cursor-paginated index)
+const recordings = await call('GET', '/v1/me/recordings', { token, expect: 200 });
+const recordingItems = field(recordings.json, 'items', 'object', 'GET /v1/me/recordings');
+check(Array.isArray(recordingItems), 'GET /v1/me/recordings: items is not an array');
+// The spec deliberately documents no `total` here (the endpoint does not count
+// the whole set per page), so a new `total` field is a contract change.
+check(!('total' in recordings.json),
+  'GET /v1/me/recordings: envelope carries total, but the spec documents no count on this endpoint');
+if ('next_cursor' in recordings.json) {
+  field(recordings.json, 'next_cursor', 'string', 'GET /v1/me/recordings');
+}
+if (Array.isArray(recordingItems) && recordingItems.length > 0) {
+  const rec = recordingItems[0];
+  for (const name of ['id', 'user_id', 'device_id', 'device_name', 'session_id', 'status', 'format',
+    'artifact_path', 'artifact_url', 'thumbnail_path', 'thumbnail_url', 'duration_seconds',
+    'size_bytes', 'started_at', 'created_at', 'updated_at']) {
+    field(rec, name, undefined, 'SessionRecording');
+  }
+  check(['recording', 'completed', 'failed'].includes(rec.status),
+    `SessionRecording.status is "${rec.status}", spec enumerates recording/completed/failed`);
+}
+const recLimited = await call('GET', '/v1/me/recordings?limit=1', { token, expect: 200 });
+const recLimitedItems = field(recLimited.json, 'items', 'object', 'GET /v1/me/recordings?limit=1');
+check(Array.isArray(recLimitedItems) && recLimitedItems.length <= 1,
+  'GET /v1/me/recordings?limit=1 returned more than one item');
+
 if (smokeDevice) {
   // 6. PUT the rule back unchanged, then restore the prior state exactly.
   const putBody = {
