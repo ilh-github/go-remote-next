@@ -164,6 +164,9 @@ func (s *UserDeviceGroupService) Delete(ctx context.Context, userID, groupID uin
 
 func (s *UserDeviceGroupService) ReplaceDevices(ctx context.Context, userID, groupID uint, deviceIDs []string) (*UserDeviceGroupView, error) {
 	deviceIDs = normalizeDeviceIDs(deviceIDs)
+	if len(deviceIDs) > 500 {
+		return nil, fmt.Errorf("%w: a group cannot contain more than 500 devices", ErrUserDeviceGroupInvalid)
+	}
 	var out *UserDeviceGroupView
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		group, err := findUserDeviceGroup(tx, userID, groupID)

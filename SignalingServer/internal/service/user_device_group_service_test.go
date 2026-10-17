@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"strconv"
 	"testing"
 
 	"quickdesk/signaling/internal/models"
@@ -207,6 +208,25 @@ func TestUserDeviceGroupUpdateAndDeleteAreOwnerScoped(t *testing.T) {
 	}
 }
 
+func TestUserDeviceGroupRejectsMoreThan500DeviceIDs(t *testing.T) {
+	db := newUserDeviceGroupTestDB(t)
+	ctx := context.Background()
+	svc := NewUserDeviceGroupService(db)
+	const userA = uint(991417)
+	seedUserDeviceGroupUser(t, db, userA, "device-group-limit")
+	group, err := svc.Create(ctx, userA, UserDeviceGroupInput{Name: "Too large"})
+	if err != nil {
+		t.Fatalf("create group: %v", err)
+	}
+	deviceIDs := make([]string, 501)
+	for i := range deviceIDs {
+		deviceIDs[i] = "88" + strconv.Itoa(1000000+i)
+	}
+	if _, err := svc.ReplaceDevices(ctx, userA, group.ID, deviceIDs); !errors.Is(err, ErrUserDeviceGroupInvalid) {
+		t.Fatalf("501-device replace error = %v, want %v", err, ErrUserDeviceGroupInvalid)
+	}
+}
+
 func TestTakeoverRemovesDeviceFromPreviousOwnersGroups(t *testing.T) {
 	db := newUserDeviceGroupTestDB(t)
 	ctx := context.Background()
@@ -242,5 +262,38 @@ func TestTakeoverRemovesDeviceFromPreviousOwnersGroups(t *testing.T) {
 	}
 	if len(got[0].DeviceIDs) != 0 {
 		t.Fatalf("old-owner group still contains %v after takeover", got[0].DeviceIDs)
+	}
+}
+
+func TestUnbindRemovesDeviceFromOwnersGroups(t *testing.T) {
+	db := newUserDeviceGroupTestDB(t)
+	ctx := context.Background()
+	groups := NewUserDeviceGroupService(db)
+	devices := NewDeviceService(repository.NewDeviceRepository(db), NewDeviceSecretService())
+
+	const (
+		ownerID  = uint(991461)
+		deviceID = "885000461"
+	)
+	seedUserDeviceGroupUser(t, db, ownerID, "device-group-unbind-owner")
+	seedUserDeviceGroupDevice(t, db, deviceID, "uuid-device-group-unbind", "unbind-device", ownerID)
+
+	group, err := groups.Create(ctx, ownerID, UserDeviceGroupInput{Name: "Bound"})
+	if err != nil {
+		t.Fatalf("create group: %v", err)
+	}
+	if _, err := groups.ReplaceDevices(ctx, ownerID, group.ID, []string{deviceID}); err != nil {
+		t.Fatalf("add device: %v", err)
+	}
+	if err := devices.UnbindFromUser(ctx, deviceID, ownerID); err != nil {
+		t.Fatalf("unbind device: %v", err)
+	}
+
+	got, err := groups.List(ctx, ownerID)
+	if err != nil {
+		t.Fatalf("list groups: %v", err)
+	}
+	if len(got) != 1 || len(got[0].DeviceIDs) != 0 {
+		t.Fatalf("group after unbind = %+v, want no members", got)
 	}
 }
