@@ -2,6 +2,7 @@ import { createRouter, createWebHashHistory } from 'vue-router'
 import RemotePage from '../views/RemotePage.vue'
 import DevicesPage from '../views/DevicesPage.vue'
 import RecordingsPage from '../views/RecordingsPage.vue'
+import SessionsPage from '../views/SessionsPage.vue'
 import WallPage from '../views/WallPage.vue'
 import AccountPage from '../views/AccountPage.vue'
 import SettingsPage from '../views/SettingsPage.vue'
@@ -13,6 +14,7 @@ const routes = [
   { path: '/remote', component: RemotePage },
   { path: '/devices', component: DevicesPage },
   { path: '/recordings', component: RecordingsPage },
+  { path: '/sessions', component: SessionsPage },
   { path: '/wall', component: WallPage },
   { path: '/account', component: AccountPage },
   { path: '/settings', component: SettingsPage },

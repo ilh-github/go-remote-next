@@ -394,6 +394,41 @@ class UserApi {
   }
 
   // ========================================================================
+  // Remote sessions — the control plane's record of who is in the caller's
+  // machines right now and who has been. One row is one controller's signaling
+  // socket: it opens on auth_ok and closes when that socket ends, so it is the
+  // only place "who is in right now" can be answered from.
+  // ========================================================================
+
+  fetchRemoteSessions({ status, deviceId, cursor, limit } = {}) {
+    const params = new URLSearchParams()
+    if (status && status !== 'all') params.set('status', status)
+    if (deviceId) params.set('device_id', deviceId)
+    if (cursor) params.set('cursor', cursor)
+    if (limit) params.set('limit', String(limit))
+    const q = params.toString()
+    return this._req('GET', `/v1/me/remote-sessions${q ? `?${q}` : ''}`)
+  }
+
+  fetchRemoteSession(sessionId) {
+    return this._req('GET', `/v1/me/remote-sessions/${encodeURIComponent(sessionId)}`)
+  }
+
+  // Closing the socket is what ends the session; the row is stamped
+  // `end_reason=revoked` by that teardown. The server waits for the row before
+  // answering, so a 200 here means the controller really is out.
+  revokeRemoteSession(sessionId) {
+    return this._req('POST', `/v1/me/remote-sessions/${encodeURIComponent(sessionId)}/revoke`)
+  }
+
+  // "Clear this machine": every live controller on the device in one call. The
+  // answer is a report ({revoked, failed, truncated, sessions}) rather than a
+  // boolean, because one unreachable session must not hide the others.
+  revokeDeviceSessions(deviceId) {
+    return this._req('POST', `/v1/me/devices/${encodeURIComponent(deviceId)}/sessions:revoke`)
+  }
+
+  // ========================================================================
   // Session recordings — user-owned index of recorded remote sessions.
   // The control plane owns discovery/ownership/lifecycle metadata; media
   // bytes are produced by the recording engine, so playback/download use
