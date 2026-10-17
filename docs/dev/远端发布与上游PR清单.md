@@ -123,6 +123,10 @@
 - QD-214 已开始用 Windows 服务模式复现上传失败；当前在线 Host 为
   `256983850`，下一步必须取得真实 `fileTransferError`、宿主日志和目录/磁盘/权限证据，
   根因确认前不修改文件传输实现。
+- QD-214 前置联调实测（2026-10-17 18:23 CST）：WebClient 以生产构建连接
+  `256983850`，信令 WebSocket 已返回 `auth_ok`，但 Host 随后发送
+  `session-terminate`，原因为 `decline Verification hash mismatched.`；当前尚未进入
+  DataChannel 和文件上传阶段。必须先解释这条 SPAKE2 认证差异，不能用错误提示掩盖。
 
 ## 1. 推送前检查
 
