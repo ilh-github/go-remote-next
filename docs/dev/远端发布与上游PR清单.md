@@ -7,7 +7,7 @@
 
 ## 当前本地基线
 
-- fork 主干：本轮代码基线为 `3f94911`（QD-610 持久化触发器与 interval worker）；本文件
+- fork 主干：本轮代码基线为 `e518194`（QD-610 Idempotency-Key 与持久化重放）；本文件
   后续 docs-only 提交可能让实际 HEAD 再前进，推送前仍以 `git rev-parse` 为准
 - fork 远端：`origin/dev`、`origin/master` 仍为 `f6651f0`；本地 `dev` 领先数量以
   `git rev-list --count origin/dev..dev` 为准，远端写入尚未完成
@@ -70,8 +70,9 @@
 - QD-610 本机业务 HTTP trigger：fork 提交 `bca8149`，MCP 23/23、Clippy 和 release
   构建通过；通用 MCP 部分已准备 stacked 候选
   `codex/upstream-qd-610-business-trigger` = `28af02c`，基于 QD-510 候选 `0a9ecd5`；
-  后续持久化 trigger 提交 `3f94911` 已叠加，候选代码推进到 `41efb39`；事件订阅、
-  cron/日历和出站回调仍留在 fork 后续阶段
+  后续持久化 trigger 提交 `3f94911` 已叠加，候选代码推进到 `41efb39`；fork 主线
+  `e518194` 又补了可叠加的 Idempotency-Key 持久化重放。事件订阅、cron/日历、
+  异步队列/取消和出站回调仍留在 fork 后续阶段
 - fork PR #1：<https://github.com/ilh-github/go-remote-next/pull/1>，
   OPEN / MERGEABLE / CLEAN，7 项检查全部成功
 - upstream PR #25：<https://github.com/barry-ran/QuickDesk/pull/25>
