@@ -43,7 +43,7 @@
 - 上游基线：`barry-ran/QuickDesk` 的 `dev` 和 `master` 当前均为 `f6651f0`
 - 上游维护口径：持续维护但暂缓更新，下一阶段重点偏 MCP；外部贡献从 `dev` 切分支，完成后合入 `dev`，维护者定期合入 `master`
 - Remoting 边界：`quickdesk-remoting` 需要编译整个 Chromium，涉及 Remoting 的改动优先向上游提需求，不要求贡献者本地编译
-- 当前功能基线：`74c7022`（QD-508 Qt 录像回放页）
+- 当前功能基线：`b013a62`（QD-204 Qt 私密设备分组）
 - 本次上游对账父提交：`3def9ce`；该提交已经包含上述功能与文档收口
 - 本轮合并：`2f61f8e`（QD-003 多标签控制与音频抢占）
 - 本轮功能：`a48d793`（QD-114 Qt/Windows 服务 SPKI 公网自托管兼容）
@@ -52,6 +52,10 @@
 - 本轮功能：`42b6c61`（QD-708 Qt 计划任务管理页）
 - 本轮功能：`dbd828f`（QD-708 Qt 通知规则页）
 - 本轮功能：`74c7022`（QD-508 Qt 录像回放页）
+- 本轮功能：`f270487`（QD-204 owner-scoped 设备分组 API、OpenAPI 与四套 SDK）
+- 本轮功能：`b1a1155`（QD-204 WebClient 设备分组用户入口）
+- 本轮功能：`162ac6e`（QD-204 成员上限、迁移字段对齐与解绑清理测试）
+- 本轮功能：`b013a62`（QD-204 Qt 设备分组用户入口）
 - 服务端：Go SignalingServer
 - 桌面客户端：Qt 6 + QML
 - Web 客户端：Vue 3 外壳 + 原生 `remote.html`
@@ -74,13 +78,13 @@
 最近验证：
 
 - 上游核对：`upstream/dev` 与 `upstream/master` 均为 `f6651f0`；当前上游 open issues 10 个、open PR 4 个。
-- 清单统计：115 个唯一 QD ID；69 个 `[x]`、22 个 `[~]`、19 个 `[ ]`、
+- 清单统计：115 个唯一 QD ID；70 个 `[x]`、21 个 `[~]`、19 个 `[ ]`、
   2 个 `[!]`、2 个 `[>]`、1 个 `[-]`。
 - 上游待办已全部映射到本清单：10 个 open issue、4 个 open PR、3 个未完成 Roadmap
   项均有对应 QD、处理边界和上游贡献方式；上游已完成的 Roadmap 项只作为继承基线，
   不重复开发。
-- WebClient `npm test`：29/29 通过。
-- WebClient `npm run build`：通过，JS 348.48 kB，gzip 112.80 kB。
+- WebClient `npm test`：34/34 通过。
+- WebClient `npm run build`：通过，JS 362.03 kB，gzip 116.68 kB。
 - Chrome 同源双标签实测：后开标签接管控制后，前一个标签释放控制；接管音频后，前一个标签释放音频。
 - QD-114 SPKI 纯 C++ 单测：通过；覆盖标准/URL-safe Base64、无 padding、重复项、
   非法项和 Chromium 参数构造。
@@ -133,10 +137,18 @@
   应用内播放/暂停/停止、外部打开、删除、实时事件刷新和分页加载更多。
 - QD-508 测试：`quickdesk_recording_manager_test` 覆盖录像列表和游标、播放/缩略图
   票据 URL 解析、删除、分页追加和录像实时刷新信号。
-- QuickDesk 当前 10/10 CTest 通过（SPKI、更新解析、更新 HTTP 集成、设备显示 QML、
+- QD-204 功能提交：`f270487`、`b1a1155`、`162ac6e`、`b013a62`。服务端新增
+  `user_device_groups` / `user_device_group_members` 和 `/v1/me/device-groups`
+  五个接口；WebClient 和 Qt 均有分组筛选、CRUD、颜色/描述、成员整体替换和失败回滚；
+  分组只包含当前用户名下设备，同一用户内名称唯一、跨用户可同名，单组成员上限 500。
+- QD-204 验证：全新 PostgreSQL 从零执行 `001_init.sql` 通过；全量 Go 测试
+  `-p 1 -count=1` 通过；四套 SDK freshness 和编译检查通过；真实 SignalingServer
+  `openapi-smoke.mjs` 输出 `PASS: 388 documented assertions`；WebClient 34/34 与生产构建
+  通过；Qt 完整构建、11/11 CTest、新弹窗 lint、双语 764/764 和离屏启动通过。
+- QuickDesk 当前 11/11 CTest 通过（SPKI、更新解析、更新 HTTP 集成、设备显示 QML、
   访问码回源集成、访问审批管理集成、远程会话实时事件、计划任务管理、通知规则管理、
-  录像回放管理）；双语 `.ts` 各 736 条完成、0 unfinished。
-- WebClient 当前 29/29 测试通过；生产构建 JS 348.48 kB、gzip 112.80 kB。
+  录像回放管理、设备分组管理）；双语 `.ts` 各 764 条完成、0 unfinished。
+- WebClient 当前 34/34 测试通过；生产构建 JS 362.03 kB、gzip 116.68 kB。
 - `git diff --check`：通过。
 - 远端推送仍被当前执行策略拒绝，本地 `dev` 尚未同步到 GitHub。
 
@@ -153,7 +165,7 @@
 | 上游同步 | PR #25 自托管控制面、OpenAPI、SDK | `Upstream` / QD-101~110、201~211、501、601~608、801~808 | 当前控制面总集；维护者可接受继续拆 PR | 等审查；若维护者要求，按 access / alerting / recording / operations / update 拆 |
 | 已完成 | QD-708 Qt 通知规则页 | `Fork` / `Upstream` 通用能力 | 通知通道、静默时段、设备离线告警、投递重试/确认和实时刷新已完成，提交 `dbd828f` | PR #25 合并后拆成通用 Qt 管理面候选并提交上游 |
 | 已完成 | QD-508 Qt 录像回放页 | `Legacy` / `Upstream` PR #23 | Qt 录像列表、分页、缩略图、应用内播放、外部打开和删除已完成，提交 `74c7022` | PR #23 合并后作为通用 Qt 管理面候选提交上游 |
-| 立即排期 | QD-204 地址簿与设备分组用户入口 | `Legacy` / `Upstream` Roadmap | 管理后台有基础，用户端仍不完整；上游明确列为未完成 | 先做最小地址簿/分组用户流程，作为独立上游候选，不混入控制面巨型 PR |
+| 已完成 | QD-204 地址簿与设备分组用户入口 | `Legacy` / `Upstream` Roadmap | owner-scoped API、四套 SDK、WebClient 和 Qt 已完成；真实 service smoke 388 条断言通过 | 等 PR #25 的控制面基线确认后，拆成服务端/API/SDK 与客户端两个最小上游 PR |
 | 本地收口 | QD-607 计划任务执行动作 | `Fork` / `Legacy` | 服务端调度、Web/Qt 管理面、重试已完成；只有 `sign_out_all_sessions` | 先定义“定时连接”和“批量运维”协议及回执；kind 仍以服务端注册表为权威 |
 | 本地收口 | QD-005 / QD-808 自动更新真机验证 | `Fork` / `Legacy` / `Upstream` PR #25 | 检查、下载、SHA-256、安装入口已完成 | 补 Windows 安装包升级/重启、macOS DMG 替换、签名和公证回归；PR #25 合并后再拆上游 |
 | 上游候选 | QD-003 多标签控制与音频抢占 | `Legacy` / `Upstream` Roadmap 补强 | 候选 `codex/upstream-cross-tab-coordination` = `6047615`，仅 WebClient 改动 | 远端写入恢复后推送并建 PR；补截图和同源双标签验证说明 |
@@ -200,7 +212,7 @@
 | QD-201 | 设备 ID、设备密钥、自动 provisioning | `[x]` | Host 自动注册 |
 | QD-202 | Pair Code / 设备绑定 | `[x]` | 用户绑定与解绑 |
 | QD-203 | 设备列表、收藏、最近连接 | `[x]` | WebClient 和 Qt 均有入口 |
-| QD-204 | 设备分组与批量操作 | `[~]` | 上游 Roadmap 的 Address book & device groups；管理后台已有基础，用户端入口仍可补 |
+| QD-204 | 地址簿与设备分组 | `[x]` | 上游 Roadmap 的 Address book & device groups；owner-scoped API/SDK、WebClient、Qt、成员整体替换、500 上限和绑定生命周期清理均已完成，提交 `f270487`、`b1a1155`、`162ac6e`、`b013a62` |
 | QD-205 | 在线状态与心跳 | `[x]` | Redis presence + heartbeat |
 | QD-206 | 连接历史与快速连接 | `[x]` | 上游 `dev` 与 fork 都已有 `ConnectionHistory` 和连接历史 UI；issue #18 看起来已过期，先验证再关闭，不重复实现 |
 | QD-207 | 会话创建、运行、结束、清理 | `[x]` | `remote_sessions` 控制面已落地 |
@@ -342,8 +354,8 @@
 
 1. **上游同步闸门**：持续跟踪 PR #22 / #23 / #24 / #25；已有 PR 的功能不重复实现。
    远端写入恢复后，先推送已准备好的 QD-003、QD-114、QD-212、QD-213、QD-214 最小候选。
-2. **补通用客户端闭环**：QD-204 地址簿/设备分组用户入口。该项不依赖 Remoting，
-   可作为 PR #25 合并后的独立上游候选。
+2. **把 QD-204 回馈上游**：PR #25 的控制面/ API 基线确认后，先推送 owner-scoped
+   服务端、OpenAPI 和 SDK 候选，再推送 Web/Qt 客户端候选；不把 fork 文档带入 PR。
 3. **补任务和更新真机链路**：QD-607 定时连接/批量运维动作，QD-005 / QD-808
    Windows 与 macOS 安装、重启、签名和公证验证，QD-215 Windows Qt 插件问题。
 4. **准备 Remoting 需求单**：QD-002 Web 文件操作通道、QD-004 / QD-505 Host 权威录制、
@@ -403,7 +415,7 @@ Remoting 或协议改造；`不重复` 表示上游已经具备，只需验证�
 | PR #23 会话录像与回放 | QD-501~509 | 等待同步 | `UP-PR#23` | 不重复提交；合并后回灌，Host 权威录制另走 Remoting |
 | PR #24 skill-host Windows 运行库 | QD-402、QD-609 | 等待同步 | `UP-PR#24` | 合并后同步，避免维护第二套 PATH/stderr 逻辑 |
 | PR #25 自托管控制面/OpenAPI/SDK | QD-101~110、201~211、501、601~608、801~808 | 等待审查 | `UP-PR#25` | 维护者要求时按 access/alerting/recording/ops/update 拆分 |
-| Roadmap: Address book & device groups | QD-204 | 立即排期 | `UP-Ready` | 先设计 owner-scoped 地址簿/分组 API，再分 Web/Qt 两阶段 |
+| Roadmap: Address book & device groups | QD-204 | 已完成，准备上游 | `UP-Ready` | API/SDK 与 Web/Qt 已验收；等 PR #25 基线确认后拆两个最小 PR |
 | Roadmap: Linux support | QD-318 | 暂缓 | `Upstream-Open` | 跟随上游，不把 Web 触摸或跨平台构建冒充 Linux 被控端 |
 | Roadmap: iOS / Android clients | QD-319 | 暂缓 | `Upstream-Open` | 当前 Web 触摸输入不等于原生客户端 |
 
@@ -461,7 +473,7 @@ Remoting 或协议改造；`不重复` 表示上游已经具备，只需验证�
 
 | 上游 Roadmap | 当前 fork | 状态 | 备注 |
 |---|---|---|---|
-| Address book & device groups | QD-204 | `[~]` | 管理后台已有基础，用户端地址簿/分组入口可做成上游通用能力 |
+| Address book & device groups | QD-204 | `[x]` | fork 已完成 owner-scoped API/SDK、Web/Qt 和真实 smoke；上游 Roadmap 仍未勾选，等待拆分 PR 回馈 |
 | Linux support | QD-318 | `[>]` | 上游已列计划，fork 暂缓；不能把 Linux 写成永久不做 |
 | iOS / Android clients | QD-319 | `[>]` | 上游已列计划，fork 暂缓；现有 Web 触摸输入不等于原生客户端 |
 | MCP / AI 自动化 | QD-609 | `[x]` | 上游当前最高优先级；我们的新增业务能力尽量不破坏 MCP 兼容 |

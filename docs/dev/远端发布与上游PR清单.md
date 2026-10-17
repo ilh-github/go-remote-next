@@ -7,7 +7,7 @@
 
 ## 当前本地基线
 
-- fork 主干：`dev` 已包含 QD-508 Qt 录像回放页及上游待办融合文档；具体 SHA 以
+- fork 主干：`dev` 已包含 QD-204 地址簿/设备分组、QD-508 Qt 录像回放页及上游待办融合文档；具体 SHA 以
   `git rev-parse HEAD` 为准
 - 功能分支：`codex/product-backlog` = `dea02f9`
 - 上游 QD-003 候选：`codex/upstream-cross-tab-coordination` = `6047615`（基于 `upstream/dev`）
@@ -71,6 +71,13 @@
 - Qt 新增录像回放页：服务端录像游标分页、缩略图票据、应用内播放/暂停/停止、外部打开、
   删除和 `recording.*` 实时刷新。提交 `74c7022` 已通过完整构建、10/10 CTest、
   双语 736/736、页面 lint 和离屏启动。
+- QD-204 新增 owner-scoped 地址簿：`user_device_groups`、成员表、五个
+  `/v1/me/device-groups` API、OpenAPI 和四套 SDK；WebClient 与 Qt 都有分组筛选、CRUD、
+  颜色/描述、成员整体替换和失败保留服务端状态。提交 `f270487`、`b1a1155`、
+  `162ac6e`、`b013a62`。
+- QD-204 已通过全新 PostgreSQL 从零迁移、全量 Go 测试、四套 SDK freshness/编译、
+  真实服务 `388` 条 contract smoke、WebClient 34/34 + 生产构建，以及 Qt 完整构建、
+  11/11 CTest、新弹窗 lint、双语 764/764 和离屏启动。
 
 ## 1. 推送前检查
 
@@ -98,6 +105,10 @@ git log --oneline --left-right origin/feat/signaling-control-plane...codex/upstr
 - `dev` 必须包含 `42b6c61`；
 - `dev` 必须包含 `dbd828f`；
 - `dev` 必须包含 `74c7022`；
+- `dev` 必须包含 `f270487`；
+- `dev` 必须包含 `b1a1155`；
+- `dev` 必须包含 `162ac6e`；
+- `dev` 必须包含 `b013a62`；
 - `codex/product-backlog` 必须包含 `dea02f9`；
 - `codex/upstream-access-bans` 必须包含 `b89c24c`；
 - `codex/upstream-qd-114-spki` 必须包含 `13559e6`；
