@@ -1140,9 +1140,8 @@ best-effort delivery; remote receivers must sit behind a TLS reverse proxy.
 
 The trigger is disabled when `QUICKDESK_TRIGGER_TOKEN` is empty, allows one workflow run per
 process at a time, and still enforces `QUICKDESK_ALLOWED_DEVICES`. Requests are synchronous;
-persistent interval triggers are executed by a background worker. Control-plane event
-subscriptions, callback outbox/retries and cross-process job recovery are not implemented yet.
-An optional
+persistent interval and control-plane event triggers are executed by a background worker.
+Callback outbox/retries and cross-process job recovery are not implemented yet. An optional
 `Idempotency-Key` persists and replays the first `WorkflowRunReport`; reusing a key for a
 different request, or while the original request is still running, returns 409.
 See `docs/dev/业务工作流HTTP触发器.md` for the complete contract.
@@ -1156,12 +1155,22 @@ DELETE /v1/triggers/{trigger_id}
 POST   /v1/triggers/{trigger_id}/run
 ```
 
-A trigger stores the workflow, device, default overrides and an optional `interval_seconds`
-(60 seconds to 365 days). The HTTP transport worker claims at most one due trigger every five
-seconds, advances `next_run_at` before execution, and writes the last run ID/status back to the
-definition. Control-plane events, cron/calendar rules, cross-process queue recovery and HMAC
-callbacks remain future work; the current job worker is single-process and does not resume an
-interrupted queue after restart.
+A trigger stores the workflow, device and default overrides, plus at least one of an
+`interval_seconds` schedule (60 seconds to 365 days) or an `event_type`; both may be used
+together. Event triggers may set `event_device_id` and a top-level `event_filter`; omitting the device defaults it to the
+workflow execution target for device-scoped events, while user-scoped scheduled-task failures
+remain unfiltered by device. The allowlist covers device online/offline, metric alerts, access
+approval and denial, remote sessions, recording lifecycle, and scheduled-task failure.
+
+Qt's `CloudDeviceManager` first applies the realtime snapshot/replay and `server_rev` ordering
+checks, normalizes `data.device_id` because the realtime envelope does not guarantee a
+top-level device field, then exposes the safe subset as `controlPlaneEvent` on the local
+WebSocket API. The MCP event worker matches type/device/filter and persists a claim before
+execution. The event `id` is the cross-restart idempotency key; legacy events without an ID
+fall back to `server_rev`. Event subscriptions are live-only: events consumed while the MCP
+process is down are not replayed. Cron/calendar rules, cross-process queue recovery, and
+callback outbox/retries remain future work; the current job worker is single-process and does
+not resume an interrupted queue after restart.
 
 ---
 
