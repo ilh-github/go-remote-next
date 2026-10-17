@@ -308,14 +308,17 @@ type ServerConfig struct {
 }
 
 type DatabaseConfig struct {
+	Driver   string `mapstructure:"driver"`
 	Host     string `mapstructure:"host"`
 	Port     int    `mapstructure:"port"`
 	User     string `mapstructure:"user"`
 	Password string `mapstructure:"password"`
 	DBName   string `mapstructure:"dbname"`
+	Path     string `mapstructure:"path"`
 }
 
 type RedisConfig struct {
+	Driver   string `mapstructure:"driver"`
 	Host     string `mapstructure:"host"`
 	Port     int    `mapstructure:"port"`
 	Password string `mapstructure:"password"`
@@ -340,11 +343,16 @@ func Load() *Config {
 	// Set defaults
 	viper.SetDefault("SERVER_HOST", "0.0.0.0")
 	viper.SetDefault("SERVER_PORT", 8000)
+	viper.SetDefault("DB_DRIVER", "postgres")
 	viper.SetDefault("DB_HOST", "localhost")
 	viper.SetDefault("DB_PORT", 5432)
 	viper.SetDefault("DB_USER", "quickdesk")
 	viper.SetDefault("DB_PASSWORD", "quickdesk123")
 	viper.SetDefault("DB_NAME", "quickdesk")
+	viper.SetDefault("DB_PATH", "./data/quickdesk.db")
+	// Empty means "derive from the database driver". SQLite defaults to the
+	// process-local Redis so one environment switch selects minimal mode.
+	viper.SetDefault("REDIS_DRIVER", "")
 	viper.SetDefault("REDIS_HOST", "localhost")
 	viper.SetDefault("REDIS_PORT", 6379)
 	viper.SetDefault("REDIS_PASSWORD", "")
@@ -504,19 +512,27 @@ func Load() *Config {
 		log.Printf("Loaded config from: %s", absPath)
 	}
 
+	databaseDriver := strings.ToLower(strings.TrimSpace(viper.GetString("DB_DRIVER")))
+	redisDriver := resolveRedisDriver(
+		databaseDriver,
+		viper.GetString("REDIS_DRIVER"),
+	)
 	cfg := &Config{
 		Server: ServerConfig{
 			Host: viper.GetString("SERVER_HOST"),
 			Port: viper.GetInt("SERVER_PORT"),
 		},
 		Database: DatabaseConfig{
+			Driver:   databaseDriver,
 			Host:     viper.GetString("DB_HOST"),
 			Port:     viper.GetInt("DB_PORT"),
 			User:     viper.GetString("DB_USER"),
 			Password: viper.GetString("DB_PASSWORD"),
 			DBName:   viper.GetString("DB_NAME"),
+			Path:     viper.GetString("DB_PATH"),
 		},
 		Redis: RedisConfig{
+			Driver:   redisDriver,
 			Host:     viper.GetString("REDIS_HOST"),
 			Port:     viper.GetInt("REDIS_PORT"),
 			Password: viper.GetString("REDIS_PASSWORD"),
@@ -644,9 +660,12 @@ func Load() *Config {
 	if cfg.Security.APIKey != "" {
 		apiKeyStatus = "enabled"
 	}
-	log.Printf("Loaded config: Server=%s:%d, DB=%s:%d/%s, ICE TURN=%d STUN=%d TTL=%ds, APIKey=%s, AllowedOrigins=%d, SMS=%v, AutoMigrate=%v, Pprof=%v, LogDir=%s",
+	log.Printf("Loaded config: Server=%s:%d, DB=%s %s:%d/%s path=%s, Redis=%s %s:%d, ICE TURN=%d STUN=%d TTL=%ds, APIKey=%s, AllowedOrigins=%d, SMS=%v, AutoMigrate=%v, Pprof=%v, LogDir=%s",
 		cfg.Server.Host, cfg.Server.Port,
+		cfg.Database.Driver,
 		cfg.Database.Host, cfg.Database.Port, cfg.Database.DBName,
+		cfg.Database.Path,
+		cfg.Redis.Driver, cfg.Redis.Host, cfg.Redis.Port,
 		len(cfg.Ice.TurnURLs), len(cfg.Ice.StunURLs), cfg.Ice.CredentialTTL,
 		apiKeyStatus, len(cfg.Security.AllowedOrigins), cfg.Sms.Enabled, cfg.Runtime.RunAutoMigrate, cfg.Runtime.PprofAddr != "", cfg.Runtime.LogDir)
 
@@ -660,6 +679,17 @@ func (c *DatabaseConfig) DSN() string {
 
 func (c *RedisConfig) Addr() string {
 	return fmt.Sprintf("%s:%d", c.Host, c.Port)
+}
+
+func resolveRedisDriver(databaseDriver, redisDriver string) string {
+	redisDriver = strings.ToLower(strings.TrimSpace(redisDriver))
+	if redisDriver != "" {
+		return redisDriver
+	}
+	if strings.EqualFold(strings.TrimSpace(databaseDriver), "sqlite") {
+		return "embedded"
+	}
+	return "redis"
 }
 
 func parseIceConfig() IceConfig {

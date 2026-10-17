@@ -67,11 +67,31 @@ func main() {
 	}
 
 	log.Println("Connecting to databases...")
-	db := database.InitPostgreSQL(cfg)
-	redisClient := database.InitRedis(cfg)
+	db, err := database.OpenDatabase(cfg)
+	if err != nil {
+		log.Fatalf("Failed to connect to database: %v", err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		log.Fatalf("Failed to get database instance: %v", err)
+	}
+	defer func() { _ = sqlDB.Close() }()
 
-	if cfg.Runtime.RunAutoMigrate {
-		log.Println("Running AutoMigrate (schema source of truth is migrations/001_init.sql)...")
+	redisRuntime, err := database.InitRedisRuntime(cfg)
+	if err != nil {
+		log.Fatalf("Failed to initialize Redis: %v", err)
+	}
+	defer func() { _ = redisRuntime.Close() }()
+	redisClient := redisRuntime.Client
+
+	minimalMode := cfg.Database.Driver == "sqlite"
+	autoMigrate := cfg.Runtime.RunAutoMigrate || minimalMode
+	if minimalMode {
+		log.Printf("Minimal self-hosted mode: DB_DRIVER=sqlite REDIS_DRIVER=%s; only one server instance is supported", cfg.Redis.Driver)
+	}
+
+	if autoMigrate {
+		log.Println("Running AutoMigrate (PostgreSQL schema source of truth is migrations/001_init.sql)...")
 		// Migrated one model at a time on purpose. AutoMigrate returns on the
 		// first failure, so a single table that cannot be altered (a new
 		// NOT NULL column over rows that are still NULL is the usual cause)
@@ -111,7 +131,9 @@ func main() {
 		}
 		// AutoMigrate manages columns, not expression indexes; the log search
 		// indexes are ensured separately and may legitimately be unavailable.
-		database.EnsureLogSearchIndexes(context.Background(), db)
+		if !minimalMode {
+			database.EnsureLogSearchIndexes(context.Background(), db)
+		}
 	} else {
 		log.Println("AutoMigrate disabled (set RUN_AUTO_MIGRATE=true to enable).")
 	}
@@ -257,8 +279,12 @@ func main() {
 		log.Printf("Recording lifecycle: stale_after=%dm retention_days=%d sweep_interval=%dm",
 			cfg.Recording.StaleMinutes, cfg.Recording.RetentionDays, cfg.Recording.SweepIntervalMin)
 	}
-	go notificationDeliveryService.Run(context.Background())
-	if cfg.Notification.SweepIntervalMin > 0 &&
+	if !minimalMode {
+		go notificationDeliveryService.Run(context.Background())
+	} else {
+		log.Println("Minimal mode: user notification delivery worker is disabled")
+	}
+	if !minimalMode && cfg.Notification.SweepIntervalMin > 0 &&
 		(cfg.Notification.RetentionDays > 0 || cfg.Notification.ArchiveRetentionDays > 0) {
 		go notificationDeliveryService.RunRetention(
 			context.Background(),
@@ -327,7 +353,7 @@ func main() {
 	// all: the store is the database. Lines logged before this point - the
 	// startup banner included - are only in the local file, which the docs say.
 	var instanceLogSink *service.InstanceLogSink
-	if cfg.InstanceLog.Sink {
+	if cfg.InstanceLog.Sink && !minimalMode {
 		instanceLogSink = service.NewInstanceLogSink(db, instanceID)
 		observability.AttachLogSink(instanceLogSink)
 		go instanceLogSink.Run(context.Background())
@@ -353,6 +379,8 @@ func main() {
 			log.Printf("Instance log aggregation: tailing %s (source=%s) from the end of the file",
 				followed.path, followed.source)
 		}
+	} else if cfg.InstanceLog.Sink {
+		log.Println("Minimal mode: instance log shipping is disabled")
 	}
 	smsService := service.NewSmsService(redisClient, settingsService)
 	auditService := service.NewAuditService(db).
@@ -394,20 +422,24 @@ func main() {
 		models.ScheduledTaskSignOutAllSessions,
 		service.NewSignOutAllSessionsAction(tokenService, bus),
 	)
-	if cfg.ScheduledTask.IntervalSeconds > 0 {
+	if !minimalMode && cfg.ScheduledTask.IntervalSeconds > 0 {
 		go scheduledTaskService.Run(
 			context.Background(),
 			time.Duration(cfg.ScheduledTask.IntervalSeconds)*time.Second,
 		)
 		log.Printf("Scheduled tasks: interval=%ds kinds=%v",
 			cfg.ScheduledTask.IntervalSeconds, scheduledTaskService.SupportedKinds())
+	} else if minimalMode {
+		log.Println("Minimal mode: scheduled-task worker is disabled")
 	}
 
 	// Subscribe system-scope event fanouts (realtime subscribes inside its
 	// own constructor so it can receive user-scope events too).
 	bus.Subscribe(service.NewWebhookSubscriber(webhookService))
 	bus.Subscribe(service.NewAuditSubscriber(auditService))
-	bus.Subscribe(service.NewUserNotificationSubscriber(notificationChannelService))
+	if !minimalMode {
+		bus.Subscribe(service.NewUserNotificationSubscriber(notificationChannelService))
+	}
 
 	// Background worker that replays publish-failed events from the
 	// outbox retry list (§2.17). Lives for the full process lifetime.

@@ -22,6 +22,32 @@ QuickDesk 信令服务器，使用 Go + Gin + GORM 开发，提供设备 provisi
 - PostgreSQL 15+
 - Redis 7+（**必须**启用 `notify-keyspace-events Ex`）
 
+### 轻量单进程模式
+
+只运行一个信令进程、使用单个 SQLite 文件时，可以不安装 PostgreSQL 和 Redis：
+
+```bash
+DB_DRIVER=sqlite \
+DB_PATH=./data/quickdesk.db \
+REDIS_DRIVER=embedded \
+SERVER_HOST=127.0.0.1 \
+SERVER_PORT=8000 \
+go run cmd/signaling/main.go
+```
+
+`DB_DRIVER=sqlite` 时如果 `REDIS_DRIVER` 留空，会自动选择 `embedded`。这个模式适合
+单机自托管、开发和家庭网络，并有以下边界：
+
+- 只能运行一个信令进程，不能做多实例共享；
+- SQLite 保存账号、设备、设置、会话索引等业务数据，重启后仍然存在；
+- 进程内 Redis 只存在于当前进程，重启会清空 refresh token、presence、限流和实时流
+  续传状态，用户需要重新登录；
+- 通知投递、计划任务和跨实例日志等后台能力在轻量模式中关闭；
+- STUN/TURN 仍是独立基础设施；跨 NAT 时继续配置 `STUN_URLS` / `TURN_URLS`。
+
+数据库文件默认位于 `./data/quickdesk.db`，备份时应停止服务或使用 SQLite 的一致性
+备份方式。完整 E2E 可运行 `bash ../scripts/e2e/test-quickdesk-minimal-server.sh`。
+
 ## 快速开始
 
 ### 1. 安装依赖

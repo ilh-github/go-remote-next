@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"quickdesk/signaling/internal/models"
+	"time"
 
 	"gorm.io/gorm"
 )
@@ -61,5 +62,8 @@ func (r *AdminUserRepository) Delete(ctx context.Context, id uint) error {
 
 // UpdateLastLogin updates the last login time
 func (r *AdminUserRepository) UpdateLastLogin(ctx context.Context, id uint) error {
-	return r.db.WithContext(ctx).Model(&models.AdminUser{}).Where("id = ?", id).Update("last_login", gorm.Expr("NOW()")).Error
+	return r.db.WithContext(ctx).
+		Model(&models.AdminUser{}).
+		Where("id = ?", id).
+		Update("last_login", time.Now().UTC()).Error
 }
