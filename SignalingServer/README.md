@@ -42,7 +42,8 @@ go run cmd/signaling/main.go
 - SQLite 保存账号、设备、设置、会话索引等业务数据，重启后仍然存在；
 - 进程内 Redis 只存在于当前进程，重启会清空 refresh token、presence、限流和实时流
   续传状态，用户需要重新登录；
-- 通知投递、计划任务和跨实例日志等后台能力在轻量模式中关闭；
+- 通知投递 worker 保留运行，消费同一 SQLite 中的持久 outbox；计划任务和跨实例日志等
+  后台能力在轻量模式中关闭；
 - STUN/TURN 仍是独立基础设施；跨 NAT 时继续配置 `STUN_URLS` / `TURN_URLS`。
 
 数据库文件默认位于 `./data/quickdesk.db`，备份时应停止服务或使用 SQLite 的一致性

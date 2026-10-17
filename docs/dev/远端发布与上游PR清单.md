@@ -1,13 +1,13 @@
 # 远端发布与上游 PR 清单
 
-**更新时间**: 2026-10-17 21:19 CST
+**更新时间**: 2026-10-17 21:53 CST
 
 这份清单只记录本地验证完成后仍需远端写入的动作。当前机器上的 `git push`
 会被执行策略拒绝，因此以下步骤应在允许远端写入的环境中执行。
 
 ## 当前本地基线
 
-- fork 主干：本轮已验证主干为 `64ab93a`（备份/恢复与存储配额）；本文件后续
+- fork 主干：本轮已验证主干为 `37dd8aa`（Host 指标告警）；本文件后续
   docs-only 提交可能让实际 HEAD 再前进，推送前仍以 `git rev-parse` 为准
 - fork 远端：`origin/dev`、`origin/master` 仍为 `f6651f0`；本地 `dev` 领先数量以
   `git rev-list --count origin/dev..dev` 为准，远端写入尚未完成
@@ -33,6 +33,9 @@
   `feat/signaling-control-plane@8998466`；候选自身完整 Go 测试、database race、
   `go vet`、Web 生产构建和最小服务 E2E 通过。PR #25 合并后需 rebase 到
   `upstream/dev` 再创建正式 PR，不能直接拿 fork `dev` 的 `c77dcae`
+- 上游 QD-604 候选：尚未创建；fork 功能提交为 `37dd8aa`。应在 PR #25 基线上拆成
+  服务端/OpenAPI/SDK/smoke 与 Web/Qt 两个 stacked 候选，不能把 117 个文件直接作为
+  一个上游 PR
 - 上游 QD-810 候选：尚未创建；fork 功能提交为 `64ab93a`。它依赖 PR #25 和 QD-006
   SQLite 候选，应在两者落地后再拆 `quickdesk-backup`、配额与两个存储视图的最小增量
 - 上游最小候选：`codex/upstream-access-bans` = `b89c24c`
@@ -165,6 +168,16 @@
 - QD-006 上游候选 `7758456` 已从 PR #25 基线独立切出，只含 SignalingServer 配置、
   SQLite/embedded Redis、健康检查、测试和 E2E，不带 fork 清单或 QD-607 调度动作。
   候选测试与 fork 等价通过，当前等待 PR #25 合并后再 rebase 到 `upstream/dev`。
+- QD-604 / 指标型告警已在 fork 完成并提交 `37dd8aa`：Host 通过内部 sys-info 每 60 秒
+  上报 CPU、内存和最高使用率磁盘；服务端只保留单设备最新快照，CPU/内存/磁盘独立
+  episode，超限事件进入持久通知 outbox；Web/Qt 均有规则和当前值入口。真实 SQLite
+  服务 E2E 已把 `device.metric.alert` 投递到 Webhook。
+- QD-604 验证：SignalingServer 全量 Go 测试、相关包 race、`go vet`、真实 SQLite+Webhook
+  E2E、WebClient 47/47 和生产构建、四套 SDK freshness、QuickDesk Qt 6.8.3 Debug
+  完整构建、QML lint、离屏启动和 12/12 CTest 通过。
+- QD-604 上游边界：它依赖 PR #25 的控制面、OpenAPI 和通知基线。PR #25 合并后先拆
+  SignalingServer + 契约 + SDK + E2E，再拆 Web/Qt 客户端；fork-only 清单和部署文档
+  不进入上游。
 
 ## 1. 推送前检查
 
@@ -196,6 +209,7 @@ git log --oneline --left-right origin/feat/signaling-control-plane...codex/upstr
 - `dev` 必须包含 `b1a1155`；
 - `dev` 必须包含 `162ac6e`；
 - `dev` 必须包含 `b013a62`；
+- `dev` 必须包含 `37dd8aa`；
 - `codex/upstream-qd-204-api` 必须指向 `d2321b9`；
 - `codex/upstream-qd-204-client` 必须指向 `b259d03`；
 - `codex/upstream-qd-607-batch-revoke` 必须指向 `badf990`；
