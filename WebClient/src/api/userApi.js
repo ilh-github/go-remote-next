@@ -9,6 +9,8 @@
 //   • X-API-Key is NOT attached by the browser — server must allow the
 //     WebClient origin via allowed_origins (§2.2 H1 / T16).
 
+import { normalizeGroupDeviceIds } from './deviceGroupModels.js'
+
 const ACCESS_TOKEN_KEY  = 'quickdesk_user_access_token'
 const REFRESH_TOKEN_KEY = 'quickdesk_user_refresh_token'
 const ACCESS_EXPIRES_KEY  = 'quickdesk_user_access_expires_at'
@@ -377,6 +379,39 @@ class UserApi {
   // §2.2 / T5: PATCH for partial updates.
   setDeviceRemark(deviceId, remark) {
     return this._req('PATCH', `/v1/me/devices/${encodeURIComponent(deviceId)}`, { remark })
+  }
+
+  // Private address-book groups. These are owner-scoped and deliberately
+  // separate from the administrator inventory under /v1/admin/groups.
+  fetchDeviceGroups() {
+    return this._req('GET', '/v1/me/device-groups')
+  }
+
+  createDeviceGroup(body) {
+    return this._req('POST', '/v1/me/device-groups', body)
+  }
+
+  updateDeviceGroup(groupId, body) {
+    return this._req(
+      'PATCH',
+      `/v1/me/device-groups/${encodeURIComponent(groupId)}`,
+      body,
+    )
+  }
+
+  replaceDeviceGroupDevices(groupId, deviceIds) {
+    return this._req(
+      'PUT',
+      `/v1/me/device-groups/${encodeURIComponent(groupId)}/devices`,
+      { device_ids: normalizeGroupDeviceIds(deviceIds) },
+    )
+  }
+
+  deleteDeviceGroup(groupId) {
+    return this._req(
+      'DELETE',
+      `/v1/me/device-groups/${encodeURIComponent(groupId)}`,
+    )
   }
 
   fetchConnectionLogs(cursor) {
