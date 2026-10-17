@@ -419,22 +419,9 @@ impl TrustEngine {
         (req, rx)
     }
 
-    pub fn resolve_confirmation(&self, id: &str, approved: bool, reason: &str) -> bool {
-        let mut pending = self.pending_confirmations.lock().unwrap();
-        if let Some(tx) = pending.remove(id) {
-            let _ = tx.send(ConfirmationResponse {
-                id: id.to_string(),
-                approved,
-                reason: reason.to_string(),
-            });
-            true
-        } else {
-            false
-        }
-    }
-
     // ---- Audit Logging ----
 
+    #[allow(clippy::too_many_arguments)]
     pub fn log_audit(
         &self,
         device_id: &str,

@@ -268,6 +268,7 @@ impl MemoryStore {
 
     // ---- Operation History ----
 
+    #[allow(clippy::too_many_arguments)]
     pub fn log_operation(
         &self,
         session_id: &str,
@@ -542,11 +543,9 @@ fn classify_error(msg: &str) -> String {
 }
 
 fn normalize_args(args: &str) -> String {
-    if let Ok(v) = serde_json::from_str::<Value>(args) {
-        if let Value::Object(map) = v {
-            let keys: Vec<&String> = map.keys().collect();
-            return format!("{{{}}}", keys.iter().map(|k| k.as_str()).collect::<Vec<_>>().join(","));
-        }
+    if let Ok(Value::Object(map)) = serde_json::from_str::<Value>(args) {
+        let keys: Vec<&String> = map.keys().collect();
+        return format!("{{{}}}", keys.iter().map(|k| k.as_str()).collect::<Vec<_>>().join(","));
     }
     String::new()
 }
