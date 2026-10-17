@@ -48,3 +48,10 @@ export function banAccessSource(deviceId, source) {
     body: JSON.stringify({ source }),
   })
 }
+
+export function unbanAccessSource(deviceId, source) {
+  return authJson(`${BASE}/devices/${encodeURIComponent(deviceId)}/access-bans:remove`, {
+    method: 'POST',
+    body: JSON.stringify({ source }),
+  })
+}

@@ -656,6 +656,7 @@ func main() {
 			me.GET("/devices/:device_id/access-policy", deviceAccessPolicyHandler.Get)
 			me.PUT("/devices/:device_id/access-policy", deviceAccessPolicyHandler.Put)
 			me.POST("/devices/:device_id/access-bans", deviceAccessPolicyHandler.BanIP)
+			me.POST("/devices/:device_id/access-bans:remove", deviceAccessPolicyHandler.UnbanIP)
 			me.GET("/devices/:device_id/offline-alert", deviceOfflineAlertHandler.Get)
 			me.PUT("/devices/:device_id/offline-alert", deviceOfflineAlertHandler.Put)
 			me.DELETE("/devices/:device_id/offline-alert", deviceOfflineAlertHandler.Delete)
@@ -834,6 +835,7 @@ func main() {
 		// each socket.
 		adminGuarded.POST("/devices/:device_id/sessions:revoke", adminRemoteSessionHandler.RevokeForDevice)
 		adminGuarded.POST("/devices/:device_id/access-bans", adminRemoteSessionHandler.BanIP)
+		adminGuarded.POST("/devices/:device_id/access-bans:remove", adminRemoteSessionHandler.UnbanIP)
 		adminGuarded.POST("/devices:batch", func(c *gin.Context) {
 			adminDevicesHandler.Batch(c, groupService)
 		})

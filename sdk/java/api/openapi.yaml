@@ -1097,8 +1097,8 @@ paths:
         Adds an exact IP or CIDR block to the device's persistent deny list and
         returns the complete updated policy. A deny match always wins over the
         allow list, time windows and a valid access code. Repeating the same
-        source is a no-op; remove it by replacing the policy with `deny_ips`
-        omitted or shorter.
+        source is a no-op; remove one source with
+        `POST /v1/me/devices/{device_id}/access-bans:remove`.
       operationId: banDeviceAccessSource
       parameters:
       - $ref: "#/components/parameters/DeviceId"
@@ -1122,6 +1122,44 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
       summary: Permanently deny one source address
+      tags:
+      - devices
+      x-content-type: application/json
+      x-accepts:
+      - application/json
+      - application/problem+json
+  /v1/me/devices/{device_id}/access-bans:remove:
+    parameters:
+    - $ref: "#/components/parameters/DeviceId"
+    post:
+      description: |
+        Removes the exact IP or CIDR entry from the device's persistent deny
+        list and returns the complete updated policy. A source that is already
+        absent, including on a device with no stored policy, is a successful
+        no-op.
+      operationId: unbanDeviceAccessSource
+      parameters:
+      - $ref: "#/components/parameters/DeviceId"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeviceAccessBanRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceAccessPolicy"
+          description: The updated policy after the source is absent.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+      summary: Remove one permanent source ban
       tags:
       - devices
       x-content-type: application/json

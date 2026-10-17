@@ -184,6 +184,7 @@ Class | Method | HTTP request | Description
 *DevicesApi* | [**listMyDevices**](docs/DevicesApi.md#listMyDevices) | **GET** /v1/me/devices | Devices owned by the authenticated user
 *DevicesApi* | [**putAccessPolicy**](docs/DevicesApi.md#putAccessPolicy) | **PUT** /v1/me/devices/{device_id}/access-policy | Create or replace the device&#39;s access policy
 *DevicesApi* | [**revokeAccessGrant**](docs/DevicesApi.md#revokeAccessGrant) | **DELETE** /v1/me/devices/{device_id}/access-grants/{grant_id} | Revoke a guest access code
+*DevicesApi* | [**unbanDeviceAccessSource**](docs/DevicesApi.md#unbanDeviceAccessSource) | **POST** /v1/me/devices/{device_id}/access-bans:remove | Remove one permanent source ban
 *DevicesApi* | [**verifyAccessCode**](docs/DevicesApi.md#verifyAccessCode) | **POST** /v1/devices/{device_id}/access-code:verify | Verify a device access code and mint a signal token
 *MeApi* | [**getMe**](docs/MeApi.md#getMe) | **GET** /v1/me | The authenticated user
 *NotificationsApi* | [**getOfflineAlert**](docs/NotificationsApi.md#getOfflineAlert) | **GET** /v1/me/devices/{device_id}/offline-alert | The owner&#39;s offline-alert rule for a device

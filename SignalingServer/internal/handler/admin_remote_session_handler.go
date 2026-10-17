@@ -284,6 +284,64 @@ func (h *AdminRemoteSessionHandler) BanIP(c *gin.Context) {
 	c.JSON(http.StatusOK, policyView(deviceID, policy))
 }
 
+// UnbanIP removes one exact source from any account's deny list.
+func (h *AdminRemoteSessionHandler) UnbanIP(c *gin.Context) {
+	deviceID := strings.TrimSpace(c.Param("device_id"))
+	if deviceID == "" {
+		ProblemBadRequest(c, ProblemCodeInvalidRequest, "device_id is required")
+		return
+	}
+	var req deviceAccessBanReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		ProblemBadRequest(c, ProblemCodeInvalidRequest, err.Error())
+		return
+	}
+	device, err := h.devices.GetByDeviceID(c.Request.Context(), deviceID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			ProblemNotFound(c, ProblemCodeDeviceNotFound, "Device not found")
+			return
+		}
+		ProblemInternal(c, err.Error())
+		return
+	}
+	ownerID := uint(0)
+	if device.UserID != nil {
+		ownerID = *device.UserID
+	}
+	policy, err := h.policies.UnbanIP(c.Request.Context(), deviceID, ownerID, req.Source)
+	if err != nil {
+		if errors.Is(err, service.ErrInvalidDenyIP) {
+			ProblemBadRequest(c, ProblemCodeInvalidRequest, err.Error())
+			return
+		}
+		ProblemInternal(c, err.Error())
+		return
+	}
+	if h.audit != nil {
+		h.audit.Log(c.Request.Context(), middleware.MustAdminID(c), "", "device.access_unban",
+			"device", deviceID, "source="+strings.TrimSpace(req.Source), c.ClientIP())
+	}
+	if h.bus != nil && ownerID > 0 {
+		denyIPs := []string{}
+		if policy != nil {
+			denyIPs = decodeAllowIPsForEvent(policy.DenyIPs)
+		}
+		h.bus.Publish(c.Request.Context(), service.Event{
+			Type:     service.EventDevicePolicyChanged,
+			UserID:   ownerID,
+			DeviceID: deviceID,
+			Data: map[string]interface{}{
+				"device_id": deviceID,
+				"deny_ips":  denyIPs,
+				"ip":        c.ClientIP(),
+				"reason":    "administrator unbanned access source",
+			},
+		})
+	}
+	c.JSON(http.StatusOK, policyView(deviceID, policy))
+}
+
 // attachRelated is the admin twin of RemoteSessionHandler.attachRelated: it
 // joins a page of sessions with their recordings and access-log rows in two
 // batched queries. The only difference is the missing owner/device filter,

@@ -921,8 +921,8 @@ paths:
         Adds an exact IP or CIDR block to the device's persistent deny list and
         returns the complete updated policy. A deny match always wins over the
         allow list, time windows and a valid access code. Repeating the same
-        source is a no-op; remove it by replacing the policy with `deny_ips`
-        omitted or shorter.
+        source is a no-op; remove one source with
+        `POST /v1/me/devices/{device_id}/access-bans:remove`.
       requestBody:
         required: true
         content:
@@ -932,6 +932,37 @@ paths:
       responses:
         '200':
           description: The updated policy, including the complete deny list.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceAccessPolicy'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/me/devices/{device_id}/access-bans:remove:
+    parameters:
+      - $ref: '#/components/parameters/DeviceId'
+    post:
+      tags: [devices]
+      summary: Remove one permanent source ban
+      operationId: unbanDeviceAccessSource
+      description: |
+        Removes the exact IP or CIDR entry from the device's persistent deny
+        list and returns the complete updated policy. A source that is already
+        absent, including on a device with no stored policy, is a successful
+        no-op.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceAccessBanRequest'
+      responses:
+        '200':
+          description: The updated policy after the source is absent.
           content:
             application/json:
               schema:

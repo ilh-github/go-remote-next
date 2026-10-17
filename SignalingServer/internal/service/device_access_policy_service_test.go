@@ -139,6 +139,38 @@ func TestAppendDeniedIP(t *testing.T) {
 	}
 }
 
+func TestRemoveDeniedIP(t *testing.T) {
+	encoded, err := RemoveDeniedIP(
+		`["198.51.100.2","203.0.113.7","10.211.55.0/24"]`,
+		" 203.0.113.7 ",
+	)
+	if err != nil {
+		t.Fatalf("remove: %v", err)
+	}
+	var entries []string
+	if err := json.Unmarshal([]byte(encoded), &entries); err != nil {
+		t.Fatalf("decode list: %v", err)
+	}
+	if len(entries) != 2 || entries[0] != "198.51.100.2" || entries[1] != "10.211.55.0/24" {
+		t.Fatalf("entries after remove = %v", entries)
+	}
+
+	again, err := RemoveDeniedIP(encoded, "203.0.113.7")
+	if err != nil {
+		t.Fatalf("remove absent source: %v", err)
+	}
+	if again != encoded {
+		t.Fatalf("absent source changed the list: %s != %s", again, encoded)
+	}
+
+	if _, err := RemoveDeniedIP(`{not-json`, "203.0.113.7"); !errors.Is(err, ErrInvalidDenyIP) {
+		t.Fatalf("malformed list error = %v, want ErrInvalidDenyIP", err)
+	}
+	if _, err := RemoveDeniedIP(encoded, "not-an-ip"); !errors.Is(err, ErrInvalidDenyIP) {
+		t.Fatalf("invalid source error = %v, want ErrInvalidDenyIP", err)
+	}
+}
+
 func newAccessPolicyTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	dsn := os.Getenv("QD_TEST_DATABASE_URL")
@@ -186,6 +218,55 @@ func TestBanIPPersistsAndIsIdempotent(t *testing.T) {
 	}
 	if len(entries) != 2 || entries[0] != "198.51.100.2" || entries[1] != "203.0.113.7" {
 		t.Fatalf("deny list after two identical bans = %v", entries)
+	}
+}
+
+func TestUnbanIPPersistsAndIsIdempotent(t *testing.T) {
+	db := newAccessPolicyTestDB(t)
+	const deviceID = "880000005"
+	if err := db.Exec("DELETE FROM device_access_policies WHERE device_id = ?", deviceID).Error; err != nil {
+		t.Fatalf("clear test policy: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = db.Exec("DELETE FROM device_access_policies WHERE device_id = ?", deviceID).Error
+	})
+	svc := NewDeviceAccessPolicyService(db)
+	ctx := context.Background()
+	if _, err := svc.Upsert(ctx, deviceID, 990305, UpsertDeviceAccessPolicyInput{
+		DenyIPs: []string{"198.51.100.2", "203.0.113.7"},
+	}); err != nil {
+		t.Fatalf("seed policy: %v", err)
+	}
+	for i := 0; i < 2; i++ {
+		if _, err := svc.UnbanIP(ctx, deviceID, 990305, "203.0.113.7"); err != nil {
+			t.Fatalf("unban attempt %d: %v", i+1, err)
+		}
+	}
+	row, err := svc.Get(ctx, deviceID)
+	if err != nil {
+		t.Fatalf("reload policy: %v", err)
+	}
+	var entries []string
+	if err := json.Unmarshal([]byte(row.DenyIPs), &entries); err != nil {
+		t.Fatalf("decode deny list: %v", err)
+	}
+	if len(entries) != 1 || entries[0] != "198.51.100.2" {
+		t.Fatalf("deny list after two identical unbans = %v", entries)
+	}
+}
+
+func TestUnbanIPRejectsInvalidSourceWithoutStoredPolicy(t *testing.T) {
+	db := newAccessPolicyTestDB(t)
+	const deviceID = "880000008"
+	if err := db.Exec("DELETE FROM device_access_policies WHERE device_id = ?", deviceID).Error; err != nil {
+		t.Fatalf("clear test policy: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = db.Exec("DELETE FROM device_access_policies WHERE device_id = ?", deviceID).Error
+	})
+	svc := NewDeviceAccessPolicyService(db)
+	if _, err := svc.UnbanIP(context.Background(), deviceID, 990308, "not-an-ip"); !errors.Is(err, ErrInvalidDenyIP) {
+		t.Fatalf("invalid source without policy error = %v, want ErrInvalidDenyIP", err)
 	}
 }
 

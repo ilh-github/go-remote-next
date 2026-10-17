@@ -39,6 +39,21 @@
         >{{ clearBusy ? '...' : $t('sessions.clearDevice') }}</button>
       </div>
 
+      <div v-if="deviceFilter" class="card ban-panel">
+        <div class="ban-panel-title">{{ $t('sessions.blockedSources') }}</div>
+        <p v-if="blockedSources.length === 0" class="hint">{{ $t('sessions.noBlockedSources') }}</p>
+        <div v-else class="ban-list">
+          <span v-for="source in blockedSources" :key="source" class="ban-chip">
+            <code>{{ source }}</code>
+            <button
+              class="btn btn-secondary btn-sm"
+              :disabled="banRemoving === source"
+              @click="unbanSource(source)"
+            >{{ banRemoving === source ? '...' : $t('sessions.unbanSource') }}</button>
+          </span>
+        </div>
+      </div>
+
       <p v-if="notice" class="notice">{{ notice }}</p>
       <p v-if="error" class="hint error">{{ error }}</p>
 
@@ -140,6 +155,8 @@ const detail = ref(null)
 const detailLoading = ref(false)
 const busy = ref('')
 const clearBusy = ref(false)
+const blockedSources = ref([])
+const banRemoving = ref('')
 
 const statusOptions = [
   { value: 'active', label: 'sessions.filter.active' },
@@ -206,6 +223,7 @@ async function refresh() {
   expanded.value = ''
   detail.value = null
   await load(true)
+  await loadBlockedSources()
 }
 
 function loadMore() {
@@ -265,6 +283,32 @@ async function banSource(row) {
     return
   }
   notice.value = t('sessions.banned', { ip: row.client_ip })
+  await loadBlockedSources()
+}
+
+async function loadBlockedSources() {
+  if (!deviceFilter.value) {
+    blockedSources.value = []
+    return
+  }
+  blockedSources.value = []
+  const r = await userApi.fetchAccessPolicy(deviceFilter.value)
+  if (r.ok) blockedSources.value = r.data?.deny_ips ?? []
+}
+
+async function unbanSource(source) {
+  if (!deviceFilter.value) return
+  if (!confirm(t('sessions.unbanConfirm', { ip: source }))) return
+  banRemoving.value = source
+  error.value = ''
+  const r = await userApi.removeAccessBan(deviceFilter.value, source)
+  banRemoving.value = ''
+  if (!r.ok) {
+    error.value = r.error || t('sessions.unbanFailed')
+    return
+  }
+  notice.value = t('sessions.unbanned', { ip: source })
+  blockedSources.value = r.data?.deny_ips ?? []
 }
 
 async function clearDevice() {
@@ -448,6 +492,31 @@ onUnmounted(() => {
 .badge.reason {
   background: rgba(233, 69, 96, 0.15);
   color: var(--accent);
+}
+.ban-panel {
+  margin-bottom: 12px;
+}
+.ban-panel-title {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.ban-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.ban-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+}
+.ban-chip code {
+  font-size: 12px;
 }
 .notice {
   color: var(--success);

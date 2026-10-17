@@ -30,6 +30,7 @@ class RemoteSessionManager : public QObject {
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
     Q_PROPERTY(bool hasMore READ hasMore NOTIFY hasMoreChanged)
     Q_PROPERTY(QString lastError READ lastError NOTIFY lastErrorChanged)
+    Q_PROPERTY(QVariantList deniedSources READ deniedSources NOTIFY deniedSourcesChanged)
 
 public:
     explicit RemoteSessionManager(AuthManager* authManager, QObject* parent = nullptr);
@@ -38,6 +39,7 @@ public:
     bool busy() const { return m_pendingRequests > 0; }
     bool hasMore() const { return !m_nextCursor.isEmpty(); }
     QString lastError() const { return m_lastError; }
+    QVariantList deniedSources() const { return m_deniedSources; }
 
     Q_INVOKABLE void refresh(const QString& status = QStringLiteral("active"),
                              const QString& deviceId = QString());
@@ -46,6 +48,8 @@ public:
     Q_INVOKABLE void revokeSession(const QString& sessionId);
     Q_INVOKABLE void revokeDeviceSessions(const QString& deviceId);
     Q_INVOKABLE void banSource(const QString& deviceId, const QString& source);
+    Q_INVOKABLE void fetchDeniedSources(const QString& deviceId);
+    Q_INVOKABLE void removeDeniedSource(const QString& deviceId, const QString& source);
 
 signals:
     void sessionsChanged();
@@ -58,6 +62,8 @@ signals:
     void deviceSessionsRevoked(const QString& deviceId, int revoked, int failed,
                                bool truncated);
     void sourceBanned(const QString& deviceId, const QString& source);
+    void sourceUnbanned(const QString& deviceId, const QString& source);
+    void deniedSourcesChanged();
 
 private:
     void requestList(bool append, int generation);
@@ -81,6 +87,7 @@ private:
     QString m_lastError;
     int m_pendingRequests = 0;
     int m_listGeneration = 0;
+    QVariantList m_deniedSources;
 };
 
 } // namespace quickdesk

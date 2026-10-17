@@ -182,6 +182,49 @@ func (h *DeviceAccessPolicyHandler) BanIP(c *gin.Context) {
 	c.JSON(http.StatusOK, policyView(deviceID, policy))
 }
 
+// UnbanIP removes one exact source from the device's deny list. A source that
+// was already removed (or a device with no stored policy) is a successful
+// no-op, so the UI can retry safely.
+func (h *DeviceAccessPolicyHandler) UnbanIP(c *gin.Context) {
+	deviceID, ok := h.ownedDeviceID(c)
+	if !ok {
+		return
+	}
+	var req deviceAccessBanReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		ProblemBadRequest(c, ProblemCodeInvalidRequest, err.Error())
+		return
+	}
+	uid := middleware.MustUserID(c)
+	policy, err := h.policies.UnbanIP(c.Request.Context(), deviceID, uid, req.Source)
+	if err != nil {
+		if errors.Is(err, service.ErrInvalidDenyIP) {
+			ProblemBadRequest(c, ProblemCodeInvalidRequest, err.Error())
+			return
+		}
+		ProblemInternal(c, err.Error())
+		return
+	}
+	if h.bus != nil {
+		denyIPs := []string{}
+		if policy != nil {
+			denyIPs = decodeAllowIPsForEvent(policy.DenyIPs)
+		}
+		h.bus.Publish(c.Request.Context(), service.Event{
+			Type:     service.EventDevicePolicyChanged,
+			UserID:   uid,
+			DeviceID: deviceID,
+			Data: map[string]interface{}{
+				"device_id": deviceID,
+				"deny_ips":  denyIPs,
+				"ip":        c.ClientIP(),
+				"reason":    "access source unbanned",
+			},
+		})
+	}
+	c.JSON(http.StatusOK, policyView(deviceID, policy))
+}
+
 // ownedDeviceID resolves :device_id and enforces that the caller owns it.
 func (h *DeviceAccessPolicyHandler) ownedDeviceID(c *gin.Context) (string, bool) {
 	uid := middleware.MustUserID(c)

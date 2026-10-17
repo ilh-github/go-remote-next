@@ -136,6 +136,11 @@ export interface RevokeAccessGrantRequest {
     grantId: number;
 }
 
+export interface UnbanDeviceAccessSourceRequest {
+    deviceId: string;
+    deviceAccessBanRequest: DeviceAccessBanRequest;
+}
+
 export interface VerifyAccessCodeRequest {
     deviceId: string;
     accessCodeVerifyRequest: AccessCodeVerifyRequest;
@@ -209,7 +214,7 @@ export class DevicesApi extends runtime.BaseAPI {
     }
 
     /**
-     * Adds an exact IP or CIDR block to the device\'s persistent deny list and returns the complete updated policy. A deny match always wins over the allow list, time windows and a valid access code. Repeating the same source is a no-op; remove it by replacing the policy with `deny_ips` omitted or shorter. 
+     * Adds an exact IP or CIDR block to the device\'s persistent deny list and returns the complete updated policy. A deny match always wins over the allow list, time windows and a valid access code. Repeating the same source is a no-op; remove one source with `POST /v1/me/devices/{device_id}/access-bans:remove`. 
      * Permanently deny one source address
      */
     async banDeviceAccessSourceRaw(requestParameters: BanDeviceAccessSourceRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<DeviceAccessPolicy>> {
@@ -261,7 +266,7 @@ export class DevicesApi extends runtime.BaseAPI {
     }
 
     /**
-     * Adds an exact IP or CIDR block to the device\'s persistent deny list and returns the complete updated policy. A deny match always wins over the allow list, time windows and a valid access code. Repeating the same source is a no-op; remove it by replacing the policy with `deny_ips` omitted or shorter. 
+     * Adds an exact IP or CIDR block to the device\'s persistent deny list and returns the complete updated policy. A deny match always wins over the allow list, time windows and a valid access code. Repeating the same source is a no-op; remove one source with `POST /v1/me/devices/{device_id}/access-bans:remove`. 
      * Permanently deny one source address
      */
     async banDeviceAccessSource(requestParameters: BanDeviceAccessSourceRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<DeviceAccessPolicy> {
@@ -827,6 +832,67 @@ export class DevicesApi extends runtime.BaseAPI {
      */
     async revokeAccessGrant(requestParameters: RevokeAccessGrantRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<RevokeAccessGrant200Response> {
         const response = await this.revokeAccessGrantRaw(requestParameters, initOverrides);
+        return await response.value();
+    }
+
+    /**
+     * Removes the exact IP or CIDR entry from the device\'s persistent deny list and returns the complete updated policy. A source that is already absent, including on a device with no stored policy, is a successful no-op. 
+     * Remove one permanent source ban
+     */
+    async unbanDeviceAccessSourceRaw(requestParameters: UnbanDeviceAccessSourceRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<DeviceAccessPolicy>> {
+        if (requestParameters['deviceId'] == null) {
+            throw new runtime.RequiredError(
+                'deviceId',
+                'Required parameter "deviceId" was null or undefined when calling unbanDeviceAccessSource().'
+            );
+        }
+
+        if (requestParameters['deviceAccessBanRequest'] == null) {
+            throw new runtime.RequiredError(
+                'deviceAccessBanRequest',
+                'Required parameter "deviceAccessBanRequest" was null or undefined when calling unbanDeviceAccessSource().'
+            );
+        }
+
+        const queryParameters: any = {};
+
+        const headerParameters: runtime.HTTPHeaders = {};
+
+        headerParameters['Content-Type'] = 'application/json';
+
+        if (this.configuration && this.configuration.apiKey) {
+            headerParameters["X-API-Key"] = await this.configuration.apiKey("X-API-Key"); // ApiKeyAuth authentication
+        }
+
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("BearerAuth", []);
+
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+
+        let urlPath = `/v1/me/devices/{device_id}/access-bans:remove`;
+        urlPath = urlPath.replace(`{${"device_id"}}`, encodeURIComponent(String(requestParameters['deviceId'])));
+
+        const response = await this.request({
+            path: urlPath,
+            method: 'POST',
+            headers: headerParameters,
+            query: queryParameters,
+            body: DeviceAccessBanRequestToJSON(requestParameters['deviceAccessBanRequest']),
+        }, initOverrides);
+
+        return new runtime.JSONApiResponse(response, (jsonValue) => DeviceAccessPolicyFromJSON(jsonValue));
+    }
+
+    /**
+     * Removes the exact IP or CIDR entry from the device\'s persistent deny list and returns the complete updated policy. A source that is already absent, including on a device with no stored policy, is a successful no-op. 
+     * Remove one permanent source ban
+     */
+    async unbanDeviceAccessSource(requestParameters: UnbanDeviceAccessSourceRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<DeviceAccessPolicy> {
+        const response = await this.unbanDeviceAccessSourceRaw(requestParameters, initOverrides);
         return await response.value();
     }
 

@@ -32,6 +32,11 @@
           :loading="clearing"
           @click="clearDevice"
         >{{ t('remoteSessions.clearDevice') }}</el-button>
+        <el-button
+          size="small"
+          :loading="unbanning"
+          @click="unbanSource"
+        >{{ t('remoteSessions.unbanSource') }}</el-button>
       </div>
     </div>
 
@@ -149,6 +154,7 @@ import {
   revokeRemoteSession,
   revokeDeviceSessions,
   banAccessSource,
+  unbanAccessSource,
 } from '../api/remoteSessions.js'
 
 const { t } = useI18n()
@@ -161,6 +167,7 @@ const userId = ref('')
 const deviceId = ref('')
 const kickingId = ref('')
 const clearing = ref(false)
+const unbanning = ref(false)
 let loadSeq = 0
 
 function formatTime(value) {
@@ -296,6 +303,46 @@ function startPolling() {
     if (loading.value || clearing.value || kickingId.value) return
     load(true, true)
   }, 10000)
+}
+
+async function unbanSource() {
+  const id = deviceId.value.trim()
+  if (!id) {
+    ElMessage.error(t('remoteSessions.deviceRequiredForUnban'))
+    return
+  }
+  let source
+  try {
+    const result = await ElMessageBox.prompt(
+      t('remoteSessions.unbanPrompt'),
+      t('remoteSessions.unbanSource'),
+      {
+        inputPlaceholder: '203.0.113.7 or 10.211.55.0/24',
+        inputValidator: (value) => String(value || '').trim().length > 0,
+      },
+    )
+    source = String(result.value || '').trim()
+  } catch {
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      t('remoteSessions.unbanConfirm', { ip: source }),
+      t('remoteSessions.unbanSource'),
+      { type: 'warning' },
+    )
+  } catch {
+    return
+  }
+  unbanning.value = true
+  try {
+    await unbanAccessSource(id, source)
+    ElMessage.success(t('remoteSessions.unbanned', { ip: source }))
+  } catch (err) {
+    ElMessage.error(err?.detail || err?.message || String(err))
+  } finally {
+    unbanning.value = false
+  }
 }
 
 onMounted(() => {

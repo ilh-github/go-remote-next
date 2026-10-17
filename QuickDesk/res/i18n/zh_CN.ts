@@ -2083,5 +2083,29 @@ Access Code: %2</source>
         <source>Permanently banned %1</source>
         <translation>已永久封禁 %1</translation>
     </message>
+    <message>
+        <source>Blocked sources</source>
+        <translation>已封禁来源</translation>
+    </message>
+    <message>
+        <source>No permanently blocked sources</source>
+        <translation>没有永久封禁的来源</translation>
+    </message>
+    <message>
+        <source>Unban</source>
+        <translation>解封</translation>
+    </message>
+    <message>
+        <source>Unban source</source>
+        <translation>解封来源</translation>
+    </message>
+    <message>
+        <source>Remove the permanent ban on %1?</source>
+        <translation>解除对 %1 的永久封禁？</translation>
+    </message>
+    <message>
+        <source>Unbanned %1</source>
+        <translation>已解除对 %1 的封禁</translation>
+    </message>
 </context>
 </TS>

@@ -30,8 +30,10 @@ RemoteSessionManager::RemoteSessionManager(AuthManager* authManager, QObject* pa
             ++m_listGeneration;
             m_sessions.clear();
             m_nextCursor.clear();
+            m_deniedSources.clear();
             emit sessionsChanged();
             emit hasMoreChanged();
+            emit deniedSourcesChanged();
         });
     }
 }
@@ -310,6 +312,103 @@ void RemoteSessionManager::banSource(const QString& deviceId, const QString& sou
                                  normalizedDeviceId.toStdString(),
                                  normalizedSource.toStdString(),
                                  statusCode, message.toStdString());
+                        emit requestFailed(message);
+                    }
+                    finishRequest();
+                });
+        });
+}
+
+void RemoteSessionManager::fetchDeniedSources(const QString& deviceId)
+{
+    const QString normalizedDeviceId = deviceId.trimmed();
+    if (!m_authManager || !m_authManager->isLoggedIn() || normalizedDeviceId.isEmpty()) {
+        m_deniedSources.clear();
+        emit deniedSourcesChanged();
+        return;
+    }
+    const QUrl url(
+        m_authManager->httpBaseUrl()
+        + QStringLiteral("v1/me/devices/")
+        + encodedPathSegment(normalizedDeviceId)
+        + QStringLiteral("/access-policy"));
+    m_deniedSources.clear();
+    emit deniedSourcesChanged();
+    beginRequest();
+    m_authManager->request(
+        QStringLiteral("GET"), url, QString(),
+        [this, normalizedDeviceId](int statusCode,
+                                   const std::string& errorMsg,
+                                   const std::string& data) {
+            QMetaObject::invokeMethod(
+                this,
+                [this, normalizedDeviceId, statusCode, errorMsg, data]() {
+                    if (statusCode == 200 && errorMsg.empty()) {
+                        const QJsonObject root =
+                            QJsonDocument::fromJson(
+                                QByteArray::fromStdString(data)).object();
+                        QVariantList sources;
+                        for (const QJsonValue& value :
+                             root.value(QStringLiteral("deny_ips")).toArray()) {
+                            sources.append(value.toString());
+                        }
+                        m_deniedSources = sources;
+                        setLastError(QString());
+                        emit deniedSourcesChanged();
+                    } else {
+                        const QString message =
+                            problemMessage(data, errorMsg, statusCode);
+                        setLastError(message);
+                        emit requestFailed(message);
+                    }
+                    finishRequest();
+                });
+        });
+}
+
+void RemoteSessionManager::removeDeniedSource(const QString& deviceId, const QString& source)
+{
+    const QString normalizedDeviceId = deviceId.trimmed();
+    const QString normalizedSource = source.trimmed();
+    if (!m_authManager || !m_authManager->isLoggedIn()
+        || normalizedDeviceId.isEmpty() || normalizedSource.isEmpty()) {
+        return;
+    }
+    const QUrl url(
+        m_authManager->httpBaseUrl()
+        + QStringLiteral("v1/me/devices/")
+        + encodedPathSegment(normalizedDeviceId)
+        + QStringLiteral("/access-bans:remove"));
+    const QJsonObject body{
+        {QStringLiteral("source"), normalizedSource},
+    };
+    beginRequest();
+    m_authManager->request(
+        QStringLiteral("POST"), url,
+        QString::fromUtf8(QJsonDocument(body).toJson(QJsonDocument::Compact)),
+        [this, normalizedDeviceId, normalizedSource](
+            int statusCode, const std::string& errorMsg, const std::string& data) {
+            QMetaObject::invokeMethod(
+                this,
+                [this, normalizedDeviceId, normalizedSource,
+                 statusCode, errorMsg, data]() {
+                    if (statusCode == 200 && errorMsg.empty()) {
+                        const QJsonObject root =
+                            QJsonDocument::fromJson(
+                                QByteArray::fromStdString(data)).object();
+                        QVariantList sources;
+                        for (const QJsonValue& value :
+                             root.value(QStringLiteral("deny_ips")).toArray()) {
+                            sources.append(value.toString());
+                        }
+                        m_deniedSources = sources;
+                        setLastError(QString());
+                        emit deniedSourcesChanged();
+                        emit sourceUnbanned(normalizedDeviceId, normalizedSource);
+                    } else {
+                        const QString message =
+                            problemMessage(data, errorMsg, statusCode);
+                        setLastError(message);
                         emit requestFailed(message);
                     }
                     finishRequest();

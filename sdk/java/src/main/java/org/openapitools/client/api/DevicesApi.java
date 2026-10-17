@@ -333,7 +333,7 @@ public class DevicesApi {
 
     /**
      * Permanently deny one source address
-     * Adds an exact IP or CIDR block to the device&#39;s persistent deny list and returns the complete updated policy. A deny match always wins over the allow list, time windows and a valid access code. Repeating the same source is a no-op; remove it by replacing the policy with &#x60;deny_ips&#x60; omitted or shorter. 
+     * Adds an exact IP or CIDR block to the device&#39;s persistent deny list and returns the complete updated policy. A deny match always wins over the allow list, time windows and a valid access code. Repeating the same source is a no-op; remove one source with &#x60;POST /v1/me/devices/{device_id}/access-bans:remove&#x60;. 
      * @param deviceId The device id shown on the controlled machine. (required)
      * @param deviceAccessBanRequest  (required)
      * @return DeviceAccessPolicy
@@ -355,7 +355,7 @@ public class DevicesApi {
 
     /**
      * Permanently deny one source address
-     * Adds an exact IP or CIDR block to the device&#39;s persistent deny list and returns the complete updated policy. A deny match always wins over the allow list, time windows and a valid access code. Repeating the same source is a no-op; remove it by replacing the policy with &#x60;deny_ips&#x60; omitted or shorter. 
+     * Adds an exact IP or CIDR block to the device&#39;s persistent deny list and returns the complete updated policy. A deny match always wins over the allow list, time windows and a valid access code. Repeating the same source is a no-op; remove one source with &#x60;POST /v1/me/devices/{device_id}/access-bans:remove&#x60;. 
      * @param deviceId The device id shown on the controlled machine. (required)
      * @param deviceAccessBanRequest  (required)
      * @return ApiResponse&lt;DeviceAccessPolicy&gt;
@@ -378,7 +378,7 @@ public class DevicesApi {
 
     /**
      * Permanently deny one source address (asynchronously)
-     * Adds an exact IP or CIDR block to the device&#39;s persistent deny list and returns the complete updated policy. A deny match always wins over the allow list, time windows and a valid access code. Repeating the same source is a no-op; remove it by replacing the policy with &#x60;deny_ips&#x60; omitted or shorter. 
+     * Adds an exact IP or CIDR block to the device&#39;s persistent deny list and returns the complete updated policy. A deny match always wins over the allow list, time windows and a valid access code. Repeating the same source is a no-op; remove one source with &#x60;POST /v1/me/devices/{device_id}/access-bans:remove&#x60;. 
      * @param deviceId The device id shown on the controlled machine. (required)
      * @param deviceAccessBanRequest  (required)
      * @param _callback The callback to be executed when the API call finishes
@@ -1879,6 +1879,156 @@ public class DevicesApi {
 
         okhttp3.Call localVarCall = revokeAccessGrantValidateBeforeCall(deviceId, grantId, _callback);
         Type localVarReturnType = new TypeToken<RevokeAccessGrant200Response>(){}.getType();
+        localVarApiClient.executeAsync(localVarCall, localVarReturnType, _callback);
+        return localVarCall;
+    }
+    /**
+     * Build call for unbanDeviceAccessSource
+     * @param deviceId The device id shown on the controlled machine. (required)
+     * @param deviceAccessBanRequest  (required)
+     * @param _callback Callback for upload/download progress
+     * @return Call to execute
+     * @throws ApiException If fail to serialize the request body object
+     * @http.response.details
+     <table border="1">
+       <caption>Response Details</caption>
+        <tr><td> Status Code </td><td> Description </td><td> Response Headers </td></tr>
+        <tr><td> 200 </td><td> The updated policy after the source is absent. </td><td>  -  </td></tr>
+        <tr><td> 400 </td><td> The request was malformed or failed validation. </td><td>  -  </td></tr>
+        <tr><td> 403 </td><td> Authenticated but not allowed (includes a rejected access code). </td><td>  -  </td></tr>
+        <tr><td> 404 </td><td> The addressed resource does not exist. </td><td>  -  </td></tr>
+     </table>
+     */
+    public okhttp3.Call unbanDeviceAccessSourceCall(@javax.annotation.Nonnull String deviceId, @javax.annotation.Nonnull DeviceAccessBanRequest deviceAccessBanRequest, final ApiCallback _callback) throws ApiException {
+        String basePath = null;
+        // Operation Servers
+        String[] localBasePaths = new String[] {  };
+
+        // Determine Base Path to Use
+        if (localCustomBaseUrl != null){
+            basePath = localCustomBaseUrl;
+        } else if ( localBasePaths.length > 0 ) {
+            basePath = localBasePaths[localHostIndex];
+        } else {
+            basePath = null;
+        }
+
+        Object localVarPostBody = deviceAccessBanRequest;
+
+        // create path and map variables
+        String localVarPath = "/v1/me/devices/{device_id}/access-bans:remove"
+            .replace("{" + "device_id" + "}", localVarApiClient.escapeString(deviceId.toString()));
+
+        List<Pair> localVarQueryParams = new ArrayList<Pair>();
+        List<Pair> localVarCollectionQueryParams = new ArrayList<Pair>();
+        Map<String, String> localVarHeaderParams = new HashMap<String, String>();
+        Map<String, String> localVarCookieParams = new HashMap<String, String>();
+        Map<String, Object> localVarFormParams = new HashMap<String, Object>();
+
+        final String[] localVarAccepts = {
+            "application/json",
+            "application/problem+json"
+        };
+        final String localVarAccept = localVarApiClient.selectHeaderAccept(localVarAccepts);
+        if (localVarAccept != null) {
+            localVarHeaderParams.put("Accept", localVarAccept);
+        }
+
+        final String[] localVarContentTypes = {
+            "application/json"
+        };
+        final String localVarContentType = localVarApiClient.selectHeaderContentType(localVarContentTypes);
+        if (localVarContentType != null) {
+            localVarHeaderParams.put("Content-Type", localVarContentType);
+        }
+
+        String[] localVarAuthNames = new String[] { "ApiKeyAuth", "BearerAuth" };
+        return localVarApiClient.buildCall(basePath, localVarPath, "POST", localVarQueryParams, localVarCollectionQueryParams, localVarPostBody, localVarHeaderParams, localVarCookieParams, localVarFormParams, localVarAuthNames, _callback);
+    }
+
+    @SuppressWarnings("rawtypes")
+    private okhttp3.Call unbanDeviceAccessSourceValidateBeforeCall(@javax.annotation.Nonnull String deviceId, @javax.annotation.Nonnull DeviceAccessBanRequest deviceAccessBanRequest, final ApiCallback _callback) throws ApiException {
+        // verify the required parameter 'deviceId' is set
+        if (deviceId == null) {
+            throw new ApiException("Missing the required parameter 'deviceId' when calling unbanDeviceAccessSource(Async)");
+        }
+
+        // verify the required parameter 'deviceAccessBanRequest' is set
+        if (deviceAccessBanRequest == null) {
+            throw new ApiException("Missing the required parameter 'deviceAccessBanRequest' when calling unbanDeviceAccessSource(Async)");
+        }
+
+        return unbanDeviceAccessSourceCall(deviceId, deviceAccessBanRequest, _callback);
+
+    }
+
+    /**
+     * Remove one permanent source ban
+     * Removes the exact IP or CIDR entry from the device&#39;s persistent deny list and returns the complete updated policy. A source that is already absent, including on a device with no stored policy, is a successful no-op. 
+     * @param deviceId The device id shown on the controlled machine. (required)
+     * @param deviceAccessBanRequest  (required)
+     * @return DeviceAccessPolicy
+     * @throws ApiException If fail to call the API, e.g. server error or cannot deserialize the response body
+     * @http.response.details
+     <table border="1">
+       <caption>Response Details</caption>
+        <tr><td> Status Code </td><td> Description </td><td> Response Headers </td></tr>
+        <tr><td> 200 </td><td> The updated policy after the source is absent. </td><td>  -  </td></tr>
+        <tr><td> 400 </td><td> The request was malformed or failed validation. </td><td>  -  </td></tr>
+        <tr><td> 403 </td><td> Authenticated but not allowed (includes a rejected access code). </td><td>  -  </td></tr>
+        <tr><td> 404 </td><td> The addressed resource does not exist. </td><td>  -  </td></tr>
+     </table>
+     */
+    public DeviceAccessPolicy unbanDeviceAccessSource(@javax.annotation.Nonnull String deviceId, @javax.annotation.Nonnull DeviceAccessBanRequest deviceAccessBanRequest) throws ApiException {
+        ApiResponse<DeviceAccessPolicy> localVarResp = unbanDeviceAccessSourceWithHttpInfo(deviceId, deviceAccessBanRequest);
+        return localVarResp.getData();
+    }
+
+    /**
+     * Remove one permanent source ban
+     * Removes the exact IP or CIDR entry from the device&#39;s persistent deny list and returns the complete updated policy. A source that is already absent, including on a device with no stored policy, is a successful no-op. 
+     * @param deviceId The device id shown on the controlled machine. (required)
+     * @param deviceAccessBanRequest  (required)
+     * @return ApiResponse&lt;DeviceAccessPolicy&gt;
+     * @throws ApiException If fail to call the API, e.g. server error or cannot deserialize the response body
+     * @http.response.details
+     <table border="1">
+       <caption>Response Details</caption>
+        <tr><td> Status Code </td><td> Description </td><td> Response Headers </td></tr>
+        <tr><td> 200 </td><td> The updated policy after the source is absent. </td><td>  -  </td></tr>
+        <tr><td> 400 </td><td> The request was malformed or failed validation. </td><td>  -  </td></tr>
+        <tr><td> 403 </td><td> Authenticated but not allowed (includes a rejected access code). </td><td>  -  </td></tr>
+        <tr><td> 404 </td><td> The addressed resource does not exist. </td><td>  -  </td></tr>
+     </table>
+     */
+    public ApiResponse<DeviceAccessPolicy> unbanDeviceAccessSourceWithHttpInfo(@javax.annotation.Nonnull String deviceId, @javax.annotation.Nonnull DeviceAccessBanRequest deviceAccessBanRequest) throws ApiException {
+        okhttp3.Call localVarCall = unbanDeviceAccessSourceValidateBeforeCall(deviceId, deviceAccessBanRequest, null);
+        Type localVarReturnType = new TypeToken<DeviceAccessPolicy>(){}.getType();
+        return localVarApiClient.execute(localVarCall, localVarReturnType);
+    }
+
+    /**
+     * Remove one permanent source ban (asynchronously)
+     * Removes the exact IP or CIDR entry from the device&#39;s persistent deny list and returns the complete updated policy. A source that is already absent, including on a device with no stored policy, is a successful no-op. 
+     * @param deviceId The device id shown on the controlled machine. (required)
+     * @param deviceAccessBanRequest  (required)
+     * @param _callback The callback to be executed when the API call finishes
+     * @return The request call
+     * @throws ApiException If fail to process the API call, e.g. serializing the request body object
+     * @http.response.details
+     <table border="1">
+       <caption>Response Details</caption>
+        <tr><td> Status Code </td><td> Description </td><td> Response Headers </td></tr>
+        <tr><td> 200 </td><td> The updated policy after the source is absent. </td><td>  -  </td></tr>
+        <tr><td> 400 </td><td> The request was malformed or failed validation. </td><td>  -  </td></tr>
+        <tr><td> 403 </td><td> Authenticated but not allowed (includes a rejected access code). </td><td>  -  </td></tr>
+        <tr><td> 404 </td><td> The addressed resource does not exist. </td><td>  -  </td></tr>
+     </table>
+     */
+    public okhttp3.Call unbanDeviceAccessSourceAsync(@javax.annotation.Nonnull String deviceId, @javax.annotation.Nonnull DeviceAccessBanRequest deviceAccessBanRequest, final ApiCallback<DeviceAccessPolicy> _callback) throws ApiException {
+
+        okhttp3.Call localVarCall = unbanDeviceAccessSourceValidateBeforeCall(deviceId, deviceAccessBanRequest, _callback);
+        Type localVarReturnType = new TypeToken<DeviceAccessPolicy>(){}.getType();
         localVarApiClient.executeAsync(localVarCall, localVarReturnType, _callback);
         return localVarCall;
     }

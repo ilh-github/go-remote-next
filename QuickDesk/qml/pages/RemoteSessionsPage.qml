@@ -70,6 +70,7 @@ Item {
         deviceFilter = deviceField.text.trim()
         expandedSessionId = ""
         manager.refresh(statusFilter, deviceFilter)
+        manager.fetchDeniedSources(deviceFilter)
     }
 
     function requestKick(sessionId, deviceId) {
@@ -107,10 +108,21 @@ Item {
         actionDialog.show()
     }
 
+    function requestUnbanSource(deviceId, source) {
+        confirmMode = 4
+        pendingSessionId = ""
+        pendingDeviceId = deviceId
+        pendingSource = source
+        actionDialog.title = qsTr("Unban source")
+        actionDialog.message = qsTr("Remove the permanent ban on %1?").arg(source)
+        actionDialog.show()
+    }
+
     function confirmActionText() {
         if (confirmMode === 1) return qsTr("Kick")
         if (confirmMode === 2) return qsTr("Clear device")
-        return qsTr("Ban source")
+        if (confirmMode === 3) return qsTr("Ban source")
+        return qsTr("Unban source")
     }
 
     Connections {
@@ -152,6 +164,12 @@ Item {
 
         function onSourceBanned(deviceId, source) {
             root.showToast(qsTr("Permanently banned %1").arg(source),
+                           QDToast.Type.Success)
+            if (root.manager) root.manager.fetchDeniedSources(deviceId)
+        }
+
+        function onSourceUnbanned(deviceId, source) {
+            root.showToast(qsTr("Unbanned %1").arg(source),
                            QDToast.Type.Success)
         }
     }
@@ -293,6 +311,66 @@ Item {
                       : qsTr("Sessions: 0")
                 font.pixelSize: Theme.fontSizeSmall
                 color: Theme.textSecondary
+            }
+        }
+
+        Rectangle {
+            visible: root.deviceFilter.length > 0
+            Layout.fillWidth: true
+            Layout.preferredHeight: blockedContent.implicitHeight
+                                 + Theme.spacingLarge * 2
+            radius: Theme.radiusMedium
+            color: Theme.surface
+            border.width: Theme.borderWidthThin
+            border.color: Theme.border
+
+            ColumnLayout {
+                id: blockedContent
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: parent.top
+                anchors.margins: Theme.spacingLarge
+                spacing: Theme.spacingSmall
+
+                Text {
+                    text: qsTr("Blocked sources")
+                    font.weight: Font.DemiBold
+                    font.pixelSize: Theme.fontSizeMedium
+                    color: Theme.text
+                }
+
+                Text {
+                    visible: !root.manager || root.manager.deniedSources.length === 0
+                    text: qsTr("No permanently blocked sources")
+                    font.pixelSize: Theme.fontSizeSmall
+                    color: Theme.textSecondary
+                }
+
+                Repeater {
+                    model: root.manager ? root.manager.deniedSources : []
+
+                    RowLayout {
+                        required property var modelData
+                        Layout.fillWidth: true
+                        spacing: Theme.spacingSmall
+
+                        Text {
+                            Layout.fillWidth: true
+                            text: modelData
+                            font.family: "Menlo"
+                            font.pixelSize: Theme.fontSizeSmall
+                            color: Theme.text
+                        }
+
+                        QDButton {
+                            text: qsTr("Unban")
+                            buttonType: QDButton.Type.Secondary
+                            implicitWidth: 90
+                            onClicked: root.requestUnbanSource(root.deviceFilter,
+                                                               modelData)
+                        }
+                    }
+                }
             }
         }
 
@@ -654,6 +732,8 @@ Item {
                         root.manager.revokeDeviceSessions(deviceId)
                     } else if (mode === 3) {
                         root.manager.banSource(deviceId, source)
+                    } else if (mode === 4) {
+                        root.manager.removeDeniedSource(deviceId, source)
                     }
                 }
             }
