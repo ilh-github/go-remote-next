@@ -43,7 +43,7 @@
 
 - 仓库：`go-remote-next`
 - 本地主分支：`dev`、`master`
-- 本地代码基线：`e518194`（QD-610 请求幂等与持久化重放）；验证记录和清单的 docs-only
+- 本地代码基线：`e8ce807`（QD-610 异步任务队列与取消）；验证记录和清单的 docs-only
   提交位于其后，`dev` 与 `master` 保持同线
 - 远端 fork：`origin/dev` 仍为 `f6651f0`，本地 `dev` 尚未推送；领先数量以
   `git rev-list --count origin/dev..dev` 的实时值为准。远端写入恢复前不能把本地验收当成已发布
@@ -81,7 +81,7 @@
 
 最近验证：
 
-- 本轮代码提交：`e518194`（QD-610 Idempotency-Key）、`3f94911`（QD-610 持久化/定时触发器）、`bca8149`（QD-610 HTTP trigger）、`de88f07`（QD-506 Web 录像分块续传）、`001a76c`（QD-510 工作流核心）、`e688869`（访问码同步重试）、`5be14da`（SPAKE2 与传输错误码）、
+- 本轮代码提交：`e8ce807`（QD-610 异步任务队列/取消）、`e518194`（QD-610 Idempotency-Key）、`3f94911`（QD-610 持久化/定时触发器）、`bca8149`（QD-610 HTTP trigger）、`de88f07`（QD-506 Web 录像分块续传）、`001a76c`（QD-510 工作流核心）、`e688869`（访问码同步重试）、`5be14da`（SPAKE2 与传输错误码）、
   `a982a10`（Windows 自动更新重启与缓存清理）、`c77dcae`（SQLite 轻量模式）、
   `64ab93a`（备份恢复与存储配额）、`37dd8aa`（Host 指标告警）、`3021ca9`
   （私密安全披露策略）、`3474203`（信令信任边界）；
@@ -330,9 +330,10 @@
   HTTP→replay→report E2E、错误 token、设备白名单和 429 测试均通过，MCP 全量 23/23、
   Clippy 零告警和 release 构建通过。定时触发、控制面事件订阅、幂等键、出站回调和委托
   权限仍未完成，QD-610 保持 `[~]`。
-- QD-610 上游 stacked 候选：`codex/upstream-qd-610-business-trigger` = `12982e0`，
-  基于 `codex/upstream-qd-510-workflow@0a9ecd5`；候选代码阶段为 `eebad06`，包含
-  HTTP trigger、持久化 interval trigger 和 Idempotency-Key，候选自身 31/31 测试、Clippy 和
+- QD-610 上游 stacked 候选：`codex/upstream-qd-610-business-trigger` = `5819500`，
+  基于 `codex/upstream-qd-510-workflow@0a9ecd5`；候选代码阶段为 `5f0db8e`，包含
+  HTTP trigger、持久化 interval trigger、Idempotency-Key 和异步 job 队列，候选自身
+  34/34 测试、Clippy 和
   `git diff --check upstream/dev...HEAD` 通过。候选保留通用 MCP HTTP trigger 和文档，
   不含 fork 清单、QD-506 或控制面业务记录。
 - QD-610 第二阶段功能提交：`3f94911`。新增 `~/.quickdesk/workflow-triggers/` JSON store、
@@ -344,7 +345,12 @@
   `Idempotency-Key`，相同 key、工作流、设备和参数会返回第一次持久化的 run report，
   不会再次执行；不同请求复用同一 key 或请求仍在执行时返回 409。映射写入
   `~/.quickdesk/workflow-idempotency.json`，成功、失败和进程重启后的重放均有测试。
-  cron/日历、事件订阅、异步队列/取消、HMAC 回调和委托权限仍未完成，QD-610 保持 `[~]`。
+- QD-610 第四阶段功能提交：`e8ce807`。新增 `POST /v1/workflows/{workflow_id}/run-async`、
+  `GET /v1/workflow-runs/{run_id}/status` 和 `POST /v1/workflow-runs/{run_id}/cancel`；
+  job 状态持久化到 `~/.quickdesk/workflow-jobs/`，进程内队列容量 32，异步 worker 与
+  同步/定时触发共用单执行槽。运行中取消会中止当前 WebSocket 请求并写入
+  `cancelled=true` 的报告。MCP 全量 34/34、Clippy 零告警和 release 构建通过。
+  cron/日历、控制面事件、跨进程队列恢复、HMAC 回调和委托权限仍未完成，QD-610 保持 `[~]`。
 - QD-911 当前状态：上游 issue #6 仍 OPEN，GitHub API 返回
   `private-vulnerability-reporting.enabled=false`，维护者最新回复仍只是旧 release 链接。
   fork 与上游候选已新增根目录 `SECURITY.md`，覆盖支持版本、公开 issue 禁令、GitHub 私密
@@ -399,7 +405,7 @@
 | 验证/排障 | QD-216 主机连接失败 | `Upstream` issue #9 | 缺真实 host/signaling/TLS 日志，不能直接猜实现 | 先做支持 triage；能拆出确定 bug 后再进入实现 |
 | 安全设计 | QD-115 服务端设备密钥信任边界 | `Upstream` issue #10 / `Fork` | 威胁模型已完成：device_secret 不可逆，但明文 access_code + server token/审批使当前服务器仍是设备访问信任方；候选 `codex/upstream-qd-115-trust-model@1ca2543` 已准备 | 按文档分阶段推进 Host 身份密钥、Owner 签名 grant、Host 本地验证和恶意服务器 E2E；8 条验收项完成前保持 `[~]` |
 | 上游候选 | QD-911 私密安全披露入口 | `Upstream` issue #6 | fork 与独立候选已有 `SECURITY.md`，候选 `codex/upstream-qd-911-security@9862717` 直接基于 `upstream/dev`，只含 1 个文件；上游 issue 仍开放且 Private Vulnerability Reporting 仍 disabled | 远端写入恢复后推送并开 PR；维护者合并且启用私密报告后才转为 `[x]` |
-| 后续增强 | QD-610 业务工作流 | `Legacy` / `Fork` / `Upstream-Open` | QD-510 已完成录制/回放/报告；`bca8149` 补 HTTP trigger；`3f94911` 补持久化 CRUD、固定 interval worker 与运行结果回写；`e518194` 补 Idempotency-Key 持久化重放；事件、cron、异步队列、回调和委托权限仍缺 | 继续做不依赖外部凭据的业务编排 |
+| 后续增强 | QD-610 业务工作流 | `Legacy` / `Fork` / `Upstream-Open` | QD-510 已完成录制/回放/报告；`bca8149` 补 HTTP trigger；`3f94911` 补持久化 CRUD、固定 interval worker 与运行结果回写；`e518194` 补 Idempotency-Key；`e8ce807` 补异步队列、状态查询和取消；事件、cron、跨进程恢复、回调和委托权限仍缺 | 继续做不依赖外部凭据的业务编排 |
 | 质量收口 | QD-906、QD-907、QD-908、QD-909 | `Legacy` / `Fork` | 真机矩阵、异常路径、2h+ 长稳、文件/剪贴板审计仍不完整 | 每完成一个主功能就补对应边界，不集中到最后一次性补测 |
 | 明确暂缓 | QD-318 Linux、QD-319 原生移动端 | `Upstream` Roadmap | 上游已列计划，当前 fork 不做实现承诺 | 保持接口和构建兼容，等上游方向明确后接 |
 | 明确不做 | RDP、重写 WebRTC/Remoting、多租户/SSO/计费、通用插件市场 | `Fork` 决策 | 与当前“复用成熟远控内核 + 补业务控制面”的路线冲突或收益不足 | 不进入待办池，除非用户重新定义产品目标 |
@@ -416,7 +422,7 @@ Roadmap 项放到同一条实施路径中。详细追溯仍以第 16 节为准�
 | 3 | 等 PR #25 基线 | QD-204 API/客户端、QD-607 服务端、QD-108 / QD-508 / QD-706 / QD-708 管理面、QD-005 客户端 | 这些能力依赖控制面、OpenAPI、录像或管理页基线；直接塞进 #25 会变成巨型 PR | 维护者确认 #25 合并或 stacked base；再按服务端/Web/Qt/更新拆 PR |
 | 4 | 跟踪上游已有 PR | PR #22 自动审批、#23 录像、#24 skill-host 运行库、#25 控制面 | 上游已有实现，重复开发只会制造分叉 | PR 合并后同步 `upstream/dev`，重跑受影响测试；删除重复本地实现 |
 | 5 | 提 Remoting 需求 | QD-002 Web 文件通道、QD-004 / QD-505 Host 权威录制、QD-007 图片剪贴板、QD-114 真实 CertVerifier、QD-214 Windows 用户上下文 | 必须改 Chromium Remoting 或宿主生命周期，维护者已明确这类改动由他处理 | 每项提交协议草案、权限边界、兼容性和验收用例；不在 fork 伪造第二套媒体链路 |
-| 6 | fork 自主增强 | QD-610 业务集成、QD-511 智能回放、QD-904 / QD-907 / QD-908 / QD-909 | QD-510、HTTP trigger、持久化固定 interval trigger 和 Idempotency-Key 已落地；剩余业务编排仍缺事件订阅、cron、异步队列和出站回调 | 有明确用户入口、失败路径和对应自动化或真机证据 |
+| 6 | fork 自主增强 | QD-610 业务集成、QD-511 智能回放、QD-904 / QD-907 / QD-908 / QD-909 | QD-510、HTTP trigger、持久化固定 interval trigger、Idempotency-Key 和异步队列/取消已落地；剩余业务编排仍缺事件订阅、cron、跨进程恢复和出站回调 | 有明确用户入口、失败路径和对应自动化或真机证据 |
 | 7 | 暂缓跟随上游 | QD-318 Linux、QD-319 iOS/Android | 上游 Roadmap 已列出，本 fork 当前不承诺实现 | 保持接口和构建兼容；上游方向明确后再排期 |
 | 8 | 不进入待办 | RDP、重写 WebRTC/Remoting、多租户/SSO/计费、通用插件市场 | 与“复用成熟远控内核 + 补业务控制面”的路线冲突或收益不足 | 只有用户重新定义产品目标才重新评估 |
 
@@ -452,8 +458,8 @@ Private Vulnerability Reporting，后者等协议实现。当前继续做不依�
 
 “现在要做”的 fork 工作按以下顺序执行：
 
-1. **QD-610 后续阶段**：`Idempotency-Key` 已完成；下一步做异步运行队列/取消和 HMAC
-   出站回调，再做控制面事件订阅、cron/日历和委托权限。前三项能从当前的通用 MCP
+1. **QD-610 后续阶段**：`Idempotency-Key` 和异步队列/取消已完成；下一步做 HMAC
+   出站回调，再做控制面事件订阅、cron/日历和委托权限。通用触发链路能从当前的 MCP
    trigger 候选继续 stacked 回贡，后几项若绑定 fork 业务数据库则留在 `Fork-only`。
 2. **QD-511 智能回放**：补预录/后录屏幕 hash、状态不匹配暂停、OCR 关键词和人工接管；
    通用部分在 QD-510 候选合并后回贡。
@@ -577,7 +583,7 @@ fork 是否能继续开发，也不能因为 fork 自己有实现就再次向 up
 | QD-607 | 计划任务 | `[~]` | 服务端、WebClient、Qt 管理页和重试已完成；`revoke_all_remote_sessions` 已补齐控制面批量清场（最多 200 台）。定时连接、广义批量 agent 指令及回执仍未做 |
 | QD-608 | OpenAPI 与生成 SDK | `[x]` | TypeScript/Go/Python/Java/C#/PHP/Kotlin 七套客户端已提交，生成器、freshness 门禁和 CI 编译覆盖全部语言；C# `dotnet build`、PHP Composer/lint、Kotlin Gradle build 通过 |
 | QD-609 | MCP / AI 自动化 | `[x]` | QuickDesk 原生能力；也是上游维护者当前最优先方向 |
-| QD-610 | 业务系统集成与自定义工作流 | `[~]` | `bca8149` + `3f94911` + `e518194` 已提供 HTTP trigger、持久化 trigger CRUD、60 秒~365 天 interval worker、next_run_at at-most-once、运行结果回写、Idempotency-Key 持久化重放、设备白名单、trust/emergency、单并发和 429；事件订阅、cron/日历、异步队列/取消、出站回调和委托权限仍未完成 |
+| QD-610 | 业务系统集成与自定义工作流 | `[~]` | `bca8149` + `3f94911` + `e518194` + `e8ce807` 已提供同步/异步 HTTP trigger、持久化 trigger CRUD、60 秒~365 天 interval worker、next_run_at at-most-once、运行结果回写、Idempotency-Key 持久化重放、异步 job 状态/取消、设备白名单、trust/emergency、单并发和 429；事件订阅、cron/日历、跨进程队列恢复、出站回调和委托权限仍未完成 |
 
 ## 10. Web、Qt 与管理端
 

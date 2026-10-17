@@ -1,9 +1,9 @@
 # QuickDesk 业务工作流 HTTP 触发器
 
-> 状态（2026-10-17）：QD-610 第三阶段。业务系统可以保存 manual/interval trigger，
+> 状态（2026-10-17）：QD-610 第四阶段。业务系统可以保存 manual/interval trigger，
 > 通过独立 Bearer token 立即运行，并由 HTTP transport 的后台 worker 每 5 秒领取一次
 > 到期触发器。`Idempotency-Key` 已支持持久化重放；控制面事件订阅、出站回调、
-> 委托权限细分、cron/日历和异步任务队列仍未完成。
+> 委托权限细分、cron/日历和跨进程 worker 仍未完成。
 
 ## 1. 边界
 
@@ -102,7 +102,55 @@ Content-Type: application/json
 当前每个 `quickdesk-mcp` 进程只允许一个业务触发工作流并发运行。远程桌面工作流通常
 依赖当前窗口、输入焦点和屏幕状态，并发执行会让结果不可预测。
 
-## 4. 查询运行报告
+## 4. 异步运行与取消
+
+异步入口不会等待工作流结束：
+
+```http
+POST /v1/workflows/{workflow_id}/run-async
+Authorization: Bearer <QUICKDESK_TRIGGER_TOKEN>
+Content-Type: application/json
+```
+
+请求体与同步入口相同。成功返回 `202 Accepted` 和一个 `workflow job`：
+
+```json
+{
+  "run_id": "c7ca0a2f-0d4c-4f0c-9dbf-4a92e8a67d10",
+  "workflow_id": "b7ca0a2f-0d4c-4f0c-9dbf-4a92e8a67d10",
+  "device_id": "device-1",
+  "status": "queued",
+  "created_at": "2026-10-17T15:20:00Z",
+  "started_at": null,
+  "completed_at": null,
+  "report": null,
+  "error": ""
+}
+```
+
+查询状态：
+
+```http
+GET /v1/workflow-runs/{run_id}/status
+Authorization: Bearer <QUICKDESK_TRIGGER_TOKEN>
+```
+
+状态为 `queued`、`running`、`cancelling`、`completed`、`failed` 或 `cancelled`。
+`completed` 和 `failed` 会带完整的 `report`；执行错误写入 `error`。
+
+取消：
+
+```http
+POST /v1/workflow-runs/{run_id}/cancel
+Authorization: Bearer <QUICKDESK_TRIGGER_TOKEN>
+```
+
+排队中的任务会立即标为 `cancelled`；运行中的任务先变成 `cancelling`，worker 在步骤
+边界或当前 WebSocket 请求被取消后写入带 `cancelled=true` 的报告。已完成、已失败或
+已取消的任务返回 `409`。当前队列容量为 32，worker 与同步触发、定时触发共用同一个
+单执行槽。
+
+## 5. 查询运行报告
 
 ```http
 GET /v1/workflow-runs/{run_id}
@@ -112,7 +160,7 @@ Authorization: Bearer <QUICKDESK_TRIGGER_TOKEN>
 返回持久化的 `WorkflowRunReport`；不存在时返回 404。同步触发已经返回同一份报告，
 该接口用于业务系统保存 `run_id` 后补查或人工复盘。
 
-## 5. 持久化触发器
+## 6. 持久化触发器
 
 触发器定义写入 `~/.quickdesk/workflow-triggers/{trigger_id}.json`，保存：
 
@@ -152,7 +200,7 @@ POST   /v1/triggers/{trigger_id}/run
 `POST /v1/triggers/{trigger_id}/run` 返回本次 `WorkflowRunReport`，同时把 run_id、
 completed/failed 和错误写回 trigger 定义。
 
-## 6. 安全
+## 7. 安全
 
 - 默认绑定 `127.0.0.1`。需要跨机器调用时，应放在 TLS 反向代理后面，不能直接暴露
   MCP HTTP 端口。
@@ -162,12 +210,14 @@ completed/failed 和错误写回 trigger 定义。
 - 工作流 ID 和 run ID 都经过 UUID 与路径逃逸校验。
 - `Idempotency-Key` 只做请求去重，不是认证凭证；仍需保护 trigger token。
 - 同步请求会占用一个执行槽；业务系统应设置足够超时并处理 429。
+- 异步任务状态写入 `~/.quickdesk/workflow-jobs/{run_id}.json`，但当前 worker 不跨
+  进程恢复中断的队列；重启后应重新提交未完成任务。
 
-## 7. 尚未完成
+## 8. 尚未完成
 
 - 控制面事件订阅和 event-to-workflow 映射；
 - cron/日历定时规则；当前只有固定 interval；
-- 异步队列、取消和跨进程 worker；当前只支持单进程执行槽；
+- 跨进程 worker、持久化队列恢复和公平调度；当前只支持单进程队列；
 - 运行完成后的 HMAC 出站回调；
 - Owner 委托 grant、最小权限范围和审计回传控制面。
 
