@@ -1,6 +1,11 @@
 # QuickDesk 功能总清单
 
-> 本文件是 QuickDesk fork 后续产品开发的唯一功能清单。旧 Go-Remote 仓库不再作为需求来源、实现基线或兼容目标；这里列出的范围以当前仓库代码、测试和已验收文档为准。
+> 本文件是 QuickDesk fork 后续产品开发的唯一功能清单。它合并三类输入：
+> 1. QuickDesk fork 当前代码、测试和已验收能力；
+> 2. 旧 Go-Remote 仍值得迁移的业务语义和遗留缺口；
+> 3. `barry-ran/QuickDesk` 的 Roadmap、open issue、open PR 和维护者贡献口径。
+>
+> 旧 Go-Remote 仓库不再作为实现基线；某个能力是否需要做，以本清单的当前状态、上游映射和验收标准为准。
 
 ## 1. 状态与规则
 
@@ -13,6 +18,14 @@
 | `[>]` | 上游 Roadmap 已列出，本 fork 当前暂缓 |
 | `[-]` | 明确不做 |
 
+需求来源：
+
+| 来源 | 含义 |
+|---|---|
+| `Fork` | 当前 QuickDesk fork 自己必须完成的产品、部署或质量问题 |
+| `Legacy` | 旧 Go-Remote 有、当前主线还缺或有明显差距的业务能力 |
+| `Upstream` | 上游 Roadmap、issue 或 PR 已明确提出的能力 |
+
 维护规则：
 
 - 功能完成时同步更新状态、验收标准和证据路径。
@@ -20,6 +33,7 @@
 - 核心媒体与输入不重写，继续复用 Chromium Remoting、WebRTC、ICE、STUN、TURN。
 - Windows 和 macOS 当前优先；Linux、iOS/Android 属于上游 Roadmap，本 fork 暂缓但不删除贡献接口；RDP 明确不做。
 - 每项功能都要判断上游贡献方式：`UP-PR`、`UP-Ready`、`UP-Remoting`、`Fork-only` 或 `Upstream-Open`。
+- 上游已有 open PR 的功能先同步审查，不重复提交；上游合并后把 `upstream/dev` 合回 fork，再继续增量。
 - 任何新功能先写失败测试，再实现，最后补构建或端到端验证。
 
 ## 2. 当前主线
@@ -29,7 +43,7 @@
 - 上游基线：`barry-ran/QuickDesk` 的 `dev` 和 `master` 当前均为 `f6651f0`
 - 上游维护口径：持续维护但暂缓更新，下一阶段重点偏 MCP；外部贡献从 `dev` 切分支，完成后合入 `dev`，维护者定期合入 `master`
 - Remoting 边界：`quickdesk-remoting` 需要编译整个 Chromium，涉及 Remoting 的改动优先向上游提需求，不要求贡献者本地编译
-- 本轮起点：`c4091701add83ad5aa92e36511ad5db3f4a7e813`
+- 当前本地基线：`c7067c77b8fb1ca087e10f8785e4523a9aaf3ffd`
 - 本轮合并：`2f61f8e`（QD-003 多标签控制与音频抢占）
 - 本轮功能：`a48d793`（QD-114 Qt/Windows 服务 SPKI 公网自托管兼容）
 - 本轮功能：`7c23f13`（QD-108 Qt 二次访问审批入口与实时消费）
@@ -106,6 +120,39 @@
 - WebClient 当前 29/29 测试通过；生产构建 JS 348.48 kB、gzip 112.80 kB。
 - `git diff --check`：通过。
 - 远端推送仍被当前执行策略拒绝，本地 `dev` 尚未同步到 GitHub。
+
+### 3.1 统一需求决策台账
+
+这张表是本轮对“我们自己的清单 + 旧 Go-Remote 缺口 + 上游待办”的合并结论。
+它不替代后面的完整功能表，只固定优先级、依赖和上游贡献方式。
+
+| 队列 | 工作项 | 来源 | 当前判断 | 下一步 |
+|---|---|---|---|---|
+| 上游同步 | PR #22 自动审批线程亲和性 | `Upstream` / QD-113 | 上游 PR 已覆盖 issue #17；本 fork 不重复实现 | 等 PR #22 合并后同步；当前 `master <= dev`，合并时确认目标分支 |
+| 上游同步 | PR #23 会话录像与回放 | `Upstream` / QD-501~507 | 已覆盖服务端索引、Web/Qt 手动录制、预览、生命周期；Host 权威录制不在其中 | 不重复提交；合并后回灌 fork，再单独推进 Host 录制 |
+| 上游同步 | PR #24 skill-host Windows 运行库 | `Upstream` / QD-402、QD-609 | 修复技能进程找不到 MSVC runtime；与 fork 同向 | 合并后同步，不维护第二套 PATH/stderr 逻辑 |
+| 上游同步 | PR #25 自托管控制面、OpenAPI、SDK | `Upstream` / QD-101~110、201~211、501、601~608、801~808 | 当前控制面总集；维护者可接受继续拆 PR | 等审查；若维护者要求，按 access / alerting / recording / operations / update 拆 |
+| 立即实现 | QD-708 Qt 通知规则页 | `Fork` / `Upstream` 通用能力 | 审批页、会话页、计划任务页已完成；只剩通知通道、静默时段和离线告警 | 先写 `NotificationManager` 失败测试，再实现 CRUD/test、quiet-hours、offline-alert 和实时刷新 |
+| 立即排期 | QD-508 Qt 录像回放页 | `Legacy` / `Upstream` PR #23 | Web 回放完成；Qt 只有录制，没有完整列表/播放/下载/删除入口 | 基于现有 recordings API 做通用 Qt 页面，PR #23 合并后提交上游 |
+| 立即排期 | QD-204 地址簿与设备分组用户入口 | `Legacy` / `Upstream` Roadmap | 管理后台有基础，用户端仍不完整；上游明确列为未完成 | 先做最小地址簿/分组用户流程，作为独立上游候选，不混入控制面巨型 PR |
+| 本地收口 | QD-607 计划任务执行动作 | `Fork` / `Legacy` | 服务端调度、Web/Qt 管理面、重试已完成；只有 `sign_out_all_sessions` | 先定义“定时连接”和“批量运维”协议及回执；kind 仍以服务端注册表为权威 |
+| 本地收口 | QD-005 / QD-808 自动更新真机验证 | `Fork` / `Legacy` / `Upstream` PR #25 | 检查、下载、SHA-256、安装入口已完成 | 补 Windows 安装包升级/重启、macOS DMG 替换、签名和公证回归；PR #25 合并后再拆上游 |
+| 上游候选 | QD-003 多标签控制与音频抢占 | `Legacy` / `Upstream` Roadmap 补强 | 候选 `codex/upstream-cross-tab-coordination` = `6047615`，仅 WebClient 改动 | 远端写入恢复后推送并建 PR；补截图和同源双标签验证说明 |
+| 上游候选 | QD-114 自托管 WSS SPKI 兼容 | `Upstream` issue #20 / `Fork` | 候选 `codex/upstream-qd-114-spki` = `13559e6`；临时方案不替代真实证书校验 | 推送并建 issue #20 PR；补 Qt 构建、Windows 服务和真实 `wss://` |
+| 上游候选 | QD-212 设备列表本机标识 | `Upstream` issue #19 / `Legacy` | 候选 `f1ce096` 已在干净上游基线构建和测试 | 推送并建 PR；与 #19 其余问题拆开 |
+| 上游候选 | QD-213 缺失访问码回源 | `Upstream` issue #19 / `Legacy` | 候选 `6928d24` 已通过集成测试 | 推送并建 PR；补两真机换码时序回归 |
+| 上游候选 | QD-214 文件传输错误诊断 | `Upstream` issue #19 / `Legacy` | 候选 `94d3ec3` 改善 `Host error:type=2` 提示；根因未定位 | 推送诊断 PR；另收 Windows host 日志再做根因修复 |
+| Remoting 需求 | QD-002 Web 完整文件管理器 | `Legacy` / `Fork` | 当前 skill bridge 只在 Qt 与 host 间可用，浏览器没有等价通道 | 向 Remoting 提 host 文件操作通道需求；在此之前不把上传下载冒充完整管理器 |
+| Remoting 需求 | QD-004 / QD-505 Host 权威录制与断线收尾 | `Legacy` / `Fork` | PR #23 只录控制端已解码画面；Host/Relay 没有权威媒体落盘 | 提 Remoting/宿主生命周期需求；fork 不另造第二套媒体链路 |
+| Remoting 需求 | QD-007 图片剪贴板 | `Legacy` / `Fork` | Remoting `ClipboardEvent` 只承载 UTF-8 文本 | 提图片格式、分片和权限边界需求；等协议方案后再实现 |
+| Remoting 需求 | QD-114 真实 CertVerifier | `Upstream` issue #20 | SPKI 只是临时放行；根因是 `quickdesk_network_service.cc` 未绑定真实证书校验器 | 向 Remoting 维护者提正式修复需求和回归用例 |
+| 验证/排障 | QD-215 Windows Qt platform plugin | `Upstream` issue #7 | 属安装包/Qt 运行库问题，不是媒体链路问题 | 在 Windows 实机复现，补安装包依赖检查和回归 |
+| 验证/排障 | QD-216 主机连接失败 | `Upstream` issue #9 | 缺真实 host/signaling/TLS 日志，不能直接猜实现 | 先做支持 triage；能拆出确定 bug 后再进入实现 |
+| 安全设计 | QD-115 服务端设备密钥信任边界 | `Upstream` issue #10 / `Fork` | 信令服务端是否能冒充设备仍缺威胁模型 | 先写安全边界和攻击面；需要协议改动时与维护者协作 |
+| 后续增强 | QD-604 指标型告警、QD-702 墙级音频、QD-610 业务工作流 | `Legacy` / `Fork` | 均有基础或设计，但没有完整产品闭环 | 等当前 Qt/录像/更新收口后逐项做 |
+| 质量收口 | QD-906、QD-907、QD-908、QD-909 | `Legacy` / `Fork` | 真机矩阵、异常路径、2h+ 长稳、文件/剪贴板审计仍不完整 | 每完成一个主功能就补对应边界，不集中到最后一次性补测 |
+| 明确暂缓 | QD-318 Linux、QD-319 原生移动端 | `Upstream` Roadmap | 上游已列计划，当前 fork 不做实现承诺 | 保持接口和构建兼容，等上游方向明确后接 |
+| 明确不做 | RDP、重写 WebRTC/Remoting、多租户/SSO/计费、通用插件市场 | `Fork` 决策 | 与当前“复用成熟远控内核 + 补业务控制面”的路线冲突或收益不足 | 不进入待办池，除非用户重新定义产品目标 |
 
 ## 4. 账号、认证与安全
 
@@ -258,6 +305,7 @@
 | QD-907 | 协议异常、权限异常、重连耗尽 | `[~]` | 需要继续扩边界 |
 | QD-908 | 2h+ 桌面长稳和几百路观看 | `[ ]` | 当前缺业务级长稳基线 |
 | QD-909 | 安全审计：文件、剪贴板、权限 | `[~]` | 访问和会话已有；文件/剪贴板未进入控制面 |
+| QD-910 | 需求、上游与实现持续对账 | `[~]` | 每次上游合并、issue/PR 变化或功能完成时，同步本清单、状态证据和上游贡献决策 |
 
 ## 13. 明确不做
 
@@ -271,17 +319,24 @@
 
 ## 14. 推荐执行顺序
 
-1. 保持上游 open PR #22 / #23 / #24 / #25 同步，不重复实现。
-2. 推送 QD-114 上游候选 `codex/upstream-qd-114-spki` 并创建 issue #20 PR；补齐 Qt 构建、
-   Windows 服务安装和真实 `wss://` 回归；彻底修复向 Remoting 仓库提 CertVerifier 需求。
-3. 把已完成的 QD-003 多标签控制/音频抢占整理为上游独立 PR。
-4. 把 QD-206 本地连接历史按上游 issue #18 拆成最小 Web/Qt PR。
-5. QD-002 Web 文件操作通道与完整文件管理器；若必须改 Remoting，改为上游需求。
-6. QD-004 Host/Relay 自动录制；先向 Remoting 维护者提需求，不在 fork 内自造第二套媒体链路。
-7. QD-005 客户端消费已落地，补 Windows 安装包真机升级/自动重启和 macOS DMG
-   签名、公证、替换回归；上游等服务端 PR #25 合并后再拆客户端消费 PR。
-8. QD-006 SQLite 轻量部署、QD-007 图片剪贴板，以及 QD-708 剩余 Qt 通知规则页。
-9. QD-604 指标告警、QD-908 业务级长稳，以及上游 Roadmap 的地址簿、Linux、移动端。
+执行顺序按“先解除上游重复投入，再完成本地闭环，最后做协议扩展”排列：
+
+1. **上游同步闸门**：持续跟踪 PR #22 / #23 / #24 / #25；已有 PR 的功能不重复实现。
+   远端写入恢复后，先推送已准备好的 QD-003、QD-114、QD-212、QD-213、QD-214 最小候选。
+2. **完成当前 Qt 管理面**：实现 QD-708 剩余通知规则页，覆盖通道 CRUD/test、静默时段、
+   设备离线告警和实时刷新；完成后 QD-606 / QD-708 才能从 `[~]` 改 `[x]`。
+3. **补通用客户端闭环**：QD-508 Qt 录像回放页、QD-204 地址簿/设备分组用户入口。
+   这两项不依赖 Remoting，可作为 PR #23 / PR #25 合并后的独立上游候选。
+4. **补任务和更新真机链路**：QD-607 定时连接/批量运维动作，QD-005 / QD-808
+   Windows 与 macOS 安装、重启、签名和公证验证，QD-215 Windows Qt 插件问题。
+5. **准备 Remoting 需求单**：QD-002 Web 文件操作通道、QD-004 / QD-505 Host 权威录制、
+   QD-007 图片剪贴板、QD-114 真实 CertVerifier。每项写清协议、宿主生命周期、权限、
+   兼容性和验收用例，先交上游维护者评估。
+6. **安全与可观测性**：QD-115 设备密钥信任边界、QD-604 指标告警、QD-909 文件/剪贴板审计。
+7. **规模与长稳**：QD-906 真机矩阵、QD-907 异常路径、QD-908 2h+ 和几百路观看，
+   以实际发布门槛补证据，不把压测数字当宣传口径。
+8. **Roadmap 暂缓项**：QD-318 Linux、QD-319 iOS/Android 跟随上游，不提前承诺。
+9. 每次完成或合并后更新 QD-910：重新 fetch 上游、核对 issue/PR、更新本清单状态与证据。
 
 ## 15. 完成定义
 
@@ -304,6 +359,8 @@
 - `Multi-tab multi-connection` 在上游已勾选；QD-003 补的是同一设备多个标签的控制/音频互斥，不重复“多连接”能力
 - 维护计划：issue #21，维护者明确“持续维护、暂缓更新、重点偏 MCP、欢迎从 dev 切分支贡献、Remoting 改动由维护者处理”
 - 当前 open PR：#22、#23、#24、#25
+- 2026-10-17 复核：四个 PR 均显示 MERGEABLE，但 GitHub 分支没有 reported checks；
+  不能把“MERGEABLE”写成 CI 已通过
 
 上游贡献状态：
 
@@ -319,10 +376,10 @@
 
 | 上游项 | 状态 | 涉及 QD | 当前处理 | 后续动作 |
 |---|---|---|---|---|
-| PR #25 self-hosted control plane | OPEN，MERGEABLE，CI unstable | QD-101~110、QD-201~211、QD-501、QD-601~608、QD-801~808 | 服务端、契约、SDK、smoke 和 Qt 更新消费已在本 fork；本地不重复造一套 | 等维护者审查；若要求拆分，按 access / alerting / recording / ops / update 拆 |
-| PR #23 session recordings | OPEN，MERGEABLE，CI unstable | QD-501~507 | 控制端手动录制、索引、回放、生命周期已具备 | 先等 PR #23；Host 权威录制另走 `UP-Remoting` |
-| PR #24 skill-host runtime path | OPEN | QD-402、QD-609 | 本 fork 已包含 PATH/stderr 修复，和上游补丁同向 | 上游合并后同步回 fork，避免二套实现 |
-| PR #22 auto-approve thread affinity | OPEN，基于 master | QD-113 | 本 fork 尚未重复实现 | 等 PR #22 合并后 cherry-pick；不要重复提交 issue #17 |
+| PR #25 self-hosted control plane | OPEN，MERGEABLE，无 reported checks | QD-101~110、QD-201~211、QD-501、QD-601~608、QD-801~808 | 服务端、契约、SDK、smoke 和 Qt 更新消费已在本 fork；本地不重复造一套 | 等维护者审查；若要求拆分，按 access / alerting / recording / ops / update 拆 |
+| PR #23 session recordings | OPEN，MERGEABLE，无 reported checks | QD-501~507 | 控制端手动录制、索引、回放、生命周期已具备 | 先等 PR #23；Host 权威录制另走 `UP-Remoting` |
+| PR #24 skill-host runtime path | OPEN，MERGEABLE，无 reported checks | QD-402、QD-609 | 本 fork 已包含 PATH/stderr 修复，和上游补丁同向 | 上游合并后同步回 fork，避免二套实现 |
+| PR #22 auto-approve thread affinity | OPEN，MERGEABLE，无 reported checks，基于 master | QD-113 | 本 fork 尚未重复实现 | 等 PR #22 合并后 cherry-pick；不要重复提交 issue #17 |
 
 ### 16.3 上游 issue / Roadmap 映射
 
@@ -330,7 +387,7 @@
 |---|---|---|---|---|
 | #21 维护计划与参与维护意向 | 维护策略 | QD-001、QD-609 | 上游优先 MCP、从 dev 贡献、Remoting 由维护者改 | 所有新功能按 dev 最小分支准备；涉及 Remoting 先提需求 |
 | #20 自托管 HTTPS/WSS 失败 | Bug / 自托管 | QD-114 | 证书验证器在 Remoting 内未绑定；Qt-only SPKI 已支持子进程和服务安装参数 | 推送候选并补 Windows/Qt 回归；长期向 Remoting 提 CertVerifier 修复 |
-| #18 连接历史列表 | Feature | QD-206 | 上游 `dev` 已有 `ConnectionHistory`、历史列表、删除和重连；issue 仍开放 | 先做完整功能核对，确认无缺口后向下游说明可关闭，不再重复实现 |
+| #18 连接历史列表 | Feature | QD-206 | WebClient 已有 `ConnectionHistory`，Qt 已有 `RemoteDeviceManager` 历史下拉、删除和重连；issue 仍开放 | 在 issue 回复现有入口和版本证据，建议关闭；不再重复实现 |
 | #19 设备列表相关问题 | Bug cluster | QD-212、QD-213、QD-214 | 本机标识和访问码回源已完成；上传错误诊断已改善，但根因仍需宿主日志 | 推送三个独立候选；QD-214 在复现后继续补真实修复，不混成一个“设备列表”大修 |
 | #17 自动审批被忽略 | Bug | QD-113 | 已由 PR #22 覆盖 | 跟踪 PR #22，不重复实现 |
 | #13 Linux 支持 | Roadmap | QD-318 | 上游 Roadmap 已列出，本 fork 暂缓 | 保持跨平台接口，不在当前迭代投入 Linux 被控端 |
