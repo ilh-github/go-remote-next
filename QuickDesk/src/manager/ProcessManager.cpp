@@ -2,6 +2,8 @@
 
 #include "ProcessManager.h"
 #include "NativeMessaging.h"
+#include "core/certificatepin.h"
+#include "core/localconfigcenter.h"
 #include "infra/log/log.h"
 #include <QCoreApplication>
 #include <QDir>
@@ -618,6 +620,17 @@ bool ProcessManager::startProcess(QProcess* process, const QString& exePath,
     }
     if (!m_configDir.isEmpty()) {
         arguments << QString("--config-dir=%1").arg(m_configDir);
+    }
+    const QString configuredPins =
+        core::LocalConfigCenter::instance().signalingServerSpki().trimmed();
+    if (!configuredPins.isEmpty()) {
+        const std::string pin_argument = quickdesk::BuildCertificatePinArgument(
+            configuredPins.toStdString());
+        if (!pin_argument.empty()) {
+            arguments << QString::fromStdString(pin_argument);
+        } else {
+            LOG_WARN("Ignoring invalid signaling server SPKI pin list");
+        }
     }
 #ifdef Q_OS_MAC
     if (process == m_hostProcess.get()) {

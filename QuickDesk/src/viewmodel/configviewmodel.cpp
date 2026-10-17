@@ -1,5 +1,6 @@
 #include "configviewmodel.h"
 
+#include "core/certificatepin.h"
 #include "core/localconfigcenter.h"
 #include "infra/autostart/autostartmanager.h"
 
@@ -14,6 +15,7 @@ ConfigViewModel::ConfigViewModel(QObject* parent)
     connect(&core::LocalConfigCenter::instance(), &core::LocalConfigCenter::signalRemoteTabBarPinnedChanged, this, &ConfigViewModel::remoteTabBarPinnedChanged);
     connect(&core::LocalConfigCenter::instance(), &core::LocalConfigCenter::signalRemoteDesktopMiniMapVisibleChanged, this, &ConfigViewModel::remoteDesktopMiniMapVisibleChanged);
     connect(&core::LocalConfigCenter::instance(), &core::LocalConfigCenter::signalApiKeyChanged, this, &ConfigViewModel::apiKeyChanged);
+    connect(&core::LocalConfigCenter::instance(), &core::LocalConfigCenter::signalSignalingServerSpkiChanged, this, &ConfigViewModel::signalingServerSpkiChanged);
 }
 
 ConfigViewModel::~ConfigViewModel()
@@ -112,4 +114,25 @@ QString ConfigViewModel::apiKey()
 void ConfigViewModel::setApiKey(const QString& value)
 {
     core::LocalConfigCenter::instance().setApiKey(value);
+}
+
+QString ConfigViewModel::signalingServerSpki()
+{
+    return core::LocalConfigCenter::instance().signalingServerSpki();
+}
+
+void ConfigViewModel::setSignalingServerSpki(const QString& value)
+{
+    const auto parsed =
+        quickdesk::ParseCertificatePinList(value.trimmed().toStdString());
+    if (!parsed.valid) {
+        return;
+    }
+    core::LocalConfigCenter::instance().setSignalingServerSpki(
+        QString::fromStdString(parsed.normalized));
+}
+
+bool ConfigViewModel::isValidSignalingServerSpki(const QString& value) const
+{
+    return quickdesk::ParseCertificatePinList(value.trimmed().toStdString()).valid;
 }

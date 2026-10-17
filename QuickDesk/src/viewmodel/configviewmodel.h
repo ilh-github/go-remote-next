@@ -13,6 +13,7 @@ class ConfigViewModel : public QObject {
     Q_PROPERTY(bool remoteTabBarPinned READ remoteTabBarPinned WRITE setRemoteTabBarPinned NOTIFY remoteTabBarPinnedChanged)
     Q_PROPERTY(bool remoteDesktopMiniMapVisible READ remoteDesktopMiniMapVisible WRITE setRemoteDesktopMiniMapVisible NOTIFY remoteDesktopMiniMapVisibleChanged)
     Q_PROPERTY(QString apiKey READ apiKey WRITE setApiKey NOTIFY apiKeyChanged)
+    Q_PROPERTY(QString signalingServerSpki READ signalingServerSpki WRITE setSignalingServerSpki NOTIFY signalingServerSpkiChanged)
 
 public:
     ConfigViewModel(QObject* parent = nullptr);
@@ -45,6 +46,10 @@ public:
     QString apiKey();
     void setApiKey(const QString& value);
 
+    QString signalingServerSpki();
+    void setSignalingServerSpki(const QString& value);
+    Q_INVOKABLE bool isValidSignalingServerSpki(const QString& value) const;
+
 signals:
     void darkThemeChanged(int value);
     void languageChanged(const QString& value);
@@ -55,4 +60,5 @@ signals:
     void remoteTabBarPinnedChanged(bool value);
     void remoteDesktopMiniMapVisibleChanged(bool value);
     void apiKeyChanged(const QString& value);
+    void signalingServerSpkiChanged(const QString& value);
 };

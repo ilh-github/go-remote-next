@@ -95,6 +95,8 @@ set(COMPONENT_HEADERS
 )
 
 set(CORE_SOURCES
+    src/core/certificatepin.h
+    src/core/certificatepin.cpp
     src/core/common/commontype.h
     src/core/db/appconfigdatabase.h
     src/core/db/appconfigdatabase.cpp
@@ -358,3 +360,7 @@ install(TARGETS QuickDesk
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
+
+if(QUICKDESK_BUILD_TESTS)
+    add_subdirectory(tests)
+endif()
