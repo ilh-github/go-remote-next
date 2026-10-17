@@ -160,6 +160,8 @@ const zh = {
     'log.audioToggle': '音频: {state}',
     'log.audioOn': '开启',
     'log.audioOff': '关闭',
+    'log.tabControlRevoked': '另一个窗口已接管控制，本页输入已暂停',
+    'log.tabAudioRevoked': '另一个窗口已接管音频，本页音频已关闭',
     'log.noVideoScreenshot': '无视频可截图',
     'log.screenshotSaved': '截图已保存',
     'log.vdCreated': '虚拟显示器已创建: #{index} {resolution}',
@@ -171,6 +173,7 @@ const zh = {
     'drop.text': 'Drop files here to upload',
     'overlay.clickToUnmute': 'Click to enable audio',
     'overlay.clickToPlay': 'Click to start video',
+    'overlay.controlTaken': '另一个窗口已接管控制，点击此处重新接管',
 
     // ========== connection-ui.js ==========
     'connui.inputRequired': '请输入设备 ID 和访问码',
@@ -403,6 +406,8 @@ const en = {
     'log.audioToggle': 'Audio: {state}',
     'log.audioOn': 'on',
     'log.audioOff': 'off',
+    'log.tabControlRevoked': 'Another window took control; input in this tab is paused',
+    'log.tabAudioRevoked': 'Another window took audio; audio in this tab is off',
     'log.noVideoScreenshot': 'No video to capture',
     'log.screenshotSaved': 'Screenshot saved',
     'log.vdCreated': 'Virtual display created: #{index} {resolution}',
@@ -414,6 +419,7 @@ const en = {
     'drop.text': 'Drop files here to upload',
     'overlay.clickToUnmute': 'Click to enable audio',
     'overlay.clickToPlay': 'Click to start video',
+    'overlay.controlTaken': 'Another window took control. Click here to take it back.',
 
     // ========== connection-ui.js ==========
     'connui.inputRequired': 'Please enter Device ID and Access Code',
