@@ -28,6 +28,26 @@ add_test(
     COMMAND quickdesk_update_support_test
 )
 
+add_executable(quickdesk_control_plane_event_test
+    controlplaneevent_test.cpp
+    ../src/core/controlplaneevent.cpp
+)
+
+target_include_directories(quickdesk_control_plane_event_test
+    PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src
+)
+
+target_link_libraries(quickdesk_control_plane_event_test
+    PRIVATE
+    Qt6::Core
+)
+
+add_test(
+    NAME quickdesk_control_plane_event_test
+    COMMAND quickdesk_control_plane_event_test
+)
+
 add_executable(quickdesk_fake_skill_host
     skillhost_fake.cpp
 )

@@ -50,6 +50,9 @@ struct CreateTriggerRequest {
     overrides: Option<HashMap<String, serde_json::Value>>,
     stop_on_failure: Option<bool>,
     interval_seconds: Option<u64>,
+    event_type: Option<String>,
+    event_device_id: Option<String>,
+    event_filter: Option<serde_json::Value>,
     callback_url: Option<String>,
 }
 
@@ -336,6 +339,9 @@ async fn create_trigger(
         overrides: request.overrides.unwrap_or_default(),
         stop_on_failure: request.stop_on_failure.unwrap_or(true),
         interval_seconds: request.interval_seconds,
+        event_type: request.event_type,
+        event_device_id: request.event_device_id,
+        event_filter: request.event_filter,
         callback_url: request.callback_url,
     }) {
         Ok(trigger) => trigger,
@@ -500,6 +506,7 @@ pub fn start_scheduler(
     cancellation: CancellationToken,
     runtime: TriggerRuntime,
 ) {
+    start_event_worker(cancellation.clone(), runtime.clone());
     tokio::spawn(async move {
         let mut ticker = tokio::time::interval(Duration::from_secs(5));
         loop {
@@ -516,6 +523,123 @@ pub fn start_scheduler(
             }
         }
     });
+}
+
+pub fn start_event_worker(cancellation: CancellationToken, runtime: TriggerRuntime) {
+    tokio::spawn(async move {
+        let mut events = runtime.ws.event_bus().subscribe();
+        loop {
+            let received = tokio::select! {
+                _ = cancellation.cancelled() => break,
+                received = events.recv() => received,
+            };
+            match received {
+                Ok(event) if event.event == "controlPlaneEvent" => {
+                    handle_control_plane_event(&runtime, event.data, &cancellation).await;
+                }
+                Ok(_) => {}
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                    tracing::warn!(
+                        "workflow event trigger subscriber lagged and skipped {skipped} events"
+                    );
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    });
+}
+
+async fn handle_control_plane_event(
+    runtime: &TriggerRuntime,
+    envelope: serde_json::Value,
+    cancellation: &CancellationToken,
+) {
+    let event_type = envelope
+        .get("type")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    let event_device_id = envelope
+        .get("device_id")
+        .and_then(serde_json::Value::as_str)
+        .or_else(|| {
+            envelope
+                .get("data")
+                .and_then(|data| data.get("device_id"))
+                .and_then(serde_json::Value::as_str)
+        })
+        .unwrap_or_default();
+    let event_id = envelope.get("id").and_then(serde_json::Value::as_str);
+    let server_rev = envelope
+        .get("server_rev")
+        .and_then(serde_json::Value::as_i64)
+        .unwrap_or(0);
+    if event_type.is_empty() || (server_rev <= 0 && event_id.is_none()) {
+        return;
+    }
+    let event_data = envelope
+        .get("data")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+
+    let matching = runtime
+        .triggers
+        .list()
+        .into_iter()
+        .filter(|trigger| trigger.enabled)
+        .filter(|trigger| trigger.event_type.as_deref() == Some(event_type))
+        .filter(|trigger| {
+            trigger
+                .event_device_id
+                .as_deref()
+                .is_none_or(|device_id| device_id == event_device_id)
+        })
+        .filter(|trigger| {
+            trigger
+                .event_filter
+                .as_ref()
+                .is_none_or(|filter| event_filter_matches(&event_data, filter))
+        })
+        .collect::<Vec<_>>();
+    if matching.is_empty() {
+        return;
+    }
+
+    let permit = tokio::select! {
+        _ = cancellation.cancelled() => return,
+        permit = runtime.run_slots.clone().acquire_owned() => permit,
+    };
+    let Ok(_permit) = permit else {
+        return;
+    };
+
+    for trigger in matching {
+        let claimed = runtime
+            .triggers
+            .claim_event(&trigger.id, event_id, server_rev, Utc::now());
+        match claimed {
+            Ok(true) => {
+                let _ = run_trigger_once(runtime, &trigger).await;
+            }
+            Ok(false) => {}
+            Err(error) => {
+                tracing::warn!(
+                    "workflow event trigger {} could not claim event {}: {}",
+                    trigger.id,
+                    event_id.unwrap_or("-"),
+                    error
+                );
+            }
+        }
+    }
+}
+
+fn event_filter_matches(data: &serde_json::Value, filter: &serde_json::Value) -> bool {
+    let (Some(data), Some(filter)) = (data.as_object(), filter.as_object()) else {
+        return data == filter;
+    };
+    filter
+        .iter()
+        .all(|(key, expected)| data.get(key) == Some(expected))
 }
 
 async fn run_due_trigger(state: &TriggerState, now: chrono::DateTime<Utc>) -> usize {
@@ -1354,6 +1478,53 @@ mod tests {
         assert!(trigger.next_run_at.is_some());
 
         let request = Request::builder()
+            .method("POST")
+            .uri("/v1/triggers")
+            .header("Authorization", "Bearer business-secret")
+            .header("Content-Type", "application/json")
+            .body(Body::from(
+                json!({
+                    "name": "denied",
+                    "workflow_id": workflow_id,
+                    "device_id": "device-1",
+                    "event_type": "device.access.denied",
+                    "event_filter": {"reason": "policy"}
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        let response = app.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::CREATED);
+        let body = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+        let event_trigger: WorkflowTrigger = serde_json::from_slice(&body).unwrap();
+        assert_eq!(
+            event_trigger.event_type.as_deref(),
+            Some("device.access.denied")
+        );
+        assert_eq!(
+            event_trigger.event_device_id.as_deref(),
+            Some("device-1")
+        );
+        assert!(event_trigger.next_run_at.is_none());
+
+        let request = Request::builder()
+            .method("POST")
+            .uri("/v1/triggers")
+            .header("Authorization", "Bearer business-secret")
+            .header("Content-Type", "application/json")
+            .body(Body::from(
+                json!({
+                    "name": "no trigger",
+                    "workflow_id": workflow_id,
+                    "device_id": "device-1"
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        let response = app.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        let request = Request::builder()
             .uri("/v1/triggers")
             .header("Authorization", "Bearer business-secret")
             .body(Body::empty())
@@ -1362,11 +1533,20 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
         let body = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
         let triggers: Vec<WorkflowTrigger> = serde_json::from_slice(&body).unwrap();
-        assert_eq!(triggers.len(), 1);
+        assert_eq!(triggers.len(), 2);
 
         let request = Request::builder()
             .method("DELETE")
             .uri(format!("/v1/triggers/{}", trigger.id))
+            .header("Authorization", "Bearer business-secret")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+
+        let request = Request::builder()
+            .method("DELETE")
+            .uri(format!("/v1/triggers/{}", event_trigger.id))
             .header("Authorization", "Bearer business-secret")
             .body(Body::empty())
             .unwrap();
@@ -1439,6 +1619,9 @@ mod tests {
                     overrides: HashMap::new(),
                     stop_on_failure: true,
                     interval_seconds: Some(60),
+                    event_type: None,
+                    event_device_id: None,
+                    event_filter: None,
                     callback_url: Some(format!("http://{callback_address}/scheduled-callback")),
                 },
                 created_at,
@@ -1477,6 +1660,217 @@ mod tests {
         assert!(callback.starts_with("POST /scheduled-callback HTTP/1.1"));
         assert!(callback.contains("\"event\":\"workflow.run.completed\""));
         callback_server.abort();
+        fake_quickdesk.abort();
+        let _ = std::fs::remove_dir_all(temp);
+    }
+
+    #[tokio::test]
+    async fn control_plane_event_runs_matching_trigger_once() {
+        let temp = std::env::temp_dir().join(format!("quickdesk-trigger-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&temp).unwrap();
+        let workflows = WorkflowStore::with_storage_dir(temp.join("workflows"));
+        let workflow_id = workflows
+            .start_recording("event workflow", "device-1")
+            .unwrap();
+        workflows.record_step(
+            "device-1",
+            "list_processes",
+            &json!({}),
+            "processes",
+            true,
+            StepExecutor::SkillHost,
+        );
+        workflows.stop_recording("device-1", "", &[]).unwrap();
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let requests = Arc::new(AtomicUsize::new(0));
+        let request_count = requests.clone();
+        let fake_quickdesk = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut socket = accept_async(stream).await.unwrap();
+            while let Some(Ok(Message::Text(text))) = socket.next().await {
+                let request: serde_json::Value = serde_json::from_str(&text).unwrap();
+                if let Some(id) = request.get("id").and_then(serde_json::Value::as_str) {
+                    request_count.fetch_add(1, Ordering::SeqCst);
+                    let response = json!({"id": id, "result": {"processes": []}});
+                    socket
+                        .send(Message::Text(response.to_string().into()))
+                        .await
+                        .unwrap();
+                }
+            }
+        });
+        let ws = WsClient::connect(
+            &format!("ws://{address}"),
+            None,
+            EventBus::new(100),
+        )
+        .await
+        .unwrap();
+        let trigger_store = WorkflowTriggerStore::with_storage_dir(temp.join("triggers"));
+        let trigger = trigger_store
+            .create(
+                WorkflowTriggerSpec {
+                    name: "denied event".to_string(),
+                    workflow_id,
+                    device_id: "device-1".to_string(),
+                    overrides: HashMap::new(),
+                    stop_on_failure: true,
+                    interval_seconds: None,
+                    event_type: Some("device.access.denied".to_string()),
+                    event_device_id: Some("device-1".to_string()),
+                    event_filter: Some(json!({"reason": "policy"})),
+                    callback_url: None,
+                },
+            )
+            .unwrap();
+        let task_trigger = trigger_store
+            .create(
+                WorkflowTriggerSpec {
+                    name: "scheduled task failure".to_string(),
+                    workflow_id: trigger.workflow_id.clone(),
+                    device_id: "device-1".to_string(),
+                    overrides: HashMap::new(),
+                    stop_on_failure: true,
+                    interval_seconds: None,
+                    event_type: Some("scheduled_task.failed".to_string()),
+                    event_device_id: None,
+                    event_filter: Some(json!({"kind": "sign_out_all_sessions"})),
+                    callback_url: None,
+                },
+            )
+            .unwrap();
+        let shared = Arc::new(SharedState {
+            memory: MemoryStore::with_db_path(temp.join("memory.db")).unwrap(),
+            workflow: workflows,
+            trust: TrustEngine::with_db_path(temp.join("trust.db")).unwrap(),
+        });
+        let slots = Arc::new(Semaphore::new(1));
+        let jobs = test_jobs(&temp, ws.clone(), shared.clone(), slots.clone());
+        let state = TriggerState {
+            token: None,
+            ws: ws.clone(),
+            shared_state: shared,
+            allowed_devices: Vec::new(),
+            run_slots: slots,
+            triggers: trigger_store.clone(),
+            idempotency: WorkflowIdempotencyStore::with_storage_path(
+                temp.join("idempotency.json"),
+            ),
+            jobs,
+        };
+        let cancellation = CancellationToken::new();
+        start_event_worker(cancellation.clone(), state);
+        tokio::time::sleep(Duration::from_millis(20)).await;
+
+        for ignored in [
+            json!({
+                "id": "evt-other-device",
+                "type": "device.access.denied",
+                "server_rev": 40,
+                "data": {"device_id": "device-2", "reason": "policy"}
+            }),
+            json!({
+                "id": "evt-other-reason",
+                "type": "device.access.denied",
+                "server_rev": 41,
+                "data": {"device_id": "device-1", "reason": "expired"}
+            }),
+        ] {
+            ws.event_bus()
+                .publish(crate::event_bus::Event {
+                    event: "controlPlaneEvent".to_string(),
+                    data: ignored,
+                    timestamp: 0,
+                })
+                .await;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert_eq!(
+            requests.load(Ordering::SeqCst),
+            0,
+            "device and filter mismatches must not run the workflow"
+        );
+
+        let event = json!({
+            "id": "evt-denied-1",
+            "type": "device.access.denied",
+            "server_rev": 42,
+            "data": {"device_id": "device-1", "reason": "policy"}
+        });
+        ws.event_bus()
+            .publish(crate::event_bus::Event {
+                event: "controlPlaneEvent".to_string(),
+                data: event.clone(),
+                timestamp: 1,
+            })
+            .await;
+
+        let completed = tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if trigger_store
+                    .get(&trigger.id)
+                    .is_some_and(|current| current.last_status == "completed")
+                {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await;
+        assert!(completed.is_ok(), "event trigger did not complete");
+        assert_eq!(requests.load(Ordering::SeqCst), 1);
+
+        ws.event_bus()
+            .publish(crate::event_bus::Event {
+                event: "controlPlaneEvent".to_string(),
+                data: event,
+                timestamp: 2,
+            })
+            .await;
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        assert_eq!(
+            requests.load(Ordering::SeqCst),
+            1,
+            "duplicate server_rev must not execute twice"
+        );
+
+        ws.event_bus()
+            .publish(crate::event_bus::Event {
+                event: "controlPlaneEvent".to_string(),
+                data: json!({
+                    "id": "evt-task-failed-1",
+                    "type": "scheduled_task.failed",
+                    "server_rev": 43,
+                    "data": {
+                        "task_id": 7,
+                        "kind": "sign_out_all_sessions",
+                        "status": "failed"
+                    }
+                }),
+                timestamp: 3,
+            })
+            .await;
+        let task_completed = tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if trigger_store
+                    .get(&task_trigger.id)
+                    .is_some_and(|current| current.last_status == "completed")
+                {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await;
+        assert!(
+            task_completed.is_ok(),
+            "non-device event trigger did not complete"
+        );
+        assert_eq!(requests.load(Ordering::SeqCst), 2);
+
+        cancellation.cancel();
         fake_quickdesk.abort();
         let _ = std::fs::remove_dir_all(temp);
     }

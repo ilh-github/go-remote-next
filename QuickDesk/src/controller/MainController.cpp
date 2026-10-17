@@ -14,6 +14,7 @@
 #include "../api/OcrEngine.h"
 #include "infra/env/applicationcontext.h"
 #include "infra/log/log.h"
+#include "core/controlplaneevent.h"
 #include "core/localconfigcenter.h"
 #include <QAbstractSocket>
 #include <QTimer>
@@ -1164,6 +1165,17 @@ void MainController::updateAccessCodeRefreshTimer(int remainingSeconds)
 }
 
 void MainController::setupWebSocketApiEvents() {
+    // Domain events have already passed the signed-in CloudDeviceManager
+    // stream and its ordered snapshot/replay checks. Only expose the safe
+    // automation subset to the local MCP WebSocket API.
+    connect(m_cloudDeviceManager.get(), &CloudDeviceManager::syncMessage,
+            this, [this](const QJsonObject& message) {
+        const QJsonObject event = workflowTriggerEventData(message);
+        if (!event.isEmpty()) {
+            m_wsApiServer->broadcastEvent("controlPlaneEvent", event);
+        }
+    });
+
     // Host events → WebSocket broadcast
     connect(m_hostManager.get(), &HostManager::hostReady,
             this, [this](const QString& deviceId, const QString& accessCode) {

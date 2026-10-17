@@ -109,6 +109,8 @@ set(COMPONENT_HEADERS
 set(CORE_SOURCES
     src/core/certificatepin.h
     src/core/certificatepin.cpp
+    src/core/controlplaneevent.h
+    src/core/controlplaneevent.cpp
     src/core/updatesupport.h
     src/core/updatesupport.cpp
     src/core/common/commontype.h
