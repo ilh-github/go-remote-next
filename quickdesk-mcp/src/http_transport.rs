@@ -13,6 +13,8 @@ use tower_http::cors::{AllowHeaders, AllowMethods, CorsLayer};
 use crate::config::AppConfig;
 use crate::idempotency::WorkflowIdempotencyStore;
 use crate::server::{QuickDeskMcpServer, SharedState};
+use crate::trigger::TriggerRuntime;
+use crate::workflow_job::WorkflowJobManager;
 use crate::workflow_trigger::WorkflowTriggerStore;
 use crate::ws_client::WsClient;
 
@@ -30,6 +32,13 @@ pub async fn start_http(
     let workflow_triggers = WorkflowTriggerStore::new()?;
     let idempotency = WorkflowIdempotencyStore::new()?;
     let business_run_slots = Arc::new(Semaphore::new(1));
+    let jobs = WorkflowJobManager::new(
+        ct.child_token(),
+        ws.clone(),
+        shared_state.clone(),
+        allowed_devices.clone(),
+        business_run_slots.clone(),
+    )?;
 
     let mcp_service: StreamableHttpService<QuickDeskMcpServer, LocalSessionManager> =
         StreamableHttpService::new(
@@ -48,29 +57,23 @@ pub async fn start_http(
             },
         );
 
-    let business_router = crate::trigger::router(
-        config.trigger_token.clone(),
-        ws.clone(),
-        shared_state.clone(),
-        allowed_devices.clone(),
-        workflow_triggers.clone(),
-        idempotency.clone(),
-        business_run_slots.clone(),
-    );
+    let trigger_runtime = TriggerRuntime {
+        token: config.trigger_token.clone(),
+        ws: ws.clone(),
+        shared_state: shared_state.clone(),
+        allowed_devices: allowed_devices.clone(),
+        run_slots: business_run_slots.clone(),
+        triggers: workflow_triggers.clone(),
+        idempotency: idempotency.clone(),
+        jobs: jobs.clone(),
+    };
+    let business_router = crate::trigger::router(trigger_runtime.clone());
     if config
         .trigger_token
         .as_deref()
         .is_some_and(|token| !token.is_empty())
     {
-        crate::trigger::start_scheduler(
-            ct.child_token(),
-            ws.clone(),
-            shared_state.clone(),
-            allowed_devices.clone(),
-            workflow_triggers,
-            idempotency,
-            business_run_slots,
-        );
+        crate::trigger::start_scheduler(ct.child_token(), trigger_runtime);
     }
     let app = Router::new()
         .route(

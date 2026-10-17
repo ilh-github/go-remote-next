@@ -7,6 +7,7 @@ mod server;
 mod trigger;
 mod trust;
 mod workflow;
+mod workflow_job;
 mod workflow_trigger;
 mod ws_client;
 

@@ -16,6 +16,8 @@ use rmcp::{prompt, prompt_handler, prompt_router, tool, tool_handler, tool_route
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::json;
+use tokio_util::sync::CancellationToken;
+use uuid::Uuid;
 
 use crate::event_bus::EventBus;
 use crate::memory::MemoryStore;
@@ -736,6 +738,26 @@ impl QuickDeskMcpServer {
         overrides: HashMap<String, serde_json::Value>,
         stop_on_failure: bool,
     ) -> Result<WorkflowRunReport, String> {
+        self.execute_workflow_replay_cancellable(
+            workflow_id,
+            device_id,
+            overrides,
+            stop_on_failure,
+            Uuid::new_v4().to_string(),
+            CancellationToken::new(),
+        )
+        .await
+    }
+
+    pub async fn execute_workflow_replay_cancellable(
+        &self,
+        workflow_id: &str,
+        device_id: &str,
+        overrides: HashMap<String, serde_json::Value>,
+        stop_on_failure: bool,
+        run_id: String,
+        cancellation: CancellationToken,
+    ) -> Result<WorkflowRunReport, String> {
         self.check_device_allowed(device_id)?;
         let steps = self
             .state
@@ -744,13 +766,26 @@ impl QuickDeskMcpServer {
         let total = steps.len() as u32;
         let started_at = Utc::now().to_rfc3339();
         let mut step_results = Vec::with_capacity(steps.len());
+        let mut cancelled = false;
 
         for step in steps {
+            if cancellation.is_cancelled() {
+                cancelled = true;
+                break;
+            }
             let step_started = std::time::Instant::now();
-            if let Err(error) = self
-                .check_trust_and_confirm(device_id, &step.tool_name, &step.arguments)
-                .await
-            {
+            let trust_result = tokio::select! {
+                _ = cancellation.cancelled() => {
+                    cancelled = true;
+                    break;
+                }
+                result = self.check_trust_and_confirm(
+                    device_id,
+                    &step.tool_name,
+                    &step.arguments,
+                ) => result,
+            };
+            if let Err(error) = trust_result {
                 step_results.push(StepRunResult {
                     seq: step.seq,
                     tool_name: step.tool_name,
@@ -770,9 +805,17 @@ impl QuickDeskMcpServer {
                             if let serde_json::Value::Object(ref mut map) = payload {
                                 map.insert("deviceId".to_string(), json!(device_id));
                             }
-                            match self.ws.request(&message, payload).await {
-                                Ok(v) => (true, v, String::new()),
-                                Err(e) => (false, serde_json::Value::Null, e),
+                            tokio::select! {
+                                _ = cancellation.cancelled() => {
+                                    cancelled = true;
+                                    (false, serde_json::Value::Null, "workflow cancelled".to_string())
+                                }
+                                response = self.ws.request(&message, payload) => {
+                                    match response {
+                                        Ok(v) => (true, v, String::new()),
+                                        Err(e) => (false, serde_json::Value::Null, e),
+                                    }
+                                }
                             }
                         }
                         Err(e) => (false, serde_json::Value::Null, e),
@@ -784,9 +827,17 @@ impl QuickDeskMcpServer {
                         "tool": step.tool_name,
                         "args": step.arguments,
                     });
-                    match self.ws.request("skillExec", req).await {
-                        Ok(v) => (true, v, String::new()),
-                        Err(e) => (false, serde_json::Value::Null, e),
+                    tokio::select! {
+                        _ = cancellation.cancelled() => {
+                            cancelled = true;
+                            (false, serde_json::Value::Null, "workflow cancelled".to_string())
+                        }
+                        response = self.ws.request("skillExec", req) => {
+                            match response {
+                                Ok(v) => (true, v, String::new()),
+                                Err(e) => (false, serde_json::Value::Null, e),
+                            }
+                        }
                     }
                 }
             };
@@ -804,11 +855,15 @@ impl QuickDeskMcpServer {
             if !success && should_stop_after_replay_failure(stop_on_failure, false) {
                 break;
             }
+            if cancelled {
+                break;
+            }
         }
 
         let completed_at = Utc::now().to_rfc3339();
         let stopped_early = step_results.len() < total as usize;
-        let report = WorkflowRunReport::from_step_results(
+        let report = WorkflowRunReport::from_step_results_with_id(
+            run_id,
             workflow_id,
             device_id,
             &started_at,
@@ -816,6 +871,7 @@ impl QuickDeskMcpServer {
             total,
             step_results,
             stopped_early,
+            cancelled,
         );
         self.state.workflow.save_run_report(&report)?;
         Ok(report)

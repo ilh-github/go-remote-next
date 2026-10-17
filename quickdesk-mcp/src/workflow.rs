@@ -344,6 +344,8 @@ pub struct WorkflowRunReport {
     pub skipped_steps: u32,
     pub success: bool,
     pub stopped_early: bool,
+    #[serde(default)]
+    pub cancelled: bool,
     pub steps: Vec<StepRunResult>,
 }
 
@@ -360,6 +362,8 @@ pub struct WorkflowRunSummary {
     pub skipped_steps: u32,
     pub success: bool,
     pub stopped_early: bool,
+    #[serde(default)]
+    pub cancelled: bool,
 }
 
 impl From<WorkflowRunReport> for WorkflowRunSummary {
@@ -376,12 +380,15 @@ impl From<WorkflowRunReport> for WorkflowRunSummary {
             skipped_steps: report.skipped_steps,
             success: report.success,
             stopped_early: report.stopped_early,
+            cancelled: report.cancelled,
         }
     }
 }
 
 impl WorkflowRunReport {
-    pub fn from_step_results(
+    #[allow(clippy::too_many_arguments)]
+    pub fn from_step_results_with_id(
+        run_id: String,
         workflow_id: &str,
         device_id: &str,
         started_at: &str,
@@ -389,12 +396,13 @@ impl WorkflowRunReport {
         total_steps: u32,
         steps: Vec<StepRunResult>,
         stopped_early: bool,
+        cancelled: bool,
     ) -> Self {
         let succeeded_steps = steps.iter().filter(|step| step.success).count() as u32;
         let failed_steps = steps.iter().filter(|step| !step.success).count() as u32;
         let skipped_steps = total_steps.saturating_sub(steps.len() as u32);
         Self {
-            run_id: Uuid::new_v4().to_string(),
+            run_id,
             workflow_id: workflow_id.to_string(),
             device_id: device_id.to_string(),
             started_at: started_at.to_string(),
@@ -403,8 +411,9 @@ impl WorkflowRunReport {
             succeeded_steps,
             failed_steps,
             skipped_steps,
-            success: failed_steps == 0 && skipped_steps == 0,
+            success: failed_steps == 0 && skipped_steps == 0 && !cancelled,
             stopped_early,
+            cancelled,
             steps,
         }
     }
@@ -674,6 +683,7 @@ mod tests {
             skipped_steps: 0,
             success: false,
             stopped_early: true,
+            cancelled: false,
             steps: vec![
                 StepRunResult {
                     seq: 1,
@@ -755,7 +765,8 @@ mod tests {
             },
         ];
 
-        let report = WorkflowRunReport::from_step_results(
+        let report = WorkflowRunReport::from_step_results_with_id(
+            Uuid::new_v4().to_string(),
             "workflow-1",
             "device-1",
             "2026-10-17T14:00:00Z",
@@ -763,6 +774,7 @@ mod tests {
             3,
             results,
             true,
+            false,
         );
 
         assert_eq!(report.succeeded_steps, 1);
@@ -785,13 +797,15 @@ mod tests {
             (&workflow_a, "2026-10-17T12:00:00Z"),
             (&workflow_b, "2026-10-17T11:00:00Z"),
         ] {
-            let report = WorkflowRunReport::from_step_results(
+            let report = WorkflowRunReport::from_step_results_with_id(
+                Uuid::new_v4().to_string(),
                 workflow_id,
                 "device-1",
                 "2026-10-17T09:00:00Z",
                 completed_at,
                 0,
                 Vec::new(),
+                false,
                 false,
             );
             store.save_run_report(&report).unwrap();
