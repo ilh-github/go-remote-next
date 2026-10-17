@@ -72,6 +72,8 @@ MainController::MainController(QObject* parent)
     m_authManager->setHostManager(m_hostManager.get());
     m_cloudDeviceManager = std::make_unique<CloudDeviceManager>(
         m_serverManager.get(), m_authManager.get(), m_hostManager.get(), this);
+    m_remoteSessionManager =
+        std::make_unique<RemoteSessionManager>(m_authManager.get(), this);
 
     // Control-side session recorder. It reads the same decoded frames the
     // remote view renders and uploads the result through the authenticated API.
@@ -579,6 +581,11 @@ AuthManager* MainController::authManager() const
 CloudDeviceManager* MainController::cloudDeviceManager() const
 {
     return m_cloudDeviceManager.get();
+}
+
+RemoteSessionManager* MainController::remoteSessionManager() const
+{
+    return m_remoteSessionManager.get();
 }
 
 QString MainController::deviceId() const

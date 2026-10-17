@@ -23,6 +23,7 @@ set(MANAGER_SOURCES
     src/manager/SkillHostManager.cpp
     src/manager/AuthManager.cpp
     src/manager/CloudDeviceManager.cpp
+    src/manager/RemoteSessionManager.cpp
 )
 
 set(MANAGER_HEADERS
@@ -38,6 +39,7 @@ set(MANAGER_HEADERS
     src/manager/SkillHostManager.h
     src/manager/AuthManager.h
     src/manager/CloudDeviceManager.h
+    src/manager/RemoteSessionManager.h
 )
 
 set(CONTROLLER_SOURCES
@@ -184,6 +186,7 @@ qt_add_qml_module(QuickDesk
         qml/pages/SettingsPage.qml
         qml/pages/AboutPage.qml
         qml/pages/DeviceListPage.qml
+        qml/pages/RemoteSessionsPage.qml
         qml/pages/McpConfigPopup.qml
         qml/component/Theme.qml
         qml/component/FluentIconGlyph.qml

@@ -833,6 +833,11 @@
         <translation>设备列表</translation>
     </message>
     <message>
+        <location filename="../../qml/views/MainWindow.qml" line="340"/>
+        <source>Remote Sessions</source>
+        <translation>远程会话</translation>
+    </message>
+    <message>
         <location filename="../../qml/views/MainWindow.qml" line="341"/>
         <source>About</source>
         <translation>关于</translation>
@@ -1926,6 +1931,145 @@ Access Code: %2</source>
     <message>
         <source>QuickDesk is still running in the background.</source>
         <translation type="vanished">QuickDesk始终在后台运行。</translation>
+    </message>
+</context>
+<context>
+    <name>RemoteSessionsPage</name>
+    <message>
+        <source>Access log (%1)</source>
+        <translation>访问日志（%1）</translation>
+    </message>
+    <message>
+        <source>Active</source>
+        <translation>进行中</translation>
+    </message>
+    <message>
+        <source>All</source>
+        <translation>全部</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>取消</translation>
+    </message>
+    <message>
+        <source>Clear device</source>
+        <translation>清空设备</translation>
+    </message>
+    <message>
+        <source>Collapse</source>
+        <translation>收起</translation>
+    </message>
+    <message>
+        <source>Controller disconnected</source>
+        <translation>控制端已断开</translation>
+    </message>
+    <message>
+        <source>Details</source>
+        <translation>详情</translation>
+    </message>
+    <message>
+        <source>Disconnect every controller from %1?</source>
+        <translation>断开 %1 上的所有控制端？</translation>
+    </message>
+    <message>
+        <source>Disconnect the controller from %1?</source>
+        <translation>断开连接 %1 的控制端？</translation>
+    </message>
+    <message>
+        <source>Disconnected</source>
+        <translation>已断开</translation>
+    </message>
+    <message>
+        <source>Disconnected %1 session(s), %2 failed</source>
+        <translation>已断开 %1 个会话，失败 %2 个</translation>
+    </message>
+    <message>
+        <source>End reason: %1</source>
+        <translation>结束原因：%1</translation>
+    </message>
+    <message>
+        <source>Ended</source>
+        <translation>已结束</translation>
+    </message>
+    <message>
+        <source>Enter a device ID first</source>
+        <translation>请先输入设备 ID</translation>
+    </message>
+    <message>
+        <source>Filter by device ID</source>
+        <translation>按设备 ID 筛选</translation>
+    </message>
+    <message>
+        <source>Kick</source>
+        <translation>踢出</translation>
+    </message>
+    <message>
+        <source>Kick controller</source>
+        <translation>踢出控制端</translation>
+    </message>
+    <message>
+        <source>Load more</source>
+        <translation>加载更多</translation>
+    </message>
+    <message>
+        <source>Loading...</source>
+        <translation>加载中...</translation>
+    </message>
+    <message>
+        <source>Login</source>
+        <translation>登录</translation>
+    </message>
+    <message>
+        <source>More sessions may remain because the server handled only one batch.</source>
+        <translation>服务端只处理了一批，可能还有未断开的会话。</translation>
+    </message>
+    <message>
+        <source>No sessions match these filters</source>
+        <translation>没有符合筛选条件的会话</translation>
+    </message>
+    <message>
+        <source>None</source>
+        <translation>无</translation>
+    </message>
+    <message>
+        <source>Please login to view remote sessions</source>
+        <translation>请登录后查看远程会话</translation>
+    </message>
+    <message>
+        <source>Recordings (%1)</source>
+        <translation>录像（%1）</translation>
+    </message>
+    <message>
+        <source>Refresh</source>
+        <translation>刷新</translation>
+    </message>
+    <message>
+        <source>Remote Sessions</source>
+        <translation>远程会话</translation>
+    </message>
+    <message>
+        <source>Revoked</source>
+        <translation>已踢出</translation>
+    </message>
+    <message>
+        <source>Server restart</source>
+        <translation>服务重启</translation>
+    </message>
+    <message>
+        <source>Sessions: %1</source>
+        <translation>会话：%1</translation>
+    </message>
+    <message>
+        <source>Sessions: 0</source>
+        <translation>会话：0</translation>
+    </message>
+    <message>
+        <source>Started: %1</source>
+        <translation>开始时间：%1</translation>
+    </message>
+    <message>
+        <source>Who is connected to your devices, and what happened in each session</source>
+        <translation>查看哪些控制端正连接你的设备，以及每个会话发生了什么</translation>
     </message>
 </context>
 </TS>

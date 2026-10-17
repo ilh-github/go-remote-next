@@ -833,6 +833,11 @@
         <translation>Device List</translation>
     </message>
     <message>
+        <location filename="../../qml/views/MainWindow.qml" line="340"/>
+        <source>Remote Sessions</source>
+        <translation>Remote Sessions</translation>
+    </message>
+    <message>
         <location filename="../../qml/views/MainWindow.qml" line="341"/>
         <source>About</source>
         <translation>About</translation>
@@ -1926,6 +1931,145 @@ Access Code: %2</translation>
     <message>
         <source>QuickDesk is still running in the background.</source>
         <translation type="vanished">QuickDesk is still running in the background.</translation>
+    </message>
+</context>
+<context>
+    <name>RemoteSessionsPage</name>
+    <message>
+        <source>Access log (%1)</source>
+        <translation>Access log (%1)</translation>
+    </message>
+    <message>
+        <source>Active</source>
+        <translation>Active</translation>
+    </message>
+    <message>
+        <source>All</source>
+        <translation>All</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>Cancel</translation>
+    </message>
+    <message>
+        <source>Clear device</source>
+        <translation>Clear device</translation>
+    </message>
+    <message>
+        <source>Collapse</source>
+        <translation>Collapse</translation>
+    </message>
+    <message>
+        <source>Controller disconnected</source>
+        <translation>Controller disconnected</translation>
+    </message>
+    <message>
+        <source>Details</source>
+        <translation>Details</translation>
+    </message>
+    <message>
+        <source>Disconnect every controller from %1?</source>
+        <translation>Disconnect every controller from %1?</translation>
+    </message>
+    <message>
+        <source>Disconnect the controller from %1?</source>
+        <translation>Disconnect the controller from %1?</translation>
+    </message>
+    <message>
+        <source>Disconnected</source>
+        <translation>Disconnected</translation>
+    </message>
+    <message>
+        <source>Disconnected %1 session(s), %2 failed</source>
+        <translation>Disconnected %1 session(s), %2 failed</translation>
+    </message>
+    <message>
+        <source>End reason: %1</source>
+        <translation>End reason: %1</translation>
+    </message>
+    <message>
+        <source>Ended</source>
+        <translation>Ended</translation>
+    </message>
+    <message>
+        <source>Enter a device ID first</source>
+        <translation>Enter a device ID first</translation>
+    </message>
+    <message>
+        <source>Filter by device ID</source>
+        <translation>Filter by device ID</translation>
+    </message>
+    <message>
+        <source>Kick</source>
+        <translation>Kick</translation>
+    </message>
+    <message>
+        <source>Kick controller</source>
+        <translation>Kick controller</translation>
+    </message>
+    <message>
+        <source>Load more</source>
+        <translation>Load more</translation>
+    </message>
+    <message>
+        <source>Loading...</source>
+        <translation>Loading...</translation>
+    </message>
+    <message>
+        <source>Login</source>
+        <translation>Login</translation>
+    </message>
+    <message>
+        <source>More sessions may remain because the server handled only one batch.</source>
+        <translation>More sessions may remain because the server handled only one batch.</translation>
+    </message>
+    <message>
+        <source>No sessions match these filters</source>
+        <translation>No sessions match these filters</translation>
+    </message>
+    <message>
+        <source>None</source>
+        <translation>None</translation>
+    </message>
+    <message>
+        <source>Please login to view remote sessions</source>
+        <translation>Please login to view remote sessions</translation>
+    </message>
+    <message>
+        <source>Recordings (%1)</source>
+        <translation>Recordings (%1)</translation>
+    </message>
+    <message>
+        <source>Refresh</source>
+        <translation>Refresh</translation>
+    </message>
+    <message>
+        <source>Remote Sessions</source>
+        <translation>Remote Sessions</translation>
+    </message>
+    <message>
+        <source>Revoked</source>
+        <translation>Revoked</translation>
+    </message>
+    <message>
+        <source>Server restart</source>
+        <translation>Server restart</translation>
+    </message>
+    <message>
+        <source>Sessions: %1</source>
+        <translation>Sessions: %1</translation>
+    </message>
+    <message>
+        <source>Sessions: 0</source>
+        <translation>Sessions: 0</translation>
+    </message>
+    <message>
+        <source>Started: %1</source>
+        <translation>Started: %1</translation>
+    </message>
+    <message>
+        <source>Who is connected to your devices, and what happened in each session</source>
+        <translation>Who is connected to your devices, and what happened in each session</translation>
     </message>
 </context>
 </TS>

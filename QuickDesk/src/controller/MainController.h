@@ -24,6 +24,7 @@
 #include "../manager/SkillHostManager.h"
 #include "../manager/AuthManager.h"
 #include "../manager/CloudDeviceManager.h"
+#include "../manager/RemoteSessionManager.h"
 #include "../common/ProcessStatus.h"
 
 namespace quickdesk {
@@ -48,6 +49,7 @@ class MainController : public QObject {
     Q_PROPERTY(PresetManager* presetManager READ presetManager CONSTANT)
     Q_PROPERTY(AuthManager* authManager READ authManager CONSTANT)
     Q_PROPERTY(CloudDeviceManager* cloudDeviceManager READ cloudDeviceManager CONSTANT)
+    Q_PROPERTY(RemoteSessionManager* remoteSessionManager READ remoteSessionManager CONSTANT)
     
     // Host status
     Q_PROPERTY(ProcessStatus::Status hostProcessStatus READ hostProcessStatus NOTIFY hostProcessStatusChanged)
@@ -147,6 +149,7 @@ public:
     PresetManager* presetManager() const;
     AuthManager* authManager() const;
     CloudDeviceManager* cloudDeviceManager() const;
+    RemoteSessionManager* remoteSessionManager() const;
 
     // Host convenience properties
     QString deviceId() const;
@@ -272,6 +275,7 @@ private:
     std::unique_ptr<PresetManager> m_presetManager;
     std::unique_ptr<AuthManager> m_authManager;
     std::unique_ptr<CloudDeviceManager> m_cloudDeviceManager;
+    std::unique_ptr<RemoteSessionManager> m_remoteSessionManager;
     std::unique_ptr<DeviceRecorder> m_deviceRecorder;
     std::unique_ptr<RemoteFileManager> m_remoteFileManager;
     std::unique_ptr<WebSocketApiServer> m_wsApiServer;

@@ -337,6 +337,7 @@ ApplicationWindow {
             menuItems: [
                 { icon: FluentIconGlyph.remoteGlyph, text: qsTr("Remote Control") },
                 { icon: FluentIconGlyph.contactInfoGlyph, text: qsTr("Device List") },
+                { icon: FluentIconGlyph.historyGlyph, text: qsTr("Remote Sessions") },
                 { icon: FluentIconGlyph.settingsGlyph, text: qsTr("Settings") },
                 { icon: FluentIconGlyph.infoGlyph, text: qsTr("About") }
             ]
@@ -636,6 +637,19 @@ ApplicationWindow {
                             }
                         }
                     }
+
+                    onShowToast: function(message, toastType) {
+                        toast.show(message, toastType)
+                    }
+                }
+
+                // Remote Sessions Page
+                RemoteSessionsPage {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    mainController: root.mainController
+
+                    onLoginRequested: loginDialog.open()
 
                     onShowToast: function(message, toastType) {
                         toast.show(message, toastType)
