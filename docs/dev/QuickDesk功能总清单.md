@@ -330,10 +330,11 @@
   HTTP→replay→report E2E、错误 token、设备白名单和 429 测试均通过，MCP 全量 23/23、
   Clippy 零告警和 release 构建通过。定时触发、控制面事件订阅、幂等键、出站回调和委托
   权限仍未完成，QD-610 保持 `[~]`。
-- QD-610 上游 stacked 候选：`codex/upstream-qd-610-business-trigger` = `28af02c`，
-  基于 `codex/upstream-qd-510-workflow@0a9ecd5`；第一阶段候选自身 23/23 测试、Clippy 和
+- QD-610 上游 stacked 候选：`codex/upstream-qd-610-business-trigger` = `12982e0`，
+  基于 `codex/upstream-qd-510-workflow@0a9ecd5`；候选代码阶段为 `eebad06`，包含
+  HTTP trigger、持久化 interval trigger 和 Idempotency-Key，候选自身 31/31 测试、Clippy 和
   `git diff --check upstream/dev...HEAD` 通过。候选保留通用 MCP HTTP trigger 和文档，
-  不含 fork 清单、QD-506 或控制面业务记录；`e518194` 是后续可叠加的幂等增量。
+  不含 fork 清单、QD-506 或控制面业务记录。
 - QD-610 第二阶段功能提交：`3f94911`。新增 `~/.quickdesk/workflow-triggers/` JSON store、
   `GET|POST /v1/triggers`、`DELETE /v1/triggers/{id}`、`POST /v1/triggers/{id}/run`；
   触发器保存工作流、设备、默认参数和可选 60 秒~365 天 interval。HTTP worker 每 5 秒
