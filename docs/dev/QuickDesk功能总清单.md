@@ -1,6 +1,6 @@
 # QuickDesk 功能总清单
 
-> 最后对账：2026-10-17 22:03 CST。上游与 fork 状态都是动态的，实施前必须重新执行
+> 最后对账：2026-10-17 22:07 CST。上游与 fork 状态都是动态的，实施前必须重新执行
 > `git fetch --all --prune` 并核对 GitHub issue / PR。
 >
 > 本文件是 QuickDesk fork 后续产品开发的唯一功能清单。它合并三类输入：
@@ -43,7 +43,7 @@
 
 - 仓库：`go-remote-next`
 - 本地主分支：`dev`、`master`
-- 本地代码基线：`3021ca9`（QD-911 私密安全披露策略）；验证记录和清单的 docs-only
+- 本地代码基线：`3474203`（QD-115 信令信任边界）；验证记录和清单的 docs-only
   提交位于其后，`dev` 与 `master` 保持同线
 - 远端 fork：`origin/dev` 仍为 `f6651f0`，本地 `dev` 尚未推送；领先数量以
   `git rev-list --count origin/dev..dev` 的实时值为准。远端写入恢复前不能把本地验收当成已发布
@@ -57,7 +57,7 @@
   `c77dcae` 的 SQLite 轻量单进程模式和 `64ab93a` 的备份/恢复、容器备份二进制、
   录像/安装包总量配额及管理存储视图；Web 屏幕墙已补单瓦片音频独占；QD-604 已补齐
   Host 指标上报、阈值 episode、通知 outbox、Web/Qt 规则入口和四套 SDK；QD-911 的
-  根目录 `SECURITY.md` 与服务端 QD-604 stacked 候选也已准备
+  根目录 `SECURITY.md`、服务端 QD-604 stacked 候选，以及 QD-115 的上游安全边界文档
 - fork PR：<https://github.com/ilh-github/go-remote-next/pull/1>，OPEN / MERGEABLE /
   CLEAN，7 项检查全部成功；它的 head 是早期最小分支，不等于当前完整 `dev`
 - 服务端：Go SignalingServer
@@ -84,7 +84,7 @@
 - 本轮代码提交：`e688869`（访问码同步重试）、`5be14da`（SPAKE2 与传输错误码）、
   `a982a10`（Windows 自动更新重启与缓存清理）、`c77dcae`（SQLite 轻量模式）、
   `64ab93a`（备份恢复与存储配额）、`37dd8aa`（Host 指标告警）、`3021ca9`
-  （私密安全披露策略）；
+  （私密安全披露策略）、`3474203`（信令信任边界）；
   `dev` / `master` 在其后同步本轮验证；
   当前领先数量以 `git rev-list --count origin/dev..dev` 为准；
   QD-215 主线和上游最小候选均已提交，远端写入仍被策略拒绝。
@@ -93,7 +93,7 @@
   `dev` 切分支贡献、Remoting 改动由维护者处理”；不能再把“暂缓”理解成停止维护。
 - 上游 PR：#22、#23、#24、#25 均为 OPEN / MERGEABLE，但 GitHub 返回的
   `mergeStateStatus=UNSTABLE` 且没有 reported checks；不能把 MERGEABLE 写成 CI 已通过。
-- 清单统计：116 个唯一 QD ID；75 个 `[x]`、21 个 `[~]`、14 个 `[ ]`、
+- 清单统计：116 个唯一 QD ID；75 个 `[x]`、22 个 `[~]`、13 个 `[ ]`、
   3 个 `[!]`、2 个 `[>]`、1 个 `[-]`。
 - 上游待办已全部映射到本清单：10 个 open issue、4 个 open PR、3 个未完成 Roadmap
   项均有对应 QD、处理边界和上游贡献方式；上游已完成的 Roadmap 项只作为继承基线，
@@ -293,6 +293,17 @@
 - QD-911 候选：`codex/upstream-qd-911-security` = `9862717`，直接基于
   `upstream/dev@f6651f0`，只有 `SECURITY.md` 1 个文件；结论不能标记上游已启用，
   因此在清单中保持 `[~]`，等 PR 合并且仓库启用 Private Vulnerability Reporting 后才可 `[x]`。
+- QD-115 设计提交：`3474203`。新增
+  `docs/security/signaling-trust-model.md`，明确 `device_secret` 只有 Argon2id 哈希、
+  服务器不能从数据库恢复；但 `access_code` 明文存储、signal token/审批/设备归属都由
+  服务器控制，因此恶意或被攻陷的信令服务器仍是设备访问信任方，当前协议不能保证其
+  无法冒充 Controller。
+- QD-115 目标方案：Host 生成独立设备身份密钥，Controller 使用公钥，Owner 给
+  device/permissions/expiry/nonce 签名，Host 在建立媒体/数据通道前本地验证 Owner 签名
+  与 Controller challenge。服务器降级为发现、排队和路由；token 只是路由凭证。
+- QD-115 上游候选：`codex/upstream-qd-115-trust-model` = `1ca2543`，直接基于
+  `upstream/dev@f6651f0`，只含安全边界文档；候选 `git diff --check` 通过。QD-115
+  保持 `[~]`，直到 8 条协议验收项全部完成。
 - `git diff --check -- ':!sdk'`：通过；生成 SDK 保留 openapi-generator 自带的文档尾随
   空格，不能手改，否则 freshness 校验会失败。
 - 远端推送仍被当前执行策略拒绝，本地 `dev` 尚未同步到 GitHub。
@@ -327,7 +338,7 @@
 | Remoting 需求 | QD-114 真实 CertVerifier | `Upstream` issue #20 | SPKI 只是临时放行；根因是 `quickdesk_network_service.cc` 未绑定真实证书校验器 | 向 Remoting 维护者提正式修复需求和回归用例 |
 | 验证/排障 | QD-215 Windows Qt platform plugin | `Upstream` issue #7 | 已补发布依赖校验和缺 DLL/Qt 插件负向回归，Windows publish/package 均通过；上游候选 `f449b87` 已准备 | 远端写入恢复后推送候选并开 issue #7 PR；取得原始坏包后做直接复现 |
 | 验证/排障 | QD-216 主机连接失败 | `Upstream` issue #9 | 缺真实 host/signaling/TLS 日志，不能直接猜实现 | 先做支持 triage；能拆出确定 bug 后再进入实现 |
-| 安全设计 | QD-115 服务端设备密钥信任边界 | `Upstream` issue #10 / `Fork` | 信令服务端是否能冒充设备仍缺威胁模型 | 先写安全边界和攻击面；需要协议改动时与维护者协作 |
+| 安全设计 | QD-115 服务端设备密钥信任边界 | `Upstream` issue #10 / `Fork` | 威胁模型已完成：device_secret 不可逆，但明文 access_code + server token/审批使当前服务器仍是设备访问信任方；候选 `codex/upstream-qd-115-trust-model@1ca2543` 已准备 | 按文档分阶段推进 Host 身份密钥、Owner 签名 grant、Host 本地验证和恶意服务器 E2E；8 条验收项完成前保持 `[~]` |
 | 上游候选 | QD-911 私密安全披露入口 | `Upstream` issue #6 | fork 与独立候选已有 `SECURITY.md`，候选 `codex/upstream-qd-911-security@9862717` 直接基于 `upstream/dev`，只含 1 个文件；上游 issue 仍开放且 Private Vulnerability Reporting 仍 disabled | 远端写入恢复后推送并开 PR；维护者合并且启用私密报告后才转为 `[x]` |
 | 后续增强 | QD-610 业务工作流 | `Legacy` / `Fork` | 有设计方向，但没有完整产品闭环；QD-604 指标告警已完成 | 下一项不依赖外部凭据的业务增强 |
 | 质量收口 | QD-906、QD-907、QD-908、QD-909 | `Legacy` / `Fork` | 真机矩阵、异常路径、2h+ 长稳、文件/剪贴板审计仍不完整 | 每完成一个主功能就补对应边界，不集中到最后一次性补测 |
@@ -354,9 +365,9 @@ Roadmap 项放到同一条实施路径中。详细追溯仍以第 16 节为准�
 替换回归。自动替换链路已经用 ad-hoc DMG 真机验证；整体仍保持 `[~]`，不能把本地
 ad-hoc 成功写成正式跨平台发布完成。
 
-QD-604 已完成，QD-911 的上游候选也已准备；由于上游尚未启用 Private Vulnerability
-Reporting，QD-911 保持 `[~]`。下一项转到 `QD-115` 设备密钥信任边界，先把服务端可冒充
-设备的威胁模型和安全边界写清，再决定是否需要协议改动；之后进入 `QD-610`。
+QD-604 已完成；QD-911 与 QD-115 的上游候选均已准备，前者等上游启用 Private
+Vulnerability Reporting，后者等协议实现。当前继续做不依赖外部凭据的完整功能项：
+先补 QD-608 缺失的 C#/PHP/Kotlin SDK，再做 QD-610 业务工作流。
 
 回贡上游不等到 fork 全部做完再一次性提交。每个已经独立验收、能从 `upstream/dev`
 干净切出的主题都应立即形成最小 PR；依赖 PR #25 的功能只准备 stacked 候选，不继续
@@ -380,7 +391,7 @@ Reporting，QD-911 保持 `[~]`。下一项转到 `QD-115` 设备密钥信任边
 | QD-112 | SSO、多租户、计费 | `[-]` | 当前不做 |
 | QD-113 | Trust 自动审批线程亲和性 | `[~]` | 上游 issue #17 / PR #22 已有修复；本 fork 未重复实现，PR 合并后同步 |
 | QD-114 | 自托管 HTTPS/WSS 证书校验 | `[~]` | 上游 issue #20；Qt 子进程支持 SPKI 列表，Windows 服务安装支持 `QUICKDESK_SPKI`；彻底修复仍需 Remoting 接入真实 CertVerifier，Qt/Windows 实机构建待补 |
-| QD-115 | 信令服务器持有设备密钥的信任边界 | `[ ]` | 上游 issue #10；需要明确服务端是否可代替设备连接的安全模型 |
+| QD-115 | 信令服务器持有设备密钥的信任边界 | `[~]` | `3474203` 已明确当前服务器仍是信任方：device_secret 只有 Argon2id 哈希，但 access_code 明文、signal token/审批/归属由服务器控制。目标方案为 Host 身份密钥 + Owner 签名授权 + Host 本地验证；协议验收项尚未实现 |
 
 ## 5. 设备与会话
 
@@ -541,8 +552,9 @@ Reporting，QD-911 保持 `[~]`。下一项转到 `QD-115` 设备密钥信任边
 4. **准备 Remoting 需求单**：QD-002 Web 文件操作通道、QD-004 / QD-505 Host 权威录制、
    QD-007 图片剪贴板、QD-114 真实 CertVerifier。每项写清协议、宿主生命周期、权限、
    兼容性和验收用例，先交上游维护者评估。
-5. **安全与可观测性**：QD-911 候选已准备，等上游合并且启用 Private Vulnerability
-   Reporting；当前转到 QD-115 设备密钥信任边界，之后补 QD-909 文件/剪贴板审计。
+5. **安全与可观测性**：QD-911 候选等上游启用 Private Vulnerability Reporting；
+   QD-115 威胁模型已完成，下一阶段是 Host 身份密钥和 Owner 签名授权；之后补 QD-909
+   文件/剪贴板审计。
 6. **规模与长稳**：QD-906 真机矩阵、QD-907 异常路径、QD-908 2h+ 和几百路观看，
    以实际发布门槛补证据，不把压测数字当宣传口径。
 7. **Roadmap 暂缓项**：QD-318 Linux、QD-319 iOS/Android 跟随上游，不提前承诺。
@@ -592,7 +604,7 @@ Remoting 或协议改造；`不重复` 表示上游已经具备，只需验证�
 | #18 连接历史 | QD-206 | 不重复实现 | `Upstream-Open` | 核验现有 WebClient/Qt 入口，整理版本证据后回复 issue |
 | #17 Auto Approve 失效 | QD-113 | 等待上游 | `UP-PR#22` | #22 合并后同步；不在 fork 重写第二套线程亲和性修复 |
 | #13 Linux 支持 | QD-318 | 暂缓 | `Upstream-Open` | 保留跨平台接口，不承诺当前迭代实现 |
-| #10 信令服务设备密钥信任 | QD-115 | 下一设计项 | `Upstream-Open` | 写威胁模型和安全边界，区分“服务端保管密钥”与“服务端可冒充设备”，再决定协议改动 |
+| #10 信令服务设备密钥信任 | QD-115 | 设计完成，待协议 | `UP-Ready` + `Upstream-Open` | 安全边界候选 `1ca2543` 可直接提 PR；实现侧需要 Host 身份密钥、Owner 签名 grant 和 Host 本地验证 |
 | #9 主机连接失败 | QD-216 | 先排障 | `Upstream-Open` | 收集 host/signaling/TLS 日志，确认可复现 bug 后再提单 |
 | #7 Windows Qt 插件启动失败 | QD-215 | 本地回归完成 | `UP-Ready` | 候选 `f449b87` 已包含 x64/VC Runtime/Qt 插件/直接依赖校验和失败关闭；远端写入恢复后推送并开 PR |
 | #6 私密安全披露入口 | QD-911 | 候选已准备 | `UP-Ready` | `codex/upstream-qd-911-security@9862717` 只新增 `SECURITY.md`；推送后开 PR，并请维护者启用 Private Vulnerability Reporting |
@@ -649,7 +661,7 @@ Remoting 或协议改造；`不重复` 表示上游已经具备，只需验证�
 | #19 设备列表相关问题 | Bug cluster | QD-212、QD-213、QD-214 | 本机标识和访问码回源已完成；上传日志确认 Windows Host 无法取得交互用户 token，普通用户为 `0x522/type=2`，SYSTEM/session 0 为 `type=7` | 推送三个独立诊断候选；QD-214 根因按 Host 服务或 Remoting 用户上下文单独提交，不混成一个“设备列表”大修 |
 | #17 自动审批被忽略 | Bug | QD-113 | 已由 PR #22 覆盖 | 跟踪 PR #22，不重复实现 |
 | #13 Linux 支持 | Roadmap | QD-318 | 上游 Roadmap 已列出，本 fork 暂缓 | 保持跨平台接口，不在当前迭代投入 Linux 被控端 |
-| #10 信令服务器设备密钥信任 | Security | QD-115 | 服务端是否可冒充设备需要明确威胁模型 | 与上游安全维护者讨论；先写安全边界，不改协议 |
+| #10 信令服务器设备密钥信任 | Security | QD-115 | device_secret 只有哈希；但明文 access_code + server token/审批意味着被攻陷服务器仍可冒充 Controller | 推送 `signal-trust-model` 候选并在 issue 讨论协议升级；不能把哈希化 device_secret 当作已修复 |
 | #9 主机连接失败 | Support / Bug | QD-216 | 需要真实环境日志，不宜直接猜实现 | 收集 host/signaling/TLS 日志后再拆 bug |
 | #7 Windows 启动 Qt platform plugin 错误 | Packaging | QD-215 | Qt 插件/运行库打包问题；Windows publish/package 与缺 DLL 负向测试已通过，候选 `f449b87` 仅 3 个文件 | 推送候选并开 issue #7 PR；取得原始坏包后做直接复现 |
 | #6 私密安全披露入口 | Process | QD-911 | 候选 `9862717` 已新增根目录 `SECURITY.md`；上游仍无该文件且 Private Vulnerability Reporting 关闭 | 推送 fork 分支并开 PR；请维护者启用 GitHub 私密报告，不在公开 issue 贴利用细节 |
@@ -693,6 +705,7 @@ Remoting 或协议改造；`不重复` 表示上游已经具备，只需验证�
 | 13 | `feat(ops): backup restore and storage quotas` | QD-810 | fork 提交 `64ab93a` 已完成；依赖 PR #25 与 QD-006 SQLite 候选。等 #25 合并且 SQLite 候选先落地后，再拆备份 CLI、配额与存储视图最小增量 |
 | 14 | `feat(signaling): report host metrics and alert on sustained thresholds` | QD-604 | 服务端候选 `codex/upstream-qd-604-metrics@0ea9e7c` 已基于 `codex/upstream-qd-006-sqlite@7758456` 独立验证；含 SignalingServer、OpenAPI、四套 SDK、smoke 和真实 SQLite+Webhook E2E。fork 功能提交为 `37dd8aa` | 远端写入恢复后推送并作为 QD-006 的 stacked PR；Web/Qt 等 PR #25 客户端基线确认后单独拆 |
 | 15 | `docs: add private security disclosure policy` | QD-911 / issue #6 | 候选 `codex/upstream-qd-911-security@9862717` 直接基于 `upstream/dev@f6651f0`，只新增根目录 `SECURITY.md`；上游 Private Vulnerability Reporting 仍 disabled | 推送后创建 issue #6 PR；请维护者同时启用 GitHub Private Vulnerability Reporting |
+| 16 | `docs(security): define signaling trust boundary` | QD-115 / issue #10 | 候选 `codex/upstream-qd-115-trust-model@1ca2543` 直接基于 `upstream/dev@f6651f0`，只新增 `docs/security/signaling-trust-model.md` | 推送并关联 issue #10；文档批准后再按 Host 身份密钥与 Owner 签名授权拆协议 PR |
 
 QD-003 的上游候选已经单独准备：
 
@@ -800,6 +813,8 @@ QD-215 的上游候选已经单独准备：
   episode + 持久 outbox”，客户端只消费稳定 API，不在上游重建第二套监控系统；
 - 把 QD-911 的 `SECURITY.md` 作为独立文档 PR，明确 GitHub 私密报告优先、公开 issue
   禁止贴利用细节，同时请维护者启用 Private Vulnerability Reporting；
+- 把 QD-115 的信任边界文档单独提 PR，先把“服务器不能恢复 device_secret”与“服务器
+  仍可冒充 Controller”区分清楚，再推进签名授权协议；
 - 把 Web 文件管理器、Host 自动录制、图片剪贴板整理成 Remoting 需求，由维护者评估；
 - 把 PR #25 的控制面能力先等上游审查，避免重复提交；
 - fork 的 Web/Qt 业务页面在 #25 合并后按页面拆成增量 PR，而不是塞进一个巨型控制面 PR。

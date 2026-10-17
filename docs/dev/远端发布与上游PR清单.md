@@ -1,13 +1,13 @@
 # 远端发布与上游 PR 清单
 
-**更新时间**: 2026-10-17 22:03 CST
+**更新时间**: 2026-10-17 22:07 CST
 
 这份清单只记录本地验证完成后仍需远端写入的动作。当前机器上的 `git push`
 会被执行策略拒绝，因此以下步骤应在允许远端写入的环境中执行。
 
 ## 当前本地基线
 
-- fork 主干：本轮已验证主干为 `3021ca9`（私密安全披露策略）；本文件后续
+- fork 主干：本轮已验证主干为 `3474203`（信令信任边界）；本文件后续
   docs-only 提交可能让实际 HEAD 再前进，推送前仍以 `git rev-parse` 为准
 - fork 远端：`origin/dev`、`origin/master` 仍为 `f6651f0`；本地 `dev` 领先数量以
   `git rev-list --count origin/dev..dev` 为准，远端写入尚未完成
@@ -40,6 +40,8 @@
 - 上游 QD-911 候选：`codex/upstream-qd-911-security` = `9862717`，直接基于
   `upstream/dev@f6651f0`，只新增根目录 `SECURITY.md`；上游 issue #6 仍 OPEN，
   GitHub Private Vulnerability Reporting 当前 `enabled=false`
+- 上游 QD-115 候选：`codex/upstream-qd-115-trust-model` = `1ca2543`，直接基于
+  `upstream/dev@f6651f0`，只新增 `docs/security/signaling-trust-model.md`；对应 issue #10
 - 上游 QD-810 候选：尚未创建；fork 功能提交为 `64ab93a`。它依赖 PR #25 和 QD-006
   SQLite 候选，应在两者落地后再拆 `quickdesk-backup`、配额与两个存储视图的最小增量
 - 上游最小候选：`codex/upstream-access-bans` = `b89c24c`
@@ -193,6 +195,12 @@
   通过。由于 issue #6 仍开放，且 `gh api
   repos/barry-ran/QuickDesk/private-vulnerability-reporting` 返回 `enabled=false`，QD-911
   只能保持 `[~]`，不能把本地文档说成上游私密入口已生效。
+- QD-115 已在 fork 完成安全边界文档并提交 `3474203`：明确 device_secret 只有 Argon2id
+  哈希，但 access_code 明文、signal token/审批/设备归属由服务器控制，因此当前信令
+  服务器仍是设备访问信任方；目标方案是 Host 身份密钥 + Owner 签名 grant + Host
+  本地验证，服务器降级为路由。
+- QD-115 上游候选 `1ca2543` 已验证只含 1 个文档，`git diff --check upstream/dev...HEAD`
+  通过。该候选是设计输入，不代表风险已修复；QD-115 的 8 条协议验收项完成前保持 `[~]`。
 
 ## 1. 推送前检查
 
@@ -226,6 +234,7 @@ git log --oneline --left-right origin/feat/signaling-control-plane...codex/upstr
 - `dev` 必须包含 `b013a62`；
 - `dev` 必须包含 `37dd8aa`；
 - `dev` 必须包含 `3021ca9`；
+- `dev` 必须包含 `3474203`；
 - `codex/upstream-qd-204-api` 必须指向 `d2321b9`；
 - `codex/upstream-qd-204-client` 必须指向 `b259d03`；
 - `codex/upstream-qd-607-batch-revoke` 必须指向 `badf990`；
@@ -239,6 +248,7 @@ git log --oneline --left-right origin/feat/signaling-control-plane...codex/upstr
 - `codex/upstream-qd-006-sqlite` 必须指向 `7758456`；
 - `codex/upstream-qd-604-metrics` 必须指向 `0ea9e7c`，且父提交必须是 `7758456`；
 - `codex/upstream-qd-911-security` 必须指向 `9862717`，且父提交必须是 `f6651f0`；
+- `codex/upstream-qd-115-trust-model` 必须指向 `1ca2543`，且父提交必须是 `f6651f0`；
 - 如果远端出现新提交，先合并或 rebase，再重跑受影响测试，不能强推覆盖他人工作。
 
 ## 2. 推送 fork 分支
@@ -256,6 +266,7 @@ git push origin \
   codex/upstream-qd-006-sqlite \
   codex/upstream-qd-604-metrics \
   codex/upstream-qd-911-security \
+  codex/upstream-qd-115-trust-model \
   codex/source-unban \
   codex/upstream-access-bans
 ```
@@ -273,6 +284,8 @@ git rev-parse codex/upstream-qd-604-metrics
 git rev-parse origin/codex/upstream-qd-604-metrics
 git rev-parse codex/upstream-qd-911-security
 git rev-parse origin/codex/upstream-qd-911-security
+git rev-parse codex/upstream-qd-115-trust-model
+git rev-parse origin/codex/upstream-qd-115-trust-model
 ```
 
 fork 的 `dev` 是自主可控的持续开发主线。即使上游不合并，也不阻塞 fork 发布和后续开发。
