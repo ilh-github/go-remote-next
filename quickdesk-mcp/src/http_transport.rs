@@ -11,6 +11,7 @@ use tokio_util::sync::CancellationToken;
 use tower_http::cors::{AllowHeaders, AllowMethods, CorsLayer};
 
 use crate::config::AppConfig;
+use crate::idempotency::WorkflowIdempotencyStore;
 use crate::server::{QuickDeskMcpServer, SharedState};
 use crate::workflow_trigger::WorkflowTriggerStore;
 use crate::ws_client::WsClient;
@@ -27,6 +28,7 @@ pub async fn start_http(
     let mcp_shared_state = shared_state.clone();
     let mcp_allowed_devices = allowed_devices.clone();
     let workflow_triggers = WorkflowTriggerStore::new()?;
+    let idempotency = WorkflowIdempotencyStore::new()?;
     let business_run_slots = Arc::new(Semaphore::new(1));
 
     let mcp_service: StreamableHttpService<QuickDeskMcpServer, LocalSessionManager> =
@@ -52,6 +54,7 @@ pub async fn start_http(
         shared_state.clone(),
         allowed_devices.clone(),
         workflow_triggers.clone(),
+        idempotency.clone(),
         business_run_slots.clone(),
     );
     if config
@@ -65,6 +68,7 @@ pub async fn start_http(
             shared_state.clone(),
             allowed_devices.clone(),
             workflow_triggers,
+            idempotency,
             business_run_slots,
         );
     }
