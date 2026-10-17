@@ -1,6 +1,6 @@
 # 远端发布与上游 PR 清单
 
-**更新时间**: 2026-10-17 23:04 CST
+**更新时间**: 2026-10-18 00:08 CST
 
 这份清单只记录本地验证完成后仍需远端写入的动作。当前机器上的 `git push`
 会被执行策略拒绝，因此以下步骤应在允许远端写入的环境中执行。
@@ -69,11 +69,12 @@
   驱动而留在 fork 主线验证
 - QD-610 本机业务 HTTP trigger：fork 提交 `bca8149`，MCP 23/23、Clippy 和 release
   构建通过；通用 MCP 部分已准备 stacked 候选
-  `codex/upstream-qd-610-business-trigger` = `29c025d`，基于 QD-510 候选 `0a9ecd5`；
+  `codex/upstream-qd-610-business-trigger` = `3262cc9`，基于 QD-510 候选 `0a9ecd5`；
   `3f94911`、`e518194`、`e8ce807` 和 `9f7be0f` 已分别作为持久化 trigger、
-  Idempotency-Key、异步任务队列/取消和 HMAC 回调增量叠加，候选代码 `55b2d8d`。
-  `2e09d5b` 控制面事件订阅增量待同步到同一 stacked 候选；cron/日历、事件停机
-  补发、跨进程恢复和回调 outbox/重试仍留在 fork 后续阶段
+  Idempotency-Key、异步任务队列/取消和 HMAC 回调增量叠加，候选代码 `55b2d8d`；
+  `1d44842` 再叠加 Qt 白名单事件桥和 MCP event trigger，候选自身 39/39、Clippy、
+  release 构建和 diff check 通过。cron/日历、事件停机补发、跨进程恢复和回调
+  outbox/重试仍留在 fork 后续阶段
 - fork PR #1：<https://github.com/ilh-github/go-remote-next/pull/1>，
   OPEN / MERGEABLE / CLEAN，7 项检查全部成功
 - upstream PR #25：<https://github.com/barry-ran/QuickDesk/pull/25>

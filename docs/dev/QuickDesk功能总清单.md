@@ -1,6 +1,6 @@
 # QuickDesk 功能总清单
 
-> 最后对账：2026-10-17 23:04 CST。上游与 fork 状态都是动态的，实施前必须重新执行
+> 最后对账：2026-10-18 00:08 CST。上游与 fork 状态都是动态的，实施前必须重新执行
 > `git fetch --all --prune` 并核对 GitHub issue / PR。
 >
 > 本文件是 QuickDesk fork 后续产品开发的唯一功能清单。它合并三类输入：
@@ -333,10 +333,11 @@
   HTTP→replay→report E2E、错误 token、设备白名单和 429 测试均通过，MCP 全量 23/23、
   Clippy 零告警和 release 构建通过。定时触发、控制面事件订阅、幂等键、出站回调和委托
   权限仍未完成，QD-610 保持 `[~]`。
-- QD-610 上游 stacked 候选：`codex/upstream-qd-610-business-trigger` = `29c025d`，
-  基于 `codex/upstream-qd-510-workflow@0a9ecd5`；候选代码阶段为 `55b2d8d`，包含
-  HTTP trigger、持久化 interval trigger、Idempotency-Key、异步 job 队列和 HMAC 回调，
-  候选自身 36/36 测试、Clippy 和
+- QD-610 上游 stacked 候选：`codex/upstream-qd-610-business-trigger` = `3262cc9`，
+  基于 `codex/upstream-qd-510-workflow@0a9ecd5`；控制面事件代码阶段为 `1d44842`，
+  叠加在此前 `55b2d8d` 的 HTTP trigger、持久化 interval trigger、Idempotency-Key、
+  异步 job 队列和 HMAC 回调之上，并包含 Qt 白名单事件桥和 MCP event trigger，
+  候选自身 39/39 测试、Clippy 和
   `git diff --check upstream/dev...HEAD` 通过。候选保留通用 MCP HTTP trigger 和文档，
   不含 fork 清单、QD-506 或控制面业务记录。
 - QD-610 第二阶段功能提交：`3f94911`。新增 `~/.quickdesk/workflow-triggers/` JSON store、
