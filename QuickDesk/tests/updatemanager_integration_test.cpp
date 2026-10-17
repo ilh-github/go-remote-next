@@ -153,6 +153,14 @@ int main(int argc, char** argv) {
     QCoreApplication app(argc, argv);
     QCoreApplication::setApplicationVersion("4.2.0.0");
 
+    const QDir updateRoot(
+        QDir(QStandardPaths::writableLocation(
+                 QStandardPaths::TempLocation))
+            .filePath(QStringLiteral("QuickDesk/updates")));
+    updateRoot.mkpath(QStringLiteral("4.1.9.0"));
+    updateRoot.mkpath(QStringLiteral("4.2.0.0"));
+    updateRoot.mkpath(QStringLiteral("4.2.1.0"));
+
     UpdateHttpServer server;
     Expect(server.listen(QHostAddress::LocalHost, 0),
            QStringLiteral("mock update server listens"));
@@ -162,6 +170,17 @@ int main(int argc, char** argv) {
 
     quickdesk::ServerManager serverManager;
     quickdesk::AuthManager authManager(&serverManager);
+
+    {
+        quickdesk::UpdateManager updateManager(&serverManager, &authManager);
+        updateManager.start();
+        Expect(!QDir(updateRoot.filePath(QStringLiteral("4.1.9.0"))).exists(),
+               QStringLiteral("older update downloads are removed"));
+        Expect(!QDir(updateRoot.filePath(QStringLiteral("4.2.0.0"))).exists(),
+               QStringLiteral("installed update downloads are removed"));
+        Expect(QDir(updateRoot.filePath(QStringLiteral("4.2.1.0"))).exists(),
+               QStringLiteral("newer pending update downloads are retained"));
+    }
 
     QString downloadedPath;
     {
@@ -328,6 +347,7 @@ int main(int argc, char** argv) {
                QStringLiteral("failed download leaves no installer"));
     }
 
+    QDir(updateRoot.filePath(QStringLiteral("4.2.1.0"))).removeRecursively();
     std::cout << "update manager integration tests passed\n";
     return 0;
 }

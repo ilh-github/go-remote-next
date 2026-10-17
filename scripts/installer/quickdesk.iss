@@ -173,6 +173,28 @@ begin
   Result := '';
 end;
 
+function HasCommandLineSwitch(const Switch: String): Boolean;
+var
+  Index: Integer;
+begin
+  Result := False;
+  for Index := 1 to ParamCount do
+  begin
+    if CompareText(ParamStr(Index), Switch) = 0 then
+    begin
+      Result := True;
+      Exit;
+    end;
+  end;
+end;
+
+function ShouldLaunchApp: Boolean;
+begin
+  // In-app updates run silently but must still reopen the newly installed
+  // client. Ordinary silent deployments stay closed unless they opt in.
+  Result := HasCommandLineSwitch('/LAUNCHAPP') or not WizardSilent;
+end;
+
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   ResultCode: Integer;
@@ -222,4 +244,4 @@ Filename: "{app}\quickdesk_host.exe"; Parameters: "{code:GetHostServiceParameter
 ; Start the service.
 Filename: "sc.exe"; Parameters: "start QuickDeskHost"; StatusMsg: "Starting QuickDesk Host Service..."; Flags: runhidden waituntilterminated
 ; Launch the application.
-Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall; Check: ShouldLaunchApp

@@ -85,6 +85,7 @@ private:
     void onDownloadReadyRead(QNetworkReply* reply);
     void onDownloadFinished(QNetworkReply* reply);
     void cleanupDownload();
+    void cleanupObsoleteDownloads();
     bool verifyInstaller(const QString& path) const;
     bool launchInstaller();
     QString updateCheckUrl() const;

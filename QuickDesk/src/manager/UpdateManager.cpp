@@ -113,6 +113,7 @@ void UpdateManager::start()
     if (m_started) {
         return;
     }
+    cleanupObsoleteDownloads();
     m_started = true;
     m_initialTimer.start();
     m_pollTimer.start();
@@ -593,13 +594,40 @@ bool UpdateManager::launchInstaller()
     return QProcess::startDetached(
         m_installerPath,
         {QStringLiteral("/SILENT"), QStringLiteral("/CLOSEAPPLICATIONS"),
-         QStringLiteral("/RESTARTAPPLICATIONS")});
+         QStringLiteral("/LAUNCHAPP")});
 #elif defined(Q_OS_MACOS)
     return QProcess::startDetached(QStringLiteral("open"),
                                    {m_installerPath});
 #else
     return false;
 #endif
+}
+
+void UpdateManager::cleanupObsoleteDownloads()
+{
+    const std::string current =
+        currentVersion().toStdString();
+    if (!quickdesk::ParseUpdateVersion(current).has_value()) {
+        return;
+    }
+
+    QDir root(QDir(QStandardPaths::writableLocation(
+                       QStandardPaths::TempLocation))
+                  .filePath(QStringLiteral("QuickDesk/updates")));
+    if (!root.exists()) {
+        return;
+    }
+
+    const QFileInfoList entries =
+        root.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name);
+    for (const QFileInfo& entry : entries) {
+        const std::string version = entry.fileName().toStdString();
+        if (!quickdesk::ParseUpdateVersion(version).has_value() ||
+            quickdesk::CompareUpdateVersions(version, current) > 0) {
+            continue;
+        }
+        QDir(entry.absoluteFilePath()).removeRecursively();
+    }
 }
 
 QString UpdateManager::updateCheckUrl() const
