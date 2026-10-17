@@ -24,6 +24,7 @@ set(MANAGER_SOURCES
     src/manager/AuthManager.cpp
     src/manager/CloudDeviceManager.cpp
     src/manager/RemoteSessionManager.cpp
+    src/manager/UpdateManager.cpp
 )
 
 set(MANAGER_HEADERS
@@ -40,6 +41,7 @@ set(MANAGER_HEADERS
     src/manager/AuthManager.h
     src/manager/CloudDeviceManager.h
     src/manager/RemoteSessionManager.h
+    src/manager/UpdateManager.h
 )
 
 set(CONTROLLER_SOURCES
@@ -97,6 +99,8 @@ set(COMPONENT_HEADERS
 set(CORE_SOURCES
     src/core/certificatepin.h
     src/core/certificatepin.cpp
+    src/core/updatesupport.h
+    src/core/updatesupport.cpp
     src/core/common/commontype.h
     src/core/db/appconfigdatabase.h
     src/core/db/appconfigdatabase.cpp
@@ -247,6 +251,7 @@ qt_add_qml_module(QuickDesk
         qml/quickdeskcomponent/RemoteDeviceSelector.qml
         qml/quickdeskcomponent/VideoStatsOverlay.qml
         qml/quickdeskcomponent/LoginDialog.qml        
+        qml/quickdeskcomponent/UpdateDialog.qml
     RESOURCES
         res/font/SegoeFluentIcons.ttf
         qml/component/qmldir

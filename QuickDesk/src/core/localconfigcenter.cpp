@@ -114,6 +114,7 @@ LCC_FUNCTION_IMP_STRING(preferredVideoCodec, PreferredVideoCodec);
 LCC_FUNCTION_IMP_STRING(accessCodeNextRefreshTime, AccessCodeNextRefreshTime);
 LCC_FUNCTION_IMP_STRING(signalingServerUrl, SignalingServerUrl);
 LCC_FUNCTION_IMP_STRING(signalingServerSpki, SignalingServerSpki);
+LCC_FUNCTION_IMP_STRING(skippedUpdateVersion, SkippedUpdateVersion);
 LCC_FUNCTION_IMP_STRING(turnServersJson, TurnServersJson);
 LCC_FUNCTION_IMP_STRING(apiKey, ApiKey);
 

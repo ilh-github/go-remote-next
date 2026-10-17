@@ -93,6 +93,14 @@ ApplicationWindow {
         }
     }
 
+    Connections {
+        target: mainController ? mainController.updateManager : null
+
+        function onUpdatePromptRequested(mandatory) {
+            updateDialog.open(mandatory)
+        }
+    }
+
     // Listen to connection state changes to save device credentials
     Connections {
         target: mainController.clientManager
@@ -671,6 +679,11 @@ ApplicationWindow {
                 AboutPage {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
+                    mainController: root.mainController
+
+                    onShowToast: function(message, toastType) {
+                        toast.show(message, toastType)
+                    }
                 }
             }
         }
@@ -939,5 +952,10 @@ ApplicationWindow {
     LoginDialog {
         id: loginDialog
         mainController: root.mainController
+    }
+
+    UpdateDialog {
+        id: updateDialog
+        updateManager: root.mainController.updateManager
     }
 }

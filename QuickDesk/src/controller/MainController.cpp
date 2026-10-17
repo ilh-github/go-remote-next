@@ -4,6 +4,7 @@
 #include "../manager/ProcessManager.h"
 #include "../manager/NativeMessaging.h"
 #include "../manager/SkillHostManager.h"
+#include "../manager/UpdateManager.h"
 #include "../api/WebSocketServer.h"
 #include "../api/TrustHandler.h"
 #include "../api/OcrEngine.h"
@@ -67,6 +68,8 @@ MainController::MainController(QObject* parent)
 {
     // Create AuthManager and CloudDeviceManager
     m_authManager = std::make_unique<AuthManager>(m_serverManager.get(), this);
+    m_updateManager = std::make_unique<UpdateManager>(
+        m_serverManager.get(), m_authManager.get(), this);
     // §2.11 logout needs access to HostManager for the live device_id;
     // wire it before any user flow can trigger logout().
     m_authManager->setHostManager(m_hostManager.get());
@@ -261,6 +264,12 @@ MainController::MainController(QObject* parent)
         m_cloudSyncReady = false;
     });
 
+    connect(m_updateManager.get(), &UpdateManager::installerLaunched, this, [this]() {
+        LOG_INFO("Update installer launched; shutting down for installation");
+        shutdown();
+        QTimer::singleShot(500, qApp, &QCoreApplication::quit);
+    });
+
     // Sync access code changes from cloud devices to recent connections
     connect(m_cloudDeviceManager.get(), &CloudDeviceManager::myDevicesChanged, this, [this]() {
         for (const auto& v : m_cloudDeviceManager->myDevices()) {
@@ -333,6 +342,7 @@ void MainController::initialize()
 
     // Start preset manager (polls server for preset config)
     m_presetManager->start();
+    m_updateManager->start();
 
     // Restore user auth session
     m_authManager->restoreSession();
@@ -385,6 +395,7 @@ void MainController::shutdown()
     }
     
     m_presetManager->stop();
+    m_updateManager->stop();
     m_hostManager->disconnectFromServer();
     m_clientManager->disconnectAll();
 
@@ -581,6 +592,11 @@ AuthManager* MainController::authManager() const
 CloudDeviceManager* MainController::cloudDeviceManager() const
 {
     return m_cloudDeviceManager.get();
+}
+
+UpdateManager* MainController::updateManager() const
+{
+    return m_updateManager.get();
 }
 
 RemoteSessionManager* MainController::remoteSessionManager() const

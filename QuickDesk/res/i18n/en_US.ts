@@ -2140,4 +2140,122 @@ Access Code: %2</translation>
         <translation>Unbanned %1</translation>
     </message>
 </context>
+<context>
+    <name>AboutPage</name>
+    <message>
+        <source>Update service unavailable</source>
+        <translation>Update service unavailable</translation>
+    </message>
+    <message>
+        <source>Checking for updates...</source>
+        <translation>Checking for updates...</translation>
+    </message>
+    <message>
+        <source>QuickDesk is up to date.</source>
+        <translation>QuickDesk is up to date.</translation>
+    </message>
+    <message>
+        <source>Version %1 is available.</source>
+        <translation>Version %1 is available.</translation>
+    </message>
+    <message>
+        <source>Downloading %1: %2%</source>
+        <translation>Downloading %1: %2%</translation>
+    </message>
+    <message>
+        <source>Version %1 is downloaded and verified.</source>
+        <translation>Version %1 is downloaded and verified.</translation>
+    </message>
+    <message>
+        <source>Starting the installer...</source>
+        <translation>Starting the installer...</translation>
+    </message>
+    <message>
+        <source>Check the self-hosted update channel for a newer build.</source>
+        <translation>Check the self-hosted update channel for a newer build.</translation>
+    </message>
+    <message>
+        <source>Updates</source>
+        <translation>Updates</translation>
+    </message>
+    <message>
+        <source>Check for Updates</source>
+        <translation>Check for Updates</translation>
+    </message>
+    <message>
+        <source>Download Update</source>
+        <translation>Download Update</translation>
+    </message>
+    <message>
+        <source>Install and Restart</source>
+        <translation>Install and Restart</translation>
+    </message>
+    <message>
+        <source>Update available.</source>
+        <translation>Update available.</translation>
+    </message>
+    <message>
+        <source>Update downloaded and verified.</source>
+        <translation>Update downloaded and verified.</translation>
+    </message>
+    <message>
+        <source>Download cancelled</source>
+        <translation>Download cancelled</translation>
+    </message>
+</context>
+<context>
+    <name>UpdateDialog</name>
+    <message>
+        <source>Required Update</source>
+        <translation>Required Update</translation>
+    </message>
+    <message>
+        <source>Update Available</source>
+        <translation>Update Available</translation>
+    </message>
+    <message>
+        <source>Version %1 is available. You are running %2.</source>
+        <translation>Version %1 is available. You are running %2.</translation>
+    </message>
+    <message>
+        <source>This update is required. Download it to continue using QuickDesk.</source>
+        <translation>This update is required. Download it to continue using QuickDesk.</translation>
+    </message>
+    <message>
+        <source>Download the installer when you are ready.</source>
+        <translation>Download the installer when you are ready.</translation>
+    </message>
+    <message>
+        <source>Downloading installer: %1%</source>
+        <translation>Downloading installer: %1%</translation>
+    </message>
+    <message>
+        <source>Download verified. QuickDesk will close while the installer runs.</source>
+        <translation>Download verified. QuickDesk will close while the installer runs.</translation>
+    </message>
+    <message>
+        <source>Starting the installer...</source>
+        <translation>Starting the installer...</translation>
+    </message>
+    <message>
+        <source>Later</source>
+        <translation>Later</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>Cancel</translation>
+    </message>
+    <message>
+        <source>Download Required Update</source>
+        <translation>Download Required Update</translation>
+    </message>
+    <message>
+        <source>Download</source>
+        <translation>Download</translation>
+    </message>
+    <message>
+        <source>Install and Restart</source>
+        <translation>Install and Restart</translation>
+    </message>
+</context>
 </TS>

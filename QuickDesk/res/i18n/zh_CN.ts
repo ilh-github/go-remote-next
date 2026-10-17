@@ -2140,4 +2140,122 @@ Access Code: %2</source>
         <translation>已解除对 %1 的封禁</translation>
     </message>
 </context>
+<context>
+    <name>AboutPage</name>
+    <message>
+        <source>Update service unavailable</source>
+        <translation>更新服务不可用</translation>
+    </message>
+    <message>
+        <source>Checking for updates...</source>
+        <translation>正在检查更新...</translation>
+    </message>
+    <message>
+        <source>QuickDesk is up to date.</source>
+        <translation>QuickDesk 已是最新版本。</translation>
+    </message>
+    <message>
+        <source>Version %1 is available.</source>
+        <translation>发现新版本 %1。</translation>
+    </message>
+    <message>
+        <source>Downloading %1: %2%</source>
+        <translation>正在下载 %1：%2%</translation>
+    </message>
+    <message>
+        <source>Version %1 is downloaded and verified.</source>
+        <translation>版本 %1 已下载并通过校验。</translation>
+    </message>
+    <message>
+        <source>Starting the installer...</source>
+        <translation>正在启动安装程序...</translation>
+    </message>
+    <message>
+        <source>Check the self-hosted update channel for a newer build.</source>
+        <translation>从自托管更新通道检查新版本。</translation>
+    </message>
+    <message>
+        <source>Updates</source>
+        <translation>软件更新</translation>
+    </message>
+    <message>
+        <source>Check for Updates</source>
+        <translation>检查更新</translation>
+    </message>
+    <message>
+        <source>Download Update</source>
+        <translation>下载更新</translation>
+    </message>
+    <message>
+        <source>Install and Restart</source>
+        <translation>安装并重启</translation>
+    </message>
+    <message>
+        <source>Update available.</source>
+        <translation>发现可用更新。</translation>
+    </message>
+    <message>
+        <source>Update downloaded and verified.</source>
+        <translation>更新已下载并通过校验。</translation>
+    </message>
+    <message>
+        <source>Download cancelled</source>
+        <translation>下载已取消</translation>
+    </message>
+</context>
+<context>
+    <name>UpdateDialog</name>
+    <message>
+        <source>Required Update</source>
+        <translation>必须更新</translation>
+    </message>
+    <message>
+        <source>Update Available</source>
+        <translation>发现更新</translation>
+    </message>
+    <message>
+        <source>Version %1 is available. You are running %2.</source>
+        <translation>新版本 %1 已可用，当前版本为 %2。</translation>
+    </message>
+    <message>
+        <source>This update is required. Download it to continue using QuickDesk.</source>
+        <translation>此更新为必需项，请下载后继续使用 QuickDesk。</translation>
+    </message>
+    <message>
+        <source>Download the installer when you are ready.</source>
+        <translation>准备好后可下载安装程序。</translation>
+    </message>
+    <message>
+        <source>Downloading installer: %1%</source>
+        <translation>正在下载安装程序：%1%</translation>
+    </message>
+    <message>
+        <source>Download verified. QuickDesk will close while the installer runs.</source>
+        <translation>下载已通过校验。安装程序运行期间 QuickDesk 将退出。</translation>
+    </message>
+    <message>
+        <source>Starting the installer...</source>
+        <translation>正在启动安装程序...</translation>
+    </message>
+    <message>
+        <source>Later</source>
+        <translation>稍后</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>取消</translation>
+    </message>
+    <message>
+        <source>Download Required Update</source>
+        <translation>下载必需更新</translation>
+    </message>
+    <message>
+        <source>Download</source>
+        <translation>下载</translation>
+    </message>
+    <message>
+        <source>Install and Restart</source>
+        <translation>安装并重启</translation>
+    </message>
+</context>
 </TS>

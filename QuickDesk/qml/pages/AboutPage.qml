@@ -6,6 +6,35 @@ import "../component"
 Item {
     id: root
 
+    property var mainController
+    property var updateManager: mainController ? mainController.updateManager : null
+
+    signal showToast(string message, int toastType)
+
+    function updateStatusText() {
+        if (!updateManager) return qsTr("Update service unavailable")
+        switch (updateManager.state) {
+        case "checking":
+            return qsTr("Checking for updates...")
+        case "up-to-date":
+            return qsTr("QuickDesk is up to date.")
+        case "available":
+            return qsTr("Version %1 is available.").arg(updateManager.latestVersion)
+        case "downloading":
+            return qsTr("Downloading %1: %2%")
+                .arg(updateManager.latestVersion)
+                .arg(Math.round(updateManager.downloadProgress * 100))
+        case "ready":
+            return qsTr("Version %1 is downloaded and verified.").arg(updateManager.latestVersion)
+        case "installing":
+            return qsTr("Starting the installer...")
+        case "failed":
+            return updateManager.errorMessage
+        default:
+            return qsTr("Check the self-hosted update channel for a newer build.")
+        }
+    }
+
     Rectangle {
         anchors.fill: parent
         color: Theme.background
@@ -86,6 +115,94 @@ Item {
                             color: Theme.text
                             wrapMode: Text.WordWrap
                             lineHeight: 1.4
+                        }
+                    }
+                }
+
+                // Updates Card
+                QDCard {
+                    x: Theme.spacingXLarge
+                    width: parent.width - Theme.spacingXLarge * 2
+                    height: updatesColumn.implicitHeight + Theme.spacingLarge * 2
+
+                    Column {
+                        id: updatesColumn
+                        width: parent.width - Theme.spacingLarge * 2
+                        anchors.centerIn: parent
+                        spacing: Theme.spacingMedium
+
+                        Text {
+                            text: qsTr("Updates")
+                            font.pixelSize: Theme.fontSizeLarge
+                            font.weight: Font.DemiBold
+                            color: Theme.text
+                        }
+
+                        Rectangle { width: parent.width; height: 1; color: Theme.border }
+
+                        Text {
+                            width: parent.width
+                            text: root.updateStatusText()
+                            font.pixelSize: Theme.fontSizeMedium
+                            color: root.updateManager && root.updateManager.state === "failed"
+                                   ? Theme.error : Theme.textSecondary
+                            wrapMode: Text.WordWrap
+                        }
+
+                        Text {
+                            visible: root.updateManager &&
+                                     root.updateManager.releaseNotes.length > 0 &&
+                                     (root.updateManager.state === "available" ||
+                                      root.updateManager.state === "ready")
+                            width: parent.width
+                            text: root.updateManager ? root.updateManager.releaseNotes : ""
+                            font.pixelSize: Theme.fontSizeSmall
+                            color: Theme.text
+                            wrapMode: Text.WordWrap
+                            maximumLineCount: 6
+                            elide: Text.ElideRight
+                        }
+
+                        QDProgressBar {
+                            visible: root.updateManager &&
+                                     (root.updateManager.state === "downloading" ||
+                                      root.updateManager.state === "ready")
+                            width: parent.width
+                            from: 0
+                            to: 1
+                            value: root.updateManager ? root.updateManager.downloadProgress : 0
+                        }
+
+                        Row {
+                            spacing: Theme.spacingSmall
+
+                            QDButton {
+                                text: qsTr("Check for Updates")
+                                iconText: FluentIconGlyph.syncGlyph
+                                enabled: root.updateManager &&
+                                         root.updateManager.state !== "checking" &&
+                                         root.updateManager.state !== "downloading" &&
+                                         root.updateManager.state !== "installing"
+                                onClicked: root.updateManager.checkForUpdates(true)
+                            }
+
+                            QDButton {
+                                visible: root.updateManager &&
+                                         (root.updateManager.state === "available" ||
+                                          root.updateManager.state === "failed")
+                                text: qsTr("Download Update")
+                                iconText: FluentIconGlyph.downloadGlyph
+                                buttonType: QDButton.Type.Primary
+                                onClicked: root.updateManager.downloadUpdate()
+                            }
+
+                            QDButton {
+                                visible: root.updateManager && root.updateManager.state === "ready"
+                                text: qsTr("Install and Restart")
+                                iconText: FluentIconGlyph.acceptGlyph
+                                buttonType: QDButton.Type.Primary
+                                onClicked: root.updateManager.installUpdate()
+                            }
                         }
                     }
                 }
@@ -256,6 +373,29 @@ Item {
                 }
 
                 Item { width: 1; height: Theme.spacingXLarge }
+            }
+        }
+    }
+
+    Connections {
+        target: root.updateManager
+
+        function onCheckFinished(userInitiated, updateAvailable, error) {
+            if (!userInitiated) return
+            if (error.length > 0) {
+                root.showToast(error, QDToast.Type.Error)
+            } else if (updateAvailable) {
+                root.showToast(qsTr("Update available."), QDToast.Type.Info)
+            } else {
+                root.showToast(qsTr("QuickDesk is up to date."), QDToast.Type.Success)
+            }
+        }
+
+        function onDownloadFinished(success, error) {
+            if (success) {
+                root.showToast(qsTr("Update downloaded and verified."), QDToast.Type.Success)
+            } else if (error.length > 0 && error !== qsTr("Download cancelled")) {
+                root.showToast(error, QDToast.Type.Error)
             }
         }
     }

@@ -25,6 +25,7 @@
 #include "../manager/AuthManager.h"
 #include "../manager/CloudDeviceManager.h"
 #include "../manager/RemoteSessionManager.h"
+#include "../manager/UpdateManager.h"
 #include "../common/ProcessStatus.h"
 
 namespace quickdesk {
@@ -49,6 +50,7 @@ class MainController : public QObject {
     Q_PROPERTY(PresetManager* presetManager READ presetManager CONSTANT)
     Q_PROPERTY(AuthManager* authManager READ authManager CONSTANT)
     Q_PROPERTY(CloudDeviceManager* cloudDeviceManager READ cloudDeviceManager CONSTANT)
+    Q_PROPERTY(UpdateManager* updateManager READ updateManager CONSTANT)
     Q_PROPERTY(RemoteSessionManager* remoteSessionManager READ remoteSessionManager CONSTANT)
     
     // Host status
@@ -149,6 +151,7 @@ public:
     PresetManager* presetManager() const;
     AuthManager* authManager() const;
     CloudDeviceManager* cloudDeviceManager() const;
+    UpdateManager* updateManager() const;
     RemoteSessionManager* remoteSessionManager() const;
 
     // Host convenience properties
@@ -275,6 +278,7 @@ private:
     std::unique_ptr<PresetManager> m_presetManager;
     std::unique_ptr<AuthManager> m_authManager;
     std::unique_ptr<CloudDeviceManager> m_cloudDeviceManager;
+    std::unique_ptr<UpdateManager> m_updateManager;
     std::unique_ptr<RemoteSessionManager> m_remoteSessionManager;
     std::unique_ptr<DeviceRecorder> m_deviceRecorder;
     std::unique_ptr<RemoteFileManager> m_remoteFileManager;
