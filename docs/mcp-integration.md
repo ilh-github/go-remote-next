@@ -1131,10 +1131,18 @@ and cancel with `POST /v1/workflow-runs/{run_id}/cancel`. A running job is cance
 step boundary or by aborting the current WebSocket request, and its report has
 `cancelled=true`.
 
+All three trigger paths accept `callback_url`. When `QUICKDESK_CALLBACK_SECRET` is set,
+QuickDesk POSTs `workflow.run.completed` or `workflow.run.failed` with
+`X-QuickDesk-Timestamp`, `X-QuickDesk-Delivery-Id`, and
+`X-QuickDesk-Signature: hmac-sha1=<hex>`. The signed message is
+`timestamp + "." + raw_json_body`. Callbacks currently allow HTTP only and are a single
+best-effort delivery; remote receivers must sit behind a TLS reverse proxy.
+
 The trigger is disabled when `QUICKDESK_TRIGGER_TOKEN` is empty, allows one workflow run per
 process at a time, and still enforces `QUICKDESK_ALLOWED_DEVICES`. Requests are synchronous;
 persistent interval triggers are executed by a background worker. Control-plane event
-subscriptions and outbound callbacks are not implemented yet. An optional
+subscriptions, callback outbox/retries and cross-process job recovery are not implemented yet.
+An optional
 `Idempotency-Key` persists and replays the first `WorkflowRunReport`; reusing a key for a
 different request, or while the original request is still running, returns 409.
 See `docs/dev/业务工作流HTTP触发器.md` for the complete contract.

@@ -7,7 +7,7 @@
 
 ## 当前本地基线
 
-- fork 主干：本轮代码基线为 `e8ce807`（QD-610 异步任务队列与取消）；本文件
+- fork 主干：本轮代码基线为 `9f7be0f`（QD-610 HMAC 结果回调）；本文件
   后续 docs-only 提交可能让实际 HEAD 再前进，推送前仍以 `git rev-parse` 为准
 - fork 远端：`origin/dev`、`origin/master` 仍为 `f6651f0`；本地 `dev` 领先数量以
   `git rev-list --count origin/dev..dev` 为准，远端写入尚未完成
@@ -69,10 +69,10 @@
   驱动而留在 fork 主线验证
 - QD-610 本机业务 HTTP trigger：fork 提交 `bca8149`，MCP 23/23、Clippy 和 release
   构建通过；通用 MCP 部分已准备 stacked 候选
-  `codex/upstream-qd-610-business-trigger` = `5819500`，基于 QD-510 候选 `0a9ecd5`；
-  `3f94911`、`e518194` 和 `e8ce807` 已分别作为持久化 trigger、Idempotency-Key 和
-  异步任务队列/取消增量叠加，候选代码 `5f0db8e`。事件订阅、cron/日历、跨进程恢复
-  和出站回调仍留在 fork 后续阶段
+  `codex/upstream-qd-610-business-trigger` = `29c025d`，基于 QD-510 候选 `0a9ecd5`；
+  `3f94911`、`e518194`、`e8ce807` 和 `9f7be0f` 已分别作为持久化 trigger、
+  Idempotency-Key、异步任务队列/取消和 HMAC 回调增量叠加，候选代码 `55b2d8d`。
+  事件订阅、cron/日历、跨进程恢复和回调 outbox/重试仍留在 fork 后续阶段
 - fork PR #1：<https://github.com/ilh-github/go-remote-next/pull/1>，
   OPEN / MERGEABLE / CLEAN，7 项检查全部成功
 - upstream PR #25：<https://github.com/barry-ran/QuickDesk/pull/25>
