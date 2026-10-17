@@ -44,7 +44,8 @@
 - 仓库：`go-remote-next`
 - 本地主分支：`dev`、`master`
 - 本地代码基线：`83d8caf`；清单维护提交位于其后，`dev` 与 `master` 指向同一提交
-- 远端 fork：`origin/dev` 仍为 `f6651f0`，本地 `dev` 领先 233 个提交（含本次清单对账）；远端写入恢复前不能把本地验收当成已发布
+- 远端 fork：`origin/dev` 仍为 `f6651f0`，本地 `dev` 尚未推送；领先数量以
+  `git rev-list --count origin/dev..dev` 的实时值为准。远端写入恢复前不能把本地验收当成已发布
 - 上游基线：`barry-ran/QuickDesk` 的 `dev` 和 `master` 当前均为 `f6651f0`
 - 上游维护口径：持续维护但暂缓更新，下一阶段重点偏 MCP；外部贡献从 `dev` 切分支，完成后合入 `dev`，维护者定期合入 `master`
 - Remoting 边界：`quickdesk-remoting` 需要编译整个 Chromium，涉及 Remoting 的改动优先向上游提需求，不要求贡献者本地编译
@@ -74,8 +75,8 @@
 
 最近验证：
 
-- 本地代码基线为 `83d8caf`，`dev` / `master` 在其后同步了清单对账提交，相对
-  `origin/dev` 领先 233 个提交；
+- 本地代码基线为 `83d8caf`，`dev` / `master` 在其后同步了清单对账提交；
+  当前领先数量以 `git rev-list --count origin/dev..dev` 为准；
   QD-215 主线和上游最小候选均已提交，远端写入仍被策略拒绝。
 - 上游核对：`upstream/dev` 与 `upstream/master` 均为 `f6651f0`；当前上游 open issues 10 个、open PR 4 个。
 - 上游维护：issue #21 已由维护者回复“持续维护、暂缓更新、重点偏 MCP、欢迎从

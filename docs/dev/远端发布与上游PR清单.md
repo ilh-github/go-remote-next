@@ -10,8 +10,8 @@
 - fork 主干：本地 `dev`、`master` 指向同一最新提交；代码基线为 `83d8caf`，
   已包含 QD-607 批量远控清场、QD-204 地址簿/设备分组、QD-508 Qt 录像回放页，
   QD-215 Windows 发布依赖校验及本清单维护提交
-- fork 远端：`origin/dev`、`origin/master` 仍为 `f6651f0`；本地 `dev` 领先
-  `origin/dev` 233 个提交（含本次清单对账），远端写入尚未完成
+- fork 远端：`origin/dev`、`origin/master` 仍为 `f6651f0`；本地 `dev` 领先数量以
+  `git rev-list --count origin/dev..dev` 为准，远端写入尚未完成
 - 功能分支：`codex/product-backlog` = `dea02f9`
 - 上游 QD-003 候选：`codex/upstream-cross-tab-coordination` = `6047615`（基于 `upstream/dev`）
 - 上游 QD-114 候选：`codex/upstream-qd-114-spki` = `13559e6`（基于 `upstream/dev`）
