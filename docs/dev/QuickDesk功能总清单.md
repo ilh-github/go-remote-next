@@ -302,7 +302,7 @@
 | 已完成 | QD-708 Qt 通知规则页 | `Fork` / `Upstream` 通用能力 | 通知通道、静默时段、设备离线告警、投递重试/确认和实时刷新已完成，提交 `dbd828f` | PR #25 合并后拆成通用 Qt 管理面候选并提交上游 |
 | 已完成 | QD-508 Qt 录像回放页 | `Legacy` / `Upstream` PR #23 | Qt 录像列表、分页、缩略图、应用内播放、外部打开和删除已完成，提交 `74c7022` | PR #23 合并后作为通用 Qt 管理面候选提交上游 |
 | 已完成 | QD-204 地址簿与设备分组用户入口 | `Legacy` / `Upstream` Roadmap | owner-scoped API、四套 SDK、WebClient 和 Qt 已完成；真实 service smoke 388 条断言通过 | 本地候选已准备：API `codex/upstream-qd-204-api@d2321b9`，客户端 `codex/upstream-qd-204-client@b259d03`；等远端写入恢复后建 PR |
-| 已完成 / 待回贡 | QD-604 指标型告警 | `Legacy` / `Fork` / `Upstream-Open` | Host 上报、服务端 episode、通知 outbox、Web/Qt 和 SDK 已由 `37dd8aa` 完整闭环 | PR #25 基线确认后，拆服务端/契约与 Web/Qt 两个 stacked 候选；不把 fork 清单带入上游 |
+| 已完成 / 上游候选 | QD-604 指标型告警 | `Legacy` / `Fork` / `Upstream-Open` | Host 上报、服务端 episode、通知 outbox、Web/Qt 和 SDK 已由 `37dd8aa` 完整闭环；服务端候选 `codex/upstream-qd-604-metrics@0ea9e7c` 已基于 QD-006 `7758456` 独立验证 | 推送服务端候选并作为 `#25 -> SQLite -> metrics` stacked PR；Web/Qt 待 #25 客户端基线确认后单独拆 PR |
 | 本地收口 | QD-607 计划任务执行动作 | `Fork` / `Legacy` | 服务端调度、Web/Qt 管理面、重试已完成；新增 `revoke_all_remote_sessions`，可按执行时设备归属批量关闭活动远控会话（最多 200 台）；纯服务端候选 `codex/upstream-qd-607-batch-revoke@badf990` 已独立验证 | “定时连接”仍需控制端到点发起连接的协议；更广义的批量 agent 指令仍需执行与回执通道；远端写入恢复后推送候选并作为 PR #25 的 stacked PR |
 | 本地收口 | QD-005 / QD-808 自动更新真机验证 | `Fork` / `Legacy` / `Upstream` PR #25 | Windows 已完成 4.2.8.0→4.2.9.0 自动下载、校验、静默安装、自动重启、版本和服务闭环，提交 `a982a10`；macOS 已实现 DMG 自动替换和失败回退，并通过 ad-hoc 真实 DMG E2E | 取得 Apple Developer ID 和公证凭据，执行 hardened runtime 签名、notarytool、staple、Gatekeeper 与真实升级回归；上游候选仍应在 PR #25/更新通道基线确认后重做最小增量 |
 | 已完成 | QD-006 / QD-809 SQLite 轻量服务端 | `Fork` / `Upstream-Open` | fork 提交 `c77dcae`；候选 `codex/upstream-qd-006-sqlite@7758456` 已在 PR #25 基线上通过完整测试、race、vet、构建和 E2E | PR #25 合并后 rebase 到 `upstream/dev` 并创建正式 PR；明确单实例和易失 Redis 边界，不和多实例生产配置混在同一 PR |
@@ -681,7 +681,7 @@ Remoting 或协议改造；`不重复` 表示上游已经具备，只需验证�
 | 11 | `feat(qt): consume self-hosted update channel` | QD-005 / QD-808 | 依赖 PR #25 合并；Windows 重启修复已包含在 fork `a982a10`。直接 cherry-pick `cae77ff` 到 `upstream/dev` 已实测冲突，必须在更新通道基线上重做最小增量，不携带 fork 私有文档 |
 | 12 | `feat(signaling): support SQLite minimal mode` | QD-006 / QD-809 | 候选 `codex/upstream-qd-006-sqlite@7758456` 已基于 PR #25 基线通过完整验证；等 #25 合并后 rebase 到 `upstream/dev`，不带 fork 清单 |
 | 13 | `feat(ops): backup restore and storage quotas` | QD-810 | fork 提交 `64ab93a` 已完成；依赖 PR #25 与 QD-006 SQLite 候选。等 #25 合并且 SQLite 候选先落地后，再拆备份 CLI、配额与存储视图最小增量 |
-| 14 | `feat(signaling): report host metrics and alert on sustained thresholds` | QD-604 | fork 功能提交 `37dd8aa` 已完成；基于 PR #25 基线拆服务端/OpenAPI/SDK/smoke 与 Web/Qt 两个 stacked 候选。维护者确认 #25 前不把两者合进巨型控制面 PR |
+| 14 | `feat(signaling): report host metrics and alert on sustained thresholds` | QD-604 | 服务端候选 `codex/upstream-qd-604-metrics@0ea9e7c` 已基于 `codex/upstream-qd-006-sqlite@7758456` 独立验证；含 SignalingServer、OpenAPI、四套 SDK、smoke 和真实 SQLite+Webhook E2E。fork 功能提交为 `37dd8aa` | 远端写入恢复后推送并作为 QD-006 的 stacked PR；Web/Qt 等 PR #25 客户端基线确认后单独拆 |
 
 QD-003 的上游候选已经单独准备：
 

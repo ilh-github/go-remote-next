@@ -33,9 +33,10 @@
   `feat/signaling-control-plane@8998466`；候选自身完整 Go 测试、database race、
   `go vet`、Web 生产构建和最小服务 E2E 通过。PR #25 合并后需 rebase 到
   `upstream/dev` 再创建正式 PR，不能直接拿 fork `dev` 的 `c77dcae`
-- 上游 QD-604 候选：尚未创建；fork 功能提交为 `37dd8aa`。应在 PR #25 基线上拆成
-  服务端/OpenAPI/SDK/smoke 与 Web/Qt 两个 stacked 候选，不能把 117 个文件直接作为
-  一个上游 PR
+- 上游 QD-604 服务端候选：`codex/upstream-qd-604-metrics` = `0ea9e7c`，基于
+  `codex/upstream-qd-006-sqlite@7758456`，形成 `PR #25 -> QD-006 -> QD-604` 的 stacked
+  链；只含 SignalingServer、OpenAPI、四套 SDK、contract smoke 和 metric E2E，不含
+  Web/Qt/fork 清单。Web/Qt 候选等 PR #25 客户端基线确认后另拆
 - 上游 QD-810 候选：尚未创建；fork 功能提交为 `64ab93a`。它依赖 PR #25 和 QD-006
   SQLite 候选，应在两者落地后再拆 `quickdesk-backup`、配额与两个存储视图的最小增量
 - 上游最小候选：`codex/upstream-access-bans` = `b89c24c`
@@ -178,6 +179,10 @@
 - QD-604 上游边界：它依赖 PR #25 的控制面、OpenAPI 和通知基线。PR #25 合并后先拆
   SignalingServer + 契约 + SDK + E2E，再拆 Web/Qt 客户端；fork-only 清单和部署文档
   不进入上游。
+- QD-604 上游服务端候选已验证：`codex/upstream-qd-604-metrics@0ea9e7c` 基于
+  `7758456`，自身 `go test -p 1 -count=1 ./...`、`go vet ./...`、真实 SQLite+Webhook
+  E2E、四套 SDK freshness 和 Go/TS/Python/Java 编译全部通过。远端 push 仍被策略拒绝，
+  因此尚未创建 stacked PR。
 
 ## 1. 推送前检查
 
@@ -221,6 +226,7 @@ git log --oneline --left-right origin/feat/signaling-control-plane...codex/upstr
 - `codex/upstream-qd-214-file-transfer-errors` 必须包含 `94d3ec3`；
 - `codex/upstream-qd-215-win-runtime-check` 必须指向 `f449b87`；
 - `codex/upstream-qd-006-sqlite` 必须指向 `7758456`；
+- `codex/upstream-qd-604-metrics` 必须指向 `0ea9e7c`，且父提交必须是 `7758456`；
 - 如果远端出现新提交，先合并或 rebase，再重跑受影响测试，不能强推覆盖他人工作。
 
 ## 2. 推送 fork 分支
@@ -236,6 +242,7 @@ git push origin \
   codex/upstream-qd-214-file-transfer-errors \
   codex/upstream-qd-215-win-runtime-check \
   codex/upstream-qd-006-sqlite \
+  codex/upstream-qd-604-metrics \
   codex/source-unban \
   codex/upstream-access-bans
 ```
@@ -249,6 +256,8 @@ git rev-parse codex/upstream-access-bans
 git rev-parse origin/codex/upstream-access-bans
 git rev-parse codex/upstream-qd-006-sqlite
 git rev-parse origin/codex/upstream-qd-006-sqlite
+git rev-parse codex/upstream-qd-604-metrics
+git rev-parse origin/codex/upstream-qd-604-metrics
 ```
 
 fork 的 `dev` 是自主可控的持续开发主线。即使上游不合并，也不阻塞 fork 发布和后续开发。
