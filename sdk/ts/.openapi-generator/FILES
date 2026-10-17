@@ -1,6 +1,5 @@
 .gitignore
 .npmignore
-.openapi-generator-ignore
 README.md
 package.json
 src/apis/AuthApi.ts
@@ -45,10 +44,13 @@ src/models/PlaybackTicket.ts
 src/models/Problem.ts
 src/models/RemoteSession.ts
 src/models/RemoteSessionAccessLog.ts
+src/models/RemoteSessionBatchRevocation.ts
+src/models/RemoteSessionBatchRevocationSessionsInner.ts
 src/models/RemoteSessionDetail.ts
 src/models/RemoteSessionDetailCounts.ts
 src/models/RemoteSessionDetailList.ts
 src/models/RemoteSessionList.ts
+src/models/RemoteSessionRevocation.ts
 src/models/RevokeAccessGrant200Response.ts
 src/models/SessionRecording.ts
 src/models/SessionRecordingInput.ts

@@ -102,6 +102,9 @@ jobs:
           ./scripts/sdk/check-generated-sdk.sh go
           ./scripts/sdk/check-generated-sdk.sh python
           ./scripts/sdk/check-generated-sdk.sh java
+          ./scripts/sdk/check-generated-sdk.sh csharp
+          ./scripts/sdk/check-generated-sdk.sh php
+          ./scripts/sdk/check-generated-sdk.sh kotlin
       - name: Generated Go client vets and compiles
         # `go vet ./...` type-checks the hand-written examples/ package too, so a
         # change to the client's API surface that the example no longer matches
@@ -137,6 +140,42 @@ jobs:
         run: |
           npm install --no-audit --no-fund
           npm run build
+
+  additional-sdks:
+    name: C# PHP Kotlin generated clients
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          tools: composer
+          extensions: curl, json, mbstring
+      - name: Committed additional clients match the spec
+        run: |
+          ./scripts/sdk/check-generated-sdk.sh csharp
+          ./scripts/sdk/check-generated-sdk.sh php
+          ./scripts/sdk/check-generated-sdk.sh kotlin
+      - name: Generated C# client builds
+        run: dotnet build sdk/csharp/QuickDesk.Signaling.Client.sln -c Release --nologo
+      - name: Generated PHP client installs and lints
+        working-directory: sdk/php
+        run: |
+          composer validate --no-check-publish
+          composer install --no-interaction --no-dev --prefer-dist
+          find lib -type f -name '*.php' -print0 | xargs -0 -n1 php -l
+      - name: Generated Kotlin client builds
+        working-directory: sdk/kotlin
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon --console=plain build
 
   smoke:
     name: Conformance smoke against a live server
@@ -252,6 +291,13 @@ jobs:
             -admin-password "$ADMIN_PASSWORD" > /tmp/seed.out
           cat /tmp/seed.out
           grep -E '^QD_(IDENTIFIER|PASSWORD|SMOKE_DEVICE)=' /tmp/seed.out >> "$GITHUB_ENV"
+      - name: Run the realtime conformance smoke
+        # The remote-session leg needs the freshly seeded host to still be
+        # online. Later approval/offline checks intentionally remove presence,
+        # so this runs before them rather than at the end of the job.
+        env:
+          QD_SMOKE_REMOTE_SESSION: '1'
+        run: node scripts/sdk/realtime-smoke.mjs
       - name: Run the approval workflow through the generated Go client
         # This runs before the conformance smoke, and the ordering matters: the
         # smoke's host-offline check deletes the seeded device's heartbeat on
@@ -291,10 +337,6 @@ jobs:
             org.openapitools.client.examples.ApprovalFlow
       - name: Run the conformance smoke
         run: node scripts/sdk/openapi-smoke.mjs
-      - name: Run the realtime conformance smoke
-        # Same seeded account and device as the HTTP smoke; the WebSocket routes
-        # take their credentials in the first frame, not in the URL.
-        run: node scripts/sdk/realtime-smoke.mjs
       - name: Run the generated Go client
         # The same seeded account, driven through the committed Go client rather
         # than through curl: the smoke above proves the server matches the spec,
