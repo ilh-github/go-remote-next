@@ -1,13 +1,13 @@
 # 远端发布与上游 PR 清单
 
-**更新时间**: 2026-10-17 21:53 CST
+**更新时间**: 2026-10-17 22:03 CST
 
 这份清单只记录本地验证完成后仍需远端写入的动作。当前机器上的 `git push`
 会被执行策略拒绝，因此以下步骤应在允许远端写入的环境中执行。
 
 ## 当前本地基线
 
-- fork 主干：本轮已验证主干为 `37dd8aa`（Host 指标告警）；本文件后续
+- fork 主干：本轮已验证主干为 `3021ca9`（私密安全披露策略）；本文件后续
   docs-only 提交可能让实际 HEAD 再前进，推送前仍以 `git rev-parse` 为准
 - fork 远端：`origin/dev`、`origin/master` 仍为 `f6651f0`；本地 `dev` 领先数量以
   `git rev-list --count origin/dev..dev` 为准，远端写入尚未完成
@@ -37,6 +37,9 @@
   `codex/upstream-qd-006-sqlite@7758456`，形成 `PR #25 -> QD-006 -> QD-604` 的 stacked
   链；只含 SignalingServer、OpenAPI、四套 SDK、contract smoke 和 metric E2E，不含
   Web/Qt/fork 清单。Web/Qt 候选等 PR #25 客户端基线确认后另拆
+- 上游 QD-911 候选：`codex/upstream-qd-911-security` = `9862717`，直接基于
+  `upstream/dev@f6651f0`，只新增根目录 `SECURITY.md`；上游 issue #6 仍 OPEN，
+  GitHub Private Vulnerability Reporting 当前 `enabled=false`
 - 上游 QD-810 候选：尚未创建；fork 功能提交为 `64ab93a`。它依赖 PR #25 和 QD-006
   SQLite 候选，应在两者落地后再拆 `quickdesk-backup`、配额与两个存储视图的最小增量
 - 上游最小候选：`codex/upstream-access-bans` = `b89c24c`
@@ -183,6 +186,13 @@
   `7758456`，自身 `go test -p 1 -count=1 ./...`、`go vet ./...`、真实 SQLite+Webhook
   E2E、四套 SDK freshness 和 Go/TS/Python/Java 编译全部通过。远端 push 仍被策略拒绝，
   因此尚未创建 stacked PR。
+- QD-911 已在 fork 完成 `SECURITY.md` 并提交 `3021ca9`：优先 GitHub Private
+  Vulnerability Reporting，入口不可用时使用维护者 GitHub 公开资料中的邮箱；明确禁止
+  在公开 issue 披露细节，并给出支持版本、范围内外、协调披露和 maintainer 检查项。
+- QD-911 上游候选 `9862717` 已验证只含 1 个文件，`git diff --check upstream/dev...HEAD`
+  通过。由于 issue #6 仍开放，且 `gh api
+  repos/barry-ran/QuickDesk/private-vulnerability-reporting` 返回 `enabled=false`，QD-911
+  只能保持 `[~]`，不能把本地文档说成上游私密入口已生效。
 
 ## 1. 推送前检查
 
@@ -215,6 +225,7 @@ git log --oneline --left-right origin/feat/signaling-control-plane...codex/upstr
 - `dev` 必须包含 `162ac6e`；
 - `dev` 必须包含 `b013a62`；
 - `dev` 必须包含 `37dd8aa`；
+- `dev` 必须包含 `3021ca9`；
 - `codex/upstream-qd-204-api` 必须指向 `d2321b9`；
 - `codex/upstream-qd-204-client` 必须指向 `b259d03`；
 - `codex/upstream-qd-607-batch-revoke` 必须指向 `badf990`；
@@ -227,6 +238,7 @@ git log --oneline --left-right origin/feat/signaling-control-plane...codex/upstr
 - `codex/upstream-qd-215-win-runtime-check` 必须指向 `f449b87`；
 - `codex/upstream-qd-006-sqlite` 必须指向 `7758456`；
 - `codex/upstream-qd-604-metrics` 必须指向 `0ea9e7c`，且父提交必须是 `7758456`；
+- `codex/upstream-qd-911-security` 必须指向 `9862717`，且父提交必须是 `f6651f0`；
 - 如果远端出现新提交，先合并或 rebase，再重跑受影响测试，不能强推覆盖他人工作。
 
 ## 2. 推送 fork 分支
@@ -243,6 +255,7 @@ git push origin \
   codex/upstream-qd-215-win-runtime-check \
   codex/upstream-qd-006-sqlite \
   codex/upstream-qd-604-metrics \
+  codex/upstream-qd-911-security \
   codex/source-unban \
   codex/upstream-access-bans
 ```
@@ -258,6 +271,8 @@ git rev-parse codex/upstream-qd-006-sqlite
 git rev-parse origin/codex/upstream-qd-006-sqlite
 git rev-parse codex/upstream-qd-604-metrics
 git rev-parse origin/codex/upstream-qd-604-metrics
+git rev-parse codex/upstream-qd-911-security
+git rev-parse origin/codex/upstream-qd-911-security
 ```
 
 fork 的 `dev` 是自主可控的持续开发主线。即使上游不合并，也不阻塞 fork 发布和后续开发。
