@@ -1,14 +1,14 @@
 # 远端发布与上游 PR 清单
 
-**更新时间**: 2026-10-17 19:20 CST
+**更新时间**: 2026-10-17 20:10 CST
 
 这份清单只记录本地验证完成后仍需远端写入的动作。当前机器上的 `git push`
 会被执行策略拒绝，因此以下步骤应在允许远端写入的环境中执行。
 
 ## 当前本地基线
 
-- fork 主干：本地 `dev`、`master` 指向同一最新提交；本轮代码提交为 `e688869`
-  （访问码同步重试）和 `5be14da`（SPAKE2 与文件传输错误码 0~7），清单提交位于其后
+- fork 主干：本地 `dev` 的 Windows 自动更新代码提交为 `a982a10`；本文件更新和
+  `master` 合并紧随其后，实际 HEAD 以 `git rev-parse dev master` 为准
 - fork 远端：`origin/dev`、`origin/master` 仍为 `f6651f0`；本地 `dev` 领先数量以
   `git rev-list --count origin/dev..dev` 为准，远端写入尚未完成
 - 功能分支：`codex/product-backlog` = `dea02f9`
@@ -111,21 +111,28 @@
 - QD-607 上游候选只含服务端、handler、测试和用户 API 文档 7 个文件；在 PR #25 基线上
   重新执行全量 Go 测试、`go vet`、`go build`、空库 `001_init.sql` 迁移和服务启动均通过。
   候选基线还没有 Web/Qt 计划任务页，所以客户端 kind 文案留在 fork，不强行塞进服务端 PR。
-- Windows 自动更新已在 Parallels Windows 11 中实测到安装前一步：4.2.8.0 基线已安装，
-  QuickDeskHost 服务 RUNNING；4.2.9.0 发布后客户端真实发现更新、下载完成并显示
-  “下载已通过校验”，下载器的 SHA-256 与服务端安装包一致。尚未点击“安装并重启”，
-  所以升级落盘、进程自动重启和服务重建仍不能标记完成。
+- Windows 自动更新已在 Parallels Windows 11 中完成全链路：带 `a982a10` 修复的
+  4.2.8.0 基线包为 90,095,272 字节、SHA-256
+  `0249d1d3573e26b4bba9064e0cc8879bf94301c29c50c71c11ed426a1c1830a3`；
+  4.2.9.0 升级包为 90,084,629 字节、SHA-256
+  `8e5e32cb038f5f6757bef58e2ed0907c5918e131e0d118d61de41f3090379383`。
+  客户端真实发现并下载更新，下载文件摘要完全一致；点击“安装并重启”后，旧进程
+  PID `12460` 退出，新进程 PID `6412` 自动启动。关于页和卸载注册表均为
+  `4.2.9.0`，QuickDeskHost 服务保持 RUNNING，升级临时目录已清理。
+- QD-005 根因修复：旧实现依赖 Inno `/RESTARTAPPLICATIONS`，但 Qt 客户端在启动安装器后
+  会主动退出，安装器没有可恢复的 Restart Manager 应用，所以升级后不会自动启动。
+  `a982a10` 改为 `/LAUNCHAPP`，由安装器完成后显式启动新版本；新版本启动时清理不高于
+  当前版本的更新目录，同时保留尚未安装的更高版本下载。
 - QD-215 Windows 发布依赖校验已落地：`verify_qd_win_release.ps1` 检查 x64 PE、
   `platforms/qwindows.dll`、VC Runtime 和 Qt 直接依赖，`publish_qd_win.bat` 与
   `package_qd_win.bat` 都会在缺依赖时中止。Windows 11 上 publish、Inno Setup 打包
-  和缺 Runtime/平台插件/Qt 依赖的负向测试均通过，安装包仍为 89,676,841 字节，
-  SHA-256 为 `67dbc4e5f56dec06d20b0feeef7d70545f087af4b8673025adba987cfcf9eeb6`。
+  和缺 Runtime/平台插件/Qt 依赖的负向测试均通过；Windows 自动更新复测包落在
+  90,084,629 字节，QD-005 修复后的 4.2.9.0 安装包已完成真实升级。
 - QD-215 上游候选 `f449b87` 已从 `upstream/dev` 单独切出，只含 3 个文件。候选校验器
   已在同一 Windows 发布目录上通过“正常包接受、缺 Runtime/Qt 插件/Qt 依赖均拒绝”的
   回归；`git push` 仍被当前执行策略拒绝，尚未创建 issue #7 PR。
-- 本轮已加入 Windows 打包/发布校验脚本和负向回归；`version=4.2.9.0` 仍保留为
-  未提交的验证版本。在 Windows 升级闭环确认前，不要把 `version` 当作正式发布版本
-  盲目推送。
+- `version=4.2.9.0` 已随 `a982a10` 提交；该版本号对应完成 Windows 真机升级的构建，
+  不再只是未提交的临时验证值。
 - QD-214 的前置 SPAKE2 阻断已经解决：WebClient 现在复刻 BoringSSL
   password-scalar 低三位修正，固定向量、真实 macOS Host 和 Windows Host 均通过验证
   哈希并进入 DataChannel。
