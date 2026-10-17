@@ -29,8 +29,10 @@
 - 上游 QD-607 服务端候选：`codex/upstream-qd-607-batch-revoke` = `badf990`（基于 PR
   #25 的 `feat/signaling-control-plane` = `8998466`，只含批量远控清场服务端、handler、
   测试和用户 API 文档）
-- 上游 QD-006 候选：尚未创建；需基于 PR #25 的 SignalingServer 基线单独抽取，
-  不能直接拿 fork `dev` 的 `c77dcae` 当独立上游提交
+- 上游 QD-006 候选：`codex/upstream-qd-006-sqlite` = `7758456`，基于 PR #25 的
+  `feat/signaling-control-plane@8998466`；候选自身完整 Go 测试、database race、
+  `go vet`、Web 生产构建和最小服务 E2E 通过。PR #25 合并后需 rebase 到
+  `upstream/dev` 再创建正式 PR，不能直接拿 fork `dev` 的 `c77dcae`
 - 上游最小候选：`codex/upstream-access-bans` = `b89c24c`
 - 上游基线：`barry-ran/QuickDesk` 的 `dev` / `master` = `f6651f0`
 - 上游维护口径：issue #21 已确认“持续维护、暂缓更新、重点偏 MCP”；贡献从
@@ -158,6 +160,9 @@
   自动选择进程内 Redis、健康检查识别 sqlite，空目录启动/重启 E2E、全量 Go 测试、
   database race 和 `go vet` 通过。该模式只支持一个信令进程，进程内 Redis 重启即失；
   上游候选必须保留这两个边界，并基于 PR #25 的 SignalingServer 基线重做最小增量。
+- QD-006 上游候选 `7758456` 已从 PR #25 基线独立切出，只含 SignalingServer 配置、
+  SQLite/embedded Redis、健康检查、测试和 E2E，不带 fork 清单或 QD-607 调度动作。
+  候选测试与 fork 等价通过，当前等待 PR #25 合并后再 rebase 到 `upstream/dev`。
 
 ## 1. 推送前检查
 
@@ -199,6 +204,7 @@ git log --oneline --left-right origin/feat/signaling-control-plane...codex/upstr
 - `codex/upstream-qd-213-access-code-refresh` 必须包含 `6928d24`；
 - `codex/upstream-qd-214-file-transfer-errors` 必须包含 `94d3ec3`；
 - `codex/upstream-qd-215-win-runtime-check` 必须指向 `f449b87`；
+- `codex/upstream-qd-006-sqlite` 必须指向 `7758456`；
 - 如果远端出现新提交，先合并或 rebase，再重跑受影响测试，不能强推覆盖他人工作。
 
 ## 2. 推送 fork 分支
@@ -213,6 +219,7 @@ git push origin \
   codex/upstream-qd-213-access-code-refresh \
   codex/upstream-qd-214-file-transfer-errors \
   codex/upstream-qd-215-win-runtime-check \
+  codex/upstream-qd-006-sqlite \
   codex/source-unban \
   codex/upstream-access-bans
 ```
@@ -224,6 +231,8 @@ git rev-parse dev
 git rev-parse origin/dev
 git rev-parse codex/upstream-access-bans
 git rev-parse origin/codex/upstream-access-bans
+git rev-parse codex/upstream-qd-006-sqlite
+git rev-parse origin/codex/upstream-qd-006-sqlite
 ```
 
 fork 的 `dev` 是自主可控的持续开发主线。即使上游不合并，也不阻塞 fork 发布和后续开发。

@@ -135,6 +135,10 @@
   并启动真实二进制，使用不可达的 PostgreSQL/Redis 地址证明二者未被依赖，验证
   `/health`、SQLite 文件创建、进程重启后数据库仍存在；全量 `go test -p 1 -count=1 ./...`、
   `go test -race ./internal/database`、`go vet ./...` 和 `git diff --check` 均通过。
+- QD-006 上游候选：`codex/upstream-qd-006-sqlite` = `7758456`，基于 PR #25 的
+  `feat/signaling-control-plane@8998466`，只含 SignalingServer SQLite/embedded Redis、
+  配置、健康检查、测试和 E2E 脚本；候选自身完整 Go 测试、database race、`go vet`、
+  Web 生产构建和最小服务 E2E 均通过。PR #25 合并后必须 rebase 到 `upstream/dev` 再开 PR。
 - QD-006 边界：进程内 Redis 是易失的，重启会清空 refresh token、presence、限流和实时流
   续传状态；SQLite 模式只支持一个信令进程。此边界已写入 `SignalingServer/README.md`，
   不能把本地最小模式描述成多实例生产部署。
@@ -259,7 +263,7 @@
 | 已完成 | QD-204 地址簿与设备分组用户入口 | `Legacy` / `Upstream` Roadmap | owner-scoped API、四套 SDK、WebClient 和 Qt 已完成；真实 service smoke 388 条断言通过 | 本地候选已准备：API `codex/upstream-qd-204-api@d2321b9`，客户端 `codex/upstream-qd-204-client@b259d03`；等远端写入恢复后建 PR |
 | 本地收口 | QD-607 计划任务执行动作 | `Fork` / `Legacy` | 服务端调度、Web/Qt 管理面、重试已完成；新增 `revoke_all_remote_sessions`，可按执行时设备归属批量关闭活动远控会话（最多 200 台）；纯服务端候选 `codex/upstream-qd-607-batch-revoke@badf990` 已独立验证 | “定时连接”仍需控制端到点发起连接的协议；更广义的批量 agent 指令仍需执行与回执通道；远端写入恢复后推送候选并作为 PR #25 的 stacked PR |
 | 本地收口 | QD-005 / QD-808 自动更新真机验证 | `Fork` / `Legacy` / `Upstream` PR #25 | Windows 已完成 4.2.8.0→4.2.9.0 自动下载、校验、静默安装、自动重启、版本和服务闭环，提交 `a982a10`；macOS 已实现 DMG 自动替换和失败回退，并通过 ad-hoc 真实 DMG E2E | 取得 Apple Developer ID 和公证凭据，执行 hardened runtime 签名、notarytool、staple、Gatekeeper 与真实升级回归；上游候选仍应在 PR #25/更新通道基线确认后重做最小增量 |
-| 已完成 | QD-006 / QD-809 SQLite 轻量服务端 | `Fork` / `Upstream-Open` | 提交 `c77dcae`；单进程 SQLite、默认进程内 Redis、健康检查、空目录启动和重启持久化 E2E 已通过，外部 PostgreSQL/Redis 未参与 | PR #25 合并后从控制面基线抽出最小 SQLite/embedded Redis 候选；明确单实例和易失 Redis 边界，不和多实例生产配置混在同一 PR |
+| 已完成 | QD-006 / QD-809 SQLite 轻量服务端 | `Fork` / `Upstream-Open` | fork 提交 `c77dcae`；候选 `codex/upstream-qd-006-sqlite@7758456` 已在 PR #25 基线上通过完整测试、race、vet、构建和 E2E | PR #25 合并后 rebase 到 `upstream/dev` 并创建正式 PR；明确单实例和易失 Redis 边界，不和多实例生产配置混在同一 PR |
 | 上游候选 | QD-003 多标签控制与音频抢占 | `Legacy` / `Upstream` Roadmap 补强 | 候选 `codex/upstream-cross-tab-coordination` = `6047615`，仅 WebClient 改动 | 远端写入恢复后推送并建 PR；补截图和同源双标签验证说明 |
 | 上游候选 | QD-114 自托管 WSS SPKI 兼容 | `Upstream` issue #20 / `Fork` | 候选 `codex/upstream-qd-114-spki` = `13559e6`；临时方案不替代真实证书校验 | 推送并建 issue #20 PR；补 Qt 构建、Windows 服务和真实 `wss://` |
 | 上游候选 | QD-212 设备列表本机标识 | `Upstream` issue #19 / `Legacy` | 候选 `f1ce096` 已在干净上游基线构建和测试 | 推送并建 PR；与 #19 其余问题拆开 |
@@ -511,8 +515,9 @@ ad-hoc 成功写成正式跨平台发布完成。
 - 2026-10-17 20:53 复核：上游两个分支、10 个 open issue、4 个 open PR 均无漂移；四个
   PR 显示 MERGEABLE / `mergeStateStatus=UNSTABLE`，但 GitHub
   没有 reported checks；不能把“MERGEABLE”写成 CI 已通过
-- QD-006 是通用自托管增强，但当前上游没有对应 open issue/PR；它修改的是 PR #25 所在的
-  SignalingServer 基线，因此先完成 fork 验收，等 #25 审查结论后再抽成 stacked 候选。
+- QD-006 是通用自托管增强，但当前上游没有对应 open issue/PR；候选
+  `codex/upstream-qd-006-sqlite@7758456` 已基于 PR #25 基线准备并验证，等 #25 合并后
+  rebase 到 `upstream/dev` 才能开不重复 #25 提交的正式 PR。
 - 本次融合结论：当前上游没有“必须由本 fork 立即重复开发”的 open issue；真正需要决策的是
   哪些工作作为独立小 PR 先贡献、哪些等 #25 合并后再拆、哪些只能向 Remoting 提需求。
 
@@ -627,7 +632,7 @@ Remoting 或协议改造；`不重复` 表示上游已经具备，只需验证�
 | 9 | `feat(webclient): control-plane management pages` | QD-108/605/607/703 | 依赖 PR #25 合并；按页面拆成多个 PR |
 | 10 | `feat(qt): remote session and management pages` | QD-706/708 | 依赖 PR #25 合并；审批页 `7c23f13`、会话实时消费 `ea5a65f` 和计划任务页 `42b6c61` 可先拆，再补通知页 |
 | 11 | `feat(qt): consume self-hosted update channel` | QD-005 / QD-808 | 依赖 PR #25 合并；Windows 重启修复已包含在 fork `a982a10`。直接 cherry-pick `cae77ff` 到 `upstream/dev` 已实测冲突，必须在更新通道基线上重做最小增量，不携带 fork 私有文档 |
-| 12 | `feat(signaling): support SQLite minimal mode` | QD-006 / QD-809 | 依赖 PR #25 的 SignalingServer 基线；fork 提交 `c77dcae` 已完成，抽候选时只带 SQLite、embedded Redis、配置/健康检查和测试，不带 fork 清单 |
+| 12 | `feat(signaling): support SQLite minimal mode` | QD-006 / QD-809 | 候选 `codex/upstream-qd-006-sqlite@7758456` 已基于 PR #25 基线通过完整验证；等 #25 合并后 rebase 到 `upstream/dev`，不带 fork 清单 |
 
 QD-003 的上游候选已经单独准备：
 
@@ -730,7 +735,7 @@ QD-215 的上游候选已经单独准备：
   Remoting 用户上下文需求提交，不在 WebClient 内绕过；
 - 把 QD-005 的 Qt 更新消费作为 PR #25 的后续增量，先保证跨平台安装行为和签名链；
 - 把 QD-006 的 SQLite 单进程模式作为 PR #25 的独立 stacked 候选，明确“单实例、进程内
-  Redis 易失”的边界，不和多实例生产部署混在一个 PR；
+  Redis 易失”的边界；候选已在 `7758456` 验证，等 #25 合并后 rebase 再提交；
 - 把 Web 文件管理器、Host 自动录制、图片剪贴板整理成 Remoting 需求，由维护者评估；
 - 把 PR #25 的控制面能力先等上游审查，避免重复提交；
 - fork 的 Web/Qt 业务页面在 #25 合并后按页面拆成增量 PR，而不是塞进一个巨型控制面 PR。
