@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -101,6 +102,48 @@ func TestBanIPHandlerPersistsTheObservedSource(t *testing.T) {
 	}
 }
 
+func TestUnbanIPHandlerRemovesTheSource(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := newPolicyHandlerTestDB(t)
+	const (
+		deviceID = "880000006"
+		userID   = uint(990306)
+	)
+	seedPolicyHandlerDevice(t, db, deviceID, userID, "policy-unban-handler")
+	policies := service.NewDeviceAccessPolicyService(db)
+	if _, err := policies.BanIP(context.Background(), deviceID, userID, "203.0.113.77"); err != nil {
+		t.Fatalf("seed ban: %v", err)
+	}
+	h := NewDeviceAccessPolicyHandler(
+		service.NewDeviceService(repository.NewDeviceRepository(db), service.NewDeviceSecretService()),
+		policies,
+		nil,
+	)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Params = gin.Params{{Key: "device_id", Value: deviceID}}
+	c.Set("auth.user_id", userID)
+	body, _ := json.Marshal(map[string]string{"source": "203.0.113.77"})
+	c.Request = httptest.NewRequest(http.MethodPost,
+		"/v1/me/devices/"+deviceID+"/access-bans:remove", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	h.UnbanIP(c)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var response struct {
+		DenyIPs []string `json:"deny_ips"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(response.DenyIPs) != 0 {
+		t.Fatalf("deny_ips = %v, want empty", response.DenyIPs)
+	}
+}
+
 func TestAdminBanIPHandlerPersistsAcrossAccounts(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := newPolicyHandlerTestDB(t)
@@ -144,5 +187,54 @@ func TestAdminBanIPHandlerPersistsAcrossAccounts(t *testing.T) {
 	}
 	if len(response.DenyIPs) != 1 || response.DenyIPs[0] != "198.51.100.9" {
 		t.Fatalf("deny_ips = %v", response.DenyIPs)
+	}
+}
+
+func TestAdminUnbanIPHandlerRemovesAcrossAccounts(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := newPolicyHandlerTestDB(t)
+	const (
+		deviceID = "880000007"
+		userID   = uint(990307)
+		adminID  = uint(78)
+	)
+	seedPolicyHandlerDevice(t, db, deviceID, userID, "admin-unban-target")
+	devices := service.NewDeviceService(repository.NewDeviceRepository(db), service.NewDeviceSecretService())
+	policies := service.NewDeviceAccessPolicyService(db)
+	if _, err := policies.BanIP(context.Background(), deviceID, userID, "198.51.100.10"); err != nil {
+		t.Fatalf("seed ban: %v", err)
+	}
+	h := NewAdminRemoteSessionHandler(
+		service.NewRemoteSessionService(db),
+		service.NewSessionRecordingService(db),
+		service.NewDeviceAccessService(db),
+		devices,
+		nil,
+		nil,
+		policies,
+		nil,
+	)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Params = gin.Params{{Key: "device_id", Value: deviceID}}
+	c.Set("auth.admin_id", adminID)
+	body, _ := json.Marshal(map[string]string{"source": "198.51.100.10"})
+	c.Request = httptest.NewRequest(http.MethodPost,
+		"/v1/admin/devices/"+deviceID+"/access-bans:remove", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	h.UnbanIP(c)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var response struct {
+		DenyIPs []string `json:"deny_ips"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(response.DenyIPs) != 0 {
+		t.Fatalf("deny_ips = %v, want empty", response.DenyIPs)
 	}
 }

@@ -16,6 +16,7 @@ Method | HTTP request | Description
 [**list_my_devices**](DevicesApi.md#list_my_devices) | **GET** /v1/me/devices | Devices owned by the authenticated user
 [**put_access_policy**](DevicesApi.md#put_access_policy) | **PUT** /v1/me/devices/{device_id}/access-policy | Create or replace the device&#39;s access policy
 [**revoke_access_grant**](DevicesApi.md#revoke_access_grant) | **DELETE** /v1/me/devices/{device_id}/access-grants/{grant_id} | Revoke a guest access code
+[**unban_device_access_source**](DevicesApi.md#unban_device_access_source) | **POST** /v1/me/devices/{device_id}/access-bans:remove | Remove one permanent source ban
 [**verify_access_code**](DevicesApi.md#verify_access_code) | **POST** /v1/devices/{device_id}/access-code:verify | Verify a device access code and mint a signal token
 
 
@@ -128,8 +129,8 @@ Permanently deny one source address
 Adds an exact IP or CIDR block to the device's persistent deny list and
 returns the complete updated policy. A deny match always wins over the
 allow list, time windows and a valid access code. Repeating the same
-source is a no-op; remove it by replacing the policy with `deny_ips`
-omitted or shorter.
+source is a no-op; remove one source with
+`POST /v1/me/devices/{device_id}/access-bans:remove`.
 
 
 ### Example
@@ -1131,6 +1132,101 @@ Name | Type | Description  | Notes
 | Status code | Description | Response headers |
 |-------------|-------------|------------------|
 **200** | The grant is no longer redeemable. |  -  |
+**400** | The request was malformed or failed validation. |  -  |
+**403** | Authenticated but not allowed (includes a rejected access code). |  -  |
+**404** | The addressed resource does not exist. |  -  |
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+# **unban_device_access_source**
+> DeviceAccessPolicy unban_device_access_source(device_id, device_access_ban_request)
+
+Remove one permanent source ban
+
+Removes the exact IP or CIDR entry from the device's persistent deny
+list and returns the complete updated policy. A source that is already
+absent, including on a device with no stored policy, is a successful
+no-op.
+
+
+### Example
+
+* Api Key Authentication (ApiKeyAuth):
+* Bearer (opaque) Authentication (BearerAuth):
+
+```python
+import quickdesk_signaling
+from quickdesk_signaling.models.device_access_ban_request import DeviceAccessBanRequest
+from quickdesk_signaling.models.device_access_policy import DeviceAccessPolicy
+from quickdesk_signaling.rest import ApiException
+from pprint import pprint
+
+# Defining the host is optional and defaults to https://your-signaling-host
+# See configuration.py for a list of all supported configuration parameters.
+configuration = quickdesk_signaling.Configuration(
+    host = "https://your-signaling-host"
+)
+
+# The client must configure the authentication and authorization parameters
+# in accordance with the API server security policy.
+# Examples for each auth method are provided below, use the example that
+# satisfies your auth use case.
+
+# Configure API key authorization: ApiKeyAuth
+configuration.api_key['ApiKeyAuth'] = os.environ["API_KEY"]
+
+# Uncomment below to setup prefix (e.g. Bearer) for API key, if needed
+# configuration.api_key_prefix['ApiKeyAuth'] = 'Bearer'
+
+# Configure Bearer authorization (opaque): BearerAuth
+configuration = quickdesk_signaling.Configuration(
+    access_token = os.environ["BEARER_TOKEN"]
+)
+
+# Enter a context with an instance of the API client
+with quickdesk_signaling.ApiClient(configuration) as api_client:
+    # Create an instance of the API class
+    api_instance = quickdesk_signaling.DevicesApi(api_client)
+    device_id = 'device_id_example' # str | The device id shown on the controlled machine.
+    device_access_ban_request = quickdesk_signaling.DeviceAccessBanRequest() # DeviceAccessBanRequest | 
+
+    try:
+        # Remove one permanent source ban
+        api_response = api_instance.unban_device_access_source(device_id, device_access_ban_request)
+        print("The response of DevicesApi->unban_device_access_source:\n")
+        pprint(api_response)
+    except Exception as e:
+        print("Exception when calling DevicesApi->unban_device_access_source: %s\n" % e)
+```
+
+
+
+### Parameters
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **device_id** | **str**| The device id shown on the controlled machine. | 
+ **device_access_ban_request** | [**DeviceAccessBanRequest**](DeviceAccessBanRequest.md)|  | 
+
+### Return type
+
+[**DeviceAccessPolicy**](DeviceAccessPolicy.md)
+
+### Authorization
+
+[ApiKeyAuth](../README.md#ApiKeyAuth), [BearerAuth](../README.md#BearerAuth)
+
+### HTTP request headers
+
+ - **Content-Type**: application/json
+ - **Accept**: application/json, application/problem+json
+
+### HTTP response details
+
+| Status code | Description | Response headers |
+|-------------|-------------|------------------|
+**200** | The updated policy after the source is absent. |  -  |
 **400** | The request was malformed or failed validation. |  -  |
 **403** | Authenticated but not allowed (includes a rejected access code). |  -  |
 **404** | The addressed resource does not exist. |  -  |

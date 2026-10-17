@@ -2083,5 +2083,29 @@ Access Code: %2</translation>
         <source>Permanently banned %1</source>
         <translation>Permanently banned %1</translation>
     </message>
+    <message>
+        <source>Blocked sources</source>
+        <translation>Blocked sources</translation>
+    </message>
+    <message>
+        <source>No permanently blocked sources</source>
+        <translation>No permanently blocked sources</translation>
+    </message>
+    <message>
+        <source>Unban</source>
+        <translation>Unban</translation>
+    </message>
+    <message>
+        <source>Unban source</source>
+        <translation>Unban source</translation>
+    </message>
+    <message>
+        <source>Remove the permanent ban on %1?</source>
+        <translation>Remove the permanent ban on %1?</translation>
+    </message>
+    <message>
+        <source>Unbanned %1</source>
+        <translation>Unbanned %1</translation>
+    </message>
 </context>
 </TS>

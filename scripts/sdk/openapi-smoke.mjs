@@ -617,6 +617,20 @@ if (smokeDevice) {
   });
   check((bannedAgain.json.deny_ips ?? []).filter(v => v === banSource).length === 1,
     'POST access-bans duplicated an existing source');
+  const unbanned = await call('POST', `/v1/me/devices/${deviceId}/access-bans:remove`, {
+    token,
+    body: { source: banSource },
+    expect: 200,
+  });
+  check(!(unbanned.json.deny_ips ?? []).includes(banSource),
+    `POST access-bans:remove did not remove ${banSource}`);
+  const unbannedAgain = await call('POST', `/v1/me/devices/${deviceId}/access-bans:remove`, {
+    token,
+    body: { source: banSource },
+    expect: 200,
+  });
+  check(!(unbannedAgain.json.deny_ips ?? []).includes(banSource),
+    'POST access-bans:remove was not idempotent');
   const policyRestored = await call('PUT', `/v1/me/devices/${deviceId}/access-policy`, {
     token,
     body: policyPut,

@@ -231,8 +231,8 @@ BanDeviceAccessSource Permanently deny one source address
 Adds an exact IP or CIDR block to the device's persistent deny list and
 returns the complete updated policy. A deny match always wins over the
 allow list, time windows and a valid access code. Repeating the same
-source is a no-op; remove it by replacing the policy with `deny_ips`
-omitted or shorter.
+source is a no-op; remove one source with
+`POST /v1/me/devices/{device_id}/access-bans:remove`.
 
 
  @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
@@ -1917,6 +1917,173 @@ func (a *DevicesAPIService) RevokeAccessGrantExecute(r ApiRevokeAccessGrantReque
 	if localVarHTTPHeaderAccept != "" {
 		localVarHeaderParams["Accept"] = localVarHTTPHeaderAccept
 	}
+	if r.ctx != nil {
+		// API Key Authentication
+		if auth, ok := r.ctx.Value(ContextAPIKeys).(map[string]APIKey); ok {
+			if apiKey, ok := auth["ApiKeyAuth"]; ok {
+				var key string
+				if apiKey.Prefix != "" {
+					key = apiKey.Prefix + " " + apiKey.Key
+				} else {
+					key = apiKey.Key
+				}
+				localVarHeaderParams["X-API-Key"] = key
+			}
+		}
+	}
+	req, err := a.client.prepareRequest(r.ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, formFiles)
+	if err != nil {
+		return localVarReturnValue, nil, err
+	}
+
+	localVarHTTPResponse, err := a.client.callAPI(req)
+	if err != nil || localVarHTTPResponse == nil {
+		return localVarReturnValue, localVarHTTPResponse, err
+	}
+
+	localVarBody, err := io.ReadAll(localVarHTTPResponse.Body)
+	localVarHTTPResponse.Body.Close()
+	localVarHTTPResponse.Body = io.NopCloser(bytes.NewBuffer(localVarBody))
+	if err != nil {
+		return localVarReturnValue, localVarHTTPResponse, err
+	}
+
+	if localVarHTTPResponse.StatusCode >= 300 {
+		newErr := &GenericOpenAPIError{
+			body:  localVarBody,
+			error: localVarHTTPResponse.Status,
+		}
+		if localVarHTTPResponse.StatusCode == 400 {
+			var v Problem
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 403 {
+			var v Problem
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 404 {
+			var v Problem
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+		}
+		return localVarReturnValue, localVarHTTPResponse, newErr
+	}
+
+	err = a.client.decode(&localVarReturnValue, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+	if err != nil {
+		newErr := &GenericOpenAPIError{
+			body:  localVarBody,
+			error: err.Error(),
+		}
+		return localVarReturnValue, localVarHTTPResponse, newErr
+	}
+
+	return localVarReturnValue, localVarHTTPResponse, nil
+}
+
+type ApiUnbanDeviceAccessSourceRequest struct {
+	ctx context.Context
+	ApiService *DevicesAPIService
+	deviceId string
+	deviceAccessBanRequest *DeviceAccessBanRequest
+}
+
+func (r ApiUnbanDeviceAccessSourceRequest) DeviceAccessBanRequest(deviceAccessBanRequest DeviceAccessBanRequest) ApiUnbanDeviceAccessSourceRequest {
+	r.deviceAccessBanRequest = &deviceAccessBanRequest
+	return r
+}
+
+func (r ApiUnbanDeviceAccessSourceRequest) Execute() (*DeviceAccessPolicy, *http.Response, error) {
+	return r.ApiService.UnbanDeviceAccessSourceExecute(r)
+}
+
+/*
+UnbanDeviceAccessSource Remove one permanent source ban
+
+Removes the exact IP or CIDR entry from the device's persistent deny
+list and returns the complete updated policy. A source that is already
+absent, including on a device with no stored policy, is a successful
+no-op.
+
+
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param deviceId The device id shown on the controlled machine.
+ @return ApiUnbanDeviceAccessSourceRequest
+*/
+func (a *DevicesAPIService) UnbanDeviceAccessSource(ctx context.Context, deviceId string) ApiUnbanDeviceAccessSourceRequest {
+	return ApiUnbanDeviceAccessSourceRequest{
+		ApiService: a,
+		ctx: ctx,
+		deviceId: deviceId,
+	}
+}
+
+// Execute executes the request
+//  @return DeviceAccessPolicy
+func (a *DevicesAPIService) UnbanDeviceAccessSourceExecute(r ApiUnbanDeviceAccessSourceRequest) (*DeviceAccessPolicy, *http.Response, error) {
+	var (
+		localVarHTTPMethod   = http.MethodPost
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *DeviceAccessPolicy
+	)
+
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "DevicesAPIService.UnbanDeviceAccessSource")
+	if err != nil {
+		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
+	}
+
+	localVarPath := localBasePath + "/v1/me/devices/{device_id}/access-bans:remove"
+	localVarPath = strings.Replace(localVarPath, "{"+"device_id"+"}", url.PathEscape(parameterValueToString(r.deviceId, "deviceId")), -1)
+
+	localVarHeaderParams := make(map[string]string)
+	localVarQueryParams := url.Values{}
+	localVarFormParams := url.Values{}
+	if strlen(r.deviceId) > 20 {
+		return localVarReturnValue, nil, reportError("deviceId must have less than 20 elements")
+	}
+	if r.deviceAccessBanRequest == nil {
+		return localVarReturnValue, nil, reportError("deviceAccessBanRequest is required and must be specified")
+	}
+
+	// to determine the Content-Type header
+	localVarHTTPContentTypes := []string{"application/json"}
+
+	// set Content-Type header
+	localVarHTTPContentType := selectHeaderContentType(localVarHTTPContentTypes)
+	if localVarHTTPContentType != "" {
+		localVarHeaderParams["Content-Type"] = localVarHTTPContentType
+	}
+
+	// to determine the Accept header
+	localVarHTTPHeaderAccepts := []string{"application/json", "application/problem+json"}
+
+	// set Accept header
+	localVarHTTPHeaderAccept := selectHeaderAccept(localVarHTTPHeaderAccepts)
+	if localVarHTTPHeaderAccept != "" {
+		localVarHeaderParams["Accept"] = localVarHTTPHeaderAccept
+	}
+	// body params
+	localVarPostBody = r.deviceAccessBanRequest
 	if r.ctx != nil {
 		// API Key Authentication
 		if auth, ok := r.ctx.Value(ContextAPIKeys).(map[string]APIKey); ok {

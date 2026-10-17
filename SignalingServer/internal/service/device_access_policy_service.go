@@ -156,8 +156,7 @@ func (s *DeviceAccessPolicyService) Upsert(ctx context.Context, deviceID string,
 
 // BanIP permanently adds one source address to the device's deny list. The row
 // is locked while updating so two concurrent "kick and ban" calls cannot lose
-// one another's source. Removing a source is intentionally done through the
-// normal policy PUT, where the owner can see the complete list they are editing.
+// one another's source.
 func (s *DeviceAccessPolicyService) BanIP(ctx context.Context, deviceID string, ownerID uint, source string) (*models.DeviceAccessPolicy, error) {
 	deviceID = strings.TrimSpace(deviceID)
 	if deviceID == "" {
@@ -186,6 +185,51 @@ func (s *DeviceAccessPolicyService) BanIP(ctx context.Context, deviceID string, 
 		encoded, err := AppendDeniedIP(row.DenyIPs, source)
 		if err != nil {
 			return err
+		}
+		row.OwnerID = ownerID
+		row.DenyIPs = encoded
+		if err := tx.Save(&row).Error; err != nil {
+			return err
+		}
+		out = &row
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// UnbanIP removes one exact source from the deny list. A missing policy or an
+// already-removed source is a successful no-op.
+func (s *DeviceAccessPolicyService) UnbanIP(ctx context.Context, deviceID string, ownerID uint, source string) (*models.DeviceAccessPolicy, error) {
+	deviceID = strings.TrimSpace(deviceID)
+	if deviceID == "" {
+		return nil, errors.New("device_id is required")
+	}
+	source = strings.TrimSpace(source)
+	if err := ValidateDenyIPs([]string{source}); err != nil {
+		return nil, err
+	}
+	var out *models.DeviceAccessPolicy
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var row models.DeviceAccessPolicy
+		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("device_id = ?", deviceID).
+			First(&row).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		encoded, err := RemoveDeniedIP(row.DenyIPs, source)
+		if err != nil {
+			return err
+		}
+		if encoded == row.DenyIPs {
+			out = &row
+			return nil
 		}
 		row.OwnerID = ownerID
 		row.DenyIPs = encoded
@@ -420,6 +464,43 @@ func AppendDeniedIP(encoded string, source string) (string, error) {
 		return "", err
 	}
 	return string(out), nil
+}
+
+// RemoveDeniedIP removes one exact source from the stored deny list. An absent
+// source is a no-op, which makes "unban" safe to retry and safe to invoke when
+// another administrator already removed it.
+func RemoveDeniedIP(encoded string, source string) (string, error) {
+	source = strings.TrimSpace(source)
+	if err := ValidateDenyIPs([]string{source}); err != nil {
+		return "", err
+	}
+	entries := []string{}
+	if strings.TrimSpace(encoded) != "" {
+		if err := json.Unmarshal([]byte(encoded), &entries); err != nil {
+			return "", fmt.Errorf("%w: stored list is not valid JSON", ErrInvalidDenyIP)
+		}
+	}
+	if err := ValidateDenyIPs(entries); err != nil {
+		return "", fmt.Errorf("%w: stored list is invalid", err)
+	}
+	out := make([]string, 0, len(entries))
+	changed := false
+	for _, entry := range entries {
+		entry = strings.TrimSpace(entry)
+		if entry == source {
+			changed = true
+			continue
+		}
+		out = append(out, entry)
+	}
+	if !changed {
+		return encoded, nil
+	}
+	encodedOut, err := json.Marshal(out)
+	if err != nil {
+		return "", err
+	}
+	return string(encodedOut), nil
 }
 
 // IPAllowed reports whether clientIP matches any exact-IP or CIDR entry.

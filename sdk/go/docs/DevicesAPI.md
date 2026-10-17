@@ -16,6 +16,7 @@ Method | HTTP request | Description
 [**ListMyDevices**](DevicesAPI.md#ListMyDevices) | **Get** /v1/me/devices | Devices owned by the authenticated user
 [**PutAccessPolicy**](DevicesAPI.md#PutAccessPolicy) | **Put** /v1/me/devices/{device_id}/access-policy | Create or replace the device&#39;s access policy
 [**RevokeAccessGrant**](DevicesAPI.md#RevokeAccessGrant) | **Delete** /v1/me/devices/{device_id}/access-grants/{grant_id} | Revoke a guest access code
+[**UnbanDeviceAccessSource**](DevicesAPI.md#UnbanDeviceAccessSource) | **Post** /v1/me/devices/{device_id}/access-bans:remove | Remove one permanent source ban
 [**VerifyAccessCode**](DevicesAPI.md#VerifyAccessCode) | **Post** /v1/devices/{device_id}/access-code:verify | Verify a device access code and mint a signal token
 
 
@@ -868,6 +869,78 @@ Name | Type | Description  | Notes
 ### HTTP request headers
 
 - **Content-Type**: Not defined
+- **Accept**: application/json, application/problem+json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
+[[Back to Model list]](../README.md#documentation-for-models)
+[[Back to README]](../README.md)
+
+
+## UnbanDeviceAccessSource
+
+> DeviceAccessPolicy UnbanDeviceAccessSource(ctx, deviceId).DeviceAccessBanRequest(deviceAccessBanRequest).Execute()
+
+Remove one permanent source ban
+
+
+
+### Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	openapiclient "github.com/ilh-github/go-remote-next/signaling"
+)
+
+func main() {
+	deviceId := "deviceId_example" // string | The device id shown on the controlled machine.
+	deviceAccessBanRequest := *openapiclient.NewDeviceAccessBanRequest("Source_example") // DeviceAccessBanRequest | 
+
+	configuration := openapiclient.NewConfiguration()
+	apiClient := openapiclient.NewAPIClient(configuration)
+	resp, r, err := apiClient.DevicesAPI.UnbanDeviceAccessSource(context.Background(), deviceId).DeviceAccessBanRequest(deviceAccessBanRequest).Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error when calling `DevicesAPI.UnbanDeviceAccessSource``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
+	}
+	// response from `UnbanDeviceAccessSource`: DeviceAccessPolicy
+	fmt.Fprintf(os.Stdout, "Response from `DevicesAPI.UnbanDeviceAccessSource`: %v\n", resp)
+}
+```
+
+### Path Parameters
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+**ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
+**deviceId** | **string** | The device id shown on the controlled machine. | 
+
+### Other Parameters
+
+Other parameters are passed through a pointer to a apiUnbanDeviceAccessSourceRequest struct via the builder pattern
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+
+ **deviceAccessBanRequest** | [**DeviceAccessBanRequest**](DeviceAccessBanRequest.md) |  | 
+
+### Return type
+
+[**DeviceAccessPolicy**](DeviceAccessPolicy.md)
+
+### Authorization
+
+[ApiKeyAuth](../README.md#ApiKeyAuth), [BearerAuth](../README.md#BearerAuth)
+
+### HTTP request headers
+
+- **Content-Type**: application/json
 - **Accept**: application/json, application/problem+json
 
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)

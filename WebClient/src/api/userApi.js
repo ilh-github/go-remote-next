@@ -436,6 +436,16 @@ class UserApi {
     })
   }
 
+  fetchAccessPolicy(deviceId) {
+    return this._req('GET', `/v1/me/devices/${encodeURIComponent(deviceId)}/access-policy`)
+  }
+
+  removeAccessBan(deviceId, source) {
+    return this._req('POST', `/v1/me/devices/${encodeURIComponent(deviceId)}/access-bans:remove`, {
+      source,
+    })
+  }
+
   // ========================================================================
   // Session recordings — user-owned index of recorded remote sessions.
   // The control plane owns discovery/ownership/lifecycle metadata; media
