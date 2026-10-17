@@ -53,6 +53,7 @@ __all__ = [
     "AuthSessionRequest",
     "AuthSessionResponse",
     "Device",
+    "DeviceAccessBanRequest",
     "DeviceAccessPolicy",
     "DeviceAccessPolicyInput",
     "ListAccessApprovals200Response",
@@ -124,6 +125,7 @@ from quickdesk_signaling.models.approve_access_approval_request import ApproveAc
 from quickdesk_signaling.models.auth_session_request import AuthSessionRequest as AuthSessionRequest
 from quickdesk_signaling.models.auth_session_response import AuthSessionResponse as AuthSessionResponse
 from quickdesk_signaling.models.device import Device as Device
+from quickdesk_signaling.models.device_access_ban_request import DeviceAccessBanRequest as DeviceAccessBanRequest
 from quickdesk_signaling.models.device_access_policy import DeviceAccessPolicy as DeviceAccessPolicy
 from quickdesk_signaling.models.device_access_policy_input import DeviceAccessPolicyInput as DeviceAccessPolicyInput
 from quickdesk_signaling.models.list_access_approvals200_response import ListAccessApprovals200Response as ListAccessApprovals200Response

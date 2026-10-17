@@ -1089,6 +1089,45 @@ paths:
       x-accepts:
       - application/json
       - application/problem+json
+  /v1/me/devices/{device_id}/access-bans:
+    parameters:
+    - $ref: "#/components/parameters/DeviceId"
+    post:
+      description: |
+        Adds an exact IP or CIDR block to the device's persistent deny list and
+        returns the complete updated policy. A deny match always wins over the
+        allow list, time windows and a valid access code. Repeating the same
+        source is a no-op; remove it by replacing the policy with `deny_ips`
+        omitted or shorter.
+      operationId: banDeviceAccessSource
+      parameters:
+      - $ref: "#/components/parameters/DeviceId"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeviceAccessBanRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceAccessPolicy"
+          description: "The updated policy, including the complete deny list."
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+      summary: Permanently deny one source address
+      tags:
+      - devices
+      x-content-type: application/json
+      x-accepts:
+      - application/json
+      - application/problem+json
   /v1/me/devices/{device_id}/access-grants:
     get:
       operationId: listAccessGrants
@@ -2321,6 +2360,9 @@ components:
         approval_trusted_ips:
         - approval_trusted_ips
         - approval_trusted_ips
+        deny_ips:
+        - deny_ips
+        - deny_ips
         exception_dates:
         - date: date
           end_date: end_date
@@ -2344,6 +2386,12 @@ components:
           type: boolean
         allow_ips:
           description: Bare IPs or CIDR blocks; empty means "no IP restriction".
+          items:
+            type: string
+          type: array
+        deny_ips:
+          description: Bare IPs or CIDR blocks that are always refused; a match wins
+            over `allow_ips`.
           items:
             type: string
           type: array
@@ -2420,6 +2468,9 @@ components:
         approval_trusted_ips:
         - approval_trusted_ips
         - approval_trusted_ips
+        deny_ips:
+        - deny_ips
+        - deny_ips
         exception_dates:
         - date: date
           end_date: end_date
@@ -2437,6 +2488,15 @@ components:
           lunar_month: 1
           lunar_day: 5
           holiday: holiday
+    DeviceAccessBanRequest:
+      example:
+        source: source
+      properties:
+        source:
+          description: Exact IPv4/IPv6 address or CIDR block to deny permanently.
+          type: string
+      required:
+      - source
     AccessWindow:
       description: |
         `start > end` wraps past midnight and the day filter then applies to the

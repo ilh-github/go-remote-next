@@ -64,6 +64,11 @@ public class DeviceAccessPolicyInput {
   @javax.annotation.Nullable
   private List<String> allowIps = new ArrayList<>();
 
+  public static final String SERIALIZED_NAME_DENY_IPS = "deny_ips";
+  @SerializedName(SERIALIZED_NAME_DENY_IPS)
+  @javax.annotation.Nullable
+  private List<String> denyIps = new ArrayList<>();
+
   public static final String SERIALIZED_NAME_MAX_SESSIONS = "max_sessions";
   @SerializedName(SERIALIZED_NAME_MAX_SESSIONS)
   @javax.annotation.Nullable
@@ -201,6 +206,33 @@ public class DeviceAccessPolicyInput {
 
   public void setAllowIps(@javax.annotation.Nullable List<String> allowIps) {
     this.allowIps = allowIps;
+  }
+
+
+  public DeviceAccessPolicyInput denyIps(@javax.annotation.Nullable List<String> denyIps) {
+    this.denyIps = denyIps;
+    return this;
+  }
+
+  public DeviceAccessPolicyInput addDenyIpsItem(String denyIpsItem) {
+    if (this.denyIps == null) {
+      this.denyIps = new ArrayList<>();
+    }
+    this.denyIps.add(denyIpsItem);
+    return this;
+  }
+
+  /**
+   * Bare IPs or CIDR blocks that are always refused; a match wins over &#x60;allow_ips&#x60;.
+   * @return denyIps
+   */
+  @javax.annotation.Nullable
+  public List<String> getDenyIps() {
+    return denyIps;
+  }
+
+  public void setDenyIps(@javax.annotation.Nullable List<String> denyIps) {
+    this.denyIps = denyIps;
   }
 
 
@@ -373,6 +405,7 @@ public class DeviceAccessPolicyInput {
     DeviceAccessPolicyInput deviceAccessPolicyInput = (DeviceAccessPolicyInput) o;
     return Objects.equals(this.remoteDisabled, deviceAccessPolicyInput.remoteDisabled) &&
         Objects.equals(this.allowIps, deviceAccessPolicyInput.allowIps) &&
+        Objects.equals(this.denyIps, deviceAccessPolicyInput.denyIps) &&
         Objects.equals(this.maxSessions, deviceAccessPolicyInput.maxSessions) &&
         Objects.equals(this.allowedWindows, deviceAccessPolicyInput.allowedWindows) &&
         Objects.equals(this.timezone, deviceAccessPolicyInput.timezone) &&
@@ -384,7 +417,7 @@ public class DeviceAccessPolicyInput {
 
   @Override
   public int hashCode() {
-    return Objects.hash(remoteDisabled, allowIps, maxSessions, allowedWindows, timezone, exceptionDates, approvalRequired, approvalMode, approvalTrustedIps);
+    return Objects.hash(remoteDisabled, allowIps, denyIps, maxSessions, allowedWindows, timezone, exceptionDates, approvalRequired, approvalMode, approvalTrustedIps);
   }
 
   @Override
@@ -393,6 +426,7 @@ public class DeviceAccessPolicyInput {
     sb.append("class DeviceAccessPolicyInput {\n");
     sb.append("    remoteDisabled: ").append(toIndentedString(remoteDisabled)).append("\n");
     sb.append("    allowIps: ").append(toIndentedString(allowIps)).append("\n");
+    sb.append("    denyIps: ").append(toIndentedString(denyIps)).append("\n");
     sb.append("    maxSessions: ").append(toIndentedString(maxSessions)).append("\n");
     sb.append("    allowedWindows: ").append(toIndentedString(allowedWindows)).append("\n");
     sb.append("    timezone: ").append(toIndentedString(timezone)).append("\n");
@@ -421,7 +455,7 @@ public class DeviceAccessPolicyInput {
 
   static {
     // a set of all properties/fields (JSON key names)
-    openapiFields = new HashSet<String>(Arrays.asList("remote_disabled", "allow_ips", "max_sessions", "allowed_windows", "timezone", "exception_dates", "approval_required", "approval_mode", "approval_trusted_ips"));
+    openapiFields = new HashSet<String>(Arrays.asList("remote_disabled", "allow_ips", "deny_ips", "max_sessions", "allowed_windows", "timezone", "exception_dates", "approval_required", "approval_mode", "approval_trusted_ips"));
 
     // a set of required properties/fields (JSON key names)
     openapiRequiredFields = new HashSet<String>(0);
@@ -451,6 +485,10 @@ public class DeviceAccessPolicyInput {
       // ensure the optional json data is an array if present
       if (jsonObj.get("allow_ips") != null && !jsonObj.get("allow_ips").isJsonNull() && !jsonObj.get("allow_ips").isJsonArray()) {
         throw new IllegalArgumentException(String.format("Expected the field `allow_ips` to be an array in the JSON string but got `%s`", jsonObj.get("allow_ips").toString()));
+      }
+      // ensure the optional json data is an array if present
+      if (jsonObj.get("deny_ips") != null && !jsonObj.get("deny_ips").isJsonNull() && !jsonObj.get("deny_ips").isJsonArray()) {
+        throw new IllegalArgumentException(String.format("Expected the field `deny_ips` to be an array in the JSON string but got `%s`", jsonObj.get("deny_ips").toString()));
       }
       if (jsonObj.get("allowed_windows") != null && !jsonObj.get("allowed_windows").isJsonNull()) {
         JsonArray jsonArrayallowedWindows = jsonObj.getAsJsonArray("allowed_windows");

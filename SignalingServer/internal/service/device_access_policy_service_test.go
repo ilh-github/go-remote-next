@@ -1,10 +1,16 @@
 package service
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
+	"os"
 	"testing"
 
 	"quickdesk/signaling/internal/models"
+
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
 )
 
 func TestValidateAllowIPs(t *testing.T) {
@@ -59,6 +65,129 @@ func TestIPAllowed(t *testing.T) {
 	}
 }
 
+func TestIPDenied(t *testing.T) {
+	tests := []struct {
+		name    string
+		entries []string
+		ip      string
+		want    bool
+	}{
+		{"empty list denies nobody", nil, "127.0.0.1", false},
+		{"exact match", []string{"127.0.0.1"}, "127.0.0.1", true},
+		{"exact mismatch", []string{"127.0.0.1"}, "10.0.0.1", false},
+		{"cidr match", []string{"10.211.55.0/24"}, "10.211.55.4", true},
+		{"cidr mismatch", []string{"10.211.55.0/24"}, "10.211.56.4", false},
+		{"one of many matches", []string{"192.168.0.0/16", "10.211.55.4"}, "10.211.55.4", true},
+		{"unparsable client ip is not denied", []string{"10.0.0.0/8"}, "not-an-ip", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IPDenied(tt.entries, tt.ip); got != tt.want {
+				t.Fatalf("IPDenied(%v, %q) = %v, want %v", tt.entries, tt.ip, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestValidateDenyIPs(t *testing.T) {
+	for _, entries := range [][]string{
+		nil,
+		{"127.0.0.1"},
+		{"10.211.55.0/24"},
+		{"2001:db8::/32"},
+	} {
+		if err := ValidateDenyIPs(entries); err != nil {
+			t.Fatalf("ValidateDenyIPs(%v) = %v", entries, err)
+		}
+	}
+	for _, entries := range [][]string{
+		{"example.com"},
+		{"10.0.0.0/99"},
+		{"  "},
+	} {
+		err := ValidateDenyIPs(entries)
+		if !errors.Is(err, ErrInvalidDenyIP) {
+			t.Fatalf("ValidateDenyIPs(%v) = %v, want ErrInvalidDenyIP", entries, err)
+		}
+	}
+}
+
+func TestAppendDeniedIP(t *testing.T) {
+	encoded, err := AppendDeniedIP(`["198.51.100.2"]`, " 203.0.113.7 ")
+	if err != nil {
+		t.Fatalf("append: %v", err)
+	}
+	var entries []string
+	if err := json.Unmarshal([]byte(encoded), &entries); err != nil {
+		t.Fatalf("decode appended list: %v", err)
+	}
+	if len(entries) != 2 || entries[0] != "198.51.100.2" || entries[1] != "203.0.113.7" {
+		t.Fatalf("entries = %v", entries)
+	}
+
+	again, err := AppendDeniedIP(encoded, "203.0.113.7")
+	if err != nil {
+		t.Fatalf("append duplicate: %v", err)
+	}
+	if again != encoded {
+		t.Fatalf("duplicate changed the stored list: %s != %s", again, encoded)
+	}
+
+	if _, err := AppendDeniedIP("", "not-an-ip"); !errors.Is(err, ErrInvalidDenyIP) {
+		t.Fatalf("invalid source error = %v, want ErrInvalidDenyIP", err)
+	}
+}
+
+func newAccessPolicyTestDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	dsn := os.Getenv("QD_TEST_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("set QD_TEST_DATABASE_URL to a throwaway Postgres to run access-policy persistence tests")
+	}
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := db.AutoMigrate(&models.DeviceAccessPolicy{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	return db
+}
+
+func TestBanIPPersistsAndIsIdempotent(t *testing.T) {
+	db := newAccessPolicyTestDB(t)
+	const deviceID = "880000001"
+	if err := db.Exec("DELETE FROM device_access_policies WHERE device_id = ?", deviceID).Error; err != nil {
+		t.Fatalf("clear test policy: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = db.Exec("DELETE FROM device_access_policies WHERE device_id = ?", deviceID).Error
+	})
+	svc := NewDeviceAccessPolicyService(db)
+	ctx := context.Background()
+	if _, err := svc.Upsert(ctx, deviceID, 990301, UpsertDeviceAccessPolicyInput{
+		DenyIPs: []string{"198.51.100.2"},
+	}); err != nil {
+		t.Fatalf("seed policy: %v", err)
+	}
+	for i := 0; i < 2; i++ {
+		if _, err := svc.BanIP(ctx, deviceID, 990301, "203.0.113.7"); err != nil {
+			t.Fatalf("ban attempt %d: %v", i+1, err)
+		}
+	}
+	row, err := svc.Get(ctx, deviceID)
+	if err != nil {
+		t.Fatalf("reload policy: %v", err)
+	}
+	var entries []string
+	if err := json.Unmarshal([]byte(row.DenyIPs), &entries); err != nil {
+		t.Fatalf("decode deny list: %v", err)
+	}
+	if len(entries) != 2 || entries[0] != "198.51.100.2" || entries[1] != "203.0.113.7" {
+		t.Fatalf("deny list after two identical bans = %v", entries)
+	}
+}
+
 func TestEvaluateDeviceAccessPolicy(t *testing.T) {
 	// No policy row at all: every existing device keeps working.
 	if allowed, reason := EvaluateDeviceAccessPolicy(nil, "127.0.0.1"); !allowed || reason != "" {
@@ -85,6 +214,23 @@ func TestEvaluateDeviceAccessPolicy(t *testing.T) {
 	emptyList := &models.DeviceAccessPolicy{AllowIPs: `[]`}
 	if allowed, _ := EvaluateDeviceAccessPolicy(emptyList, "8.8.8.8"); !allowed {
 		t.Fatal("an empty allow list means any IP")
+	}
+
+	denyListed := &models.DeviceAccessPolicy{
+		AllowIPs: `["10.211.55.0/24"]`,
+		DenyIPs:  `["10.211.55.4"]`,
+	}
+	if allowed, reason := EvaluateDeviceAccessPolicy(denyListed, "10.211.55.4"); allowed {
+		t.Fatal("a denied IP must be blocked even when it is also allow-listed")
+	} else if reason != "client IP is in the device deny list" {
+		t.Fatalf("deny reason = %q", reason)
+	}
+
+	malformedDenyList := &models.DeviceAccessPolicy{DenyIPs: `{not-json`}
+	if allowed, reason := EvaluateDeviceAccessPolicy(malformedDenyList, "10.211.55.4"); allowed {
+		t.Fatal("a malformed deny list must fail closed")
+	} else if reason != "device deny list is invalid" {
+		t.Fatalf("malformed deny reason = %q", reason)
 	}
 }
 

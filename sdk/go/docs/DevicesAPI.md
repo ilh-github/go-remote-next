@@ -5,6 +5,7 @@ All URIs are relative to *https://your-signaling-host*
 Method | HTTP request | Description
 ------------- | ------------- | -------------
 [**ApproveAccessApproval**](DevicesAPI.md#ApproveAccessApproval) | **Post** /v1/me/devices/{device_id}/access-approvals/{approval_id}/approve | Approve a pending access request
+[**BanDeviceAccessSource**](DevicesAPI.md#BanDeviceAccessSource) | **Post** /v1/me/devices/{device_id}/access-bans | Permanently deny one source address
 [**ClaimAccessApproval**](DevicesAPI.md#ClaimAccessApproval) | **Post** /v1/devices/{device_id}/access-approvals:claim | Exchange an approved request for a signal token
 [**CreateAccessGrant**](DevicesAPI.md#CreateAccessGrant) | **Post** /v1/me/devices/{device_id}/access-grants | Issue a time-boxed guest access code
 [**DenyAccessApproval**](DevicesAPI.md#DenyAccessApproval) | **Post** /v1/me/devices/{device_id}/access-approvals/{approval_id}/deny | Deny a pending access request
@@ -79,6 +80,78 @@ Name | Type | Description  | Notes
 ### Return type
 
 [**AccessApproval**](AccessApproval.md)
+
+### Authorization
+
+[ApiKeyAuth](../README.md#ApiKeyAuth), [BearerAuth](../README.md#BearerAuth)
+
+### HTTP request headers
+
+- **Content-Type**: application/json
+- **Accept**: application/json, application/problem+json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
+[[Back to Model list]](../README.md#documentation-for-models)
+[[Back to README]](../README.md)
+
+
+## BanDeviceAccessSource
+
+> DeviceAccessPolicy BanDeviceAccessSource(ctx, deviceId).DeviceAccessBanRequest(deviceAccessBanRequest).Execute()
+
+Permanently deny one source address
+
+
+
+### Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	openapiclient "github.com/ilh-github/go-remote-next/signaling"
+)
+
+func main() {
+	deviceId := "deviceId_example" // string | The device id shown on the controlled machine.
+	deviceAccessBanRequest := *openapiclient.NewDeviceAccessBanRequest("Source_example") // DeviceAccessBanRequest | 
+
+	configuration := openapiclient.NewConfiguration()
+	apiClient := openapiclient.NewAPIClient(configuration)
+	resp, r, err := apiClient.DevicesAPI.BanDeviceAccessSource(context.Background(), deviceId).DeviceAccessBanRequest(deviceAccessBanRequest).Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error when calling `DevicesAPI.BanDeviceAccessSource``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
+	}
+	// response from `BanDeviceAccessSource`: DeviceAccessPolicy
+	fmt.Fprintf(os.Stdout, "Response from `DevicesAPI.BanDeviceAccessSource`: %v\n", resp)
+}
+```
+
+### Path Parameters
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+**ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
+**deviceId** | **string** | The device id shown on the controlled machine. | 
+
+### Other Parameters
+
+Other parameters are passed through a pointer to a apiBanDeviceAccessSourceRequest struct via the builder pattern
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+
+ **deviceAccessBanRequest** | [**DeviceAccessBanRequest**](DeviceAccessBanRequest.md) |  | 
+
+### Return type
+
+[**DeviceAccessPolicy**](DeviceAccessPolicy.md)
 
 ### Authorization
 

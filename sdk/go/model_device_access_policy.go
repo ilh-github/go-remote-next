@@ -26,6 +26,8 @@ type DeviceAccessPolicy struct {
 	RemoteDisabled *bool `json:"remote_disabled,omitempty"`
 	// Bare IPs or CIDR blocks; empty means \"no IP restriction\".
 	AllowIps []string `json:"allow_ips,omitempty"`
+	// Bare IPs or CIDR blocks that are always refused; a match wins over `allow_ips`.
+	DenyIps []string `json:"deny_ips,omitempty"`
 	// Concurrent controller cap; 0 means unlimited, negative is rejected.
 	MaxSessions *int32 `json:"max_sessions,omitempty"`
 	// Recurring windows in which access is allowed; empty means always.
@@ -127,6 +129,38 @@ func (o *DeviceAccessPolicy) HasAllowIps() bool {
 // SetAllowIps gets a reference to the given []string and assigns it to the AllowIps field.
 func (o *DeviceAccessPolicy) SetAllowIps(v []string) {
 	o.AllowIps = v
+}
+
+// GetDenyIps returns the DenyIps field value if set, zero value otherwise.
+func (o *DeviceAccessPolicy) GetDenyIps() []string {
+	if o == nil || IsNil(o.DenyIps) {
+		var ret []string
+		return ret
+	}
+	return o.DenyIps
+}
+
+// GetDenyIpsOk returns a tuple with the DenyIps field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *DeviceAccessPolicy) GetDenyIpsOk() ([]string, bool) {
+	if o == nil || IsNil(o.DenyIps) {
+		return nil, false
+	}
+	return o.DenyIps, true
+}
+
+// HasDenyIps returns a boolean if a field has been set.
+func (o *DeviceAccessPolicy) HasDenyIps() bool {
+	if o != nil && !IsNil(o.DenyIps) {
+		return true
+	}
+
+	return false
+}
+
+// SetDenyIps gets a reference to the given []string and assigns it to the DenyIps field.
+func (o *DeviceAccessPolicy) SetDenyIps(v []string) {
+	o.DenyIps = v
 }
 
 // GetMaxSessions returns the MaxSessions field value if set, zero value otherwise.
@@ -434,6 +468,9 @@ func (o DeviceAccessPolicy) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.AllowIps) {
 		toSerialize["allow_ips"] = o.AllowIps
+	}
+	if !IsNil(o.DenyIps) {
+		toSerialize["deny_ips"] = o.DenyIps
 	}
 	if !IsNil(o.MaxSessions) {
 		toSerialize["max_sessions"] = o.MaxSessions

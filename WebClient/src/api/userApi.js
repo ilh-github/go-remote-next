@@ -428,6 +428,14 @@ class UserApi {
     return this._req('POST', `/v1/me/devices/${encodeURIComponent(deviceId)}/sessions:revoke`)
   }
 
+  // A permanent deny is stricter than the short revoke cooldown: it survives
+  // restarts and still wins when the source presents a valid access code.
+  banAccessSource(deviceId, source) {
+    return this._req('POST', `/v1/me/devices/${encodeURIComponent(deviceId)}/access-bans`, {
+      source,
+    })
+  }
+
   // ========================================================================
   // Session recordings — user-owned index of recorded remote sessions.
   // The control plane owns discovery/ownership/lifecycle metadata; media

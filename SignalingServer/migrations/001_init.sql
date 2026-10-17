@@ -261,6 +261,7 @@ CREATE TABLE IF NOT EXISTS device_access_policies (
     owner_id        BIGINT      NOT NULL DEFAULT 0,
     remote_disabled BOOLEAN     NOT NULL DEFAULT FALSE,
     allow_ips       TEXT        NOT NULL DEFAULT '[]',
+    deny_ips        TEXT        NOT NULL DEFAULT '[]',
     max_sessions    INTEGER     NOT NULL DEFAULT 0,
     allowed_windows TEXT        NOT NULL DEFAULT '[]',
     timezone        VARCHAR(64) NOT NULL DEFAULT '',
@@ -278,6 +279,11 @@ CREATE INDEX IF NOT EXISTS idx_device_access_policies_owner_id ON device_access_
 -- Added after the table shipped, so existing installs need the ALTER too.
 ALTER TABLE device_access_policies
     ADD COLUMN IF NOT EXISTS approval_required BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- Permanent source bans: the same exact-IP/CIDR grammar as allow_ips, but a
+-- match always wins over allow_ips, windows and a valid access code.
+ALTER TABLE device_access_policies
+    ADD COLUMN IF NOT EXISTS deny_ips TEXT NOT NULL DEFAULT '[]';
 
 -- Approval triggers: off / always / grant / untrusted_ip, plus the trusted
 -- addresses that "untrusted_ip" exempts.

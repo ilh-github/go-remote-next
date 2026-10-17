@@ -48,6 +48,12 @@ export interface DeviceAccessPolicyInput {
      */
     allowIps?: Array<string>;
     /**
+     * Bare IPs or CIDR blocks that are always refused; a match wins over `allow_ips`.
+     * @type {Array<string>}
+     * @memberof DeviceAccessPolicyInput
+     */
+    denyIps?: Array<string>;
+    /**
      * Concurrent controller cap; 0 means unlimited, negative is rejected.
      * @type {number}
      * @memberof DeviceAccessPolicyInput
@@ -123,6 +129,7 @@ export function DeviceAccessPolicyInputFromJSONTyped(json: any, ignoreDiscrimina
         
         'remoteDisabled': json['remote_disabled'] == null ? undefined : json['remote_disabled'],
         'allowIps': json['allow_ips'] == null ? undefined : json['allow_ips'],
+        'denyIps': json['deny_ips'] == null ? undefined : json['deny_ips'],
         'maxSessions': json['max_sessions'] == null ? undefined : json['max_sessions'],
         'allowedWindows': json['allowed_windows'] == null ? undefined : ((json['allowed_windows'] as Array<any>).map(AccessWindowFromJSON)),
         'timezone': json['timezone'] == null ? undefined : json['timezone'],
@@ -146,6 +153,7 @@ export function DeviceAccessPolicyInputToJSONTyped(value?: DeviceAccessPolicyInp
         
         'remote_disabled': value['remoteDisabled'],
         'allow_ips': value['allowIps'],
+        'deny_ips': value['denyIps'],
         'max_sessions': value['maxSessions'],
         'allowed_windows': value['allowedWindows'] == null ? undefined : ((value['allowedWindows'] as Array<any>).map(AccessWindowToJSON)),
         'timezone': value['timezone'],

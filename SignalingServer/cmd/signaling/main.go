@@ -654,6 +654,7 @@ func main() {
 			me.POST("/devices/:device_id/sessions:revoke", remoteSessionHandler.RevokeForDevice)
 			me.GET("/devices/:device_id/access-policy", deviceAccessPolicyHandler.Get)
 			me.PUT("/devices/:device_id/access-policy", deviceAccessPolicyHandler.Put)
+			me.POST("/devices/:device_id/access-bans", deviceAccessPolicyHandler.BanIP)
 			me.GET("/devices/:device_id/offline-alert", deviceOfflineAlertHandler.Get)
 			me.PUT("/devices/:device_id/offline-alert", deviceOfflineAlertHandler.Put)
 			me.DELETE("/devices/:device_id/offline-alert", deviceOfflineAlertHandler.Delete)

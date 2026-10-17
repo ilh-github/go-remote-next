@@ -273,6 +273,50 @@ void RemoteSessionManager::revokeDeviceSessions(const QString& deviceId)
         });
 }
 
+void RemoteSessionManager::banSource(const QString& deviceId, const QString& source)
+{
+    if (!m_authManager || !m_authManager->isLoggedIn()
+        || deviceId.trimmed().isEmpty() || source.trimmed().isEmpty()) {
+        return;
+    }
+    const QString normalizedDeviceId = deviceId.trimmed();
+    const QString normalizedSource = source.trimmed();
+    const QUrl url(
+        m_authManager->httpBaseUrl()
+        + QStringLiteral("v1/me/devices/")
+        + encodedPathSegment(normalizedDeviceId)
+        + QStringLiteral("/access-bans"));
+    const QJsonObject body{
+        {QStringLiteral("source"), normalizedSource},
+    };
+    beginRequest();
+    m_authManager->request(
+        QStringLiteral("POST"), url,
+        QString::fromUtf8(QJsonDocument(body).toJson(QJsonDocument::Compact)),
+        [this, normalizedDeviceId, normalizedSource](
+            int statusCode, const std::string& errorMsg, const std::string& data) {
+            QMetaObject::invokeMethod(
+                this,
+                [this, normalizedDeviceId, normalizedSource,
+                 statusCode, errorMsg, data]() {
+                    if (statusCode == 200 && errorMsg.empty()) {
+                        setLastError(QString());
+                        emit sourceBanned(normalizedDeviceId, normalizedSource);
+                    } else {
+                        const QString message =
+                            problemMessage(data, errorMsg, statusCode);
+                        setLastError(message);
+                        LOG_WARN("[RemoteSessionManager] ban({} -> {}) failed: status={} err={}",
+                                 normalizedDeviceId.toStdString(),
+                                 normalizedSource.toStdString(),
+                                 statusCode, message.toStdString());
+                        emit requestFailed(message);
+                    }
+                    finishRequest();
+                });
+        });
+}
+
 void RemoteSessionManager::beginRequest()
 {
     const bool wasBusy = busy();

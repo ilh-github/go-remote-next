@@ -45,6 +45,7 @@ public:
     Q_INVOKABLE void fetchDetail(const QString& sessionId);
     Q_INVOKABLE void revokeSession(const QString& sessionId);
     Q_INVOKABLE void revokeDeviceSessions(const QString& deviceId);
+    Q_INVOKABLE void banSource(const QString& deviceId, const QString& source);
 
 signals:
     void sessionsChanged();
@@ -56,6 +57,7 @@ signals:
     void sessionRevoked(const QString& sessionId);
     void deviceSessionsRevoked(const QString& deviceId, int revoked, int failed,
                                bool truncated);
+    void sourceBanned(const QString& deviceId, const QString& source);
 
 private:
     void requestList(bool append, int generation);

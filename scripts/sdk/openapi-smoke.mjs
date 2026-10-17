@@ -235,10 +235,10 @@ if (Array.isArray(channelItems) && channelItems.length > 0) {
 
 // 6. GET /v1/me/devices/{device_id}/access-policy
 const policy = await call('GET', `/v1/me/devices/${deviceId}/access-policy`, { token, expect: 200 });
-for (const name of ['device_id', 'remote_disabled', 'allow_ips', 'max_sessions', 'allowed_windows', 'timezone', 'exception_dates', 'approval_mode', 'approval_trusted_ips']) {
+for (const name of ['device_id', 'remote_disabled', 'allow_ips', 'deny_ips', 'max_sessions', 'allowed_windows', 'timezone', 'exception_dates', 'approval_mode', 'approval_trusted_ips']) {
   field(policy.json, name, undefined, 'GET access-policy');
 }
-for (const list of ['allow_ips', 'allowed_windows', 'exception_dates', 'approval_trusted_ips']) {
+for (const list of ['allow_ips', 'deny_ips', 'allowed_windows', 'exception_dates', 'approval_trusted_ips']) {
   check(Array.isArray(policy.json[list]), `access-policy: ${list} is not an array`);
 }
 
@@ -585,6 +585,7 @@ if (smokeDevice) {
   const policyPut = {
     remote_disabled: policy.json.remote_disabled,
     allow_ips: policy.json.allow_ips ?? [],
+    deny_ips: policy.json.deny_ips ?? [],
     max_sessions: policy.json.max_sessions,
     allowed_windows: policy.json.allowed_windows ?? [],
     timezone: policy.json.timezone ?? '',
@@ -594,12 +595,35 @@ if (smokeDevice) {
     approval_trusted_ips: policy.json.approval_trusted_ips ?? [],
   };
   const policyRes = await call('PUT', `/v1/me/devices/${deviceId}/access-policy`, { token, body: policyPut, expect: 200 });
-  for (const name of ['device_id', 'remote_disabled', 'allow_ips', 'max_sessions', 'allowed_windows', 'timezone', 'exception_dates', 'approval_mode', 'approval_trusted_ips']) {
+  for (const name of ['device_id', 'remote_disabled', 'allow_ips', 'deny_ips', 'max_sessions', 'allowed_windows', 'timezone', 'exception_dates', 'approval_mode', 'approval_trusted_ips']) {
     field(policyRes.json, name, undefined, 'PUT access-policy');
   }
   check(policyRes.json.approval_mode === policyPut.approval_mode,
     `PUT access-policy changed approval_mode: ${policyRes.json.approval_mode} != ${policyPut.approval_mode}`);
   check(policyRes.json.max_sessions === policyPut.max_sessions, 'PUT access-policy did not echo max_sessions');
+
+  const banSource = '203.0.113.250';
+  const banned = await call('POST', `/v1/me/devices/${deviceId}/access-bans`, {
+    token,
+    body: { source: banSource },
+    expect: 200,
+  });
+  check(Array.isArray(banned.json.deny_ips) && banned.json.deny_ips.includes(banSource),
+    `POST access-bans did not add ${banSource}`);
+  const bannedAgain = await call('POST', `/v1/me/devices/${deviceId}/access-bans`, {
+    token,
+    body: { source: banSource },
+    expect: 200,
+  });
+  check((bannedAgain.json.deny_ips ?? []).filter(v => v === banSource).length === 1,
+    'POST access-bans duplicated an existing source');
+  const policyRestored = await call('PUT', `/v1/me/devices/${deviceId}/access-policy`, {
+    token,
+    body: policyPut,
+    expect: 200,
+  });
+  check(JSON.stringify(policyRestored.json.deny_ips ?? []) === JSON.stringify(policyPut.deny_ips),
+    'access-policy restore did not remove the probe source');
 
   // 8. Issue a short-lived guest code and revoke it. Revocation (not deletion)
   // is the documented way to disable a grant, so this leaves one inert

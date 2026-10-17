@@ -30,6 +30,7 @@ class DeviceAccessPolicyInput(BaseModel):
     """ # noqa: E501
     remote_disabled: Optional[StrictBool] = Field(default=None, description="When true, no controller may start a session at all.")
     allow_ips: Optional[List[StrictStr]] = Field(default=None, description="Bare IPs or CIDR blocks; empty means \"no IP restriction\".")
+    deny_ips: Optional[List[StrictStr]] = Field(default=None, description="Bare IPs or CIDR blocks that are always refused; a match wins over `allow_ips`.")
     max_sessions: Optional[StrictInt] = Field(default=None, description="Concurrent controller cap; 0 means unlimited, negative is rejected.")
     allowed_windows: Optional[List[AccessWindow]] = Field(default=None, description="Recurring windows in which access is allowed; empty means always.")
     timezone: Optional[StrictStr] = Field(default=None, description="IANA zone the windows are evaluated in; empty means the server's local zone.")
@@ -37,7 +38,7 @@ class DeviceAccessPolicyInput(BaseModel):
     approval_required: Optional[StrictBool] = Field(default=None, description="Legacy switch kept for older clients; prefer `approval_mode`.")
     approval_mode: Optional[StrictStr] = Field(default=None, description="When the owner must approve a correct code before a session starts.")
     approval_trusted_ips: Optional[List[StrictStr]] = Field(default=None, description="Sources exempted by `approval_mode: untrusted_ip`.")
-    __properties: ClassVar[List[str]] = ["remote_disabled", "allow_ips", "max_sessions", "allowed_windows", "timezone", "exception_dates", "approval_required", "approval_mode", "approval_trusted_ips"]
+    __properties: ClassVar[List[str]] = ["remote_disabled", "allow_ips", "deny_ips", "max_sessions", "allowed_windows", "timezone", "exception_dates", "approval_required", "approval_mode", "approval_trusted_ips"]
 
     @field_validator('approval_mode')
     def approval_mode_validate_enum(cls, value):
@@ -116,6 +117,7 @@ class DeviceAccessPolicyInput(BaseModel):
         _obj = cls.model_validate({
             "remote_disabled": obj.get("remote_disabled"),
             "allow_ips": obj.get("allow_ips"),
+            "deny_ips": obj.get("deny_ips"),
             "max_sessions": obj.get("max_sessions"),
             "allowed_windows": [AccessWindow.from_dict(_item) for _item in obj["allowed_windows"]] if obj.get("allowed_windows") is not None else None,
             "timezone": obj.get("timezone"),

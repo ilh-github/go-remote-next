@@ -910,6 +910,38 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+  /v1/me/devices/{device_id}/access-bans:
+    parameters:
+      - $ref: '#/components/parameters/DeviceId'
+    post:
+      tags: [devices]
+      summary: Permanently deny one source address
+      operationId: banDeviceAccessSource
+      description: |
+        Adds an exact IP or CIDR block to the device's persistent deny list and
+        returns the complete updated policy. A deny match always wins over the
+        allow list, time windows and a valid access code. Repeating the same
+        source is a no-op; remove it by replacing the policy with `deny_ips`
+        omitted or shorter.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceAccessBanRequest'
+      responses:
+        '200':
+          description: The updated policy, including the complete deny list.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceAccessPolicy'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /v1/me/devices/{device_id}/access-grants:
     parameters:
       - $ref: '#/components/parameters/DeviceId'
@@ -1821,6 +1853,11 @@ components:
           description: Bare IPs or CIDR blocks; empty means "no IP restriction".
           items:
             type: string
+        deny_ips:
+          type: array
+          description: Bare IPs or CIDR blocks that are always refused; a match wins over `allow_ips`.
+          items:
+            type: string
         max_sessions:
           type: integer
           description: Concurrent controller cap; 0 means unlimited, negative is rejected.
@@ -1857,7 +1894,7 @@ components:
       allOf:
         - $ref: '#/components/schemas/DeviceAccessPolicyInput'
         - type: object
-          required: [device_id, allow_ips, allowed_windows, exception_dates, approval_mode, approval_trusted_ips]
+          required: [device_id, allow_ips, deny_ips, allowed_windows, exception_dates, approval_mode, approval_trusted_ips]
           properties:
             device_id:
               type: string
@@ -1865,6 +1902,13 @@ components:
               type: [string, 'null']
               format: date-time
               description: Omitted when the owner never saved a policy.
+    DeviceAccessBanRequest:
+      type: object
+      required: [source]
+      properties:
+        source:
+          type: string
+          description: Exact IPv4/IPv6 address or CIDR block to deny permanently.
     AccessWindow:
       type: object
       required: [start, end]

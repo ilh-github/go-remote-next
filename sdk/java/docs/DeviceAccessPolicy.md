@@ -9,6 +9,7 @@
 |------------ | ------------- | ------------- | -------------|
 |**remoteDisabled** | **Boolean** | When true, no controller may start a session at all. |  [optional] |
 |**allowIps** | **List&lt;String&gt;** | Bare IPs or CIDR blocks; empty means \&quot;no IP restriction\&quot;. |  [optional] |
+|**denyIps** | **List&lt;String&gt;** | Bare IPs or CIDR blocks that are always refused; a match wins over &#x60;allow_ips&#x60;. |  [optional] |
 |**maxSessions** | **Integer** | Concurrent controller cap; 0 means unlimited, negative is rejected. |  [optional] |
 |**allowedWindows** | [**List&lt;AccessWindow&gt;**](AccessWindow.md) | Recurring windows in which access is allowed; empty means always. |  [optional] |
 |**timezone** | **String** | IANA zone the windows are evaluated in; empty means the server&#39;s local zone. |  [optional] |

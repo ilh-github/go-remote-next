@@ -5,6 +5,7 @@ All URIs are relative to *https://your-signaling-host*
 Method | HTTP request | Description
 ------------- | ------------- | -------------
 [**approve_access_approval**](DevicesApi.md#approve_access_approval) | **POST** /v1/me/devices/{device_id}/access-approvals/{approval_id}/approve | Approve a pending access request
+[**ban_device_access_source**](DevicesApi.md#ban_device_access_source) | **POST** /v1/me/devices/{device_id}/access-bans | Permanently deny one source address
 [**claim_access_approval**](DevicesApi.md#claim_access_approval) | **POST** /v1/devices/{device_id}/access-approvals:claim | Exchange an approved request for a signal token
 [**create_access_grant**](DevicesApi.md#create_access_grant) | **POST** /v1/me/devices/{device_id}/access-grants | Issue a time-boxed guest access code
 [**deny_access_approval**](DevicesApi.md#deny_access_approval) | **POST** /v1/me/devices/{device_id}/access-approvals/{approval_id}/deny | Deny a pending access request
@@ -116,6 +117,102 @@ Name | Type | Description  | Notes
 **403** | Authenticated but not allowed (includes a rejected access code). |  -  |
 **404** | The addressed resource does not exist. |  -  |
 **409** | The request was already decided or has expired. |  -  |
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+# **ban_device_access_source**
+> DeviceAccessPolicy ban_device_access_source(device_id, device_access_ban_request)
+
+Permanently deny one source address
+
+Adds an exact IP or CIDR block to the device's persistent deny list and
+returns the complete updated policy. A deny match always wins over the
+allow list, time windows and a valid access code. Repeating the same
+source is a no-op; remove it by replacing the policy with `deny_ips`
+omitted or shorter.
+
+
+### Example
+
+* Api Key Authentication (ApiKeyAuth):
+* Bearer (opaque) Authentication (BearerAuth):
+
+```python
+import quickdesk_signaling
+from quickdesk_signaling.models.device_access_ban_request import DeviceAccessBanRequest
+from quickdesk_signaling.models.device_access_policy import DeviceAccessPolicy
+from quickdesk_signaling.rest import ApiException
+from pprint import pprint
+
+# Defining the host is optional and defaults to https://your-signaling-host
+# See configuration.py for a list of all supported configuration parameters.
+configuration = quickdesk_signaling.Configuration(
+    host = "https://your-signaling-host"
+)
+
+# The client must configure the authentication and authorization parameters
+# in accordance with the API server security policy.
+# Examples for each auth method are provided below, use the example that
+# satisfies your auth use case.
+
+# Configure API key authorization: ApiKeyAuth
+configuration.api_key['ApiKeyAuth'] = os.environ["API_KEY"]
+
+# Uncomment below to setup prefix (e.g. Bearer) for API key, if needed
+# configuration.api_key_prefix['ApiKeyAuth'] = 'Bearer'
+
+# Configure Bearer authorization (opaque): BearerAuth
+configuration = quickdesk_signaling.Configuration(
+    access_token = os.environ["BEARER_TOKEN"]
+)
+
+# Enter a context with an instance of the API client
+with quickdesk_signaling.ApiClient(configuration) as api_client:
+    # Create an instance of the API class
+    api_instance = quickdesk_signaling.DevicesApi(api_client)
+    device_id = 'device_id_example' # str | The device id shown on the controlled machine.
+    device_access_ban_request = quickdesk_signaling.DeviceAccessBanRequest() # DeviceAccessBanRequest | 
+
+    try:
+        # Permanently deny one source address
+        api_response = api_instance.ban_device_access_source(device_id, device_access_ban_request)
+        print("The response of DevicesApi->ban_device_access_source:\n")
+        pprint(api_response)
+    except Exception as e:
+        print("Exception when calling DevicesApi->ban_device_access_source: %s\n" % e)
+```
+
+
+
+### Parameters
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **device_id** | **str**| The device id shown on the controlled machine. | 
+ **device_access_ban_request** | [**DeviceAccessBanRequest**](DeviceAccessBanRequest.md)|  | 
+
+### Return type
+
+[**DeviceAccessPolicy**](DeviceAccessPolicy.md)
+
+### Authorization
+
+[ApiKeyAuth](../README.md#ApiKeyAuth), [BearerAuth](../README.md#BearerAuth)
+
+### HTTP request headers
+
+ - **Content-Type**: application/json
+ - **Accept**: application/json, application/problem+json
+
+### HTTP response details
+
+| Status code | Description | Response headers |
+|-------------|-------------|------------------|
+**200** | The updated policy, including the complete deny list. |  -  |
+**400** | The request was malformed or failed validation. |  -  |
+**403** | Authenticated but not allowed (includes a rejected access code). |  -  |
+**404** | The addressed resource does not exist. |  -  |
 
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
 

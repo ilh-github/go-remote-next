@@ -2071,5 +2071,17 @@ Access Code: %2</translation>
         <source>Who is connected to your devices, and what happened in each session</source>
         <translation>Who is connected to your devices, and what happened in each session</translation>
     </message>
+    <message>
+        <source>Ban source</source>
+        <translation>Ban source</translation>
+    </message>
+    <message>
+        <source>Permanently ban %1? It will be refused even with a valid access code.</source>
+        <translation>Permanently ban %1? It will be refused even with a valid access code.</translation>
+    </message>
+    <message>
+        <source>Permanently banned %1</source>
+        <translation>Permanently banned %1</translation>
+    </message>
 </context>
 </TS>

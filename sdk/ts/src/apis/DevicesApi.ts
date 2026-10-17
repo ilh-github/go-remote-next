@@ -27,6 +27,7 @@ import type {
   ApprovalClaimRequest,
   ApprovalSummary,
   ApproveAccessApprovalRequest,
+  DeviceAccessBanRequest,
   DeviceAccessPolicy,
   DeviceAccessPolicyInput,
   ListAccessApprovals200Response,
@@ -60,6 +61,8 @@ import {
     ApprovalSummaryToJSON,
     ApproveAccessApprovalRequestFromJSON,
     ApproveAccessApprovalRequestToJSON,
+    DeviceAccessBanRequestFromJSON,
+    DeviceAccessBanRequestToJSON,
     DeviceAccessPolicyFromJSON,
     DeviceAccessPolicyToJSON,
     DeviceAccessPolicyInputFromJSON,
@@ -80,6 +83,11 @@ export interface ApproveAccessApprovalOperationRequest {
     deviceId: string;
     approvalId: number;
     approveAccessApprovalRequest?: ApproveAccessApprovalRequest;
+}
+
+export interface BanDeviceAccessSourceRequest {
+    deviceId: string;
+    deviceAccessBanRequest: DeviceAccessBanRequest;
 }
 
 export interface ClaimAccessApprovalRequest {
@@ -197,6 +205,67 @@ export class DevicesApi extends runtime.BaseAPI {
      */
     async approveAccessApproval(requestParameters: ApproveAccessApprovalOperationRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<AccessApproval> {
         const response = await this.approveAccessApprovalRaw(requestParameters, initOverrides);
+        return await response.value();
+    }
+
+    /**
+     * Adds an exact IP or CIDR block to the device\'s persistent deny list and returns the complete updated policy. A deny match always wins over the allow list, time windows and a valid access code. Repeating the same source is a no-op; remove it by replacing the policy with `deny_ips` omitted or shorter. 
+     * Permanently deny one source address
+     */
+    async banDeviceAccessSourceRaw(requestParameters: BanDeviceAccessSourceRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<DeviceAccessPolicy>> {
+        if (requestParameters['deviceId'] == null) {
+            throw new runtime.RequiredError(
+                'deviceId',
+                'Required parameter "deviceId" was null or undefined when calling banDeviceAccessSource().'
+            );
+        }
+
+        if (requestParameters['deviceAccessBanRequest'] == null) {
+            throw new runtime.RequiredError(
+                'deviceAccessBanRequest',
+                'Required parameter "deviceAccessBanRequest" was null or undefined when calling banDeviceAccessSource().'
+            );
+        }
+
+        const queryParameters: any = {};
+
+        const headerParameters: runtime.HTTPHeaders = {};
+
+        headerParameters['Content-Type'] = 'application/json';
+
+        if (this.configuration && this.configuration.apiKey) {
+            headerParameters["X-API-Key"] = await this.configuration.apiKey("X-API-Key"); // ApiKeyAuth authentication
+        }
+
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("BearerAuth", []);
+
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+
+        let urlPath = `/v1/me/devices/{device_id}/access-bans`;
+        urlPath = urlPath.replace(`{${"device_id"}}`, encodeURIComponent(String(requestParameters['deviceId'])));
+
+        const response = await this.request({
+            path: urlPath,
+            method: 'POST',
+            headers: headerParameters,
+            query: queryParameters,
+            body: DeviceAccessBanRequestToJSON(requestParameters['deviceAccessBanRequest']),
+        }, initOverrides);
+
+        return new runtime.JSONApiResponse(response, (jsonValue) => DeviceAccessPolicyFromJSON(jsonValue));
+    }
+
+    /**
+     * Adds an exact IP or CIDR block to the device\'s persistent deny list and returns the complete updated policy. A deny match always wins over the allow list, time windows and a valid access code. Repeating the same source is a no-op; remove it by replacing the policy with `deny_ips` omitted or shorter. 
+     * Permanently deny one source address
+     */
+    async banDeviceAccessSource(requestParameters: BanDeviceAccessSourceRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<DeviceAccessPolicy> {
+        const response = await this.banDeviceAccessSourceRaw(requestParameters, initOverrides);
         return await response.value();
     }
 

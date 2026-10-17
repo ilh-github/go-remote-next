@@ -147,6 +147,7 @@ Class | Method | HTTP request | Description
 ------------ | ------------- | ------------- | -------------
 *AuthApi* | [**create_session**](docs/AuthApi.md#create_session) | **POST** /v1/auth/sessions | Exchange a username/password for a session
 *DevicesApi* | [**approve_access_approval**](docs/DevicesApi.md#approve_access_approval) | **POST** /v1/me/devices/{device_id}/access-approvals/{approval_id}/approve | Approve a pending access request
+*DevicesApi* | [**ban_device_access_source**](docs/DevicesApi.md#ban_device_access_source) | **POST** /v1/me/devices/{device_id}/access-bans | Permanently deny one source address
 *DevicesApi* | [**claim_access_approval**](docs/DevicesApi.md#claim_access_approval) | **POST** /v1/devices/{device_id}/access-approvals:claim | Exchange an approved request for a signal token
 *DevicesApi* | [**create_access_grant**](docs/DevicesApi.md#create_access_grant) | **POST** /v1/me/devices/{device_id}/access-grants | Issue a time-boxed guest access code
 *DevicesApi* | [**deny_access_approval**](docs/DevicesApi.md#deny_access_approval) | **POST** /v1/me/devices/{device_id}/access-approvals/{approval_id}/deny | Deny a pending access request
@@ -206,6 +207,7 @@ Class | Method | HTTP request | Description
  - [AuthSessionRequest](docs/AuthSessionRequest.md)
  - [AuthSessionResponse](docs/AuthSessionResponse.md)
  - [Device](docs/Device.md)
+ - [DeviceAccessBanRequest](docs/DeviceAccessBanRequest.md)
  - [DeviceAccessPolicy](docs/DeviceAccessPolicy.md)
  - [DeviceAccessPolicyInput](docs/DeviceAccessPolicyInput.md)
  - [ListAccessApprovals200Response](docs/ListAccessApprovals200Response.md)

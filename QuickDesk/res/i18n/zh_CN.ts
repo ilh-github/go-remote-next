@@ -2071,5 +2071,17 @@ Access Code: %2</source>
         <source>Who is connected to your devices, and what happened in each session</source>
         <translation>查看哪些控制端正连接你的设备，以及每个会话发生了什么</translation>
     </message>
+    <message>
+        <source>Ban source</source>
+        <translation>封禁来源</translation>
+    </message>
+    <message>
+        <source>Permanently ban %1? It will be refused even with a valid access code.</source>
+        <translation>永久封禁 %1？该地址以后即使有有效访问码也不能连接。</translation>
+    </message>
+    <message>
+        <source>Permanently banned %1</source>
+        <translation>已永久封禁 %1</translation>
+    </message>
 </context>
 </TS>

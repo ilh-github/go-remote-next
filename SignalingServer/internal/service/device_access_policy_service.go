@@ -12,11 +12,15 @@ import (
 	"quickdesk/signaling/internal/models"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // ErrInvalidAllowIP means one of the allow-list entries is neither an IP nor
 // a CIDR block.
 var ErrInvalidAllowIP = errors.New("allow list entries must be IP addresses or CIDR blocks")
+
+// ErrInvalidDenyIP means one of the permanent deny-list entries is malformed.
+var ErrInvalidDenyIP = errors.New("deny list entries must be IP addresses or CIDR blocks")
 
 // ErrInvalidSessionLimit means max_sessions was negative.
 var ErrInvalidSessionLimit = errors.New("max_sessions must be zero (unlimited) or a positive number")
@@ -52,6 +56,7 @@ func NewDeviceAccessPolicyService(db *gorm.DB) *DeviceAccessPolicyService {
 type UpsertDeviceAccessPolicyInput struct {
 	RemoteDisabled     bool
 	AllowIPs           []string
+	DenyIPs            []string
 	MaxSessions        int
 	AllowedWindows     []AccessWindow
 	Timezone           string
@@ -79,6 +84,9 @@ func (s *DeviceAccessPolicyService) Get(ctx context.Context, deviceID string) (*
 // Upsert writes the policy for a device, creating the row on first use.
 func (s *DeviceAccessPolicyService) Upsert(ctx context.Context, deviceID string, ownerID uint, in UpsertDeviceAccessPolicyInput) (*models.DeviceAccessPolicy, error) {
 	if err := ValidateAllowIPs(in.AllowIPs); err != nil {
+		return nil, err
+	}
+	if err := ValidateDenyIPs(in.DenyIPs); err != nil {
 		return nil, err
 	}
 	if in.MaxSessions < 0 {
@@ -109,6 +117,10 @@ func (s *DeviceAccessPolicyService) Upsert(ctx context.Context, deviceID string,
 	if err != nil {
 		return nil, err
 	}
+	denyEncoded, err := json.Marshal(normalizeAllowIPs(in.DenyIPs))
+	if err != nil {
+		return nil, err
+	}
 	exceptionsEncoded, err := json.Marshal(in.ExceptionDates)
 	if err != nil {
 		return nil, err
@@ -128,6 +140,7 @@ func (s *DeviceAccessPolicyService) Upsert(ctx context.Context, deviceID string,
 	row.OwnerID = ownerID
 	row.RemoteDisabled = in.RemoteDisabled
 	row.AllowIPs = string(encoded)
+	row.DenyIPs = string(denyEncoded)
 	row.MaxSessions = in.MaxSessions
 	row.AllowedWindows = string(windowsEncoded)
 	row.Timezone = strings.TrimSpace(in.Timezone)
@@ -139,6 +152,53 @@ func (s *DeviceAccessPolicyService) Upsert(ctx context.Context, deviceID string,
 		return nil, err
 	}
 	return row, nil
+}
+
+// BanIP permanently adds one source address to the device's deny list. The row
+// is locked while updating so two concurrent "kick and ban" calls cannot lose
+// one another's source. Removing a source is intentionally done through the
+// normal policy PUT, where the owner can see the complete list they are editing.
+func (s *DeviceAccessPolicyService) BanIP(ctx context.Context, deviceID string, ownerID uint, source string) (*models.DeviceAccessPolicy, error) {
+	deviceID = strings.TrimSpace(deviceID)
+	if deviceID == "" {
+		return nil, errors.New("device_id is required")
+	}
+	var out *models.DeviceAccessPolicy
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var row models.DeviceAccessPolicy
+		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("device_id = ?", deviceID).
+			First(&row).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			row = models.DeviceAccessPolicy{
+				DeviceID:           deviceID,
+				OwnerID:            ownerID,
+				AllowIPs:           "[]",
+				DenyIPs:            "[]",
+				AllowedWindows:     "[]",
+				ExceptionDates:     "[]",
+				ApprovalMode:       ApprovalModeOff,
+				ApprovalTrustedIPs: "[]",
+			}
+		} else if err != nil {
+			return err
+		}
+		encoded, err := AppendDeniedIP(row.DenyIPs, source)
+		if err != nil {
+			return err
+		}
+		row.OwnerID = ownerID
+		row.DenyIPs = encoded
+		if err := tx.Save(&row).Error; err != nil {
+			return err
+		}
+		out = &row
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // NormalizeApprovalMode maps the stored mode (and the legacy approval_required
@@ -273,6 +333,13 @@ func EvaluateDeviceAccessPolicyAt(policy *models.DeviceAccessPolicy, clientIP st
 	if policy.RemoteDisabled {
 		return false, "remote access is disabled for this device"
 	}
+	denied, err := decodeDenyIPs(policy.DenyIPs)
+	if err != nil {
+		return false, "device deny list is invalid"
+	}
+	if IPDenied(denied, clientIP) {
+		return false, "client IP is in the device deny list"
+	}
 	entries := decodeAllowIPs(policy.AllowIPs)
 	if len(entries) > 0 && !IPAllowed(entries, clientIP) {
 		return false, "client IP is not in the device allow list"
@@ -317,6 +384,44 @@ func ValidateAllowIPs(entries []string) error {
 	return nil
 }
 
+// ValidateDenyIPs applies the same exact-IP/CIDR grammar as the allow list,
+// with an error that names the deny list so a rejected request is diagnosable.
+func ValidateDenyIPs(entries []string) error {
+	if err := ValidateAllowIPs(entries); err != nil {
+		return fmt.Errorf("%w: %s", ErrInvalidDenyIP, err.Error())
+	}
+	return nil
+}
+
+// AppendDeniedIP adds one source to the stored deny list. A duplicate is a
+// no-op, so "kick and ban" can be retried safely after a transport failure.
+func AppendDeniedIP(encoded string, source string) (string, error) {
+	source = strings.TrimSpace(source)
+	if err := ValidateDenyIPs([]string{source}); err != nil {
+		return "", err
+	}
+	entries := []string{}
+	if strings.TrimSpace(encoded) != "" {
+		if err := json.Unmarshal([]byte(encoded), &entries); err != nil {
+			return "", fmt.Errorf("%w: stored list is not valid JSON", ErrInvalidDenyIP)
+		}
+	}
+	if err := ValidateDenyIPs(entries); err != nil {
+		return "", fmt.Errorf("%w: stored list is invalid", err)
+	}
+	for _, entry := range entries {
+		if strings.TrimSpace(entry) == source {
+			return encoded, nil
+		}
+	}
+	entries = append(normalizeAllowIPs(entries), source)
+	out, err := json.Marshal(entries)
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
+}
+
 // IPAllowed reports whether clientIP matches any exact-IP or CIDR entry.
 // An empty entry list allows everything; a client address the server cannot
 // parse is rejected (fail closed) once a list exists.
@@ -346,6 +451,12 @@ func IPAllowed(entries []string, clientIP string) bool {
 	return false
 }
 
+// IPDenied reports whether clientIP matches any exact-IP or CIDR deny entry.
+// Unlike an allow list, an empty deny list denies nobody.
+func IPDenied(entries []string, clientIP string) bool {
+	return len(entries) > 0 && IPAllowed(entries, clientIP)
+}
+
 // SessionLimitReached reports whether one more controller would exceed the
 // device's concurrency cap. max <= 0 means unlimited.
 func SessionLimitReached(max, active int) bool {
@@ -364,6 +475,20 @@ func decodeAllowIPs(encoded string) []string {
 		return nil
 	}
 	return entries
+}
+
+func decodeDenyIPs(encoded string) ([]string, error) {
+	if strings.TrimSpace(encoded) == "" {
+		return nil, nil
+	}
+	var entries []string
+	if err := json.Unmarshal([]byte(encoded), &entries); err != nil {
+		return nil, err
+	}
+	if err := ValidateDenyIPs(entries); err != nil {
+		return nil, err
+	}
+	return entries, nil
 }
 
 func decodeAccessWindows(encoded string) []AccessWindow {

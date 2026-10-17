@@ -80,6 +80,12 @@
                 :disabled="busy === row.session_id"
                 @click="revoke(row)"
               >{{ busy === row.session_id ? '...' : $t('sessions.revoke') }}</button>
+              <button
+                v-if="row.active && row.client_ip"
+                class="btn btn-secondary btn-sm"
+                :disabled="busy === row.session_id"
+                @click="banSource(row)"
+              >{{ $t('sessions.banSource') }}</button>
             </div>
 
             <div v-if="expanded === row.session_id" class="session-detail">
@@ -244,6 +250,21 @@ async function revoke(row) {
     detail.value = null
   }
   await load(true)
+}
+
+async function banSource(row) {
+  if (!row.client_ip) return
+  if (!confirm(t('sessions.banConfirm', { ip: row.client_ip }))) return
+  busy.value = row.session_id
+  notice.value = ''
+  error.value = ''
+  const r = await userApi.banAccessSource(row.device_id, row.client_ip)
+  busy.value = ''
+  if (!r.ok) {
+    error.value = r.error || t('sessions.banFailed')
+    return
+  }
+  notice.value = t('sessions.banned', { ip: row.client_ip })
 }
 
 async function clearDevice() {

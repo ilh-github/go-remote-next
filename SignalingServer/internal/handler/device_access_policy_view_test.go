@@ -27,7 +27,7 @@ func TestPolicyViewWithoutARowReturnsTheDocumentedDefaults(t *testing.T) {
 		t.Fatalf("unmarshal view: %v", err)
 	}
 
-	for _, key := range []string{"allow_ips", "allowed_windows", "exception_dates", "approval_trusted_ips"} {
+	for _, key := range []string{"allow_ips", "deny_ips", "allowed_windows", "exception_dates", "approval_trusted_ips"} {
 		value, present := raw[key]
 		if !present {
 			t.Fatalf("%s is missing from the no-policy response; the schema lists it as a documented array", key)

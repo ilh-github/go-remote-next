@@ -23,6 +23,7 @@ Item {
     property int confirmMode: 0
     property string pendingSessionId: ""
     property string pendingDeviceId: ""
+    property string pendingSource: ""
 
     function formatTime(value) {
         if (!value) return "-"
@@ -95,6 +96,23 @@ Item {
         actionDialog.show()
     }
 
+    function requestBanSource(deviceId, source) {
+        confirmMode = 3
+        pendingSessionId = ""
+        pendingDeviceId = deviceId
+        pendingSource = source
+        actionDialog.title = qsTr("Ban source")
+        actionDialog.message = qsTr("Permanently ban %1? It will be refused even with a valid access code.")
+                                 .arg(source)
+        actionDialog.show()
+    }
+
+    function confirmActionText() {
+        if (confirmMode === 1) return qsTr("Kick")
+        if (confirmMode === 2) return qsTr("Clear device")
+        return qsTr("Ban source")
+    }
+
     Connections {
         target: root.mainController && root.mainController.authManager
                 ? root.mainController.authManager : null
@@ -130,6 +148,11 @@ Item {
             }
             root.showToast(message, failed > 0 ? QDToast.Type.Warning : QDToast.Type.Success)
             if (root.manager) root.manager.refresh(root.statusFilter, root.deviceFilter)
+        }
+
+        function onSourceBanned(deviceId, source) {
+            root.showToast(qsTr("Permanently banned %1").arg(source),
+                           QDToast.Type.Success)
         }
     }
 
@@ -364,6 +387,16 @@ Item {
                                 implicitWidth: 82
                                 onClicked: root.requestKick(modelData.session_id,
                                                             modelData.device_id)
+                            }
+
+                            QDButton {
+                                visible: modelData.active === true
+                                         && (modelData.client_ip || "").length > 0
+                                text: qsTr("Ban source")
+                                buttonType: QDButton.Type.Secondary
+                                implicitWidth: 104
+                                onClicked: root.requestBanSource(modelData.device_id,
+                                                                 modelData.client_ip)
                             }
 
                             QDIconButton {
@@ -606,18 +639,21 @@ Item {
                 onClicked: actionDialog.reject()
             },
             QDButton {
-                text: root.confirmMode === 1 ? qsTr("Kick") : qsTr("Clear device")
+                text: root.confirmActionText()
                 buttonType: QDButton.Type.Danger
                 onClicked: {
                     var mode = root.confirmMode
                     var sessionId = root.pendingSessionId
                     var deviceId = root.pendingDeviceId
+                    var source = root.pendingSource
                     actionDialog.accept()
                     if (!root.manager) return
                     if (mode === 1) {
                         root.manager.revokeSession(sessionId)
                     } else if (mode === 2) {
                         root.manager.revokeDeviceSessions(deviceId)
+                    } else if (mode === 3) {
+                        root.manager.banSource(deviceId, source)
                     }
                 }
             }

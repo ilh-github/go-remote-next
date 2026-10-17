@@ -19,6 +19,7 @@ export * from './ApproveAccessApprovalRequest';
 export * from './AuthSessionRequest';
 export * from './AuthSessionResponse';
 export * from './Device';
+export * from './DeviceAccessBanRequest';
 export * from './DeviceAccessPolicy';
 export * from './DeviceAccessPolicyInput';
 export * from './ListAccessApprovals200Response';

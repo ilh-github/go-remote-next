@@ -5,6 +5,7 @@ All URIs are relative to *https://your-signaling-host*
 | Method | HTTP request | Description |
 |------------- | ------------- | -------------|
 | [**approveAccessApproval**](DevicesApi.md#approveAccessApproval) | **POST** /v1/me/devices/{device_id}/access-approvals/{approval_id}/approve | Approve a pending access request |
+| [**banDeviceAccessSource**](DevicesApi.md#banDeviceAccessSource) | **POST** /v1/me/devices/{device_id}/access-bans | Permanently deny one source address |
 | [**claimAccessApproval**](DevicesApi.md#claimAccessApproval) | **POST** /v1/devices/{device_id}/access-approvals:claim | Exchange an approved request for a signal token |
 | [**createAccessGrant**](DevicesApi.md#createAccessGrant) | **POST** /v1/me/devices/{device_id}/access-grants | Issue a time-boxed guest access code |
 | [**denyAccessApproval**](DevicesApi.md#denyAccessApproval) | **POST** /v1/me/devices/{device_id}/access-approvals/{approval_id}/deny | Deny a pending access request |
@@ -98,6 +99,84 @@ public class Example {
 | **403** | Authenticated but not allowed (includes a rejected access code). |  -  |
 | **404** | The addressed resource does not exist. |  -  |
 | **409** | The request was already decided or has expired. |  -  |
+
+<a id="banDeviceAccessSource"></a>
+# **banDeviceAccessSource**
+> DeviceAccessPolicy banDeviceAccessSource(deviceId, deviceAccessBanRequest)
+
+Permanently deny one source address
+
+Adds an exact IP or CIDR block to the device&#39;s persistent deny list and returns the complete updated policy. A deny match always wins over the allow list, time windows and a valid access code. Repeating the same source is a no-op; remove it by replacing the policy with &#x60;deny_ips&#x60; omitted or shorter. 
+
+### Example
+```java
+// Import classes:
+import org.openapitools.client.ApiClient;
+import org.openapitools.client.ApiException;
+import org.openapitools.client.Configuration;
+import org.openapitools.client.auth.*;
+import org.openapitools.client.models.*;
+import org.openapitools.client.api.DevicesApi;
+
+public class Example {
+  public static void main(String[] args) {
+    ApiClient defaultClient = Configuration.getDefaultApiClient();
+    defaultClient.setBasePath("https://your-signaling-host");
+    
+    // Configure API key authorization: ApiKeyAuth
+    ApiKeyAuth ApiKeyAuth = (ApiKeyAuth) defaultClient.getAuthentication("ApiKeyAuth");
+    ApiKeyAuth.setApiKey("YOUR API KEY");
+    // Uncomment the following line to set a prefix for the API key, e.g. "Token" (defaults to null)
+    //ApiKeyAuth.setApiKeyPrefix("Token");
+
+    // Configure HTTP bearer authorization: BearerAuth
+    HttpBearerAuth BearerAuth = (HttpBearerAuth) defaultClient.getAuthentication("BearerAuth");
+    BearerAuth.setBearerToken("BEARER TOKEN");
+
+    DevicesApi apiInstance = new DevicesApi(defaultClient);
+    String deviceId = "deviceId_example"; // String | The device id shown on the controlled machine.
+    DeviceAccessBanRequest deviceAccessBanRequest = new DeviceAccessBanRequest(); // DeviceAccessBanRequest | 
+    try {
+      DeviceAccessPolicy result = apiInstance.banDeviceAccessSource(deviceId, deviceAccessBanRequest);
+      System.out.println(result);
+    } catch (ApiException e) {
+      System.err.println("Exception when calling DevicesApi#banDeviceAccessSource");
+      System.err.println("Status code: " + e.getCode());
+      System.err.println("Reason: " + e.getResponseBody());
+      System.err.println("Response headers: " + e.getResponseHeaders());
+      e.printStackTrace();
+    }
+  }
+}
+```
+
+### Parameters
+
+| Name | Type | Description  | Notes |
+|------------- | ------------- | ------------- | -------------|
+| **deviceId** | **String**| The device id shown on the controlled machine. | |
+| **deviceAccessBanRequest** | [**DeviceAccessBanRequest**](DeviceAccessBanRequest.md)|  | |
+
+### Return type
+
+[**DeviceAccessPolicy**](DeviceAccessPolicy.md)
+
+### Authorization
+
+[ApiKeyAuth](../README.md#ApiKeyAuth), [BearerAuth](../README.md#BearerAuth)
+
+### HTTP request headers
+
+ - **Content-Type**: application/json
+ - **Accept**: application/json, application/problem+json
+
+### HTTP response details
+| Status code | Description | Response headers |
+|-------------|-------------|------------------|
+| **200** | The updated policy, including the complete deny list. |  -  |
+| **400** | The request was malformed or failed validation. |  -  |
+| **403** | Authenticated but not allowed (includes a rejected access code). |  -  |
+| **404** | The addressed resource does not exist. |  -  |
 
 <a id="claimAccessApproval"></a>
 # **claimAccessApproval**

@@ -34,6 +34,7 @@ func NewDeviceAccessPolicyHandler(devices *service.DeviceService, policies *serv
 type deviceAccessPolicyReq struct {
 	RemoteDisabled     bool                          `json:"remote_disabled"`
 	AllowIPs           []string                      `json:"allow_ips"`
+	DenyIPs            []string                      `json:"deny_ips"`
 	MaxSessions        int                           `json:"max_sessions"`
 	AllowedWindows     []service.AccessWindow        `json:"allowed_windows"`
 	Timezone           string                        `json:"timezone"`
@@ -43,12 +44,17 @@ type deviceAccessPolicyReq struct {
 	ApprovalTrustedIPs []string                      `json:"approval_trusted_ips"`
 }
 
+type deviceAccessBanReq struct {
+	Source string `json:"source"`
+}
+
 // deviceAccessPolicyView is the wire shape: `allow_ips` is returned as a real
 // array (the column stores JSON) so clients never parse a string-of-JSON.
 type deviceAccessPolicyView struct {
 	DeviceID           string                        `json:"device_id"`
 	RemoteDisabled     bool                          `json:"remote_disabled"`
 	AllowIPs           []string                      `json:"allow_ips"`
+	DenyIPs            []string                      `json:"deny_ips"`
 	MaxSessions        int                           `json:"max_sessions"`
 	AllowedWindows     []service.AccessWindow        `json:"allowed_windows"`
 	Timezone           string                        `json:"timezone"`
@@ -87,6 +93,7 @@ func (h *DeviceAccessPolicyHandler) Put(c *gin.Context) {
 		service.UpsertDeviceAccessPolicyInput{
 			RemoteDisabled:     req.RemoteDisabled,
 			AllowIPs:           req.AllowIPs,
+			DenyIPs:            req.DenyIPs,
 			MaxSessions:        req.MaxSessions,
 			AllowedWindows:     req.AllowedWindows,
 			Timezone:           req.Timezone,
@@ -97,6 +104,7 @@ func (h *DeviceAccessPolicyHandler) Put(c *gin.Context) {
 		})
 	if err != nil {
 		if errors.Is(err, service.ErrInvalidAllowIP) ||
+			errors.Is(err, service.ErrInvalidDenyIP) ||
 			errors.Is(err, service.ErrInvalidSessionLimit) ||
 			errors.Is(err, service.ErrInvalidAccessWindow) ||
 			errors.Is(err, service.ErrInvalidTimezone) ||
@@ -117,6 +125,7 @@ func (h *DeviceAccessPolicyHandler) Put(c *gin.Context) {
 				"device_id":            deviceID,
 				"remote_disabled":      policy.RemoteDisabled,
 				"allow_ips":            decodeAllowIPsForEvent(policy.AllowIPs),
+				"deny_ips":             decodeAllowIPsForEvent(policy.DenyIPs),
 				"max_sessions":         policy.MaxSessions,
 				"allowed_windows":      decodeAccessWindowsForView(policy.AllowedWindows),
 				"timezone":             policy.Timezone,
@@ -127,6 +136,46 @@ func (h *DeviceAccessPolicyHandler) Put(c *gin.Context) {
 				// The actor's observed address, lifted onto the audit row by
 				// the audit subscriber.
 				"ip": c.ClientIP(),
+			},
+		})
+	}
+	c.JSON(http.StatusOK, policyView(deviceID, policy))
+}
+
+// BanIP adds one observed controller address to the device's permanent deny
+// list. It is the explicit second half of "kick and ban": revoking closes the
+// socket, this prevents the same source from using a still-valid access code
+// again after the short revoke-cooldown expires.
+func (h *DeviceAccessPolicyHandler) BanIP(c *gin.Context) {
+	deviceID, ok := h.ownedDeviceID(c)
+	if !ok {
+		return
+	}
+	var req deviceAccessBanReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		ProblemBadRequest(c, ProblemCodeInvalidRequest, err.Error())
+		return
+	}
+	uid := middleware.MustUserID(c)
+	policy, err := h.policies.BanIP(c.Request.Context(), deviceID, uid, req.Source)
+	if err != nil {
+		if errors.Is(err, service.ErrInvalidDenyIP) {
+			ProblemBadRequest(c, ProblemCodeInvalidRequest, err.Error())
+			return
+		}
+		ProblemInternal(c, err.Error())
+		return
+	}
+	if h.bus != nil {
+		h.bus.Publish(c.Request.Context(), service.Event{
+			Type:     service.EventDevicePolicyChanged,
+			UserID:   uid,
+			DeviceID: deviceID,
+			Data: map[string]interface{}{
+				"device_id": deviceID,
+				"deny_ips":  decodeAllowIPsForEvent(policy.DenyIPs),
+				"ip":        c.ClientIP(),
+				"reason":    "access source banned",
 			},
 		})
 	}
@@ -154,7 +203,7 @@ func (h *DeviceAccessPolicyHandler) ownedDeviceID(c *gin.Context) (string, bool)
 }
 
 func policyView(deviceID string, policy *models.DeviceAccessPolicy) deviceAccessPolicyView {
-	view := deviceAccessPolicyView{DeviceID: deviceID, AllowIPs: []string{}}
+	view := deviceAccessPolicyView{DeviceID: deviceID, AllowIPs: []string{}, DenyIPs: []string{}}
 	if policy == nil {
 		// The endpoint documents "the documented no-policy defaults" and clients
 		// render their form straight from this response, so the empty case has to
@@ -178,6 +227,9 @@ func policyView(deviceID string, policy *models.DeviceAccessPolicy) deviceAccess
 	view.ApprovalTrustedIPs = decodeAllowIPsForEvent(policy.ApprovalTrustedIPs)
 	if entries := decodeAllowIPsForEvent(policy.AllowIPs); len(entries) > 0 {
 		view.AllowIPs = entries
+	}
+	if entries := decodeAllowIPsForEvent(policy.DenyIPs); len(entries) > 0 {
+		view.DenyIPs = entries
 	}
 	updated := policy.UpdatedAt
 	view.UpdatedAt = &updated

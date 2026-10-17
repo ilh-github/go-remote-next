@@ -21,6 +21,10 @@ type DeviceAccessPolicy struct {
 	// "any client IP". Entries are matched against the controller's address
 	// as seen by the server.
 	AllowIPs string `gorm:"type:text" json:"allow_ips"`
+	// DenyIPs is a JSON array of exact IPs and/or CIDR blocks that are always
+	// refused, even if the same address also matches AllowIPs. Empty means
+	// nobody is permanently banned.
+	DenyIPs string `gorm:"type:text" json:"deny_ips"`
 	// MaxSessions caps how many controllers may hold a signaling session on
 	// this device at the same time. 0 means unlimited. Enforced when a client
 	// authenticates its signaling socket, i.e. after the access code was

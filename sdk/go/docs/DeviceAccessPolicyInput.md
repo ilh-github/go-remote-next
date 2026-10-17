@@ -6,6 +6,7 @@ Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
 **RemoteDisabled** | Pointer to **bool** | When true, no controller may start a session at all. | [optional] 
 **AllowIps** | Pointer to **[]string** | Bare IPs or CIDR blocks; empty means \&quot;no IP restriction\&quot;. | [optional] 
+**DenyIps** | Pointer to **[]string** | Bare IPs or CIDR blocks that are always refused; a match wins over &#x60;allow_ips&#x60;. | [optional] 
 **MaxSessions** | Pointer to **int32** | Concurrent controller cap; 0 means unlimited, negative is rejected. | [optional] 
 **AllowedWindows** | Pointer to [**[]AccessWindow**](AccessWindow.md) | Recurring windows in which access is allowed; empty means always. | [optional] 
 **Timezone** | Pointer to **string** | IANA zone the windows are evaluated in; empty means the server&#39;s local zone. | [optional] 
@@ -82,6 +83,31 @@ SetAllowIps sets AllowIps field to given value.
 `func (o *DeviceAccessPolicyInput) HasAllowIps() bool`
 
 HasAllowIps returns a boolean if a field has been set.
+
+### GetDenyIps
+
+`func (o *DeviceAccessPolicyInput) GetDenyIps() []string`
+
+GetDenyIps returns the DenyIps field if non-nil, zero value otherwise.
+
+### GetDenyIpsOk
+
+`func (o *DeviceAccessPolicyInput) GetDenyIpsOk() (*[]string, bool)`
+
+GetDenyIpsOk returns a tuple with the DenyIps field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetDenyIps
+
+`func (o *DeviceAccessPolicyInput) SetDenyIps(v []string)`
+
+SetDenyIps sets DenyIps field to given value.
+
+### HasDenyIps
+
+`func (o *DeviceAccessPolicyInput) HasDenyIps() bool`
+
+HasDenyIps returns a boolean if a field has been set.
 
 ### GetMaxSessions
 

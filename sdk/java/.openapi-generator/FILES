@@ -1,6 +1,5 @@
 .github/workflows/maven.yml
 .gitignore
-.openapi-generator-ignore
 .travis.yml
 README.md
 api/openapi.yaml
@@ -26,6 +25,7 @@ docs/AuthApi.md
 docs/AuthSessionRequest.md
 docs/AuthSessionResponse.md
 docs/Device.md
+docs/DeviceAccessBanRequest.md
 docs/DeviceAccessPolicy.md
 docs/DeviceAccessPolicyInput.md
 docs/DevicesApi.md
@@ -44,10 +44,13 @@ docs/Problem.md
 docs/RecordingsApi.md
 docs/RemoteSession.md
 docs/RemoteSessionAccessLog.md
+docs/RemoteSessionBatchRevocation.md
+docs/RemoteSessionBatchRevocationSessionsInner.md
 docs/RemoteSessionDetail.md
 docs/RemoteSessionDetailCounts.md
 docs/RemoteSessionDetailList.md
 docs/RemoteSessionList.md
+docs/RemoteSessionRevocation.md
 docs/RemoteSessionsApi.md
 docs/RevokeAccessGrant200Response.md
 docs/SessionRecording.md
@@ -111,6 +114,7 @@ src/main/java/org/openapitools/client/model/ApproveAccessApprovalRequest.java
 src/main/java/org/openapitools/client/model/AuthSessionRequest.java
 src/main/java/org/openapitools/client/model/AuthSessionResponse.java
 src/main/java/org/openapitools/client/model/Device.java
+src/main/java/org/openapitools/client/model/DeviceAccessBanRequest.java
 src/main/java/org/openapitools/client/model/DeviceAccessPolicy.java
 src/main/java/org/openapitools/client/model/DeviceAccessPolicyInput.java
 src/main/java/org/openapitools/client/model/ListAccessApprovals200Response.java
@@ -125,10 +129,13 @@ src/main/java/org/openapitools/client/model/PlaybackTicket.java
 src/main/java/org/openapitools/client/model/Problem.java
 src/main/java/org/openapitools/client/model/RemoteSession.java
 src/main/java/org/openapitools/client/model/RemoteSessionAccessLog.java
+src/main/java/org/openapitools/client/model/RemoteSessionBatchRevocation.java
+src/main/java/org/openapitools/client/model/RemoteSessionBatchRevocationSessionsInner.java
 src/main/java/org/openapitools/client/model/RemoteSessionDetail.java
 src/main/java/org/openapitools/client/model/RemoteSessionDetailCounts.java
 src/main/java/org/openapitools/client/model/RemoteSessionDetailList.java
 src/main/java/org/openapitools/client/model/RemoteSessionList.java
+src/main/java/org/openapitools/client/model/RemoteSessionRevocation.java
 src/main/java/org/openapitools/client/model/RevokeAccessGrant200Response.java
 src/main/java/org/openapitools/client/model/SessionRecording.java
 src/main/java/org/openapitools/client/model/SessionRecordingInput.java
@@ -162,6 +169,7 @@ src/test/java/org/openapitools/client/model/ApprovalSummaryTest.java
 src/test/java/org/openapitools/client/model/ApproveAccessApprovalRequestTest.java
 src/test/java/org/openapitools/client/model/AuthSessionRequestTest.java
 src/test/java/org/openapitools/client/model/AuthSessionResponseTest.java
+src/test/java/org/openapitools/client/model/DeviceAccessBanRequestTest.java
 src/test/java/org/openapitools/client/model/DeviceAccessPolicyInputTest.java
 src/test/java/org/openapitools/client/model/DeviceAccessPolicyTest.java
 src/test/java/org/openapitools/client/model/DeviceTest.java
@@ -176,10 +184,13 @@ src/test/java/org/openapitools/client/model/OfflineAlertRuleTest.java
 src/test/java/org/openapitools/client/model/PlaybackTicketTest.java
 src/test/java/org/openapitools/client/model/ProblemTest.java
 src/test/java/org/openapitools/client/model/RemoteSessionAccessLogTest.java
+src/test/java/org/openapitools/client/model/RemoteSessionBatchRevocationSessionsInnerTest.java
+src/test/java/org/openapitools/client/model/RemoteSessionBatchRevocationTest.java
 src/test/java/org/openapitools/client/model/RemoteSessionDetailCountsTest.java
 src/test/java/org/openapitools/client/model/RemoteSessionDetailListTest.java
 src/test/java/org/openapitools/client/model/RemoteSessionDetailTest.java
 src/test/java/org/openapitools/client/model/RemoteSessionListTest.java
+src/test/java/org/openapitools/client/model/RemoteSessionRevocationTest.java
 src/test/java/org/openapitools/client/model/RemoteSessionTest.java
 src/test/java/org/openapitools/client/model/RevokeAccessGrant200ResponseTest.java
 src/test/java/org/openapitools/client/model/SessionRecordingInputTest.java
