@@ -13,6 +13,7 @@
         <file>qml/pages/ScheduledTasksPage.qml</file>
         <file>qml/pages/NotificationsPage.qml</file>
         <file>qml/pages/NotificationWindowEditor.qml</file>
+        <file>qml/pages/RecordingsPage.qml</file>
         <file>qml/pages/McpConfigPopup.qml</file>
         <file>qml/component/FluentIconGlyph.qml</file>
         <file>qml/component/Theme.qml</file>

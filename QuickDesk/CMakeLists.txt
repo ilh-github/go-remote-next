@@ -27,6 +27,7 @@ set(MANAGER_SOURCES
     src/manager/AccessApprovalManager.cpp
     src/manager/ScheduledTaskManager.cpp
     src/manager/NotificationManager.cpp
+    src/manager/RecordingManager.cpp
     src/manager/UpdateManager.cpp
 )
 
@@ -47,6 +48,7 @@ set(MANAGER_HEADERS
     src/manager/AccessApprovalManager.h
     src/manager/ScheduledTaskManager.h
     src/manager/NotificationManager.h
+    src/manager/RecordingManager.h
     src/manager/UpdateManager.h
 )
 
@@ -203,6 +205,7 @@ qt_add_qml_module(QuickDesk
         qml/pages/ScheduledTasksPage.qml
         qml/pages/NotificationsPage.qml
         qml/pages/NotificationWindowEditor.qml
+        qml/pages/RecordingsPage.qml
         qml/pages/McpConfigPopup.qml
         qml/component/Theme.qml
         qml/component/FluentIconGlyph.qml

@@ -1057,39 +1057,39 @@
         <translation>Remote Control</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="352"/>
+        <location filename="../../qml/views/MainWindow.qml" line="353"/>
         <source>Settings</source>
         <translation>Settings</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="767"/>
-        <location filename="../../qml/views/MainWindow.qml" line="798"/>
+        <location filename="../../qml/views/MainWindow.qml" line="781"/>
+        <location filename="../../qml/views/MainWindow.qml" line="812"/>
         <source>Host</source>
         <translation>Host</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="835"/>
-        <location filename="../../qml/views/MainWindow.qml" line="840"/>
-        <location filename="../../qml/views/MainWindow.qml" line="841"/>
-        <location filename="../../qml/views/MainWindow.qml" line="842"/>
-        <location filename="../../qml/views/MainWindow.qml" line="843"/>
-        <location filename="../../qml/views/MainWindow.qml" line="844"/>
-        <location filename="../../qml/views/MainWindow.qml" line="845"/>
-        <location filename="../../qml/views/MainWindow.qml" line="848"/>
         <location filename="../../qml/views/MainWindow.qml" line="849"/>
-        <location filename="../../qml/views/MainWindow.qml" line="850"/>
-        <location filename="../../qml/views/MainWindow.qml" line="851"/>
-        <location filename="../../qml/views/MainWindow.qml" line="852"/>
+        <location filename="../../qml/views/MainWindow.qml" line="854"/>
+        <location filename="../../qml/views/MainWindow.qml" line="855"/>
+        <location filename="../../qml/views/MainWindow.qml" line="856"/>
+        <location filename="../../qml/views/MainWindow.qml" line="857"/>
+        <location filename="../../qml/views/MainWindow.qml" line="858"/>
+        <location filename="../../qml/views/MainWindow.qml" line="859"/>
+        <location filename="../../qml/views/MainWindow.qml" line="862"/>
+        <location filename="../../qml/views/MainWindow.qml" line="863"/>
+        <location filename="../../qml/views/MainWindow.qml" line="864"/>
+        <location filename="../../qml/views/MainWindow.qml" line="865"/>
+        <location filename="../../qml/views/MainWindow.qml" line="866"/>
         <source>Client</source>
         <translation>Client</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="767"/>
-        <location filename="../../qml/views/MainWindow.qml" line="778"/>
-        <location filename="../../qml/views/MainWindow.qml" line="788"/>
-        <location filename="../../qml/views/MainWindow.qml" line="835"/>
-        <location filename="../../qml/views/MainWindow.qml" line="845"/>
-        <location filename="../../qml/views/MainWindow.qml" line="852"/>
+        <location filename="../../qml/views/MainWindow.qml" line="781"/>
+        <location filename="../../qml/views/MainWindow.qml" line="792"/>
+        <location filename="../../qml/views/MainWindow.qml" line="802"/>
+        <location filename="../../qml/views/MainWindow.qml" line="849"/>
+        <location filename="../../qml/views/MainWindow.qml" line="859"/>
+        <location filename="../../qml/views/MainWindow.qml" line="866"/>
         <source>Unknown</source>
         <translation>Unknown</translation>
     </message>
@@ -1140,127 +1140,132 @@
         <translation>About</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="353"/>
+        <location filename="../../qml/views/MainWindow.qml" line="352"/>
+        <source>Recordings</source>
+        <translation>Recordings</translation>
+    </message>
+    <message>
+        <location filename="../../qml/views/MainWindow.qml" line="354"/>
         <source>About</source>
         <translation>About</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="441"/>
+        <location filename="../../qml/views/MainWindow.qml" line="442"/>
         <source>Login</source>
         <translation>Login</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="461"/>
+        <location filename="../../qml/views/MainWindow.qml" line="462"/>
         <source>Click to login</source>
         <translation>Click to login</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="476"/>
+        <location filename="../../qml/views/MainWindow.qml" line="477"/>
         <source>Account Settings</source>
         <translation>Account Settings</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="481"/>
+        <location filename="../../qml/views/MainWindow.qml" line="482"/>
         <source>WebClient URL not configured on the server</source>
         <translation>WebClient URL not configured on the server</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="490"/>
+        <location filename="../../qml/views/MainWindow.qml" line="491"/>
         <source>Logout</source>
         <translation>Logout</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="586"/>
+        <location filename="../../qml/views/MainWindow.qml" line="587"/>
         <source>Already connected, switched to existing window</source>
         <translation>Already connected, switched to existing window</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="591"/>
-        <location filename="../../qml/views/MainWindow.qml" line="632"/>
+        <location filename="../../qml/views/MainWindow.qml" line="592"/>
+        <location filename="../../qml/views/MainWindow.qml" line="633"/>
         <source>Connecting...</source>
         <translation>Connecting...</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="780"/>
-        <location filename="../../qml/views/MainWindow.qml" line="848"/>
+        <location filename="../../qml/views/MainWindow.qml" line="794"/>
+        <location filename="../../qml/views/MainWindow.qml" line="862"/>
         <source>Not Started</source>
         <translation>Not Started</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="782"/>
-        <location filename="../../qml/views/MainWindow.qml" line="849"/>
+        <location filename="../../qml/views/MainWindow.qml" line="796"/>
+        <location filename="../../qml/views/MainWindow.qml" line="863"/>
         <source>Starting</source>
         <translation>Starting</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="784"/>
-        <location filename="../../qml/views/MainWindow.qml" line="850"/>
+        <location filename="../../qml/views/MainWindow.qml" line="798"/>
+        <location filename="../../qml/views/MainWindow.qml" line="864"/>
         <source>Start Failed</source>
         <translation>Start Failed</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="786"/>
-        <location filename="../../qml/views/MainWindow.qml" line="851"/>
+        <location filename="../../qml/views/MainWindow.qml" line="800"/>
+        <location filename="../../qml/views/MainWindow.qml" line="865"/>
         <source>Restarting</source>
         <translation>Restarting</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="901"/>
+        <location filename="../../qml/views/MainWindow.qml" line="915"/>
         <source>MCP [%1]: Off</source>
         <translation>MCP [%1]: Off</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="903"/>
+        <location filename="../../qml/views/MainWindow.qml" line="917"/>
         <source>MCP [%1]: %2 client(s)</source>
         <translation>MCP [%1]: %2 client(s)</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="904"/>
+        <location filename="../../qml/views/MainWindow.qml" line="918"/>
         <source>MCP [%1]: Ready</source>
         <translation>MCP [%1]: Ready</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="925"/>
+        <location filename="../../qml/views/MainWindow.qml" line="939"/>
         <source>Click to configure MCP integration</source>
         <translation>Click to configure MCP integration</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="976"/>
+        <location filename="../../qml/views/MainWindow.qml" line="990"/>
         <source>Server Connection Error</source>
         <translation>Server Connection Error</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="984"/>
+        <location filename="../../qml/views/MainWindow.qml" line="998"/>
         <source>Upgrade Required</source>
         <translation>Upgrade Required</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="773"/>
-        <location filename="../../qml/views/MainWindow.qml" line="840"/>
+        <location filename="../../qml/views/MainWindow.qml" line="787"/>
+        <location filename="../../qml/views/MainWindow.qml" line="854"/>
         <source>Disconnected</source>
         <translation>Disconnected</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="774"/>
-        <location filename="../../qml/views/MainWindow.qml" line="841"/>
+        <location filename="../../qml/views/MainWindow.qml" line="788"/>
+        <location filename="../../qml/views/MainWindow.qml" line="855"/>
         <source>Connecting</source>
         <translation>Connecting</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="775"/>
-        <location filename="../../qml/views/MainWindow.qml" line="842"/>
+        <location filename="../../qml/views/MainWindow.qml" line="789"/>
+        <location filename="../../qml/views/MainWindow.qml" line="856"/>
         <source>Connected</source>
         <translation>Connected</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="776"/>
-        <location filename="../../qml/views/MainWindow.qml" line="843"/>
+        <location filename="../../qml/views/MainWindow.qml" line="790"/>
+        <location filename="../../qml/views/MainWindow.qml" line="857"/>
         <source>Connection Failed</source>
         <translation>Connection Failed</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="777"/>
-        <location filename="../../qml/views/MainWindow.qml" line="844"/>
+        <location filename="../../qml/views/MainWindow.qml" line="791"/>
+        <location filename="../../qml/views/MainWindow.qml" line="858"/>
         <source>Reconnecting</source>
         <translation>Reconnecting</translation>
     </message>
@@ -1897,6 +1902,162 @@
         <location filename="../../qml/pages/NotificationsPage.qml" line="1240"/>
         <source>Delete “%1”? Its delivery history will no longer be available.</source>
         <translation>Delete “%1”? Its delivery history will no longer be available.</translation>
+    </message>
+</context>
+<context>
+    <name>RecordingsPage</name>
+    <message>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="35"/>
+        <source>Completed</source>
+        <translation>Completed</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="36"/>
+        <source>Recording</source>
+        <translation>Recording</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="37"/>
+        <source>Failed</source>
+        <translation>Failed</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="38"/>
+        <source>Unknown</source>
+        <translation>Unknown</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="110"/>
+        <source>This recording has no media</source>
+        <translation>This recording has no media</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="123"/>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="419"/>
+        <source>Unknown device</source>
+        <translation>Unknown device</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="190"/>
+        <source>Recording deleted</source>
+        <translation>Recording deleted</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="225"/>
+        <source>Playback failed</source>
+        <translation>Playback failed</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="246"/>
+        <source>Please login to view recordings</source>
+        <translation>Please login to view recordings</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="252"/>
+        <source>Login</source>
+        <translation>Login</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="275"/>
+        <source>Session Recordings</source>
+        <translation>Session Recordings</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="282"/>
+        <source>Review, play, download and delete recorded remote sessions.</source>
+        <translation>Review, play, download and delete recorded remote sessions.</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="290"/>
+        <source>%1 recordings</source>
+        <translation>%1 recordings</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="297"/>
+        <source>Refresh</source>
+        <translation>Refresh</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="353"/>
+        <source>Loading recordings...</source>
+        <translation>Loading recordings...</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="354"/>
+        <source>No recorded sessions yet.</source>
+        <translation>No recorded sessions yet.</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="435"/>
+        <source>%1 · %2 · %3 · %4</source>
+        <translation>%1 · %2 · %3 · %4</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="451"/>
+        <source>Session: %1 · Device: %2</source>
+        <translation>Session: %1 · Device: %2</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="463"/>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="548"/>
+        <source>Play</source>
+        <translation>Play</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="472"/>
+        <source>Open externally</source>
+        <translation>Open externally</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="480"/>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="610"/>
+        <source>Delete</source>
+        <translation>Delete</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="495"/>
+        <source>Loading...</source>
+        <translation>Loading...</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="495"/>
+        <source>Load more</source>
+        <translation>Load more</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="507"/>
+        <source>Recording playback</source>
+        <translation>Recording playback</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="548"/>
+        <source>Pause</source>
+        <translation>Pause</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="562"/>
+        <source>Stop</source>
+        <translation>Stop</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="570"/>
+        <source>Close</source>
+        <translation>Close</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="580"/>
+        <source>Delete recording</source>
+        <translation>Delete recording</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="590"/>
+        <source>Delete the recording for “%1”? The media and preview will be removed.</source>
+        <translation>Delete the recording for “%1”? The media and preview will be removed.</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="604"/>
+        <source>Cancel</source>
+        <translation>Cancel</translation>
     </message>
 </context>
 <context>
@@ -3534,45 +3695,45 @@ Frame rate: %3 fps</translation>
 <context>
     <name>quickdesk::MainController</name>
     <message>
-        <location filename="../../src/controller/MainController.cpp" line="552"/>
+        <location filename="../../src/controller/MainController.cpp" line="555"/>
         <source>Device ID: %1
 Access Code: %2</source>
         <translation>Device ID: %1
 Access Code: %2</translation>
     </message>
     <message>
-        <location filename="../../src/controller/MainController.cpp" line="674"/>
+        <location filename="../../src/controller/MainController.cpp" line="682"/>
         <source>Connected</source>
         <translation>Connected</translation>
     </message>
     <message>
-        <location filename="../../src/controller/MainController.cpp" line="676"/>
+        <location filename="../../src/controller/MainController.cpp" line="684"/>
         <source>Connecting...</source>
         <translation>Connecting...</translation>
     </message>
     <message>
-        <location filename="../../src/controller/MainController.cpp" line="678"/>
+        <location filename="../../src/controller/MainController.cpp" line="686"/>
         <source>Disconnected</source>
         <translation>Disconnected</translation>
     </message>
     <message>
-        <location filename="../../src/controller/MainController.cpp" line="680"/>
+        <location filename="../../src/controller/MainController.cpp" line="688"/>
         <source>Connection failed</source>
         <translation>Connection failed</translation>
     </message>
     <message>
-        <location filename="../../src/controller/MainController.cpp" line="686"/>
+        <location filename="../../src/controller/MainController.cpp" line="694"/>
         <source>Reconnecting (attempt %1)</source>
         <translation>Reconnecting (attempt %1)</translation>
     </message>
     <message>
-        <location filename="../../src/controller/MainController.cpp" line="688"/>
+        <location filename="../../src/controller/MainController.cpp" line="696"/>
         <source>, retry in %1s</source>
         <translation>, retry in %1s</translation>
     </message>
     <message>
-        <location filename="../../src/controller/MainController.cpp" line="723"/>
-        <location filename="../../src/controller/MainController.cpp" line="727"/>
+        <location filename="../../src/controller/MainController.cpp" line="731"/>
+        <location filename="../../src/controller/MainController.cpp" line="735"/>
         <source>Never</source>
         <translation>Never</translation>
     </message>
@@ -3638,6 +3799,29 @@ Access Code: %2</translation>
         <location filename="../../src/manager/PresetManager.cpp" line="108"/>
         <source>Unable to connect to server for %1 minutes</source>
         <translation>Unable to connect to server for %1 minutes</translation>
+    </message>
+</context>
+<context>
+    <name>quickdesk::RecordingManager</name>
+    <message>
+        <location filename="../../src/manager/RecordingManager.cpp" line="39"/>
+        <source>Please login to view recordings</source>
+        <translation>Please login to view recordings</translation>
+    </message>
+    <message>
+        <location filename="../../src/manager/RecordingManager.cpp" line="199"/>
+        <source>Recording media URL is unavailable</source>
+        <translation>Recording media URL is unavailable</translation>
+    </message>
+    <message>
+        <location filename="../../src/manager/RecordingManager.cpp" line="324"/>
+        <source>Request failed (HTTP %1)</source>
+        <translation>Request failed (HTTP %1)</translation>
+    </message>
+    <message>
+        <location filename="../../src/manager/RecordingManager.cpp" line="325"/>
+        <source>Request failed</source>
+        <translation>Request failed</translation>
     </message>
 </context>
 <context>

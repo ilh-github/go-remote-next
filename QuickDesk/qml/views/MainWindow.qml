@@ -349,6 +349,7 @@ ApplicationWindow {
                 { icon: FluentIconGlyph.shieldGlyph, text: qsTr("Access Approvals") },
                 { icon: FluentIconGlyph.calendarGlyph, text: qsTr("Scheduled Tasks") },
                 { icon: FluentIconGlyph.mailGlyph, text: qsTr("Notifications") },
+                { icon: FluentIconGlyph.videoGlyph, text: qsTr("Recordings") },
                 { icon: FluentIconGlyph.settingsGlyph, text: qsTr("Settings") },
                 { icon: FluentIconGlyph.infoGlyph, text: qsTr("About") }
             ]
@@ -695,6 +696,19 @@ ApplicationWindow {
 
                 // Notifications Page
                 NotificationsPage {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    mainController: root.mainController
+
+                    onLoginRequested: loginDialog.open()
+
+                    onShowToast: function(message, toastType) {
+                        toast.show(message, toastType)
+                    }
+                }
+
+                // Recordings Page
+                RecordingsPage {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     mainController: root.mainController

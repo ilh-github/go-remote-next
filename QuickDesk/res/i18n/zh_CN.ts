@@ -1057,39 +1057,39 @@
         <translation>远程控制</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="352"/>
+        <location filename="../../qml/views/MainWindow.qml" line="353"/>
         <source>Settings</source>
         <translation>设置</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="767"/>
-        <location filename="../../qml/views/MainWindow.qml" line="798"/>
+        <location filename="../../qml/views/MainWindow.qml" line="781"/>
+        <location filename="../../qml/views/MainWindow.qml" line="812"/>
         <source>Host</source>
         <translation>主机</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="835"/>
-        <location filename="../../qml/views/MainWindow.qml" line="840"/>
-        <location filename="../../qml/views/MainWindow.qml" line="841"/>
-        <location filename="../../qml/views/MainWindow.qml" line="842"/>
-        <location filename="../../qml/views/MainWindow.qml" line="843"/>
-        <location filename="../../qml/views/MainWindow.qml" line="844"/>
-        <location filename="../../qml/views/MainWindow.qml" line="845"/>
-        <location filename="../../qml/views/MainWindow.qml" line="848"/>
         <location filename="../../qml/views/MainWindow.qml" line="849"/>
-        <location filename="../../qml/views/MainWindow.qml" line="850"/>
-        <location filename="../../qml/views/MainWindow.qml" line="851"/>
-        <location filename="../../qml/views/MainWindow.qml" line="852"/>
+        <location filename="../../qml/views/MainWindow.qml" line="854"/>
+        <location filename="../../qml/views/MainWindow.qml" line="855"/>
+        <location filename="../../qml/views/MainWindow.qml" line="856"/>
+        <location filename="../../qml/views/MainWindow.qml" line="857"/>
+        <location filename="../../qml/views/MainWindow.qml" line="858"/>
+        <location filename="../../qml/views/MainWindow.qml" line="859"/>
+        <location filename="../../qml/views/MainWindow.qml" line="862"/>
+        <location filename="../../qml/views/MainWindow.qml" line="863"/>
+        <location filename="../../qml/views/MainWindow.qml" line="864"/>
+        <location filename="../../qml/views/MainWindow.qml" line="865"/>
+        <location filename="../../qml/views/MainWindow.qml" line="866"/>
         <source>Client</source>
         <translation>客户端</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="767"/>
-        <location filename="../../qml/views/MainWindow.qml" line="778"/>
-        <location filename="../../qml/views/MainWindow.qml" line="788"/>
-        <location filename="../../qml/views/MainWindow.qml" line="835"/>
-        <location filename="../../qml/views/MainWindow.qml" line="845"/>
-        <location filename="../../qml/views/MainWindow.qml" line="852"/>
+        <location filename="../../qml/views/MainWindow.qml" line="781"/>
+        <location filename="../../qml/views/MainWindow.qml" line="792"/>
+        <location filename="../../qml/views/MainWindow.qml" line="802"/>
+        <location filename="../../qml/views/MainWindow.qml" line="849"/>
+        <location filename="../../qml/views/MainWindow.qml" line="859"/>
+        <location filename="../../qml/views/MainWindow.qml" line="866"/>
         <source>Unknown</source>
         <translation>未知</translation>
     </message>
@@ -1140,127 +1140,132 @@
         <translation>通知</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="353"/>
+        <location filename="../../qml/views/MainWindow.qml" line="352"/>
+        <source>Recordings</source>
+        <translation>录像</translation>
+    </message>
+    <message>
+        <location filename="../../qml/views/MainWindow.qml" line="354"/>
         <source>About</source>
         <translation>关于</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="441"/>
+        <location filename="../../qml/views/MainWindow.qml" line="442"/>
         <source>Login</source>
         <translation>登录</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="461"/>
+        <location filename="../../qml/views/MainWindow.qml" line="462"/>
         <source>Click to login</source>
         <translation>点击登录</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="476"/>
+        <location filename="../../qml/views/MainWindow.qml" line="477"/>
         <source>Account Settings</source>
         <translation>账号设置</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="481"/>
+        <location filename="../../qml/views/MainWindow.qml" line="482"/>
         <source>WebClient URL not configured on the server</source>
         <translation>服务端没有配置WebClient URL</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="490"/>
+        <location filename="../../qml/views/MainWindow.qml" line="491"/>
         <source>Logout</source>
         <translation>退出登录</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="586"/>
+        <location filename="../../qml/views/MainWindow.qml" line="587"/>
         <source>Already connected, switched to existing window</source>
         <translation>已连接，切换到现有窗口</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="591"/>
-        <location filename="../../qml/views/MainWindow.qml" line="632"/>
+        <location filename="../../qml/views/MainWindow.qml" line="592"/>
+        <location filename="../../qml/views/MainWindow.qml" line="633"/>
         <source>Connecting...</source>
         <translation>连接中...</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="780"/>
-        <location filename="../../qml/views/MainWindow.qml" line="848"/>
+        <location filename="../../qml/views/MainWindow.qml" line="794"/>
+        <location filename="../../qml/views/MainWindow.qml" line="862"/>
         <source>Not Started</source>
         <translation>未启动</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="782"/>
-        <location filename="../../qml/views/MainWindow.qml" line="849"/>
+        <location filename="../../qml/views/MainWindow.qml" line="796"/>
+        <location filename="../../qml/views/MainWindow.qml" line="863"/>
         <source>Starting</source>
         <translation>启动中</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="784"/>
-        <location filename="../../qml/views/MainWindow.qml" line="850"/>
+        <location filename="../../qml/views/MainWindow.qml" line="798"/>
+        <location filename="../../qml/views/MainWindow.qml" line="864"/>
         <source>Start Failed</source>
         <translation>启动失败</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="786"/>
-        <location filename="../../qml/views/MainWindow.qml" line="851"/>
+        <location filename="../../qml/views/MainWindow.qml" line="800"/>
+        <location filename="../../qml/views/MainWindow.qml" line="865"/>
         <source>Restarting</source>
         <translation>重启中</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="901"/>
+        <location filename="../../qml/views/MainWindow.qml" line="915"/>
         <source>MCP [%1]: Off</source>
         <translation>MCP [%1]：已关闭</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="903"/>
+        <location filename="../../qml/views/MainWindow.qml" line="917"/>
         <source>MCP [%1]: %2 client(s)</source>
         <translation>MCP [%1]：%2 个客户端</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="904"/>
+        <location filename="../../qml/views/MainWindow.qml" line="918"/>
         <source>MCP [%1]: Ready</source>
         <translation>MCP [%1]：就绪</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="925"/>
+        <location filename="../../qml/views/MainWindow.qml" line="939"/>
         <source>Click to configure MCP integration</source>
         <translation>点击配置MCP集成</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="976"/>
+        <location filename="../../qml/views/MainWindow.qml" line="990"/>
         <source>Server Connection Error</source>
         <translation>服务器连接错误</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="984"/>
+        <location filename="../../qml/views/MainWindow.qml" line="998"/>
         <source>Upgrade Required</source>
         <translation>要求升级</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="773"/>
-        <location filename="../../qml/views/MainWindow.qml" line="840"/>
+        <location filename="../../qml/views/MainWindow.qml" line="787"/>
+        <location filename="../../qml/views/MainWindow.qml" line="854"/>
         <source>Disconnected</source>
         <translation>未连接</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="774"/>
-        <location filename="../../qml/views/MainWindow.qml" line="841"/>
+        <location filename="../../qml/views/MainWindow.qml" line="788"/>
+        <location filename="../../qml/views/MainWindow.qml" line="855"/>
         <source>Connecting</source>
         <translation>连接中</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="775"/>
-        <location filename="../../qml/views/MainWindow.qml" line="842"/>
+        <location filename="../../qml/views/MainWindow.qml" line="789"/>
+        <location filename="../../qml/views/MainWindow.qml" line="856"/>
         <source>Connected</source>
         <translation>已连接</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="776"/>
-        <location filename="../../qml/views/MainWindow.qml" line="843"/>
+        <location filename="../../qml/views/MainWindow.qml" line="790"/>
+        <location filename="../../qml/views/MainWindow.qml" line="857"/>
         <source>Connection Failed</source>
         <translation>连接失败</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="777"/>
-        <location filename="../../qml/views/MainWindow.qml" line="844"/>
+        <location filename="../../qml/views/MainWindow.qml" line="791"/>
+        <location filename="../../qml/views/MainWindow.qml" line="858"/>
         <source>Reconnecting</source>
         <translation>重连中</translation>
     </message>
@@ -1897,6 +1902,162 @@
         <location filename="../../qml/pages/NotificationsPage.qml" line="1240"/>
         <source>Delete “%1”? Its delivery history will no longer be available.</source>
         <translation>删除“%1”吗？该通道的投递历史将不再可用。</translation>
+    </message>
+</context>
+<context>
+    <name>RecordingsPage</name>
+    <message>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="35"/>
+        <source>Completed</source>
+        <translation>已完成</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="36"/>
+        <source>Recording</source>
+        <translation>录制中</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="37"/>
+        <source>Failed</source>
+        <translation>失败</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="38"/>
+        <source>Unknown</source>
+        <translation>未知</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="110"/>
+        <source>This recording has no media</source>
+        <translation>此录像没有可用的媒体</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="123"/>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="419"/>
+        <source>Unknown device</source>
+        <translation>未知设备</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="190"/>
+        <source>Recording deleted</source>
+        <translation>录像已删除</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="225"/>
+        <source>Playback failed</source>
+        <translation>播放失败</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="246"/>
+        <source>Please login to view recordings</source>
+        <translation>请先登录再查看录像</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="252"/>
+        <source>Login</source>
+        <translation>登录</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="275"/>
+        <source>Session Recordings</source>
+        <translation>会话录像</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="282"/>
+        <source>Review, play, download and delete recorded remote sessions.</source>
+        <translation>查看、播放、下载和删除已录制的远程会话。</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="290"/>
+        <source>%1 recordings</source>
+        <translation>%1 条录像</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="297"/>
+        <source>Refresh</source>
+        <translation>刷新</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="353"/>
+        <source>Loading recordings...</source>
+        <translation>正在加载录像…</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="354"/>
+        <source>No recorded sessions yet.</source>
+        <translation>暂无录像记录。</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="435"/>
+        <source>%1 · %2 · %3 · %4</source>
+        <translation>%1 · %2 · %3 · %4</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="451"/>
+        <source>Session: %1 · Device: %2</source>
+        <translation>会话：%1 · 设备：%2</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="463"/>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="548"/>
+        <source>Play</source>
+        <translation>播放</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="472"/>
+        <source>Open externally</source>
+        <translation>外部打开</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="480"/>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="610"/>
+        <source>Delete</source>
+        <translation>删除</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="495"/>
+        <source>Loading...</source>
+        <translation>正在加载…</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="495"/>
+        <source>Load more</source>
+        <translation>加载更多</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="507"/>
+        <source>Recording playback</source>
+        <translation>录像回放</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="548"/>
+        <source>Pause</source>
+        <translation>暂停</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="562"/>
+        <source>Stop</source>
+        <translation>停止</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="570"/>
+        <source>Close</source>
+        <translation>关闭</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="580"/>
+        <source>Delete recording</source>
+        <translation>删除录像</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="590"/>
+        <source>Delete the recording for “%1”? The media and preview will be removed.</source>
+        <translation>删除“%1”的录像吗？媒体和预览都会被移除。</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/RecordingsPage.qml" line="604"/>
+        <source>Cancel</source>
+        <translation>取消</translation>
     </message>
 </context>
 <context>
@@ -3534,45 +3695,45 @@ Frame rate: %3 fps</source>
 <context>
     <name>quickdesk::MainController</name>
     <message>
-        <location filename="../../src/controller/MainController.cpp" line="552"/>
+        <location filename="../../src/controller/MainController.cpp" line="555"/>
         <source>Device ID: %1
 Access Code: %2</source>
         <translation>设备ID：%1
 访问码：%2</translation>
     </message>
     <message>
-        <location filename="../../src/controller/MainController.cpp" line="674"/>
+        <location filename="../../src/controller/MainController.cpp" line="682"/>
         <source>Connected</source>
         <translation>已连接</translation>
     </message>
     <message>
-        <location filename="../../src/controller/MainController.cpp" line="676"/>
+        <location filename="../../src/controller/MainController.cpp" line="684"/>
         <source>Connecting...</source>
         <translation>连接中...</translation>
     </message>
     <message>
-        <location filename="../../src/controller/MainController.cpp" line="678"/>
+        <location filename="../../src/controller/MainController.cpp" line="686"/>
         <source>Disconnected</source>
         <translation>未连接</translation>
     </message>
     <message>
-        <location filename="../../src/controller/MainController.cpp" line="680"/>
+        <location filename="../../src/controller/MainController.cpp" line="688"/>
         <source>Connection failed</source>
         <translation>连接失败</translation>
     </message>
     <message>
-        <location filename="../../src/controller/MainController.cpp" line="686"/>
+        <location filename="../../src/controller/MainController.cpp" line="694"/>
         <source>Reconnecting (attempt %1)</source>
         <translation>重连中（第 %1 次尝试）</translation>
     </message>
     <message>
-        <location filename="../../src/controller/MainController.cpp" line="688"/>
+        <location filename="../../src/controller/MainController.cpp" line="696"/>
         <source>, retry in %1s</source>
         <translation>，%1秒后重试</translation>
     </message>
     <message>
-        <location filename="../../src/controller/MainController.cpp" line="723"/>
-        <location filename="../../src/controller/MainController.cpp" line="727"/>
+        <location filename="../../src/controller/MainController.cpp" line="731"/>
+        <location filename="../../src/controller/MainController.cpp" line="735"/>
         <source>Never</source>
         <translation>从不</translation>
     </message>
@@ -3638,6 +3799,29 @@ Access Code: %2</source>
         <location filename="../../src/manager/PresetManager.cpp" line="108"/>
         <source>Unable to connect to server for %1 minutes</source>
         <translation>无法连接到服务器，已持续%1分钟</translation>
+    </message>
+</context>
+<context>
+    <name>quickdesk::RecordingManager</name>
+    <message>
+        <location filename="../../src/manager/RecordingManager.cpp" line="39"/>
+        <source>Please login to view recordings</source>
+        <translation>请先登录再查看录像</translation>
+    </message>
+    <message>
+        <location filename="../../src/manager/RecordingManager.cpp" line="199"/>
+        <source>Recording media URL is unavailable</source>
+        <translation>录像媒体地址不可用</translation>
+    </message>
+    <message>
+        <location filename="../../src/manager/RecordingManager.cpp" line="324"/>
+        <source>Request failed (HTTP %1)</source>
+        <translation>请求失败（HTTP %1）</translation>
+    </message>
+    <message>
+        <location filename="../../src/manager/RecordingManager.cpp" line="325"/>
+        <source>Request failed</source>
+        <translation>请求失败</translation>
     </message>
 </context>
 <context>

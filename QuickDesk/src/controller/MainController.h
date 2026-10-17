@@ -28,6 +28,7 @@
 #include "../manager/AccessApprovalManager.h"
 #include "../manager/ScheduledTaskManager.h"
 #include "../manager/NotificationManager.h"
+#include "../manager/RecordingManager.h"
 #include "../manager/UpdateManager.h"
 #include "../common/ProcessStatus.h"
 
@@ -58,6 +59,7 @@ class MainController : public QObject {
     Q_PROPERTY(AccessApprovalManager* accessApprovalManager READ accessApprovalManager CONSTANT)
     Q_PROPERTY(ScheduledTaskManager* scheduledTaskManager READ scheduledTaskManager CONSTANT)
     Q_PROPERTY(NotificationManager* notificationManager READ notificationManager CONSTANT)
+    Q_PROPERTY(RecordingManager* recordingManager READ recordingManager CONSTANT)
     
     // Host status
     Q_PROPERTY(ProcessStatus::Status hostProcessStatus READ hostProcessStatus NOTIFY hostProcessStatusChanged)
@@ -162,6 +164,7 @@ public:
     AccessApprovalManager* accessApprovalManager() const;
     ScheduledTaskManager* scheduledTaskManager() const;
     NotificationManager* notificationManager() const;
+    RecordingManager* recordingManager() const;
 
     // Host convenience properties
     QString deviceId() const;
@@ -292,6 +295,7 @@ private:
     std::unique_ptr<AccessApprovalManager> m_accessApprovalManager;
     std::unique_ptr<ScheduledTaskManager> m_scheduledTaskManager;
     std::unique_ptr<NotificationManager> m_notificationManager;
+    std::unique_ptr<RecordingManager> m_recordingManager;
     std::unique_ptr<DeviceRecorder> m_deviceRecorder;
     std::unique_ptr<RemoteFileManager> m_remoteFileManager;
     std::unique_ptr<WebSocketApiServer> m_wsApiServer;
