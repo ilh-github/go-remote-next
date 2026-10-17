@@ -1125,11 +1125,18 @@ trust layer，成功后同步返回并持久化 `WorkflowRunReport`；之后可�
 用 `POST /v1/workflow-runs/{run_id}/cancel` 取消。运行中取消会在步骤边界或当前
 WebSocket 请求处中止，并写入 `cancelled=true` 的报告。
 
+三类触发入口都可传 `callback_url`。配置 `QUICKDESK_CALLBACK_SECRET` 后，QuickDesk
+会 POST `workflow.run.completed` 或 `workflow.run.failed`，并带
+`X-QuickDesk-Timestamp`、`X-QuickDesk-Delivery-Id` 和
+`X-QuickDesk-Signature: hmac-sha1=<hex>`；签名原文为
+`timestamp + "." + raw_json_body`。回调当前只允许 HTTP，且是单次 best-effort；
+跨机器部署必须放在 TLS 反向代理后。
+
 `QUICKDESK_TRIGGER_TOKEN` 为空时接口关闭；每个进程一次只允许一条业务工作流运行，并继续
 受 `QUICKDESK_ALLOWED_DEVICES` 限制。HTTP 请求本身是同步执行，持久化 interval trigger 由
 后台 worker 执行。可选 `Idempotency-Key` 会把相同请求的第一次 `WorkflowRunReport`
-持久化并重放；相同 key 对应不同请求或仍在执行的请求返回 409。控制面事件订阅、出站回调、
-cron/日历和跨进程 worker 尚未实现。完整契约见
+持久化并重放；相同 key 对应不同请求或仍在执行的请求返回 409。控制面事件订阅、
+cron/日历、回调 outbox/重试和跨进程 worker 尚未实现。完整契约见
 `docs/dev/业务工作流HTTP触发器.md`。
 
 持久化触发器通过以下接口管理：

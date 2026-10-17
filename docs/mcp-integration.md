@@ -1131,6 +1131,13 @@ and cancel with `POST /v1/workflow-runs/{run_id}/cancel`. A running job is cance
 step boundary or by aborting the current WebSocket request, and its report has
 `cancelled=true`.
 
+All three trigger paths accept `callback_url`. When `QUICKDESK_CALLBACK_SECRET` is set,
+QuickDesk POSTs `workflow.run.completed` or `workflow.run.failed` with
+`X-QuickDesk-Timestamp`, `X-QuickDesk-Delivery-Id`, and
+`X-QuickDesk-Signature: hmac-sha1=<hex>`. The signed message is
+`timestamp + "." + raw_json_body`. Callbacks currently allow HTTP only and are a single
+best-effort delivery; remote receivers must sit behind a TLS reverse proxy.
+
 The trigger is disabled when `QUICKDESK_TRIGGER_TOKEN` is empty, allows one workflow run per
 process at a time, and still enforces `QUICKDESK_ALLOWED_DEVICES`. Requests are synchronous;
 persistent interval triggers are executed by a background worker. Control-plane event
@@ -1151,9 +1158,9 @@ POST   /v1/triggers/{trigger_id}/run
 A trigger stores the workflow, device, default overrides and an optional `interval_seconds`
 (60 seconds to 365 days). The HTTP transport worker claims at most one due trigger every five
 seconds, advances `next_run_at` before execution, and writes the last run ID/status back to the
-definition. Control-plane events, cron/calendar rules, cross-process queue recovery and HMAC
-callbacks remain future work; the current job worker is single-process and does not resume an
-interrupted queue after restart.
+definition. Control-plane events, cron/calendar rules, callback outbox/retries and cross-process
+queue recovery remain future work; the current job worker is single-process and does not resume
+an interrupted queue after restart.
 
 ---
 

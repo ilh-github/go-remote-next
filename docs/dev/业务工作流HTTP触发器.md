@@ -1,9 +1,9 @@
 # QuickDesk 业务工作流 HTTP 触发器
 
-> 状态（2026-10-17）：QD-610 第四阶段。业务系统可以保存 manual/interval trigger，
+> 状态（2026-10-17）：QD-610 第五阶段。业务系统可以保存 manual/interval trigger，
 > 通过独立 Bearer token 立即运行，并由 HTTP transport 的后台 worker 每 5 秒领取一次
-> 到期触发器。`Idempotency-Key` 已支持持久化重放；控制面事件订阅、出站回调、
-> 委托权限细分、cron/日历和跨进程 worker 仍未完成。
+> 到期触发器。`Idempotency-Key`、异步 job 和 HMAC 出站回调已支持；控制面事件订阅、
+> 委托权限细分、cron/日历、回调重试 outbox 和跨进程 worker 仍未完成。
 
 ## 1. 边界
 
@@ -44,12 +44,14 @@ quickdesk-mcp \
 QUICKDESK_TRANSPORT=http \
 QUICKDESK_WS_URL=ws://127.0.0.1:9600 \
 QUICKDESK_TRIGGER_TOKEN='a-separate-business-secret' \
+QUICKDESK_CALLBACK_SECRET='a-callback-signing-secret' \
 quickdesk-mcp
 ```
 
 `QUICKDESK_TRIGGER_TOKEN` 为空时两个业务入口都返回 404。它应与
 `QUICKDESK_TOKEN`、`QUICKDESK_READONLY_TOKEN` 分开配置，业务系统不应持有 QuickDesk
-的完整控制 token。
+的完整控制 token。`QUICKDESK_CALLBACK_SECRET` 只在配置 `callback_url` 时需要，
+用于签名出站回调，不能与 trigger token 复用。
 
 ## 3. 触发工作流
 
@@ -66,7 +68,8 @@ Content-Type: application/json
   "overrides": {
     "target": "C:\\reports\\daily.txt"
   },
-  "stop_on_failure": true
+  "stop_on_failure": true,
+  "callback_url": "http://127.0.0.1:8090/quickdesk/result"
 }
 ```
 
@@ -77,6 +80,7 @@ Content-Type: application/json
 | `device_id` | 是 | 要执行工作流的已连接设备；仍受 `QUICKDESK_ALLOWED_DEVICES` 限制 |
 | `overrides` | 否 | 传给 `replay_workflow` 的参数覆盖 |
 | `stop_on_failure` | 否 | 默认 `true`；安全失败不受该字段影响，永远终止 |
+| `callback_url` | 否 | 运行结束后接收签名回调的 HTTP URL；使用它时必须配置 `QUICKDESK_CALLBACK_SECRET` |
 
 成功时返回 `200` 和完整的 `WorkflowRunReport`，报告同时写入
 `~/.quickdesk/workflow-runs/{run_id}.json`。
@@ -150,7 +154,23 @@ Authorization: Bearer <QUICKDESK_TRIGGER_TOKEN>
 已取消的任务返回 `409`。当前队列容量为 32，worker 与同步触发、定时触发共用同一个
 单执行槽。
 
-## 5. 查询运行报告
+## 5. HMAC 回调
+
+同步、异步和持久化 trigger 都可在运行结束后向 `callback_url` POST JSON。回调头：
+
+```text
+X-QuickDesk-Event: workflow.run.completed | workflow.run.failed
+X-QuickDesk-Delivery-Id: <uuid>
+X-QuickDesk-Timestamp: <unix seconds>
+X-QuickDesk-Signature: hmac-sha1=<hex>
+```
+
+签名原文是 `timestamp + "." + raw_json_body`，算法为 HMAC-SHA1，密钥来自
+`QUICKDESK_CALLBACK_SECRET`。接收端应先校验时间窗口和签名，再处理事件；成功事件包含
+完整 `report`，失败事件包含 `error`。当前只允许 HTTP URL，跨机器部署必须把回调入口
+放在 TLS 反向代理后；当前是一次 best-effort 投递，没有持久 outbox 和自动重试。
+
+## 6. 查询运行报告
 
 ```http
 GET /v1/workflow-runs/{run_id}
@@ -160,7 +180,7 @@ Authorization: Bearer <QUICKDESK_TRIGGER_TOKEN>
 返回持久化的 `WorkflowRunReport`；不存在时返回 404。同步触发已经返回同一份报告，
 该接口用于业务系统保存 `run_id` 后补查或人工复盘。
 
-## 6. 持久化触发器
+## 7. 持久化触发器
 
 触发器定义写入 `~/.quickdesk/workflow-triggers/{trigger_id}.json`，保存：
 
@@ -189,7 +209,8 @@ POST   /v1/triggers/{trigger_id}/run
     "target": "C:\\reports\\hourly.txt"
   },
   "stop_on_failure": true,
-  "interval_seconds": 3600
+    "interval_seconds": 3600,
+    "callback_url": "http://127.0.0.1:8090/quickdesk/result"
 }
 ```
 
@@ -200,7 +221,7 @@ POST   /v1/triggers/{trigger_id}/run
 `POST /v1/triggers/{trigger_id}/run` 返回本次 `WorkflowRunReport`，同时把 run_id、
 completed/failed 和错误写回 trigger 定义。
 
-## 7. 安全
+## 8. 安全
 
 - 默认绑定 `127.0.0.1`。需要跨机器调用时，应放在 TLS 反向代理后面，不能直接暴露
   MCP HTTP 端口。
@@ -212,13 +233,14 @@ completed/failed 和错误写回 trigger 定义。
 - 同步请求会占用一个执行槽；业务系统应设置足够超时并处理 429。
 - 异步任务状态写入 `~/.quickdesk/workflow-jobs/{run_id}.json`，但当前 worker 不跨
   进程恢复中断的队列；重启后应重新提交未完成任务。
+- 回调只允许 HTTP，不允许直接在公网暴露；签名密钥必须由接收端独立保管。
 
-## 8. 尚未完成
+## 9. 尚未完成
 
 - 控制面事件订阅和 event-to-workflow 映射；
 - cron/日历定时规则；当前只有固定 interval；
 - 跨进程 worker、持久化队列恢复和公平调度；当前只支持单进程队列；
-- 运行完成后的 HMAC 出站回调；
+- 回调持久 outbox、重试、死信和投递确认；
 - Owner 委托 grant、最小权限范围和审计回传控制面。
 
 因此 QD-610 仍保持部分完成，不能把本接口描述成完整的业务流程引擎。
