@@ -1,17 +1,17 @@
 # 远端发布与上游 PR 清单
 
-**更新时间**: 2026-10-17
+**更新时间**: 2026-10-17 18:20 CST
 
 这份清单只记录本地验证完成后仍需远端写入的动作。当前机器上的 `git push`
 会被执行策略拒绝，因此以下步骤应在允许远端写入的环境中执行。
 
 ## 当前本地基线
 
-- fork 主干：本地 `dev`、`master` 指向同一最新提交；功能基线为 `eca3c8f`，
+- fork 主干：本地 `dev`、`master` 指向同一最新提交；代码基线为 `83d8caf`，
   已包含 QD-607 批量远控清场、QD-204 地址簿/设备分组、QD-508 Qt 录像回放页，
-  功能基线之后还有本清单维护提交
+  QD-215 Windows 发布依赖校验及本清单维护提交
 - fork 远端：`origin/dev`、`origin/master` 仍为 `f6651f0`；本地 `dev` 领先
-  `origin/dev` 226 个功能提交，另有清单文档提交，远端写入尚未完成
+  `origin/dev` 233 个提交（含本次清单对账），远端写入尚未完成
 - 功能分支：`codex/product-backlog` = `dea02f9`
 - 上游 QD-003 候选：`codex/upstream-cross-tab-coordination` = `6047615`（基于 `upstream/dev`）
 - 上游 QD-114 候选：`codex/upstream-qd-114-spki` = `13559e6`（基于 `upstream/dev`）
@@ -33,6 +33,9 @@
   `upstream/dev` 切分支，完成后 PR 合入 `dev`；Remoting 改动由维护者处理
 - 上游待办快照：10 个 open issue、4 个 open PR（#22、#23、#24、#25）；
   四个 PR 均为 MERGEABLE / UNSTABLE，且没有 reported checks
+- 上游待办融合口径：fork 自有缺口、旧 Go-Remote 差距、上游 open issue/PR/Roadmap
+  已统一落入 `docs/dev/QuickDesk功能总清单.md`；开发和上游 PR 顺序以其 3.1、3.2、
+  第 16、17 节为准
 - fork PR #1：<https://github.com/ilh-github/go-remote-next/pull/1>，
   OPEN / MERGEABLE / CLEAN，7 项检查全部成功
 - upstream PR #25：<https://github.com/barry-ran/QuickDesk/pull/25>
@@ -117,6 +120,9 @@
 - 本轮已加入 Windows 打包/发布校验脚本和负向回归；`version=4.2.9.0` 仍保留为
   未提交的验证版本。在 Windows 升级闭环确认前，不要把 `version` 当作正式发布版本
   盲目推送。
+- QD-214 已开始用 Windows 服务模式复现上传失败；当前在线 Host 为
+  `256983850`，下一步必须取得真实 `fileTransferError`、宿主日志和目录/磁盘/权限证据，
+  根因确认前不修改文件传输实现。
 
 ## 1. 推送前检查
 
