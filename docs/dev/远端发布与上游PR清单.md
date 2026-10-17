@@ -7,10 +7,11 @@
 
 ## 当前本地基线
 
-- fork 主干：本地 `dev`、`master` = `b283c7f`，已包含 QD-607 批量远控清场、
-  QD-204 地址簿/设备分组、QD-508 Qt 录像回放页及上游待办融合文档
+- fork 主干：本地 `dev`、`master` 指向同一最新提交；功能基线为 `eca3c8f`，
+  已包含 QD-607 批量远控清场、QD-204 地址簿/设备分组、QD-508 Qt 录像回放页，
+  功能基线之后还有本清单维护提交
 - fork 远端：`origin/dev`、`origin/master` 仍为 `f6651f0`；本地 `dev` 领先
-  `origin/dev` 225 个提交，远端写入尚未完成
+  `origin/dev` 226 个功能提交，另有清单文档提交，远端写入尚未完成
 - 功能分支：`codex/product-backlog` = `dea02f9`
 - 上游 QD-003 候选：`codex/upstream-cross-tab-coordination` = `6047615`（基于 `upstream/dev`）
 - 上游 QD-114 候选：`codex/upstream-qd-114-spki` = `13559e6`（基于 `upstream/dev`）
@@ -28,8 +29,10 @@
 - 上游基线：`barry-ran/QuickDesk` 的 `dev` / `master` = `f6651f0`
 - 上游维护口径：issue #21 已确认“持续维护、暂缓更新、重点偏 MCP”；贡献从
   `upstream/dev` 切分支，完成后 PR 合入 `dev`；Remoting 改动由维护者处理
-- 上游待办快照：10 个 open issue、4 个 open PR（#22、#23、#24、#25）
-- fork PR #1：<https://github.com/ilh-github/go-remote-next/pull/1>
+- 上游待办快照：10 个 open issue、4 个 open PR（#22、#23、#24、#25）；
+  四个 PR 均为 MERGEABLE / UNSTABLE，且没有 reported checks
+- fork PR #1：<https://github.com/ilh-github/go-remote-next/pull/1>，
+  OPEN / MERGEABLE / CLEAN，7 项检查全部成功
 - upstream PR #25：<https://github.com/barry-ran/QuickDesk/pull/25>
 - 上游 issue、PR、Roadmap 与本 fork 的融合矩阵：`docs/dev/QuickDesk功能总清单.md`
   第 16.2 节
@@ -97,6 +100,13 @@
 - QD-607 上游候选只含服务端、handler、测试和用户 API 文档 7 个文件；在 PR #25 基线上
   重新执行全量 Go 测试、`go vet`、`go build`、空库 `001_init.sql` 迁移和服务启动均通过。
   候选基线还没有 Web/Qt 计划任务页，所以客户端 kind 文案留在 fork，不强行塞进服务端 PR。
+- Windows 自动更新已在 Parallels Windows 11 中实测到安装前一步：4.2.8.0 基线已安装，
+  QuickDeskHost 服务 RUNNING；4.2.9.0 发布后客户端真实发现更新、下载完成并显示
+  “下载已通过校验”，下载器的 SHA-256 与服务端安装包一致。尚未点击“安装并重启”，
+  所以升级落盘、进程自动重启和服务重建仍不能标记完成。
+- 当前还有三项本轮验证产生的未提交工作树改动：`scripts/package_qd_win.bat`、
+  `scripts/publish_qd_win.bat` 和 `version=4.2.9.0`。在 Windows 升级闭环确认前，
+  不要把 `version` 当作正式发布版本盲目推送。
 
 ## 1. 推送前检查
 
