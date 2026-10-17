@@ -3,6 +3,7 @@ import RemotePage from '../views/RemotePage.vue'
 import DevicesPage from '../views/DevicesPage.vue'
 import RecordingsPage from '../views/RecordingsPage.vue'
 import SessionsPage from '../views/SessionsPage.vue'
+import AccessApprovalsPage from '../views/AccessApprovalsPage.vue'
 import NotificationsPage from '../views/NotificationsPage.vue'
 import ScheduledTasksPage from '../views/ScheduledTasksPage.vue'
 import WallPage from '../views/WallPage.vue'
@@ -17,6 +18,7 @@ const routes = [
   { path: '/devices', component: DevicesPage },
   { path: '/recordings', component: RecordingsPage },
   { path: '/sessions', component: SessionsPage },
+  { path: '/access-approvals', component: AccessApprovalsPage },
   { path: '/notifications', component: NotificationsPage },
   { path: '/scheduled-tasks', component: ScheduledTasksPage },
   { path: '/wall', component: WallPage },

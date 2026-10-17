@@ -246,6 +246,23 @@ class UserSync extends EventTarget {
       }))
       return
     }
+    if (
+      type === 'device.access_approval.requested'
+      || type === 'device.access_approval.decided'
+    ) {
+      if (!this._shouldApplyFrame(type, msg.server_rev)) return
+      const data = msg.data || {}
+      this.dispatchEvent(new CustomEvent('access-approval-changed', {
+        detail: {
+          type,
+          device_id: msg.device_id || data.device_id || '',
+          approval_id: Number(data.approval_id) || 0,
+          status: data.status || '',
+          data,
+        },
+      }))
+      return
+    }
 
     if (!this._shouldApplyFrame(type, msg.server_rev)) return
 

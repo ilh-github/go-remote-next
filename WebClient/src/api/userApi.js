@@ -447,6 +447,50 @@ class UserApi {
   }
 
   // ========================================================================
+  // Access approvals — the owner's second-factor decision surface. A pending
+  // request contains the controller identity and source IP, but never the
+  // access code or the one-time claim secret.
+  // ========================================================================
+
+  fetchAccessApprovals(deviceId, { status, limit } = {}) {
+    const params = new URLSearchParams()
+    if (status) params.set('status', status)
+    if (limit) params.set('limit', String(limit))
+    const q = params.toString()
+    return this._req(
+      'GET',
+      `/v1/me/devices/${encodeURIComponent(deviceId)}/access-approvals${q ? `?${q}` : ''}`,
+    )
+  }
+
+  fetchAccessApprovalSummary(deviceId, { since, limit } = {}) {
+    const params = new URLSearchParams()
+    if (since) params.set('since', since)
+    if (limit) params.set('limit', String(limit))
+    const q = params.toString()
+    return this._req(
+      'GET',
+      `/v1/me/devices/${encodeURIComponent(deviceId)}/access-approvals:summary${q ? `?${q}` : ''}`,
+    )
+  }
+
+  approveAccessApproval(deviceId, approvalId, reason) {
+    return this._req(
+      'POST',
+      `/v1/me/devices/${encodeURIComponent(deviceId)}/access-approvals/${encodeURIComponent(approvalId)}/approve`,
+      reason ? { reason } : {},
+    )
+  }
+
+  denyAccessApproval(deviceId, approvalId, reason) {
+    return this._req(
+      'POST',
+      `/v1/me/devices/${encodeURIComponent(deviceId)}/access-approvals/${encodeURIComponent(approvalId)}/deny`,
+      reason ? { reason } : {},
+    )
+  }
+
+  // ========================================================================
   // Scheduled tasks — owner-scoped control-plane actions. The server owns
   // schedule validation and execution; this client only creates, lists and
   // deletes rows so the concrete next_run_at remains authoritative.

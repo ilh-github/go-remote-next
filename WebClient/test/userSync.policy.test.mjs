@@ -135,3 +135,66 @@ test('scheduled task failure events trigger a task list refresh', () => {
     },
   })
 })
+
+test('access approval lifecycle events expose the affected device', () => {
+  userSync.stop()
+  const details = []
+  userSync.addEventListener(
+    'access-approval-changed',
+    (event) => { details.push(event.detail) },
+  )
+
+  userSync._onMessage({
+    data: JSON.stringify({
+      type: 'device.access_approval.requested',
+      server_rev: 5,
+      device_id: '731905482',
+      data: {
+        approval_id: 12,
+        client_ip: '203.0.113.7',
+        source: 'device_code',
+        expires_at: '2026-10-17T05:00:00Z',
+      },
+    }),
+  })
+  userSync._onMessage({
+    data: JSON.stringify({
+      type: 'device.access_approval.decided',
+      server_rev: 6,
+      device_id: '731905482',
+      data: {
+        approval_id: 12,
+        status: 'approved',
+        client_ip: '203.0.113.7',
+        source: 'device_code',
+      },
+    }),
+  })
+
+  assert.deepEqual(details, [
+    {
+      type: 'device.access_approval.requested',
+      device_id: '731905482',
+      approval_id: 12,
+      status: '',
+      data: {
+        approval_id: 12,
+        client_ip: '203.0.113.7',
+        source: 'device_code',
+        expires_at: '2026-10-17T05:00:00Z',
+      },
+    },
+    {
+      type: 'device.access_approval.decided',
+      device_id: '731905482',
+      approval_id: 12,
+      status: 'approved',
+      data: {
+        approval_id: 12,
+        status: 'approved',
+        client_ip: '203.0.113.7',
+        source: 'device_code',
+      },
+    },
+  ])
+})
