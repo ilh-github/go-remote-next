@@ -44,6 +44,7 @@
 - 上游维护口径：持续维护但暂缓更新，下一阶段重点偏 MCP；外部贡献从 `dev` 切分支，完成后合入 `dev`，维护者定期合入 `master`
 - Remoting 边界：`quickdesk-remoting` 需要编译整个 Chromium，涉及 Remoting 的改动优先向上游提需求，不要求贡献者本地编译
 - 当前功能基线：`74c7022`（QD-508 Qt 录像回放页）
+- 本次上游对账父提交：`3def9ce`；该提交已经包含上述功能与文档收口
 - 本轮合并：`2f61f8e`（QD-003 多标签控制与音频抢占）
 - 本轮功能：`a48d793`（QD-114 Qt/Windows 服务 SPKI 公网自托管兼容）
 - 本轮功能：`7c23f13`（QD-108 Qt 二次访问审批入口与实时消费）
@@ -73,13 +74,19 @@
 最近验证：
 
 - 上游核对：`upstream/dev` 与 `upstream/master` 均为 `f6651f0`；当前上游 open issues 10 个、open PR 4 个。
-- WebClient `npm test`：25/25 通过。
-- WebClient `npm run build`：通过，JS 348.48 kB，gzip 112.14 kB。
+- 清单统计：115 个唯一 QD ID；69 个 `[x]`、22 个 `[~]`、19 个 `[ ]`、
+  2 个 `[!]`、2 个 `[>]`、1 个 `[-]`。
+- 上游待办已全部映射到本清单：10 个 open issue、4 个 open PR、3 个未完成 Roadmap
+  项均有对应 QD、处理边界和上游贡献方式；上游已完成的 Roadmap 项只作为继承基线，
+  不重复开发。
+- WebClient `npm test`：29/29 通过。
+- WebClient `npm run build`：通过，JS 348.48 kB，gzip 112.80 kB。
 - Chrome 同源双标签实测：后开标签接管控制后，前一个标签释放控制；接管音频后，前一个标签释放音频。
 - QD-114 SPKI 纯 C++ 单测：通过；覆盖标准/URL-safe Base64、无 padding、重复项、
   非法项和 Chromium 参数构造。
 - QD-114 上游候选：`codex/upstream-qd-114-spki` = `13559e6`，基于 `upstream/dev`，
-  17 个文件；当前机器没有 CMake/Qt 开发环境，完整 Qt 构建和 Windows 安装器编译待补。
+  17 个文件；fork 侧 Qt 6.8.3 构建环境已可用，但该上游候选自身的完整 Qt 构建、
+  Windows 安装器编译和服务回归待补。
 - QD-005 功能提交：`cae77ff`。Qt 客户端已有启动后自动检查和每 6 小时复查、手动检查、
   更新提示、下载进度/取消、大小与 SHA-256 校验、可选版本推迟、强制更新、同源 API key
   下载和安装器启动；非同一 origin 的下载不会泄漏 API key。
@@ -371,6 +378,50 @@
 - 当前 open PR：#22、#23、#24、#25
 - 2026-10-17 复核：四个 PR 均显示 MERGEABLE，但 GitHub 分支没有 reported checks；
   不能把“MERGEABLE”写成 CI 已通过
+- 本次融合结论：当前上游没有“必须由本 fork 立即重复开发”的 open issue；真正需要决策的是
+  哪些工作作为独立小 PR 先贡献、哪些等 #25 合并后再拆、哪些只能向 Remoting 提需求。
+
+### 16.2 上游待办与本 fork 的统一决策矩阵
+
+这张表覆盖当前所有上游 open issue、open PR 和未完成 Roadmap 项。`现在做` 表示不依赖上游
+合并即可在 fork 完成；`等待` 表示上游已有实现或 PR，不能重复提交；`边界` 表示需要
+Remoting 或协议改造；`不重复` 表示上游已经具备，只需验证或回复 issue。
+
+| 上游项 | 本 fork 对应项 | 当前决定 | 交付方式 | 下一步 |
+|---|---|---|---|---|
+| #21 维护计划与参与方式 | QD-001、QD-910 | 立即执行 | `Upstream-Open` | 所有新功能从 `upstream/dev` 切最小分支；持续同步清单 |
+| #20 自托管 WSS 失败 | QD-114 | 双轨推进 | `UP-Ready` + `UP-Remoting` | Qt/Windows SPKI 先做独立 PR；真实 CertVerifier 交 Remoting |
+| #19 设备列表问题 | QD-212、QD-213、QD-214 | 拆分处理 | `UP-Ready` | 本机标识、访问码回源分别提；上传错误先做诊断，根因另立项 |
+| #18 连接历史 | QD-206 | 不重复实现 | `Upstream-Open` | 核验现有 WebClient/Qt 入口，整理版本证据后回复 issue |
+| #17 Auto Approve 失效 | QD-113 | 等待上游 | `UP-PR#22` | #22 合并后同步；不在 fork 重写第二套线程亲和性修复 |
+| #13 Linux 支持 | QD-318 | 暂缓 | `Upstream-Open` | 保留跨平台接口，不承诺当前迭代实现 |
+| #10 信令服务设备密钥信任 | QD-115 | 先设计 | `Upstream-Open` | 写威胁模型和安全边界，再决定是否改协议 |
+| #9 主机连接失败 | QD-216 | 先排障 | `Upstream-Open` | 收集 host/signaling/TLS 日志，确认可复现 bug 后再提单 |
+| #7 Windows Qt 插件启动失败 | QD-215 | 立即排障 | `UP-Ready` | Windows 实机复现安装包依赖，补回归和打包检查 |
+| #6 私密安全披露入口 | 安全流程 | 流程改进 | `Upstream-Open` | 推动 `SECURITY.md` 或私密披露渠道，不在公开 issue 贴利用细节 |
+| PR #22 自动审批线程亲和性 | QD-113 | 等待同步 | `UP-PR#22` | 合并后 cherry-pick，确认 base 是 `master` 时的回灌顺序 |
+| PR #23 会话录像与回放 | QD-501~509 | 等待同步 | `UP-PR#23` | 不重复提交；合并后回灌，Host 权威录制另走 Remoting |
+| PR #24 skill-host Windows 运行库 | QD-402、QD-609 | 等待同步 | `UP-PR#24` | 合并后同步，避免维护第二套 PATH/stderr 逻辑 |
+| PR #25 自托管控制面/OpenAPI/SDK | QD-101~110、201~211、501、601~608、801~808 | 等待审查 | `UP-PR#25` | 维护者要求时按 access/alerting/recording/ops/update 拆分 |
+| Roadmap: Address book & device groups | QD-204 | 立即排期 | `UP-Ready` | 先设计 owner-scoped 地址簿/分组 API，再分 Web/Qt 两阶段 |
+| Roadmap: Linux support | QD-318 | 暂缓 | `Upstream-Open` | 跟随上游，不把 Web 触摸或跨平台构建冒充 Linux 被控端 |
+| Roadmap: iOS / Android clients | QD-319 | 暂缓 | `Upstream-Open` | 当前 Web 触摸输入不等于原生客户端 |
+
+### 16.3 上游已完成能力的继承边界
+
+上游 README 的 `[x]` 表示“上游项目已经具备”，不等于本 fork 的产品入口、权限、测试和
+发布证据都已完成。以下能力不重复开发，只做 fork 侧验证和产品化补口：
+
+| 上游已完成能力 | 本 fork 处理 | 不能重复做什么 |
+|---|---|---|
+| Windows/macOS 远控主链路 | QD-301、QD-304、QD-705 | 不重写采集、编码、WebRTC 或输入注入 |
+| P2P、STUN、TURN | QD-803 | 不自研 NAT 穿透或 TURN 协议 |
+| 多标签多连接 | QD-313 | 不重新发明连接协议；只补控制/音频抢占和产品边界 |
+| 访问码自动刷新 | QD-213 | 不在 Qt 和 Web 各写一套不同回源逻辑 |
+| MCP、技能宿主、工具与安全确认 | QD-402、QD-609、QD-113 | 不复制 MCP 工具集；只在管理面和业务接入层扩展 |
+| 设备记忆、工作流、虚拟屏、隐私屏、文件传输、音频 | QD-203、QD-307、QD-308、QD-312、QD-401~405、QD-510 | 不另造媒体/文件通道；只补本 fork 的页面、审计和验收 |
+
+### 16.4 上游贡献状态的统一口径
 
 上游贡献状态：
 
@@ -382,7 +433,7 @@
 | `Fork-only` | 产品品牌、部署配置或本 fork 专属业务，不进入上游 |
 | `Upstream-Open` | 上游 issue/Roadmap 仍开放，当前 fork 可有本地实现，但需要单独拆 PR |
 
-### 16.2 上游 PR 映射
+### 16.5 上游 PR 映射
 
 | 上游项 | 状态 | 涉及 QD | 当前处理 | 后续动作 |
 |---|---|---|---|---|
@@ -391,7 +442,7 @@
 | PR #24 skill-host runtime path | OPEN，MERGEABLE，无 reported checks | QD-402、QD-609 | 本 fork 已包含 PATH/stderr 修复，和上游补丁同向 | 上游合并后同步回 fork，避免二套实现 |
 | PR #22 auto-approve thread affinity | OPEN，MERGEABLE，无 reported checks，基于 master | QD-113 | 本 fork 尚未重复实现 | 等 PR #22 合并后 cherry-pick；不要重复提交 issue #17 |
 
-### 16.3 上游 issue / Roadmap 映射
+### 16.6 上游 issue / Roadmap 映射
 
 | 上游项 | 类型 | 涉及 QD | 判断 | 动作 |
 |---|---|---|---|---|
@@ -406,7 +457,7 @@
 | #7 Windows 启动 Qt platform plugin 错误 | Packaging | QD-215 | Qt 插件/运行库打包问题 | 在 Windows 实机复现并补安装包回归 |
 | #6 私密安全披露入口 | Process | 安全流程 | 不是产品功能，但影响上游贡献可信度 | 推动 SECURITY.md 或私密披露渠道，不在公开 issue 贴利用细节 |
 
-### 16.4 上游 Roadmap 映射
+### 16.7 上游 Roadmap 映射
 
 | 上游 Roadmap | 当前 fork | 状态 | 备注 |
 |---|---|---|---|
@@ -454,7 +505,7 @@ QD-114 的上游候选已经单独准备：
 - 范围：SPKI 解析/校验与单测、Qt 设置页、Host/Client 子进程参数、
   Windows 服务安装参数、英文/中文部署文档
 - 验证：纯 C++ 单测通过、翻译 `.ts` XML 校验通过、`git diff --check` 通过
-- 未完成：Qt/CMake 构建、Inno Setup 编译、Windows 服务和真实 `wss://` 回归；
+- 未完成：该候选自身的完整 Qt 构建、Inno Setup 编译、Windows 服务和真实 `wss://` 回归；
   远端推送仍被策略拒绝，尚未创建 upstream PR
 
 QD-212 的上游候选已经单独准备：

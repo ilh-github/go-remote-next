@@ -7,7 +7,8 @@
 
 ## 当前本地基线
 
-- fork 主干：`dev` 已包含 `74c7022`（QD-508 Qt 录像回放页）
+- fork 主干：`dev` 已包含 QD-508 Qt 录像回放页及上游待办融合文档；具体 SHA 以
+  `git rev-parse HEAD` 为准
 - 功能分支：`codex/product-backlog` = `dea02f9`
 - 上游 QD-003 候选：`codex/upstream-cross-tab-coordination` = `6047615`（基于 `upstream/dev`）
 - 上游 QD-114 候选：`codex/upstream-qd-114-spki` = `13559e6`（基于 `upstream/dev`）
@@ -18,6 +19,8 @@
 - 上游基线：`barry-ran/QuickDesk` 的 `dev` / `master` = `f6651f0`
 - fork PR #1：<https://github.com/ilh-github/go-remote-next/pull/1>
 - upstream PR #25：<https://github.com/barry-ran/QuickDesk/pull/25>
+- 上游 issue、PR、Roadmap 与本 fork 的融合矩阵：`docs/dev/QuickDesk功能总清单.md`
+  第 16.2 节
 - 上游映射与 PR 拆分规则：`docs/dev/QuickDesk功能总清单.md` 第 16、17 节
 
 本地已经完成：
