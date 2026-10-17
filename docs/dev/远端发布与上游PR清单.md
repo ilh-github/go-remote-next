@@ -7,7 +7,7 @@
 
 ## 当前本地基线
 
-- fork 主干：本轮代码基线为 `9f7be0f`（QD-610 HMAC 结果回调）；本文件
+- fork 主干：本轮代码基线为 `2e09d5b`（QD-610 控制面事件触发器）；本文件
   后续 docs-only 提交可能让实际 HEAD 再前进，推送前仍以 `git rev-parse` 为准
 - fork 远端：`origin/dev`、`origin/master` 仍为 `f6651f0`；本地 `dev` 领先数量以
   `git rev-list --count origin/dev..dev` 为准，远端写入尚未完成
@@ -72,7 +72,8 @@
   `codex/upstream-qd-610-business-trigger` = `29c025d`，基于 QD-510 候选 `0a9ecd5`；
   `3f94911`、`e518194`、`e8ce807` 和 `9f7be0f` 已分别作为持久化 trigger、
   Idempotency-Key、异步任务队列/取消和 HMAC 回调增量叠加，候选代码 `55b2d8d`。
-  事件订阅、cron/日历、跨进程恢复和回调 outbox/重试仍留在 fork 后续阶段
+  `2e09d5b` 控制面事件订阅增量待同步到同一 stacked 候选；cron/日历、事件停机
+  补发、跨进程恢复和回调 outbox/重试仍留在 fork 后续阶段
 - fork PR #1：<https://github.com/ilh-github/go-remote-next/pull/1>，
   OPEN / MERGEABLE / CLEAN，7 项检查全部成功
 - upstream PR #25：<https://github.com/barry-ran/QuickDesk/pull/25>
