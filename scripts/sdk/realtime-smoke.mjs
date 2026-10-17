@@ -19,6 +19,9 @@
 //   QD_API_KEY      default qd-local-dev-key (HTTP only; the WS routes take no key)
 //   QD_IDENTIFIER / QD_PASSWORD   required
 //   QD_SMOKE_DEVICE                optional; makes the script trigger a real event
+//   QD_SMOKE_REMOTE_SESSION        set to 1 to drive a real client signaling
+//                                  session; the device must be online
+//   QD_SMOKE_ACCESS_CODE           access code for that session, default 135790
 //
 // Needs Node 22+: it uses the built-in WebSocket, so the script stays
 // dependency-free the way the HTTP smoke is.
@@ -264,6 +267,87 @@ check(bootstrapDone.type === 'bootstrap_done',
 
 // --- 4. events channel: a real event ----------------------------------------
 
+// A policy event alone does not prove the session lifecycle reaches the events
+// stream. When enabled, authenticate a real client signaling socket and verify
+// that its open/close transitions arrive with the same session id.
+let remoteSessionChecked = false;
+if (smokeDevice && process.env.QD_SMOKE_REMOTE_SESSION === '1') {
+  const accessCode = process.env.QD_SMOKE_ACCESS_CODE || '135790';
+  const clientId = `realtime-smoke-${Date.now()}`;
+  const verified = await call('POST',
+    `/v1/devices/${smokeDevice}/access-code:verify`, {
+      code: accessCode,
+      client_id: clientId,
+    });
+  check(verified.status === 200,
+    `POST access-code:verify: expected 200, got ${verified.status}`);
+  const signalToken = verified.json?.signal_token;
+  check(typeof signalToken === 'string' && signalToken !== '',
+    'POST access-code:verify returned no signal_token');
+
+  if (verified.status === 200 && typeof signalToken === 'string' && signalToken) {
+    const sessionSignal = openChannel(signalChannel.address);
+    await new Promise((resolve, reject) => {
+      sessionSignal.ws.addEventListener('open', resolve);
+      sessionSignal.ws.addEventListener('error', () => reject(new Error('connect failed')));
+    }).catch((err) => fatal('signal (remote session)', err.message));
+    sessionSignal.send({
+      type: 'auth',
+      signal_token: signalToken,
+      role: 'client',
+      device_id: smokeDevice,
+      client_id: clientId,
+    });
+    const signalAuth = await sessionSignal.next()
+      .catch((err) => fatal('signal (remote session)', err.message));
+    check(signalAuth.type === 'auth_ok',
+      `signal (remote session): first frame is "${signalAuth.type}", want auth_ok`);
+    const sessionId = signalAuth.session_id || '';
+    check(sessionId !== '', 'signal (remote session): auth_ok carried no session_id');
+
+    let started = null;
+    for (let i = 0; i < 15 && started === null; i++) {
+      const candidate = await events.next(1000).catch(() => null);
+      if (candidate?.type === 'remote_session.started' &&
+          candidate.data?.session_id === sessionId) {
+        started = candidate;
+      }
+    }
+    check(started !== null,
+      'events: no remote_session.started arrived for the real client socket');
+    if (started !== null) {
+      check(started.data?.device_id === smokeDevice,
+        `events: remote_session.started device_id is "${started.data?.device_id}"`);
+      check(started.data?.client_id === clientId,
+        `events: remote_session.started client_id is "${started.data?.client_id}"`);
+      check(started.data?.active === true,
+        'events: remote_session.started active is not true');
+    }
+
+    sessionSignal.close();
+
+    let ended = null;
+    for (let i = 0; i < 15 && ended === null; i++) {
+      const candidate = await events.next(1000).catch(() => null);
+      if (candidate?.type === 'remote_session.ended' &&
+          candidate.data?.session_id === sessionId) {
+        ended = candidate;
+      }
+    }
+    check(ended !== null,
+      'events: no remote_session.ended arrived after the client socket closed');
+    if (ended !== null) {
+      check(ended.data?.device_id === smokeDevice,
+        `events: remote_session.ended device_id is "${ended.data?.device_id}"`);
+      check(ended.data?.end_reason === 'disconnected',
+        `events: remote_session.ended end_reason is "${ended.data?.end_reason}"`);
+      check(ended.data?.active === false,
+        'events: remote_session.ended active is not false');
+    }
+    remoteSessionChecked = true;
+  }
+}
+
 // Nothing is published by an idle server, so the smoke makes one happen. A
 // recording is created and deleted again, which publishes recording.created and
 // recording.deleted and leaves nothing behind.
@@ -302,6 +386,9 @@ if (triggered) {
   }
 } else {
   console.log('note: set QD_SMOKE_DEVICE=<device_id> to also check a real event arriving');
+}
+if (smokeDevice && !remoteSessionChecked) {
+  console.log('note: set QD_SMOKE_REMOTE_SESSION=1 with an online device to check remote_session.started/ended');
 }
 
 // The WebClient updates its blocked-source list from this event, so pin the

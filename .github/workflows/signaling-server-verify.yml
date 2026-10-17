@@ -252,6 +252,13 @@ jobs:
             -admin-password "$ADMIN_PASSWORD" > /tmp/seed.out
           cat /tmp/seed.out
           grep -E '^QD_(IDENTIFIER|PASSWORD|SMOKE_DEVICE)=' /tmp/seed.out >> "$GITHUB_ENV"
+      - name: Run the realtime conformance smoke
+        # The remote-session leg needs the freshly seeded host to still be
+        # online. Later approval/offline checks intentionally remove presence,
+        # so this runs before them rather than at the end of the job.
+        env:
+          QD_SMOKE_REMOTE_SESSION: '1'
+        run: node scripts/sdk/realtime-smoke.mjs
       - name: Run the approval workflow through the generated Go client
         # This runs before the conformance smoke, and the ordering matters: the
         # smoke's host-offline check deletes the seeded device's heartbeat on
@@ -291,10 +298,6 @@ jobs:
             org.openapitools.client.examples.ApprovalFlow
       - name: Run the conformance smoke
         run: node scripts/sdk/openapi-smoke.mjs
-      - name: Run the realtime conformance smoke
-        # Same seeded account and device as the HTTP smoke; the WebSocket routes
-        # take their credentials in the first frame, not in the URL.
-        run: node scripts/sdk/realtime-smoke.mjs
       - name: Run the generated Go client
         # The same seeded account, driven through the committed Go client rather
         # than through curl: the smoke above proves the server matches the spec,
