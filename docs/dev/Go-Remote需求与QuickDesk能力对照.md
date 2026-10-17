@@ -1,5 +1,9 @@
 # Go-Remote 需求与 QuickDesk 能力对照
 
+> 历史迁移文档。Go-Remote 已不再作为需求来源、实现基线或后续开发目标。
+> 当前唯一功能清单和状态以
+> [`QuickDesk功能总清单.md`](./QuickDesk功能总清单.md) 为准；本文件只保留早期迁移对照背景。
+
 ## 1. 结论
 
 QuickDesk 已经覆盖了远程控制最核心、最难实现的画面、输入、编码、WebRTC、P2P/TURN
