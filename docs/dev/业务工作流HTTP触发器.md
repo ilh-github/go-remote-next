@@ -1,8 +1,8 @@
 # QuickDesk 业务工作流 HTTP 触发器
 
-> 状态（2026-10-17）：QD-610 的第一阶段。业务系统可以在本机通过独立 Bearer token
-> 触发已保存的 MCP 工作流，并同步取得持久化运行报告。定时触发、控制面事件订阅、
-> 出站回调、委托权限细分和异步任务队列仍未完成。
+> 状态（2026-10-17）：QD-610 第二阶段。业务系统可以保存 manual/interval trigger，
+> 通过独立 Bearer token 立即运行，并由 HTTP transport 的后台 worker 每 5 秒领取一次
+> 到期触发器。控制面事件订阅、出站回调、幂等键、委托权限细分和异步任务队列仍未完成。
 
 ## 1. 边界
 
@@ -103,7 +103,47 @@ Authorization: Bearer <QUICKDESK_TRIGGER_TOKEN>
 返回持久化的 `WorkflowRunReport`；不存在时返回 404。同步触发已经返回同一份报告，
 该接口用于业务系统保存 `run_id` 后补查或人工复盘。
 
-## 5. 安全
+## 5. 持久化触发器
+
+触发器定义写入 `~/.quickdesk/workflow-triggers/{trigger_id}.json`，保存：
+
+- 名称、工作流 ID、设备 ID；
+- 默认参数覆盖和 `stop_on_failure`；
+- 可选 `interval_seconds`；
+- `next_run_at`、上次运行 ID/状态/错误。
+
+管理接口：
+
+```http
+GET    /v1/triggers
+POST   /v1/triggers
+DELETE /v1/triggers/{trigger_id}
+POST   /v1/triggers/{trigger_id}/run
+```
+
+创建 interval trigger：
+
+```json
+{
+  "name": "每小时生成报表",
+  "workflow_id": "b7ca0a2f-0d4c-4f0c-9dbf-4a92e8a67d10",
+  "device_id": "device-1",
+  "overrides": {
+    "target": "C:\\reports\\hourly.txt"
+  },
+  "stop_on_failure": true,
+  "interval_seconds": 3600
+}
+```
+
+`interval_seconds` 范围是 60 秒到 365 天；省略时创建 manual trigger，只通过
+`POST /v1/triggers/{trigger_id}/run` 执行。到期领取会先推进 `next_run_at` 再执行，
+采用 at-most-once 语义；worker 一次只领取一条，并与手动触发共用同一个执行槽。
+
+`POST /v1/triggers/{trigger_id}/run` 返回本次 `WorkflowRunReport`，同时把 run_id、
+completed/failed 和错误写回 trigger 定义。
+
+## 6. 安全
 
 - 默认绑定 `127.0.0.1`。需要跨机器调用时，应放在 TLS 反向代理后面，不能直接暴露
   MCP HTTP 端口。
@@ -113,10 +153,10 @@ Authorization: Bearer <QUICKDESK_TRIGGER_TOKEN>
 - 工作流 ID 和 run ID 都经过 UUID 与路径逃逸校验。
 - 同步请求会占用一个执行槽；业务系统应设置足够超时并处理 429。
 
-## 6. 尚未完成
+## 7. 尚未完成
 
 - 控制面事件订阅和 event-to-workflow 映射；
-- 定时任务直接触发桌面工作流；
+- cron/日历定时规则；当前只有固定 interval；
 - 异步队列、取消、幂等键和跨进程 worker；
 - 运行完成后的 HMAC 出站回调；
 - Owner 委托 grant、最小权限范围和审计回传控制面。

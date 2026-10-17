@@ -1,6 +1,6 @@
 # QuickDesk 功能总清单
 
-> 最后对账：2026-10-17 22:56 CST。上游与 fork 状态都是动态的，实施前必须重新执行
+> 最后对账：2026-10-17 23:04 CST。上游与 fork 状态都是动态的，实施前必须重新执行
 > `git fetch --all --prune` 并核对 GitHub issue / PR。
 >
 > 本文件是 QuickDesk fork 后续产品开发的唯一功能清单。它合并三类输入：
@@ -43,7 +43,7 @@
 
 - 仓库：`go-remote-next`
 - 本地主分支：`dev`、`master`
-- 本地代码基线：`bca8149`（QD-610 业务工作流 HTTP trigger）；验证记录和清单的 docs-only
+- 本地代码基线：`3f94911`（QD-610 持久化触发器与 interval worker）；验证记录和清单的 docs-only
   提交位于其后，`dev` 与 `master` 保持同线
 - 远端 fork：`origin/dev` 仍为 `f6651f0`，本地 `dev` 尚未推送；领先数量以
   `git rev-list --count origin/dev..dev` 的实时值为准。远端写入恢复前不能把本地验收当成已发布
@@ -81,7 +81,7 @@
 
 最近验证：
 
-- 本轮代码提交：`bca8149`（QD-610 HTTP trigger）、`de88f07`（QD-506 Web 录像分块续传）、`001a76c`（QD-510 工作流核心）、`e688869`（访问码同步重试）、`5be14da`（SPAKE2 与传输错误码）、
+- 本轮代码提交：`3f94911`（QD-610 持久化/定时触发器）、`bca8149`（QD-610 HTTP trigger）、`de88f07`（QD-506 Web 录像分块续传）、`001a76c`（QD-510 工作流核心）、`e688869`（访问码同步重试）、`5be14da`（SPAKE2 与传输错误码）、
   `a982a10`（Windows 自动更新重启与缓存清理）、`c77dcae`（SQLite 轻量模式）、
   `64ab93a`（备份恢复与存储配额）、`37dd8aa`（Host 指标告警）、`3021ca9`
   （私密安全披露策略）、`3474203`（信令信任边界）；
@@ -331,9 +331,15 @@
   Clippy 零告警和 release 构建通过。定时触发、控制面事件订阅、幂等键、出站回调和委托
   权限仍未完成，QD-610 保持 `[~]`。
 - QD-610 上游 stacked 候选：`codex/upstream-qd-610-business-trigger` = `28af02c`，
-  基于 `codex/upstream-qd-510-workflow@0a9ecd5`；候选自身 23/23 测试、Clippy 和
+  基于 `codex/upstream-qd-510-workflow@0a9ecd5`；第一阶段候选自身 23/23 测试、Clippy 和
   `git diff --check upstream/dev...HEAD` 通过。候选保留通用 MCP HTTP trigger 和文档，
   不含 fork 清单、QD-506 或控制面业务记录。
+- QD-610 第二阶段功能提交：`3f94911`。新增 `~/.quickdesk/workflow-triggers/` JSON store、
+  `GET|POST /v1/triggers`、`DELETE /v1/triggers/{id}`、`POST /v1/triggers/{id}/run`；
+  触发器保存工作流、设备、默认参数和可选 60 秒~365 天 interval。HTTP worker 每 5 秒
+  最多领取一条到期触发器，执行前推进 `next_run_at`，执行后回写 run ID/status/error。
+  手动和定时触发共用单执行槽。MCP 全量 28/28、Clippy 零告警、release 构建通过。
+  cron/日历、事件订阅、幂等、异步队列、HMAC 回调和委托权限仍未完成，QD-610 保持 `[~]`。
 - QD-911 当前状态：上游 issue #6 仍 OPEN，GitHub API 返回
   `private-vulnerability-reporting.enabled=false`，维护者最新回复仍只是旧 release 链接。
   fork 与上游候选已新增根目录 `SECURITY.md`，覆盖支持版本、公开 issue 禁令、GitHub 私密
@@ -388,7 +394,7 @@
 | 验证/排障 | QD-216 主机连接失败 | `Upstream` issue #9 | 缺真实 host/signaling/TLS 日志，不能直接猜实现 | 先做支持 triage；能拆出确定 bug 后再进入实现 |
 | 安全设计 | QD-115 服务端设备密钥信任边界 | `Upstream` issue #10 / `Fork` | 威胁模型已完成：device_secret 不可逆，但明文 access_code + server token/审批使当前服务器仍是设备访问信任方；候选 `codex/upstream-qd-115-trust-model@1ca2543` 已准备 | 按文档分阶段推进 Host 身份密钥、Owner 签名 grant、Host 本地验证和恶意服务器 E2E；8 条验收项完成前保持 `[~]` |
 | 上游候选 | QD-911 私密安全披露入口 | `Upstream` issue #6 | fork 与独立候选已有 `SECURITY.md`，候选 `codex/upstream-qd-911-security@9862717` 直接基于 `upstream/dev`，只含 1 个文件；上游 issue 仍开放且 Private Vulnerability Reporting 仍 disabled | 远端写入恢复后推送并开 PR；维护者合并且启用私密报告后才转为 `[x]` |
-| 后续增强 | QD-610 业务工作流 | `Legacy` / `Fork` / `Upstream-Open` | QD-510 已完成录制/回放/报告；`bca8149` 已补本机 Bearer HTTP 业务触发和运行查询；stacked 候选 `28af02c` 已准备；定时、事件订阅、幂等、回调和委托权限仍缺 | 继续做不依赖外部凭据的业务编排 |
+| 后续增强 | QD-610 业务工作流 | `Legacy` / `Fork` / `Upstream-Open` | QD-510 已完成录制/回放/报告；`bca8149` 补 HTTP trigger；`3f94911` 补持久化 CRUD、固定 interval worker 与运行结果回写；事件、cron、幂等、回调和委托权限仍缺 | 继续做不依赖外部凭据的业务编排 |
 | 质量收口 | QD-906、QD-907、QD-908、QD-909 | `Legacy` / `Fork` | 真机矩阵、异常路径、2h+ 长稳、文件/剪贴板审计仍不完整 | 每完成一个主功能就补对应边界，不集中到最后一次性补测 |
 | 明确暂缓 | QD-318 Linux、QD-319 原生移动端 | `Upstream` Roadmap | 上游已列计划，当前 fork 不做实现承诺 | 保持接口和构建兼容，等上游方向明确后接 |
 | 明确不做 | RDP、重写 WebRTC/Remoting、多租户/SSO/计费、通用插件市场 | `Fork` 决策 | 与当前“复用成熟远控内核 + 补业务控制面”的路线冲突或收益不足 | 不进入待办池，除非用户重新定义产品目标 |
@@ -405,7 +411,7 @@ Roadmap 项放到同一条实施路径中。详细追溯仍以第 16 节为准�
 | 3 | 等 PR #25 基线 | QD-204 API/客户端、QD-607 服务端、QD-108 / QD-508 / QD-706 / QD-708 管理面、QD-005 客户端 | 这些能力依赖控制面、OpenAPI、录像或管理页基线；直接塞进 #25 会变成巨型 PR | 维护者确认 #25 合并或 stacked base；再按服务端/Web/Qt/更新拆 PR |
 | 4 | 跟踪上游已有 PR | PR #22 自动审批、#23 录像、#24 skill-host 运行库、#25 控制面 | 上游已有实现，重复开发只会制造分叉 | PR 合并后同步 `upstream/dev`，重跑受影响测试；删除重复本地实现 |
 | 5 | 提 Remoting 需求 | QD-002 Web 文件通道、QD-004 / QD-505 Host 权威录制、QD-007 图片剪贴板、QD-114 真实 CertVerifier、QD-214 Windows 用户上下文 | 必须改 Chromium Remoting 或宿主生命周期，维护者已明确这类改动由他处理 | 每项提交协议草案、权限边界、兼容性和验收用例；不在 fork 伪造第二套媒体链路 |
-| 6 | fork 自主增强 | QD-610 业务集成、QD-511 智能回放、QD-904 / QD-907 / QD-908 / QD-909 | QD-510 和 QD-610 的本机 HTTP 触发已落地；剩余业务编排仍缺定时、事件订阅、幂等和出站回调 | 有明确用户入口、失败路径和对应自动化或真机证据 |
+| 6 | fork 自主增强 | QD-610 业务集成、QD-511 智能回放、QD-904 / QD-907 / QD-908 / QD-909 | QD-510、HTTP trigger、持久化固定 interval trigger 已落地；剩余业务编排仍缺事件订阅、cron、幂等和出站回调 | 有明确用户入口、失败路径和对应自动化或真机证据 |
 | 7 | 暂缓跟随上游 | QD-318 Linux、QD-319 iOS/Android | 上游 Roadmap 已列出，本 fork 当前不承诺实现 | 保持接口和构建兼容；上游方向明确后再排期 |
 | 8 | 不进入待办 | RDP、重写 WebRTC/Remoting、多租户/SSO/计费、通用插件市场 | 与“复用成熟远控内核 + 补业务控制面”的路线冲突或收益不足 | 只有用户重新定义产品目标才重新评估 |
 
@@ -420,6 +426,44 @@ Private Vulnerability Reporting，后者等协议实现。当前继续做不依�
 回贡上游不等到 fork 全部做完再一次性提交。每个已经独立验收、能从 `upstream/dev`
 干净切出的主题都应立即形成最小 PR；依赖 PR #25 的功能只准备 stacked 候选，不继续
 扩大现有巨型 PR。
+
+### 3.3 上游待办融合后的回贡批次
+
+上游待办不是另一套产品路线，而是本清单的交付约束。当前上游 `dev` / `master` 都是
+`f6651f0`，有 10 个 open issue、4 个 open PR；其中 #22 基于 `master`，#23、#24、#25
+基于 `dev`，四个 PR 都是 `mergeable=true`、`mergeable_state=unstable`，不能把
+`unstable` 写成 CI 已通过。合并后的回贡顺序固定如下，避免重复实现或把 fork 整体
+塞成一个巨型 PR。
+
+| 批次 | 包含工作 | 当前动作 | 上游交付方式 | 明确不做 |
+|---|---|---|---|---|
+| U0 同步闸门 | PR #22 自动审批线程亲和性、#23 录像、#24 skill-host 运行库、#25 自托管控制面 | 先审查和同步上游已有 PR；本 fork 不重复实现 | `UP-PR#22` ~ `UP-PR#25` | 不把已有 PR 再写一遍，不抢跑 #25 控制面 |
+| U1 立即回贡 | QD-003、QD-114 SPKI、QD-212、QD-213、QD-214 SPAKE2/错误诊断、QD-215、QD-510、QD-610 通用触发器、QD-911、QD-115 文档 | 远端写入恢复后按主题各推一个最小分支；每次从 `upstream/dev`/PR 基线重切 | `UP-Ready` | 不带 fork 清单、品牌、部署地址或无关业务代码 |
+| U2 等 #25 基线 | QD-204、QD-607、QD-006、QD-604、QD-810、QD-005、QD-108/QD-508/QD-706/QD-708 管理面 | 先把 fork 功能做完整，保留 stacked 候选；#25 合并或维护者确认基线后 rebase | `UP-Stacked` | 不直接 cherry-pick 整个 fork 提交；不把服务端、Web、Qt 塞进同一个 PR |
+| U3 交 Remoting | QD-002、QD-004/QD-505、QD-007、QD-114 真实 CertVerifier、QD-214 Windows 用户上下文、QD-111/QD-408 所需的文件事件 | 写协议草案、权限边界、兼容性和验收用例，先向上游提需求 | `UP-Remoting` | 不重写媒体/输入链路，不在 fork 造第二套 RDP 或伪协议 |
+| U4 fork 产品层 | 业务系统专属 provider、委托权限策略、运营页面、品牌和部署配置；QD-610 中依赖具体业务凭据的部分 | 在 fork 主干完成产品化，通用底层抽成 U1/U2 的 PR | `Fork-only` | 不把私有业务规则伪装成上游通用能力 |
+| U5 质量底座 | QD-904、QD-906、QD-907、QD-908、QD-909、QD-910 | 每完成一个主功能同步补测试、真机或长稳证据；上游通用测试随后回贡 | `UP-Ready` 或 `Fork-only` | 不集中到最后补测，不用单次成功代替稳定性 |
+| U6 跟随上游 | QD-318 Linux、QD-319 原生移动端 | 保持接口和构建兼容，等待上游路线明确 | `Upstream-Open` | 不提前承诺实现，不把 Web 触摸或跨平台构建冒充原生客户端 |
+
+“现在要做”的 fork 工作按以下顺序执行：
+
+1. **QD-610 第三阶段**：先做 `Idempotency-Key`、异步运行队列/取消和 HMAC 出站回调，
+   再做控制面事件订阅、cron/日历和委托权限。前三项能从当前的通用 MCP trigger 候选
+   继续 stacked 回贡，后几项若绑定 fork 业务数据库则留在 `Fork-only`。
+2. **QD-511 智能回放**：补预录/后录屏幕 hash、状态不匹配暂停、OCR 关键词和人工接管；
+   通用部分在 QD-510 候选合并后回贡。
+3. **QD-907 异常路径**：按“协议错误、权限拒绝、重连耗尽、上传失败、设备离线”补
+   可重复的自动化或真机证据，避免把 Windows 上传根因误判成 WebClient 协议错误。
+4. **QD-904 / QD-908**：补 Web E2E、2 小时桌面长稳和几百路观看基线，作为发布门禁。
+5. **Remoting 需求单**：QD-002、QD-004/QD-505、QD-007、QD-114 根因和 QD-214 用户
+   上下文分别写清协议、权限、兼容性和验收标准，交给上游维护者评估。
+6. **#25 后置队列**：QD-204、QD-607、QD-006、QD-604、QD-810 和通用 Web/Qt 管理面
+   在 #25 合并/基线确认后按服务端、Web、Qt 拆分回贡。
+
+上游不合并时，fork 不会被阻塞：`fork dev` 继续作为我们的产品主干；每个 U1/U2 候选
+保持独立最小分支，按上游变化定期 rebase；上游合并后再把 `upstream/dev` 或
+`upstream/master` 合回 fork，删除重复实现并重跑受影响测试。不能让上游审查状态决定
+fork 是否能继续开发，也不能因为 fork 自己有实现就再次向 upstream 提交同一主题。
 
 ## 4. 账号、认证与安全
 
@@ -528,7 +572,7 @@ Private Vulnerability Reporting，后者等协议实现。当前继续做不依�
 | QD-607 | 计划任务 | `[~]` | 服务端、WebClient、Qt 管理页和重试已完成；`revoke_all_remote_sessions` 已补齐控制面批量清场（最多 200 台）。定时连接、广义批量 agent 指令及回执仍未做 |
 | QD-608 | OpenAPI 与生成 SDK | `[x]` | TypeScript/Go/Python/Java/C#/PHP/Kotlin 七套客户端已提交，生成器、freshness 门禁和 CI 编译覆盖全部语言；C# `dotnet build`、PHP Composer/lint、Kotlin Gradle build 通过 |
 | QD-609 | MCP / AI 自动化 | `[x]` | QuickDesk 原生能力；也是上游维护者当前最优先方向 |
-| QD-610 | 业务系统集成与自定义工作流 | `[~]` | `bca8149` 已提供独立 Bearer token 的本机 HTTP 工作流触发和运行报告查询，含设备白名单、trust/emergency、单并发和 429；定时触发、控制面事件订阅、幂等、出站回调和委托权限仍未完成 |
+| QD-610 | 业务系统集成与自定义工作流 | `[~]` | `bca8149` + `3f94911` 已提供 HTTP trigger、持久化 trigger CRUD、60 秒~365 天 interval worker、next_run_at at-most-once、运行结果回写、设备白名单、trust/emergency、单并发和 429；事件订阅、cron/日历、幂等、出站回调和委托权限仍未完成 |
 
 ## 10. Web、Qt 与管理端
 
@@ -629,16 +673,20 @@ Private Vulnerability Reporting，后者等协议实现。当前继续做不依�
 - 上游 Roadmap：Windows、macOS、P2P/TURN、MCP、虚拟屏、隐私屏、文件传输、音频、无人值守已完成；Linux、iOS/Android、Address book & device groups 未完成
 - `Multi-tab multi-connection` 在上游已勾选；QD-003 补的是同一设备多个标签的控制/音频互斥，不重复“多连接”能力
 - 维护计划：issue #21，维护者明确“持续维护、暂缓更新、重点偏 MCP、欢迎从 dev 切分支贡献、Remoting 改动由维护者处理”
-- 当前 open PR：#22、#23、#24、#25
-- 2026-10-17 22:09 复核：上游两个分支、10 个 open issue、4 个 open PR 均无漂移；四个
-  PR 显示 MERGEABLE / `mergeStateStatus=UNSTABLE`，但 GitHub
-  没有 reported checks；不能把“MERGEABLE”写成 CI 已通过
+- 当前 10 个 open issue：#6、#7、#9、#10、#13、#17、#18、#19、#20、#21；其中
+  #13、#18、#19、#20 是用户问题或 Roadmap 入口，#6、#10、#17、#19、#20 已经拆入
+  QD-911、QD-115、QD-113、QD-212/213/214、QD-114 的交付队列。
+- 当前 4 个 open PR：#22 自动审批线程亲和性（base `master`）、#23 录像与回放、
+  #24 skill-host Windows 运行库、#25 自托管控制面/OpenAPI/SDK（后三者 base `dev`）。
+- 2026-10-17 23:04 复核：上游两个分支仍为 `f6651f0`，10 个 open issue、4 个 open PR
+  无漂移；四个 PR 均为 `mergeable=true`、`mergeable_state=unstable`，不能把
+  “可合并”写成 CI 已通过。上游待办与本 fork 的统一拆解以 3.3 为执行入口。
 - QD-006 是通用自托管增强，但当前上游没有对应 open issue/PR；候选
   `codex/upstream-qd-006-sqlite@7758456` 已基于 PR #25 基线准备并验证，等 #25 合并后
   rebase 到 `upstream/dev` 才能开不重复 #25 提交的正式 PR。
 - 本次融合结论：当前上游没有“必须由本 fork 立即重复开发”的 open issue；真正需要决策的是
   哪些工作作为独立小 PR 先贡献、哪些等 #25 合并后再拆、哪些只能向 Remoting 提需求。
-  QD-608 已完成，立即实施顺序改为 QD-610；独立上游候选和 Remoting 需求按 3.2 的队列执行。
+  QD-608 已完成，立即实施顺序改为 QD-610；独立上游候选和 Remoting 需求按 3.3 的批次执行。
 
 ### 16.2 上游待办与本 fork 的统一决策矩阵
 

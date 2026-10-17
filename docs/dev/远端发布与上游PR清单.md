@@ -1,14 +1,14 @@
 # 远端发布与上游 PR 清单
 
-**更新时间**: 2026-10-17 22:09 CST
+**更新时间**: 2026-10-17 23:04 CST
 
 这份清单只记录本地验证完成后仍需远端写入的动作。当前机器上的 `git push`
 会被执行策略拒绝，因此以下步骤应在允许远端写入的环境中执行。
 
 ## 当前本地基线
 
-- fork 主干：本轮已验证主干为 `42ed9d0`（安全披露与信令信任边界清单）；本文件后续
-  docs-only 提交可能让实际 HEAD 再前进，推送前仍以 `git rev-parse` 为准
+- fork 主干：本轮代码基线为 `3f94911`（QD-610 持久化触发器与 interval worker）；本文件
+  后续 docs-only 提交可能让实际 HEAD 再前进，推送前仍以 `git rev-parse` 为准
 - fork 远端：`origin/dev`、`origin/master` 仍为 `f6651f0`；本地 `dev` 领先数量以
   `git rev-list --count origin/dev..dev` 为准，远端写入尚未完成
 - 功能分支：`codex/product-backlog` = `dea02f9`
@@ -55,7 +55,7 @@
   四个 PR 均为 MERGEABLE / UNSTABLE，且没有 reported checks
 - 上游待办融合口径：fork 自有缺口、旧 Go-Remote 差距、上游 open issue/PR/Roadmap
   已统一落入 `docs/dev/QuickDesk功能总清单.md`；开发和上游 PR 顺序以其 3.1、3.2、
-  第 16、17 节为准
+  3.3 和第 16、17 节为准
 - 本轮合并结论：上游没有新增必须立即重复开发的 issue；`QD-608`
   （C#/PHP/Kotlin 生成 SDK）和 `QD-510` MCP 工作流核心均已落地，下一步推进
   `QD-610` 业务集成；QD-510 可拆成独立上游候选，业务触发与回调留在 fork
@@ -70,7 +70,8 @@
 - QD-610 本机业务 HTTP trigger：fork 提交 `bca8149`，MCP 23/23、Clippy 和 release
   构建通过；通用 MCP 部分已准备 stacked 候选
   `codex/upstream-qd-610-business-trigger` = `28af02c`，基于 QD-510 候选 `0a9ecd5`；
-  定时、事件订阅和出站回调仍留在 fork 后续阶段
+  后续持久化 trigger 提交 `3f94911` 已叠加，候选代码推进到 `41efb39`；事件订阅、
+  cron/日历和出站回调仍留在 fork 后续阶段
 - fork PR #1：<https://github.com/ilh-github/go-remote-next/pull/1>，
   OPEN / MERGEABLE / CLEAN，7 项检查全部成功
 - upstream PR #25：<https://github.com/barry-ran/QuickDesk/pull/25>
