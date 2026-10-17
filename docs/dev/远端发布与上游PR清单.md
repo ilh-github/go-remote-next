@@ -7,7 +7,7 @@
 
 ## 当前本地基线
 
-- fork 主干：`dev` = `63c65d4`
+- fork 主干：`dev` = `e999b83`
 - 来源解封功能分支：`codex/source-unban` = `6230d16`
 - 上游最小候选：`codex/upstream-access-bans` = `7021ad1`
 - fork PR #1：<https://github.com/ilh-github/go-remote-next/pull/1>
@@ -18,7 +18,9 @@
 - 来源解封服务、房主/管理员接口、WebClient、Qt、管理后台；
 - OpenAPI、Go/TypeScript/Python/Java SDK 和 contract smoke；
 - 真 PostgreSQL 全量测试、两轮 live smoke、两个前端构建和四套 SDK 编译；
-- `dev` 合并以及只含服务端/契约的上游候选提交。
+- `dev` 合并以及只含服务端/契约的上游候选提交；
+- WebClient 实时消费 `device.access_policy.changed` 与 `remote_session.started/ended`，
+  封禁列表和会话列表不再依赖手动刷新，10 秒轮询只作兜底。
 
 ## 1. 推送前检查
 
@@ -34,7 +36,7 @@ git log --oneline --left-right origin/feat/signaling-control-plane...codex/upstr
 要求：
 
 - 除机器本地的 `.idea/` 外，工作树必须干净；
-- `dev` 必须包含 `63c65d4`；
+- `dev` 必须包含 `e999b83`；
 - `codex/upstream-access-bans` 必须包含 `7021ad1`；
 - 如果远端出现新提交，先合并或 rebase，再重跑受影响测试，不能强推覆盖他人工作。
 
