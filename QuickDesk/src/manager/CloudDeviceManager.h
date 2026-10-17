@@ -11,6 +11,8 @@
 #include <QVariantList>
 #include <QWebSocket>
 
+class QTimer;
+
 namespace quickdesk {
 
 class ServerManager;
@@ -36,7 +38,8 @@ class HostManager;
  *     user access_token. device_secret is delivered runtime by the
  *     Chromium host through native-messaging (HostManager); Qt holds it
  *     in memory only (§2.22 — never persisted).
- *   - Failure cases: silently retried on signaling reconnect; no UI alert.
+ *   - Failure cases: silently retried with bounded backoff while the host
+ *     remains ready; no UI alert.
  */
 class CloudDeviceManager : public QObject {
     Q_OBJECT
@@ -51,6 +54,10 @@ public:
                                   AuthManager* authManager,
                                   HostManager* hostManager,
                                   QObject* parent = nullptr);
+    CloudDeviceManager(ServerManager* serverManager,
+                       AuthManager* authManager,
+                       std::function<QString()> deviceSecretProvider,
+                       QObject* parent = nullptr);
     ~CloudDeviceManager() override;
 
     // My Devices
@@ -140,12 +147,16 @@ private:
 
     // Headers for device-level (Bearer device_secret) requests.
     QList<QPair<QString, QString>> deviceSecretHeaders() const;
+    QString currentDeviceSecret() const;
 
     void handleEventFrame(const QJsonObject& msg);
     void handleSnapshotFrame(const QJsonObject& msg);
     void applyDeviceEvent(const QString& type, const QJsonObject& data);
     void applyFavoriteEvent(const QString& type, const QJsonObject& data);
     void refreshDeviceAccessCode(const QString& deviceId, qint64 eventRev);
+    void scheduleAccessCodeSyncRetry(const QString& deviceId,
+                                     const QString& accessCode);
+    void clearAccessCodeSyncRetry();
     void sendAuthFrame();
     bool shouldApplyWireFrame(const QString& type, qint64 rev);
     void setSyncBootstrapComplete(bool connected);
@@ -155,6 +166,7 @@ private:
     ServerManager* m_serverManager;
     AuthManager*   m_authManager;
     HostManager*   m_hostManager;
+    std::function<QString()> m_deviceSecretProvider;
 
     QWebSocket* m_syncSocket = nullptr;
     bool m_syncAuthOk = false;
@@ -179,6 +191,12 @@ private:
     // `device.access_code.changed` realtime event.
     QString m_lastSyncedDeviceId;
     QString m_lastSyncedAccessCode;
+
+    QTimer* m_accessCodeSyncRetryTimer = nullptr;
+    QString m_pendingAccessCodeSyncDeviceId;
+    QString m_pendingAccessCodeSyncCode;
+    int m_accessCodeSyncRetryAttempt = 0;
+    bool m_accessCodeSyncInFlight = false;
 };
 
 } // namespace quickdesk

@@ -25,6 +25,8 @@ namespace {
 constexpr int kRequestTimeoutMs = 10000;
 constexpr int kSyncReconnectBaseMs = 1000;   // exponential backoff base
 constexpr int kSyncReconnectMaxMs  = 30000;  // cap
+constexpr int kAccessCodeSyncRetryBaseMs = 1000;
+constexpr int kAccessCodeSyncRetryMaxMs = 30000;
 }
 
 CloudDeviceManager::CloudDeviceManager(ServerManager* serverManager,
@@ -35,7 +37,26 @@ CloudDeviceManager::CloudDeviceManager(ServerManager* serverManager,
     , m_serverManager(serverManager)
     , m_authManager(authManager)
     , m_hostManager(hostManager)
+    , m_accessCodeSyncRetryTimer(new QTimer(this))
 {
+    m_accessCodeSyncRetryTimer->setSingleShot(true);
+    connect(m_accessCodeSyncRetryTimer, &QTimer::timeout, this, [this]() {
+        if (!m_pendingAccessCodeSyncDeviceId.isEmpty() &&
+            !m_pendingAccessCodeSyncCode.isEmpty()) {
+            syncAccessCode(m_pendingAccessCodeSyncDeviceId,
+                           m_pendingAccessCodeSyncCode);
+        }
+    });
+}
+
+CloudDeviceManager::CloudDeviceManager(
+    ServerManager* serverManager,
+    AuthManager* authManager,
+    std::function<QString()> deviceSecretProvider,
+    QObject* parent)
+    : CloudDeviceManager(serverManager, authManager, nullptr, parent)
+{
+    m_deviceSecretProvider = std::move(deviceSecretProvider);
 }
 
 CloudDeviceManager::~CloudDeviceManager()
@@ -53,6 +74,14 @@ QString CloudDeviceManager::httpBaseUrl() const
     return httpUrl;
 }
 
+QString CloudDeviceManager::currentDeviceSecret() const
+{
+    if (m_deviceSecretProvider) {
+        return m_deviceSecretProvider();
+    }
+    return m_hostManager ? m_hostManager->deviceSecret() : QString();
+}
+
 QList<QPair<QString, QString>> CloudDeviceManager::deviceSecretHeaders() const
 {
     QList<QPair<QString, QString>> headers;
@@ -66,12 +95,10 @@ QList<QPair<QString, QString>> CloudDeviceManager::deviceSecretHeaders() const
     headers.append(qMakePair(QStringLiteral("Content-Type"),
                               QStringLiteral("application/json")));
 
-    if (m_hostManager) {
-        QString secret = m_hostManager->deviceSecret();
-        if (!secret.isEmpty()) {
-            headers.append(qMakePair(QStringLiteral("Authorization"),
-                                      QStringLiteral("Bearer ") + secret));
-        }
+    const QString secret = currentDeviceSecret();
+    if (!secret.isEmpty()) {
+        headers.append(qMakePair(QStringLiteral("Authorization"),
+                                  QStringLiteral("Bearer ") + secret));
     }
     return headers;
 }
@@ -340,7 +367,7 @@ void CloudDeviceManager::refreshDeviceAccessCodeNow(
 void CloudDeviceManager::syncAccessCode(const QString& deviceId, const QString& accessCode)
 {
     if (deviceId.isEmpty() || accessCode.isEmpty()) return;
-    if (!m_hostManager || m_hostManager->deviceSecret().isEmpty()) {
+    if (currentDeviceSecret().isEmpty()) {
         LOG_WARN("[CloudDeviceManager] syncAccessCode skipped: no device_secret yet");
         return;
     }
@@ -352,10 +379,26 @@ void CloudDeviceManager::syncAccessCode(const QString& deviceId, const QString& 
     // (device_id, access_code) pair so we don't PUT 3× and publish 3
     // `device.access_code.changed` events in succession.
     if (deviceId == m_lastSyncedDeviceId && accessCode == m_lastSyncedAccessCode) {
+        clearAccessCodeSyncRetry();
         LOG_INFO("[CloudDeviceManager] syncAccessCode skipped (already up-to-date) for device={}",
                  deviceId.toStdString());
         return;
     }
+
+    if (m_accessCodeSyncInFlight &&
+        deviceId == m_pendingAccessCodeSyncDeviceId &&
+        accessCode == m_pendingAccessCodeSyncCode) {
+        return;
+    }
+
+    if (deviceId != m_pendingAccessCodeSyncDeviceId ||
+        accessCode != m_pendingAccessCodeSyncCode) {
+        m_accessCodeSyncRetryTimer->stop();
+        m_accessCodeSyncRetryAttempt = 0;
+    }
+    m_pendingAccessCodeSyncDeviceId = deviceId;
+    m_pendingAccessCodeSyncCode = accessCode;
+    m_accessCodeSyncInFlight = true;
 
     QUrl url(httpBaseUrl() + "v1/devices/" + deviceId + "/access-code");
     auto headers = deviceSecretHeaders();
@@ -372,13 +415,16 @@ void CloudDeviceManager::syncAccessCode(const QString& deviceId, const QString& 
         [this, deviceId, accessCode](int statusCode, const std::string& errorMsg, const std::string& data) {
             Q_UNUSED(data);
             QMetaObject::invokeMethod(this, [this, statusCode, errorMsg, deviceId, accessCode]() {
+                m_accessCodeSyncInFlight = false;
                 if (statusCode != 200 || !errorMsg.empty()) {
                     LOG_WARN("[CloudDeviceManager] syncAccessCode failed: status={} err={}",
                              statusCode, errorMsg);
+                    scheduleAccessCodeSyncRetry(deviceId, accessCode);
                     return;
                 }
                 LOG_INFO("[CloudDeviceManager] Access code synced for device: {}",
                          deviceId.toStdString());
+                clearAccessCodeSyncRetry();
                 // R28: remember what we successfully pushed so the next
                 // MainController signal with the same (deviceId, code)
                 // short-circuits in syncAccessCode().
@@ -398,6 +444,33 @@ void CloudDeviceManager::syncAccessCode(const QString& deviceId, const QString& 
                 }
             });
         });
+}
+
+void CloudDeviceManager::scheduleAccessCodeSyncRetry(
+    const QString& deviceId, const QString& accessCode)
+{
+    if (deviceId.isEmpty() || accessCode.isEmpty()) return;
+    if (currentDeviceSecret().isEmpty()) return;
+
+    m_pendingAccessCodeSyncDeviceId = deviceId;
+    m_pendingAccessCodeSyncCode = accessCode;
+
+    const int shift = std::min(m_accessCodeSyncRetryAttempt, 5);
+    const int delayMs = std::min(
+        kAccessCodeSyncRetryBaseMs << shift,
+        kAccessCodeSyncRetryMaxMs);
+    ++m_accessCodeSyncRetryAttempt;
+    LOG_INFO("[CloudDeviceManager] Retrying access_code sync in {} ms (attempt={})",
+             delayMs, m_accessCodeSyncRetryAttempt);
+    m_accessCodeSyncRetryTimer->start(delayMs);
+}
+
+void CloudDeviceManager::clearAccessCodeSyncRetry()
+{
+    m_accessCodeSyncRetryTimer->stop();
+    m_accessCodeSyncRetryAttempt = 0;
+    m_pendingAccessCodeSyncDeviceId.clear();
+    m_pendingAccessCodeSyncCode.clear();
 }
 
 // §2.6: POST /v1/devices/:device_id/access-code:verify.

@@ -7,6 +7,8 @@
 #include <QCoreApplication>
 #include <QElapsedTimer>
 #include <QEventLoop>
+#include <QTcpServer>
+#include <QTcpSocket>
 #include <QWebSocket>
 #include <QWebSocketServer>
 #include <QThread>
@@ -45,6 +47,26 @@ bool WaitUntil(const std::function<bool()>& predicate, int timeoutMs) {
     return predicate();
 }
 
+QByteArray HttpRequestBytes(QTcpSocket* socket, QByteArray& buffer) {
+    buffer += socket->readAll();
+    const qsizetype headerEnd = buffer.indexOf("\r\n\r\n");
+    if (headerEnd < 0) return {};
+
+    qsizetype contentLength = 0;
+    for (const QByteArray& line : buffer.left(headerEnd).split('\n')) {
+        const QByteArray trimmed = line.trimmed();
+        if (trimmed.toLower().startsWith("content-length:")) {
+            contentLength = trimmed.mid(trimmed.indexOf(':') + 1).trimmed().toLongLong();
+        }
+    }
+    const qsizetype requestSize = headerEnd + 4 + contentLength;
+    if (buffer.size() < requestSize) return {};
+
+    const QByteArray request = buffer.left(requestSize);
+    buffer.remove(0, requestSize);
+    return request;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -54,7 +76,10 @@ int main(int argc, char** argv) {
 
     quickdesk::ServerManager serverManager;
     quickdesk::AuthManager authManager(&serverManager);
-    quickdesk::CloudDeviceManager manager(&serverManager, &authManager, nullptr);
+    QString testDeviceSecret = QStringLiteral("test-device-secret");
+    quickdesk::CloudDeviceManager manager(
+        &serverManager, &authManager,
+        [&]() { return testDeviceSecret; });
 
     int requestCount = 0;
     QString requestedPath;
@@ -95,6 +120,63 @@ int main(int argc, char** argv) {
     Expect(manager.getDeviceAccessCode(QStringLiteral("123456789")) ==
                "654321",
            QStringLiteral("manager caches the refreshed access code"));
+
+    QTcpServer accessCodeServer;
+    Expect(accessCodeServer.listen(QHostAddress::LocalHost, 0),
+           QStringLiteral("access code retry server listens"));
+    int accessCodeRequestCount = 0;
+    QList<QByteArray> accessCodeRequests;
+    QObject::connect(
+        &accessCodeServer, &QTcpServer::newConnection,
+        [&]() {
+            while (QTcpSocket* socket = accessCodeServer.nextPendingConnection()) {
+                auto buffer = std::make_shared<QByteArray>();
+                QObject::connect(
+                    socket, &QTcpSocket::readyRead,
+                    [&, socket, buffer]() {
+                        const QByteArray request = HttpRequestBytes(socket, *buffer);
+                        if (request.isEmpty()) return;
+
+                        ++accessCodeRequestCount;
+                        accessCodeRequests.append(request);
+                        const bool firstAttempt = accessCodeRequestCount == 1;
+                        const QByteArray status = firstAttempt
+                            ? QByteArrayLiteral("503 Service Unavailable")
+                            : QByteArrayLiteral("200 OK");
+                        const QByteArray body = firstAttempt
+                            ? QByteArrayLiteral(R"({"code":"TEMPORARY"})")
+                            : QByteArrayLiteral(R"({"status":"ok"})");
+                        socket->write(
+                            "HTTP/1.1 " + status + "\r\n"
+                            "Content-Type: application/json\r\n"
+                            "Content-Length: " + QByteArray::number(body.size()) + "\r\n"
+                            "Connection: close\r\n\r\n" + body);
+                        socket->disconnectFromHost();
+                    });
+                QObject::connect(socket, &QTcpSocket::disconnected,
+                                 socket, &QObject::deleteLater);
+            }
+        });
+
+    serverManager.setServerUrl(
+        QStringLiteral("ws://127.0.0.1:%1").arg(accessCodeServer.serverPort()));
+    manager.syncAccessCode(QStringLiteral("256983850"), QStringLiteral("079898"));
+    Expect(WaitUntil([&]() { return accessCodeRequestCount >= 2; }, 5000),
+           QStringLiteral("failed access code sync is retried"));
+    Expect(accessCodeRequests.size() == 2,
+           QStringLiteral("successful retry stops further requests"));
+    for (const QByteArray& request : accessCodeRequests) {
+        Expect(request.contains("\"access_code\":\"079898\""),
+               QStringLiteral("every retry uploads the current access code"));
+        Expect(request.toLower().contains(
+                   "authorization: bearer test-device-secret"),
+               QStringLiteral("retry keeps device-secret authentication"));
+    }
+    manager.syncAccessCode(QStringLiteral("256983850"), QStringLiteral("079898"));
+    WaitUntil([&]() { return accessCodeRequestCount > 2; }, 150);
+    Expect(accessCodeRequestCount == 2,
+           QStringLiteral("successful sync remains de-duplicated"));
+    accessCodeServer.close();
 
     bool failed = false;
     QString failedDeviceId;
