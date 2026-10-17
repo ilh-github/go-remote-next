@@ -1057,39 +1057,39 @@
         <translation>Remote Control</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="351"/>
+        <location filename="../../qml/views/MainWindow.qml" line="352"/>
         <source>Settings</source>
         <translation>Settings</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="753"/>
-        <location filename="../../qml/views/MainWindow.qml" line="784"/>
+        <location filename="../../qml/views/MainWindow.qml" line="767"/>
+        <location filename="../../qml/views/MainWindow.qml" line="798"/>
         <source>Host</source>
         <translation>Host</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="821"/>
-        <location filename="../../qml/views/MainWindow.qml" line="826"/>
-        <location filename="../../qml/views/MainWindow.qml" line="827"/>
-        <location filename="../../qml/views/MainWindow.qml" line="828"/>
-        <location filename="../../qml/views/MainWindow.qml" line="829"/>
-        <location filename="../../qml/views/MainWindow.qml" line="830"/>
-        <location filename="../../qml/views/MainWindow.qml" line="831"/>
-        <location filename="../../qml/views/MainWindow.qml" line="834"/>
         <location filename="../../qml/views/MainWindow.qml" line="835"/>
-        <location filename="../../qml/views/MainWindow.qml" line="836"/>
-        <location filename="../../qml/views/MainWindow.qml" line="837"/>
-        <location filename="../../qml/views/MainWindow.qml" line="838"/>
+        <location filename="../../qml/views/MainWindow.qml" line="840"/>
+        <location filename="../../qml/views/MainWindow.qml" line="841"/>
+        <location filename="../../qml/views/MainWindow.qml" line="842"/>
+        <location filename="../../qml/views/MainWindow.qml" line="843"/>
+        <location filename="../../qml/views/MainWindow.qml" line="844"/>
+        <location filename="../../qml/views/MainWindow.qml" line="845"/>
+        <location filename="../../qml/views/MainWindow.qml" line="848"/>
+        <location filename="../../qml/views/MainWindow.qml" line="849"/>
+        <location filename="../../qml/views/MainWindow.qml" line="850"/>
+        <location filename="../../qml/views/MainWindow.qml" line="851"/>
+        <location filename="../../qml/views/MainWindow.qml" line="852"/>
         <source>Client</source>
         <translation>Client</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="753"/>
-        <location filename="../../qml/views/MainWindow.qml" line="764"/>
-        <location filename="../../qml/views/MainWindow.qml" line="774"/>
-        <location filename="../../qml/views/MainWindow.qml" line="821"/>
-        <location filename="../../qml/views/MainWindow.qml" line="831"/>
-        <location filename="../../qml/views/MainWindow.qml" line="838"/>
+        <location filename="../../qml/views/MainWindow.qml" line="767"/>
+        <location filename="../../qml/views/MainWindow.qml" line="778"/>
+        <location filename="../../qml/views/MainWindow.qml" line="788"/>
+        <location filename="../../qml/views/MainWindow.qml" line="835"/>
+        <location filename="../../qml/views/MainWindow.qml" line="845"/>
+        <location filename="../../qml/views/MainWindow.qml" line="852"/>
         <source>Unknown</source>
         <translation>Unknown</translation>
     </message>
@@ -1135,127 +1135,132 @@
         <translation>Scheduled Tasks</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="352"/>
+        <location filename="../../qml/views/MainWindow.qml" line="351"/>
+        <source>Notifications</source>
+        <translation>About</translation>
+    </message>
+    <message>
+        <location filename="../../qml/views/MainWindow.qml" line="353"/>
         <source>About</source>
         <translation>About</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="440"/>
+        <location filename="../../qml/views/MainWindow.qml" line="441"/>
         <source>Login</source>
         <translation>Login</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="460"/>
+        <location filename="../../qml/views/MainWindow.qml" line="461"/>
         <source>Click to login</source>
         <translation>Click to login</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="475"/>
+        <location filename="../../qml/views/MainWindow.qml" line="476"/>
         <source>Account Settings</source>
         <translation>Account Settings</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="480"/>
+        <location filename="../../qml/views/MainWindow.qml" line="481"/>
         <source>WebClient URL not configured on the server</source>
         <translation>WebClient URL not configured on the server</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="489"/>
+        <location filename="../../qml/views/MainWindow.qml" line="490"/>
         <source>Logout</source>
         <translation>Logout</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="585"/>
+        <location filename="../../qml/views/MainWindow.qml" line="586"/>
         <source>Already connected, switched to existing window</source>
         <translation>Already connected, switched to existing window</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="590"/>
-        <location filename="../../qml/views/MainWindow.qml" line="631"/>
+        <location filename="../../qml/views/MainWindow.qml" line="591"/>
+        <location filename="../../qml/views/MainWindow.qml" line="632"/>
         <source>Connecting...</source>
         <translation>Connecting...</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="766"/>
-        <location filename="../../qml/views/MainWindow.qml" line="834"/>
+        <location filename="../../qml/views/MainWindow.qml" line="780"/>
+        <location filename="../../qml/views/MainWindow.qml" line="848"/>
         <source>Not Started</source>
         <translation>Not Started</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="768"/>
-        <location filename="../../qml/views/MainWindow.qml" line="835"/>
+        <location filename="../../qml/views/MainWindow.qml" line="782"/>
+        <location filename="../../qml/views/MainWindow.qml" line="849"/>
         <source>Starting</source>
         <translation>Starting</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="770"/>
-        <location filename="../../qml/views/MainWindow.qml" line="836"/>
+        <location filename="../../qml/views/MainWindow.qml" line="784"/>
+        <location filename="../../qml/views/MainWindow.qml" line="850"/>
         <source>Start Failed</source>
         <translation>Start Failed</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="772"/>
-        <location filename="../../qml/views/MainWindow.qml" line="837"/>
+        <location filename="../../qml/views/MainWindow.qml" line="786"/>
+        <location filename="../../qml/views/MainWindow.qml" line="851"/>
         <source>Restarting</source>
         <translation>Restarting</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="887"/>
+        <location filename="../../qml/views/MainWindow.qml" line="901"/>
         <source>MCP [%1]: Off</source>
         <translation>MCP [%1]: Off</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="889"/>
+        <location filename="../../qml/views/MainWindow.qml" line="903"/>
         <source>MCP [%1]: %2 client(s)</source>
         <translation>MCP [%1]: %2 client(s)</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="890"/>
+        <location filename="../../qml/views/MainWindow.qml" line="904"/>
         <source>MCP [%1]: Ready</source>
         <translation>MCP [%1]: Ready</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="911"/>
+        <location filename="../../qml/views/MainWindow.qml" line="925"/>
         <source>Click to configure MCP integration</source>
         <translation>Click to configure MCP integration</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="962"/>
+        <location filename="../../qml/views/MainWindow.qml" line="976"/>
         <source>Server Connection Error</source>
         <translation>Server Connection Error</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="970"/>
+        <location filename="../../qml/views/MainWindow.qml" line="984"/>
         <source>Upgrade Required</source>
         <translation>Upgrade Required</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="759"/>
-        <location filename="../../qml/views/MainWindow.qml" line="826"/>
+        <location filename="../../qml/views/MainWindow.qml" line="773"/>
+        <location filename="../../qml/views/MainWindow.qml" line="840"/>
         <source>Disconnected</source>
         <translation>Disconnected</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="760"/>
-        <location filename="../../qml/views/MainWindow.qml" line="827"/>
+        <location filename="../../qml/views/MainWindow.qml" line="774"/>
+        <location filename="../../qml/views/MainWindow.qml" line="841"/>
         <source>Connecting</source>
         <translation>Connecting</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="761"/>
-        <location filename="../../qml/views/MainWindow.qml" line="828"/>
+        <location filename="../../qml/views/MainWindow.qml" line="775"/>
+        <location filename="../../qml/views/MainWindow.qml" line="842"/>
         <source>Connected</source>
         <translation>Connected</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="762"/>
-        <location filename="../../qml/views/MainWindow.qml" line="829"/>
+        <location filename="../../qml/views/MainWindow.qml" line="776"/>
+        <location filename="../../qml/views/MainWindow.qml" line="843"/>
         <source>Connection Failed</source>
         <translation>Connection Failed</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="763"/>
-        <location filename="../../qml/views/MainWindow.qml" line="830"/>
+        <location filename="../../qml/views/MainWindow.qml" line="777"/>
+        <location filename="../../qml/views/MainWindow.qml" line="844"/>
         <source>Reconnecting</source>
         <translation>Reconnecting</translation>
     </message>
@@ -1386,6 +1391,512 @@
         <location filename="../../qml/pages/McpConfigPopup.qml" line="386"/>
         <source>For remote access, use the LAN URL and allow the port through your firewall.</source>
         <translation>For remote access, use the LAN URL and allow the port through your firewall.</translation>
+    </message>
+</context>
+<context>
+    <name>NotificationWindowEditor</name>
+    <message>
+        <location filename="../../qml/pages/NotificationWindowEditor.qml" line="13"/>
+        <source>No recurring windows</source>
+        <translation>About</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationWindowEditor.qml" line="91"/>
+        <source>Recurring window %1</source>
+        <translation>Recurring window %1</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationWindowEditor.qml" line="98"/>
+        <source>Remove</source>
+        <translation>Remove</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationWindowEditor.qml" line="112"/>
+        <source>Start HH:MM</source>
+        <translation>Start HH:MM</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationWindowEditor.qml" line="120"/>
+        <source>End HH:MM</source>
+        <translation>End HH:MM</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationWindowEditor.qml" line="131"/>
+        <source>Mon</source>
+        <translation>Mon</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationWindowEditor.qml" line="132"/>
+        <source>Tue</source>
+        <translation>Tue</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationWindowEditor.qml" line="133"/>
+        <source>Wed</source>
+        <translation>Wed</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationWindowEditor.qml" line="134"/>
+        <source>Thu</source>
+        <translation>Thu</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationWindowEditor.qml" line="135"/>
+        <source>Fri</source>
+        <translation>Fri</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationWindowEditor.qml" line="136"/>
+        <source>Sat</source>
+        <translation>Sat</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationWindowEditor.qml" line="137"/>
+        <source>Sun</source>
+        <translation>Sun</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationWindowEditor.qml" line="164"/>
+        <source>Add window</source>
+        <translation>Add window</translation>
+    </message>
+</context>
+<context>
+    <name>NotificationsPage</name>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="39"/>
+        <source>Access denied</source>
+        <translation>Access denied</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="40"/>
+        <source>Access granted</source>
+        <translation>Access granted</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="41"/>
+        <source>Session started</source>
+        <translation>Session started</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="42"/>
+        <source>Online status</source>
+        <translation>Online status</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="43"/>
+        <source>Sustained offline</source>
+        <translation>Sustained offline</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="44"/>
+        <source>Device bound</source>
+        <translation>Device bound</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="45"/>
+        <source>Device unbound</source>
+        <translation>Device unbound</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="46"/>
+        <source>Approval requested</source>
+        <translation>Approval requested</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="47"/>
+        <source>Approval decided</source>
+        <translation>Approval decided</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="48"/>
+        <source>Scheduled task failed</source>
+        <translation>Scheduled task failed</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="49"/>
+        <source>Unknown event</source>
+        <translation>Unknown event</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="53"/>
+        <source>Device</source>
+        <translation>Device</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="92"/>
+        <source>Create notification channel</source>
+        <translation>Create notification channel</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="103"/>
+        <source>Edit notification channel</source>
+        <translation>Edit notification channel</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="110"/>
+        <source>Enter a webhook URL and select at least one event</source>
+        <translation>Enter a webhook URL and select at least one event</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="306"/>
+        <source>Notification channel created</source>
+        <translation>Notification channel created</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="312"/>
+        <source>Notification channel updated</source>
+        <translation>Notification channel updated</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="320"/>
+        <source>Notification channel deleted</source>
+        <translation>Notification channel deleted</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="325"/>
+        <source>Test notification queued</source>
+        <translation>Test notification queued</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="339"/>
+        <source>%1 failed deliveries requeued</source>
+        <translation>%1 failed deliveries requeued</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="347"/>
+        <source>A device has stayed offline past its alert threshold</source>
+        <translation>A device has stayed offline past its alert threshold</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="399"/>
+        <source>Please login to manage notifications</source>
+        <translation>Please login to manage notifications</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="405"/>
+        <source>Login</source>
+        <translation>Login</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="428"/>
+        <source>Notifications</source>
+        <translation>Notifications</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="435"/>
+        <source>Webhook channels, quiet hours and sustained-offline alerts.</source>
+        <translation>Webhook channels, quiet hours and sustained-offline alerts.</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="443"/>
+        <source>Retry all failed</source>
+        <translation>Retry all failed</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="451"/>
+        <source>Refresh</source>
+        <translation>Refresh</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="460"/>
+        <source>Create channel</source>
+        <translation>Create channel</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="523"/>
+        <source>Webhook channels</source>
+        <translation>Webhook channels</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="530"/>
+        <source>Subscribe to device access, presence, approvals and scheduled-task failures.</source>
+        <translation>Subscribe to device access, presence, approvals and scheduled-task failures.</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="538"/>
+        <source>%1 channels</source>
+        <translation>%1 channels</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="549"/>
+        <source>Loading notification channels...</source>
+        <translation>Loading notification channels...</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="550"/>
+        <source>No notification channels yet.</source>
+        <translation>No notification channels yet.</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="582"/>
+        <source>Unnamed channel</source>
+        <translation>Unnamed channel</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="590"/>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="871"/>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="1162"/>
+        <source>Enabled</source>
+        <translation>Enabled</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="590"/>
+        <source>Paused</source>
+        <translation>Paused</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="610"/>
+        <source>Pause</source>
+        <translation>Pause</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="610"/>
+        <source>Enable</source>
+        <translation>Enable</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="616"/>
+        <source>Test</source>
+        <translation>Test</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="623"/>
+        <source>Deliveries</source>
+        <translation>Deliveries</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="629"/>
+        <source>Edit</source>
+        <translation>Edit</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="635"/>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="1260"/>
+        <source>Delete</source>
+        <translation>Delete</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="668"/>
+        <source>Last triggered: %1</source>
+        <translation>Last triggered: %1</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="680"/>
+        <source>Each delivery is signed with %1 using %2.</source>
+        <translation>Each delivery is signed with %1 using %2.</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="717"/>
+        <source>Quiet hours</source>
+        <translation>Quiet hours</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="724"/>
+        <source>Pause every channel during a snooze or recurring window.</source>
+        <translation>Pause every channel during a snooze or recurring window.</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="733"/>
+        <source>Active</source>
+        <translation>Active</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="733"/>
+        <source>Inactive</source>
+        <translation>Inactive</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="745"/>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="888"/>
+        <source>Snooze until</source>
+        <translation>Snooze until</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="762"/>
+        <source>IANA timezone, for example Asia/Shanghai</source>
+        <translation>IANA timezone, for example Asia/Shanghai</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="769"/>
+        <source>No recurring quiet windows</source>
+        <translation>No recurring quiet windows</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="779"/>
+        <source>Save quiet hours</source>
+        <translation>Save quiet hours</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="786"/>
+        <source>Clear</source>
+        <translation>Clear</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="797"/>
+        <source>Active until %1</source>
+        <translation>Active until %1</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="831"/>
+        <source>Sustained offline alerts</source>
+        <translation>Sustained offline alerts</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="838"/>
+        <source>Alert through the channels above after a device stays offline past the threshold.</source>
+        <translation>Alert through the channels above after a device stays offline past the threshold.</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="848"/>
+        <source>In maintenance</source>
+        <translation>In maintenance</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="877"/>
+        <source>After minutes</source>
+        <translation>After minutes</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="883"/>
+        <source>Repeat minutes (0 = once)</source>
+        <translation>Repeat minutes (0 = once)</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="910"/>
+        <source>Maintenance timezone</source>
+        <translation>Maintenance timezone</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="917"/>
+        <source>No maintenance windows</source>
+        <translation>No maintenance windows</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="927"/>
+        <source>Save offline alert</source>
+        <translation>Save offline alert</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="935"/>
+        <source>Reset</source>
+        <translation>Reset</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="947"/>
+        <source>Offline since %1</source>
+        <translation>Offline since %1</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="983"/>
+        <source>Delivery history</source>
+        <translation>Delivery history</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="990"/>
+        <source>%1 · %2 unacknowledged</source>
+        <translation>%1 · %2 unacknowledged</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="1000"/>
+        <source>Reload</source>
+        <translation>Reload</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="1007"/>
+        <source>Retry failed</source>
+        <translation>Retry failed</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="1014"/>
+        <source>Close</source>
+        <translation>Close</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="1024"/>
+        <source>Loading delivery history...</source>
+        <translation>Loading delivery history...</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="1025"/>
+        <source>No deliveries for this channel.</source>
+        <translation>No deliveries for this channel.</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="1062"/>
+        <source>Unknown</source>
+        <translation>Unknown</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="1080"/>
+        <source>%1 · attempts %2 · queued %3</source>
+        <translation>%1 · attempts %2 · queued %3</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="1082"/>
+        <source>Account event</source>
+        <translation>Account event</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="1103"/>
+        <source>Acknowledged %1</source>
+        <translation>Acknowledged %1</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="1113"/>
+        <source>Retry</source>
+        <translation>Retry</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="1124"/>
+        <source>Acknowledge</source>
+        <translation>Acknowledge</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="1141"/>
+        <source>Notification channel</source>
+        <translation>Notification channel</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="1157"/>
+        <source>Channel name</source>
+        <translation>Channel name</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="1178"/>
+        <source>Leave blank to keep the stored secret</source>
+        <translation>Leave blank to keep the stored secret</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="1179"/>
+        <source>Optional signing secret</source>
+        <translation>Optional signing secret</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="1183"/>
+        <source>Events</source>
+        <translation>Events</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="1213"/>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="1254"/>
+        <source>Cancel</source>
+        <translation>Cancel</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="1219"/>
+        <source>Save</source>
+        <translation>Save</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="1230"/>
+        <source>Delete notification channel</source>
+        <translation>Delete notification channel</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="1240"/>
+        <source>Delete “%1”? Its delivery history will no longer be available.</source>
+        <translation>Delete “%1”? Its delivery history will no longer be available.</translation>
     </message>
 </context>
 <context>
@@ -3023,47 +3534,102 @@ Frame rate: %3 fps</translation>
 <context>
     <name>quickdesk::MainController</name>
     <message>
-        <location filename="../../src/controller/MainController.cpp" line="549"/>
+        <location filename="../../src/controller/MainController.cpp" line="552"/>
         <source>Device ID: %1
 Access Code: %2</source>
         <translation>Device ID: %1
 Access Code: %2</translation>
     </message>
     <message>
-        <location filename="../../src/controller/MainController.cpp" line="666"/>
+        <location filename="../../src/controller/MainController.cpp" line="674"/>
         <source>Connected</source>
         <translation>Connected</translation>
     </message>
     <message>
-        <location filename="../../src/controller/MainController.cpp" line="668"/>
+        <location filename="../../src/controller/MainController.cpp" line="676"/>
         <source>Connecting...</source>
         <translation>Connecting...</translation>
     </message>
     <message>
-        <location filename="../../src/controller/MainController.cpp" line="670"/>
+        <location filename="../../src/controller/MainController.cpp" line="678"/>
         <source>Disconnected</source>
         <translation>Disconnected</translation>
     </message>
     <message>
-        <location filename="../../src/controller/MainController.cpp" line="672"/>
+        <location filename="../../src/controller/MainController.cpp" line="680"/>
         <source>Connection failed</source>
         <translation>Connection failed</translation>
     </message>
     <message>
-        <location filename="../../src/controller/MainController.cpp" line="678"/>
+        <location filename="../../src/controller/MainController.cpp" line="686"/>
         <source>Reconnecting (attempt %1)</source>
         <translation>Reconnecting (attempt %1)</translation>
     </message>
     <message>
-        <location filename="../../src/controller/MainController.cpp" line="680"/>
+        <location filename="../../src/controller/MainController.cpp" line="688"/>
         <source>, retry in %1s</source>
         <translation>, retry in %1s</translation>
     </message>
     <message>
-        <location filename="../../src/controller/MainController.cpp" line="715"/>
-        <location filename="../../src/controller/MainController.cpp" line="719"/>
+        <location filename="../../src/controller/MainController.cpp" line="723"/>
+        <location filename="../../src/controller/MainController.cpp" line="727"/>
         <source>Never</source>
         <translation>Never</translation>
+    </message>
+</context>
+<context>
+    <name>quickdesk::NotificationManager</name>
+    <message>
+        <location filename="../../src/manager/NotificationManager.cpp" line="57"/>
+        <source>Please login to manage notification channels</source>
+        <translation>Host Information</translation>
+    </message>
+    <message>
+        <location filename="../../src/manager/NotificationManager.cpp" line="121"/>
+        <source>Please login to create notification channels</source>
+        <translation>Please login to create notification channels</translation>
+    </message>
+    <message>
+        <location filename="../../src/manager/NotificationManager.cpp" line="129"/>
+        <location filename="../../src/manager/NotificationManager.cpp" line="181"/>
+        <source>Enter a webhook URL and select at least one event</source>
+        <translation>Enter a webhook URL and select at least one event</translation>
+    </message>
+    <message>
+        <location filename="../../src/manager/NotificationManager.cpp" line="313"/>
+        <location filename="../../src/manager/NotificationManager.cpp" line="358"/>
+        <source>Please login to manage notification quiet hours</source>
+        <translation>Please login to manage notification quiet hours</translation>
+    </message>
+    <message>
+        <location filename="../../src/manager/NotificationManager.cpp" line="409"/>
+        <source>Select a device to configure offline alerts</source>
+        <translation>Select a device to configure offline alerts</translation>
+    </message>
+    <message>
+        <location filename="../../src/manager/NotificationManager.cpp" line="410"/>
+        <source>Please login to manage offline alerts</source>
+        <translation>Please login to manage offline alerts</translation>
+    </message>
+    <message>
+        <location filename="../../src/manager/NotificationManager.cpp" line="460"/>
+        <source>Select a device first</source>
+        <translation>Select a device first</translation>
+    </message>
+    <message>
+        <location filename="../../src/manager/NotificationManager.cpp" line="469"/>
+        <source>Offline alert thresholds must be between 1 and 10080 minutes</source>
+        <translation>Offline alert thresholds must be between 1 and 10080 minutes</translation>
+    </message>
+    <message>
+        <location filename="../../src/manager/NotificationManager.cpp" line="1080"/>
+        <source>Request failed (HTTP %1)</source>
+        <translation>Request failed (HTTP %1)</translation>
+    </message>
+    <message>
+        <location filename="../../src/manager/NotificationManager.cpp" line="1081"/>
+        <source>Request failed</source>
+        <translation>Request failed</translation>
     </message>
 </context>
 <context>

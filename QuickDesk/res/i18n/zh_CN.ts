@@ -1057,39 +1057,39 @@
         <translation>远程控制</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="351"/>
+        <location filename="../../qml/views/MainWindow.qml" line="352"/>
         <source>Settings</source>
         <translation>设置</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="753"/>
-        <location filename="../../qml/views/MainWindow.qml" line="784"/>
+        <location filename="../../qml/views/MainWindow.qml" line="767"/>
+        <location filename="../../qml/views/MainWindow.qml" line="798"/>
         <source>Host</source>
         <translation>主机</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="821"/>
-        <location filename="../../qml/views/MainWindow.qml" line="826"/>
-        <location filename="../../qml/views/MainWindow.qml" line="827"/>
-        <location filename="../../qml/views/MainWindow.qml" line="828"/>
-        <location filename="../../qml/views/MainWindow.qml" line="829"/>
-        <location filename="../../qml/views/MainWindow.qml" line="830"/>
-        <location filename="../../qml/views/MainWindow.qml" line="831"/>
-        <location filename="../../qml/views/MainWindow.qml" line="834"/>
         <location filename="../../qml/views/MainWindow.qml" line="835"/>
-        <location filename="../../qml/views/MainWindow.qml" line="836"/>
-        <location filename="../../qml/views/MainWindow.qml" line="837"/>
-        <location filename="../../qml/views/MainWindow.qml" line="838"/>
+        <location filename="../../qml/views/MainWindow.qml" line="840"/>
+        <location filename="../../qml/views/MainWindow.qml" line="841"/>
+        <location filename="../../qml/views/MainWindow.qml" line="842"/>
+        <location filename="../../qml/views/MainWindow.qml" line="843"/>
+        <location filename="../../qml/views/MainWindow.qml" line="844"/>
+        <location filename="../../qml/views/MainWindow.qml" line="845"/>
+        <location filename="../../qml/views/MainWindow.qml" line="848"/>
+        <location filename="../../qml/views/MainWindow.qml" line="849"/>
+        <location filename="../../qml/views/MainWindow.qml" line="850"/>
+        <location filename="../../qml/views/MainWindow.qml" line="851"/>
+        <location filename="../../qml/views/MainWindow.qml" line="852"/>
         <source>Client</source>
         <translation>客户端</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="753"/>
-        <location filename="../../qml/views/MainWindow.qml" line="764"/>
-        <location filename="../../qml/views/MainWindow.qml" line="774"/>
-        <location filename="../../qml/views/MainWindow.qml" line="821"/>
-        <location filename="../../qml/views/MainWindow.qml" line="831"/>
-        <location filename="../../qml/views/MainWindow.qml" line="838"/>
+        <location filename="../../qml/views/MainWindow.qml" line="767"/>
+        <location filename="../../qml/views/MainWindow.qml" line="778"/>
+        <location filename="../../qml/views/MainWindow.qml" line="788"/>
+        <location filename="../../qml/views/MainWindow.qml" line="835"/>
+        <location filename="../../qml/views/MainWindow.qml" line="845"/>
+        <location filename="../../qml/views/MainWindow.qml" line="852"/>
         <source>Unknown</source>
         <translation>未知</translation>
     </message>
@@ -1135,127 +1135,132 @@
         <translation>计划任务</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="352"/>
+        <location filename="../../qml/views/MainWindow.qml" line="351"/>
+        <source>Notifications</source>
+        <translation>通知</translation>
+    </message>
+    <message>
+        <location filename="../../qml/views/MainWindow.qml" line="353"/>
         <source>About</source>
         <translation>关于</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="440"/>
+        <location filename="../../qml/views/MainWindow.qml" line="441"/>
         <source>Login</source>
         <translation>登录</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="460"/>
+        <location filename="../../qml/views/MainWindow.qml" line="461"/>
         <source>Click to login</source>
         <translation>点击登录</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="475"/>
+        <location filename="../../qml/views/MainWindow.qml" line="476"/>
         <source>Account Settings</source>
         <translation>账号设置</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="480"/>
+        <location filename="../../qml/views/MainWindow.qml" line="481"/>
         <source>WebClient URL not configured on the server</source>
         <translation>服务端没有配置WebClient URL</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="489"/>
+        <location filename="../../qml/views/MainWindow.qml" line="490"/>
         <source>Logout</source>
         <translation>退出登录</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="585"/>
+        <location filename="../../qml/views/MainWindow.qml" line="586"/>
         <source>Already connected, switched to existing window</source>
         <translation>已连接，切换到现有窗口</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="590"/>
-        <location filename="../../qml/views/MainWindow.qml" line="631"/>
+        <location filename="../../qml/views/MainWindow.qml" line="591"/>
+        <location filename="../../qml/views/MainWindow.qml" line="632"/>
         <source>Connecting...</source>
         <translation>连接中...</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="766"/>
-        <location filename="../../qml/views/MainWindow.qml" line="834"/>
+        <location filename="../../qml/views/MainWindow.qml" line="780"/>
+        <location filename="../../qml/views/MainWindow.qml" line="848"/>
         <source>Not Started</source>
         <translation>未启动</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="768"/>
-        <location filename="../../qml/views/MainWindow.qml" line="835"/>
+        <location filename="../../qml/views/MainWindow.qml" line="782"/>
+        <location filename="../../qml/views/MainWindow.qml" line="849"/>
         <source>Starting</source>
         <translation>启动中</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="770"/>
-        <location filename="../../qml/views/MainWindow.qml" line="836"/>
+        <location filename="../../qml/views/MainWindow.qml" line="784"/>
+        <location filename="../../qml/views/MainWindow.qml" line="850"/>
         <source>Start Failed</source>
         <translation>启动失败</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="772"/>
-        <location filename="../../qml/views/MainWindow.qml" line="837"/>
+        <location filename="../../qml/views/MainWindow.qml" line="786"/>
+        <location filename="../../qml/views/MainWindow.qml" line="851"/>
         <source>Restarting</source>
         <translation>重启中</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="887"/>
+        <location filename="../../qml/views/MainWindow.qml" line="901"/>
         <source>MCP [%1]: Off</source>
         <translation>MCP [%1]：已关闭</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="889"/>
+        <location filename="../../qml/views/MainWindow.qml" line="903"/>
         <source>MCP [%1]: %2 client(s)</source>
         <translation>MCP [%1]：%2 个客户端</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="890"/>
+        <location filename="../../qml/views/MainWindow.qml" line="904"/>
         <source>MCP [%1]: Ready</source>
         <translation>MCP [%1]：就绪</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="911"/>
+        <location filename="../../qml/views/MainWindow.qml" line="925"/>
         <source>Click to configure MCP integration</source>
         <translation>点击配置MCP集成</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="962"/>
+        <location filename="../../qml/views/MainWindow.qml" line="976"/>
         <source>Server Connection Error</source>
         <translation>服务器连接错误</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="970"/>
+        <location filename="../../qml/views/MainWindow.qml" line="984"/>
         <source>Upgrade Required</source>
         <translation>要求升级</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="759"/>
-        <location filename="../../qml/views/MainWindow.qml" line="826"/>
+        <location filename="../../qml/views/MainWindow.qml" line="773"/>
+        <location filename="../../qml/views/MainWindow.qml" line="840"/>
         <source>Disconnected</source>
         <translation>未连接</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="760"/>
-        <location filename="../../qml/views/MainWindow.qml" line="827"/>
+        <location filename="../../qml/views/MainWindow.qml" line="774"/>
+        <location filename="../../qml/views/MainWindow.qml" line="841"/>
         <source>Connecting</source>
         <translation>连接中</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="761"/>
-        <location filename="../../qml/views/MainWindow.qml" line="828"/>
+        <location filename="../../qml/views/MainWindow.qml" line="775"/>
+        <location filename="../../qml/views/MainWindow.qml" line="842"/>
         <source>Connected</source>
         <translation>已连接</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="762"/>
-        <location filename="../../qml/views/MainWindow.qml" line="829"/>
+        <location filename="../../qml/views/MainWindow.qml" line="776"/>
+        <location filename="../../qml/views/MainWindow.qml" line="843"/>
         <source>Connection Failed</source>
         <translation>连接失败</translation>
     </message>
     <message>
-        <location filename="../../qml/views/MainWindow.qml" line="763"/>
-        <location filename="../../qml/views/MainWindow.qml" line="830"/>
+        <location filename="../../qml/views/MainWindow.qml" line="777"/>
+        <location filename="../../qml/views/MainWindow.qml" line="844"/>
         <source>Reconnecting</source>
         <translation>重连中</translation>
     </message>
@@ -1386,6 +1391,512 @@
         <location filename="../../qml/pages/McpConfigPopup.qml" line="386"/>
         <source>For remote access, use the LAN URL and allow the port through your firewall.</source>
         <translation>远程访问请使用局域网 URL，并确保防火墙允许该端口。</translation>
+    </message>
+</context>
+<context>
+    <name>NotificationWindowEditor</name>
+    <message>
+        <location filename="../../qml/pages/NotificationWindowEditor.qml" line="13"/>
+        <source>No recurring windows</source>
+        <translation>暂无周期窗口</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationWindowEditor.qml" line="91"/>
+        <source>Recurring window %1</source>
+        <translation>周期窗口 %1</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationWindowEditor.qml" line="98"/>
+        <source>Remove</source>
+        <translation>移除</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationWindowEditor.qml" line="112"/>
+        <source>Start HH:MM</source>
+        <translation>开始 HH:MM</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationWindowEditor.qml" line="120"/>
+        <source>End HH:MM</source>
+        <translation>结束 HH:MM</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationWindowEditor.qml" line="131"/>
+        <source>Mon</source>
+        <translation>周一</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationWindowEditor.qml" line="132"/>
+        <source>Tue</source>
+        <translation>周二</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationWindowEditor.qml" line="133"/>
+        <source>Wed</source>
+        <translation>周三</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationWindowEditor.qml" line="134"/>
+        <source>Thu</source>
+        <translation>周四</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationWindowEditor.qml" line="135"/>
+        <source>Fri</source>
+        <translation>周五</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationWindowEditor.qml" line="136"/>
+        <source>Sat</source>
+        <translation>周六</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationWindowEditor.qml" line="137"/>
+        <source>Sun</source>
+        <translation>周日</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationWindowEditor.qml" line="164"/>
+        <source>Add window</source>
+        <translation>添加窗口</translation>
+    </message>
+</context>
+<context>
+    <name>NotificationsPage</name>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="39"/>
+        <source>Access denied</source>
+        <translation>访问被拒绝</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="40"/>
+        <source>Access granted</source>
+        <translation>访问已授权</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="41"/>
+        <source>Session started</source>
+        <translation>会话已开始</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="42"/>
+        <source>Online status</source>
+        <translation>在线状态</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="43"/>
+        <source>Sustained offline</source>
+        <translation>持续离线</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="44"/>
+        <source>Device bound</source>
+        <translation>设备已绑定</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="45"/>
+        <source>Device unbound</source>
+        <translation>设备已解绑</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="46"/>
+        <source>Approval requested</source>
+        <translation>待审批请求</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="47"/>
+        <source>Approval decided</source>
+        <translation>审批结果</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="48"/>
+        <source>Scheduled task failed</source>
+        <translation>计划任务失败</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="49"/>
+        <source>Unknown event</source>
+        <translation>未知事件</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="53"/>
+        <source>Device</source>
+        <translation>设备</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="92"/>
+        <source>Create notification channel</source>
+        <translation>新建通知通道</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="103"/>
+        <source>Edit notification channel</source>
+        <translation>编辑通知通道</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="110"/>
+        <source>Enter a webhook URL and select at least one event</source>
+        <translation>请输入 Webhook 地址并选择至少一个事件</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="306"/>
+        <source>Notification channel created</source>
+        <translation>通知通道已创建</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="312"/>
+        <source>Notification channel updated</source>
+        <translation>通知通道已更新</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="320"/>
+        <source>Notification channel deleted</source>
+        <translation>通知通道已删除</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="325"/>
+        <source>Test notification queued</source>
+        <translation>测试通知已入队</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="339"/>
+        <source>%1 failed deliveries requeued</source>
+        <translation>已重新排队 %1 条失败投递</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="347"/>
+        <source>A device has stayed offline past its alert threshold</source>
+        <translation>有设备离线时间已超过告警阈值</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="399"/>
+        <source>Please login to manage notifications</source>
+        <translation>请先登录再管理通知</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="405"/>
+        <source>Login</source>
+        <translation>登录</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="428"/>
+        <source>Notifications</source>
+        <translation>通知</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="435"/>
+        <source>Webhook channels, quiet hours and sustained-offline alerts.</source>
+        <translation>Webhook 通道、静默时段和持续离线告警。</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="443"/>
+        <source>Retry all failed</source>
+        <translation>重试全部失败投递</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="451"/>
+        <source>Refresh</source>
+        <translation>刷新</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="460"/>
+        <source>Create channel</source>
+        <translation>新建通道</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="523"/>
+        <source>Webhook channels</source>
+        <translation>Webhook 通道</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="530"/>
+        <source>Subscribe to device access, presence, approvals and scheduled-task failures.</source>
+        <translation>订阅设备访问、在线状态、审批和计划任务失败事件。</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="538"/>
+        <source>%1 channels</source>
+        <translation>%1 个通道</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="549"/>
+        <source>Loading notification channels...</source>
+        <translation>正在加载通知通道…</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="550"/>
+        <source>No notification channels yet.</source>
+        <translation>暂无通知通道。</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="582"/>
+        <source>Unnamed channel</source>
+        <translation>未命名通道</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="590"/>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="871"/>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="1162"/>
+        <source>Enabled</source>
+        <translation>已启用</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="590"/>
+        <source>Paused</source>
+        <translation>已暂停</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="610"/>
+        <source>Pause</source>
+        <translation>暂停</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="610"/>
+        <source>Enable</source>
+        <translation>启用</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="616"/>
+        <source>Test</source>
+        <translation>测试</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="623"/>
+        <source>Deliveries</source>
+        <translation>投递记录</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="629"/>
+        <source>Edit</source>
+        <translation>编辑</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="635"/>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="1260"/>
+        <source>Delete</source>
+        <translation>删除</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="668"/>
+        <source>Last triggered: %1</source>
+        <translation>最近触发：%1</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="680"/>
+        <source>Each delivery is signed with %1 using %2.</source>
+        <translation>每条投递使用 %1，以 %2 签名。</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="717"/>
+        <source>Quiet hours</source>
+        <translation>静默时段</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="724"/>
+        <source>Pause every channel during a snooze or recurring window.</source>
+        <translation>在一次性静默或周期窗口内暂停所有通道。</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="733"/>
+        <source>Active</source>
+        <translation>生效中</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="733"/>
+        <source>Inactive</source>
+        <translation>未生效</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="745"/>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="888"/>
+        <source>Snooze until</source>
+        <translation>静默至</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="762"/>
+        <source>IANA timezone, for example Asia/Shanghai</source>
+        <translation>IANA 时区，例如 Asia/Shanghai</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="769"/>
+        <source>No recurring quiet windows</source>
+        <translation>暂无周期静默窗口</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="779"/>
+        <source>Save quiet hours</source>
+        <translation>保存静默时段</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="786"/>
+        <source>Clear</source>
+        <translation>清除</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="797"/>
+        <source>Active until %1</source>
+        <translation>生效至 %1</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="831"/>
+        <source>Sustained offline alerts</source>
+        <translation>持续离线告警</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="838"/>
+        <source>Alert through the channels above after a device stays offline past the threshold.</source>
+        <translation>设备离线超过阈值后，通过上方通道发送告警。</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="848"/>
+        <source>In maintenance</source>
+        <translation>维护窗口中</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="877"/>
+        <source>After minutes</source>
+        <translation>离线阈值（分钟）</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="883"/>
+        <source>Repeat minutes (0 = once)</source>
+        <translation>重复提醒（分钟，0 表示仅一次）</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="910"/>
+        <source>Maintenance timezone</source>
+        <translation>维护时区</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="917"/>
+        <source>No maintenance windows</source>
+        <translation>暂无维护窗口</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="927"/>
+        <source>Save offline alert</source>
+        <translation>保存离线告警</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="935"/>
+        <source>Reset</source>
+        <translation>重置</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="947"/>
+        <source>Offline since %1</source>
+        <translation>自 %1 起离线</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="983"/>
+        <source>Delivery history</source>
+        <translation>投递历史</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="990"/>
+        <source>%1 · %2 unacknowledged</source>
+        <translation>%1 · %2 条未确认</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="1000"/>
+        <source>Reload</source>
+        <translation>重新加载</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="1007"/>
+        <source>Retry failed</source>
+        <translation>重试失败项</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="1014"/>
+        <source>Close</source>
+        <translation>关闭</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="1024"/>
+        <source>Loading delivery history...</source>
+        <translation>正在加载投递历史…</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="1025"/>
+        <source>No deliveries for this channel.</source>
+        <translation>该通道暂无投递记录。</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="1062"/>
+        <source>Unknown</source>
+        <translation>未知</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="1080"/>
+        <source>%1 · attempts %2 · queued %3</source>
+        <translation>%1 · 尝试 %2 次 · 入队 %3</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="1082"/>
+        <source>Account event</source>
+        <translation>账号事件</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="1103"/>
+        <source>Acknowledged %1</source>
+        <translation>已确认 %1</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="1113"/>
+        <source>Retry</source>
+        <translation>重试</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="1124"/>
+        <source>Acknowledge</source>
+        <translation>确认</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="1141"/>
+        <source>Notification channel</source>
+        <translation>通知通道</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="1157"/>
+        <source>Channel name</source>
+        <translation>通道名称</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="1178"/>
+        <source>Leave blank to keep the stored secret</source>
+        <translation>留空以保留已保存的密钥</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="1179"/>
+        <source>Optional signing secret</source>
+        <translation>可选签名密钥</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="1183"/>
+        <source>Events</source>
+        <translation>事件</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="1213"/>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="1254"/>
+        <source>Cancel</source>
+        <translation>取消</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="1219"/>
+        <source>Save</source>
+        <translation>保存</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="1230"/>
+        <source>Delete notification channel</source>
+        <translation>删除通知通道</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/NotificationsPage.qml" line="1240"/>
+        <source>Delete “%1”? Its delivery history will no longer be available.</source>
+        <translation>删除“%1”吗？该通道的投递历史将不再可用。</translation>
     </message>
 </context>
 <context>
@@ -3023,47 +3534,102 @@ Frame rate: %3 fps</source>
 <context>
     <name>quickdesk::MainController</name>
     <message>
-        <location filename="../../src/controller/MainController.cpp" line="549"/>
+        <location filename="../../src/controller/MainController.cpp" line="552"/>
         <source>Device ID: %1
 Access Code: %2</source>
         <translation>设备ID：%1
 访问码：%2</translation>
     </message>
     <message>
-        <location filename="../../src/controller/MainController.cpp" line="666"/>
+        <location filename="../../src/controller/MainController.cpp" line="674"/>
         <source>Connected</source>
         <translation>已连接</translation>
     </message>
     <message>
-        <location filename="../../src/controller/MainController.cpp" line="668"/>
+        <location filename="../../src/controller/MainController.cpp" line="676"/>
         <source>Connecting...</source>
         <translation>连接中...</translation>
     </message>
     <message>
-        <location filename="../../src/controller/MainController.cpp" line="670"/>
+        <location filename="../../src/controller/MainController.cpp" line="678"/>
         <source>Disconnected</source>
         <translation>未连接</translation>
     </message>
     <message>
-        <location filename="../../src/controller/MainController.cpp" line="672"/>
+        <location filename="../../src/controller/MainController.cpp" line="680"/>
         <source>Connection failed</source>
         <translation>连接失败</translation>
     </message>
     <message>
-        <location filename="../../src/controller/MainController.cpp" line="678"/>
+        <location filename="../../src/controller/MainController.cpp" line="686"/>
         <source>Reconnecting (attempt %1)</source>
         <translation>重连中（第 %1 次尝试）</translation>
     </message>
     <message>
-        <location filename="../../src/controller/MainController.cpp" line="680"/>
+        <location filename="../../src/controller/MainController.cpp" line="688"/>
         <source>, retry in %1s</source>
         <translation>，%1秒后重试</translation>
     </message>
     <message>
-        <location filename="../../src/controller/MainController.cpp" line="715"/>
-        <location filename="../../src/controller/MainController.cpp" line="719"/>
+        <location filename="../../src/controller/MainController.cpp" line="723"/>
+        <location filename="../../src/controller/MainController.cpp" line="727"/>
         <source>Never</source>
         <translation>从不</translation>
+    </message>
+</context>
+<context>
+    <name>quickdesk::NotificationManager</name>
+    <message>
+        <location filename="../../src/manager/NotificationManager.cpp" line="57"/>
+        <source>Please login to manage notification channels</source>
+        <translation>请先登录再管理通知通道</translation>
+    </message>
+    <message>
+        <location filename="../../src/manager/NotificationManager.cpp" line="121"/>
+        <source>Please login to create notification channels</source>
+        <translation>请先登录再新建通知通道</translation>
+    </message>
+    <message>
+        <location filename="../../src/manager/NotificationManager.cpp" line="129"/>
+        <location filename="../../src/manager/NotificationManager.cpp" line="181"/>
+        <source>Enter a webhook URL and select at least one event</source>
+        <translation>请输入 Webhook 地址并选择至少一个事件</translation>
+    </message>
+    <message>
+        <location filename="../../src/manager/NotificationManager.cpp" line="313"/>
+        <location filename="../../src/manager/NotificationManager.cpp" line="358"/>
+        <source>Please login to manage notification quiet hours</source>
+        <translation>请先登录再管理通知静默时段</translation>
+    </message>
+    <message>
+        <location filename="../../src/manager/NotificationManager.cpp" line="409"/>
+        <source>Select a device to configure offline alerts</source>
+        <translation>请选择设备以配置离线告警</translation>
+    </message>
+    <message>
+        <location filename="../../src/manager/NotificationManager.cpp" line="410"/>
+        <source>Please login to manage offline alerts</source>
+        <translation>请先登录再管理离线告警</translation>
+    </message>
+    <message>
+        <location filename="../../src/manager/NotificationManager.cpp" line="460"/>
+        <source>Select a device first</source>
+        <translation>请先选择设备</translation>
+    </message>
+    <message>
+        <location filename="../../src/manager/NotificationManager.cpp" line="469"/>
+        <source>Offline alert thresholds must be between 1 and 10080 minutes</source>
+        <translation>离线告警阈值必须在 1 到 10080 分钟之间</translation>
+    </message>
+    <message>
+        <location filename="../../src/manager/NotificationManager.cpp" line="1080"/>
+        <source>Request failed (HTTP %1)</source>
+        <translation>请求失败（HTTP %1）</translation>
+    </message>
+    <message>
+        <location filename="../../src/manager/NotificationManager.cpp" line="1081"/>
+        <source>Request failed</source>
+        <translation>请求失败</translation>
     </message>
 </context>
 <context>

@@ -24,6 +24,7 @@
 #include "manager/UpdateManager.h"
 #include "manager/AccessApprovalManager.h"
 #include "manager/ScheduledTaskManager.h"
+#include "manager/NotificationManager.h"
 #include "component/VideoFrameProvider.h"
 #include "component/KeycodeMapper.h"
 #include "component/CursorImageProvider.h"
@@ -88,6 +89,8 @@ int main(int argc, char *argv[])
         "AccessApprovalManager is accessed through MainController");
     qmlRegisterUncreatableType<quickdesk::ScheduledTaskManager>("QuickDesk", 1, 0, "ScheduledTaskManager",
         "ScheduledTaskManager is accessed through MainController");
+    qmlRegisterUncreatableType<quickdesk::NotificationManager>("QuickDesk", 1, 0, "NotificationManager",
+        "NotificationManager is accessed through MainController");
     qmlRegisterUncreatableType<quickdesk::SharedMemoryManager>("QuickDesk", 1, 0, "SharedMemoryManager",
         "SharedMemoryManager is accessed through ClientManager");
     qmlRegisterType<quickdesk::VideoFrameProvider>("QuickDesk", 1, 0, "VideoFrameProvider");
