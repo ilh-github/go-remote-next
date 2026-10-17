@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use chrono::Utc;
 use rmcp::handler::server::router::prompt::PromptRouter;
 use rmcp::handler::server::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
@@ -19,7 +20,9 @@ use serde_json::json;
 use crate::event_bus::EventBus;
 use crate::memory::MemoryStore;
 use crate::trust::TrustEngine;
-use crate::workflow::WorkflowStore;
+use crate::workflow::{
+    StepExecutor, StepRunResult, WorkflowRunReport, WorkflowStore,
+};
 use crate::ws_client::WsClient;
 
 pub struct SharedState {
@@ -42,6 +45,119 @@ fn make_resource(uri: &str, name: &str, description: &str) -> Annotated<RawResou
         },
         annotations: None,
     }
+}
+
+fn map_remote_tool_request(
+    tool_name: &str,
+    args: &serde_json::Value,
+) -> Result<(String, serde_json::Value), String> {
+    let number = |key: &str, default: f64| {
+        args.get(key)
+            .cloned()
+            .unwrap_or_else(|| json!(default))
+    };
+    let owned_string = |key: &str, default: &str| {
+        args.get(key)
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or(default)
+            .to_string()
+    };
+
+    let mapped = match tool_name {
+        "mouse_click" => (
+            "mouseClick".to_string(),
+            json!({
+                "x": number("x", 0.0),
+                "y": number("y", 0.0),
+                "button": owned_string("button", "left"),
+            }),
+        ),
+        "mouse_double_click" => (
+            "mouseDoubleClick".to_string(),
+            json!({"x": number("x", 0.0), "y": number("y", 0.0)}),
+        ),
+        "mouse_move" => (
+            "mouseMove".to_string(),
+            json!({"x": number("x", 0.0), "y": number("y", 0.0)}),
+        ),
+        "mouse_scroll" => (
+            "mouseScroll".to_string(),
+            json!({
+                "x": number("x", 0.0),
+                "y": number("y", 0.0),
+                "deltaX": number("delta_x", 0.0),
+                "deltaY": number("delta_y", 0.0),
+            }),
+        ),
+        "mouse_drag" => (
+            "mouseDrag".to_string(),
+            json!({
+                "startX": number("start_x", 0.0),
+                "startY": number("start_y", 0.0),
+                "endX": number("end_x", 0.0),
+                "endY": number("end_y", 0.0),
+                "button": owned_string("button", "left"),
+            }),
+        ),
+        "keyboard_type" => {
+            let text = args
+                .get("text")
+                .and_then(serde_json::Value::as_str)
+                .ok_or_else(|| "keyboard_type replay requires text".to_string())?;
+            ("keyboardType".to_string(), json!({"text": text}))
+        }
+        "keyboard_hotkey" => {
+            let keys = args
+                .get("keys")
+                .cloned()
+                .filter(serde_json::Value::is_array)
+                .ok_or_else(|| "keyboard_hotkey replay requires keys".to_string())?;
+            ("keyboardHotkey".to_string(), json!({"keys": keys}))
+        }
+        "key_press" | "key_release" => {
+            let key = args
+                .get("key")
+                .and_then(serde_json::Value::as_str)
+                .ok_or_else(|| format!("{tool_name} replay requires key"))?;
+            let message = if tool_name == "key_press" {
+                "keyPress"
+            } else {
+                "keyRelease"
+            };
+            (message.to_string(), json!({"key": key}))
+        }
+        "set_clipboard" => {
+            let text = args
+                .get("text")
+                .and_then(serde_json::Value::as_str)
+                .ok_or_else(|| "set_clipboard replay requires text".to_string())?;
+            ("setClipboard".to_string(), json!({"text": text}))
+        }
+        "click_text" => {
+            let text = args
+                .get("text")
+                .and_then(serde_json::Value::as_str)
+                .ok_or_else(|| "click_text replay requires text".to_string())?;
+            let mut payload = json!({"text": text});
+            if let Some(exact) = args.get("exact") {
+                payload["exact"] = exact.clone();
+            }
+            if let Some(ignore_case) = args.get("ignore_case") {
+                payload["ignoreCase"] = ignore_case.clone();
+            }
+            if let Some(button) = args.get("button") {
+                payload["button"] = button.clone();
+            }
+            ("clickText".to_string(), payload)
+        }
+        _ => return Err(format!("unsupported remote action: {tool_name}")),
+    };
+
+    Ok(mapped)
+}
+
+fn should_stop_after_replay_failure(stop_on_failure: bool, safety_failure: bool) -> bool {
+    safety_failure || stop_on_failure
 }
 
 // ---- Parameter structs ----
@@ -494,6 +610,22 @@ struct ReplayWorkflowParam {
     device_id: String,
     /// Override specific argument values (key-value map)
     overrides: Option<HashMap<String, serde_json::Value>>,
+    /// Stop after the first operational failure (default: true). Safety failures always stop.
+    stop_on_failure: Option<bool>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+struct ListWorkflowRunsParam {
+    /// Only return runs for this workflow (optional)
+    workflow_id: Option<String>,
+    /// Maximum number of runs to return (default: 20, max: 200)
+    limit: Option<usize>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+struct WorkflowRunIdParam {
+    /// Workflow run ID
+    run_id: String,
 }
 
 // ---- Trust Layer parameter structs ----
@@ -567,9 +699,19 @@ impl QuickDeskMcpServer {
         }
     }
 
-    fn maybe_record(&self, device_id: &str, tool_name: &str, args: &serde_json::Value, result: &str, success: bool) {
+    fn maybe_record(
+        &self,
+        device_id: &str,
+        tool_name: &str,
+        args: &serde_json::Value,
+        result: &str,
+        success: bool,
+        executor: StepExecutor,
+    ) {
         if self.state.workflow.is_recording(device_id) {
-            self.state.workflow.record_step(device_id, tool_name, args, result, success);
+            self.state
+                .workflow
+                .record_step(device_id, tool_name, args, result, success, executor);
         }
     }
 
@@ -731,7 +873,7 @@ impl QuickDeskMcpServer {
         {
             Ok(_) => {
                 let r = format!("Clicked at ({}, {})", p.x, p.y);
-                self.maybe_record(&conn, "mouse_click", &args, &r, true);
+                self.maybe_record(&conn, "mouse_click", &args, &r, true, StepExecutor::RemoteApi);
                 r
             }
             Err(e) => format!("Error: {e}"),
@@ -753,7 +895,7 @@ impl QuickDeskMcpServer {
         {
             Ok(_) => {
                 let r = format!("Double-clicked at ({}, {})", p.x, p.y);
-                self.maybe_record(&conn, "mouse_double_click", &args, &r, true);
+                self.maybe_record(&conn, "mouse_double_click", &args, &r, true, StepExecutor::RemoteApi);
                 r
             }
             Err(e) => format!("Error: {e}"),
@@ -775,7 +917,7 @@ impl QuickDeskMcpServer {
         {
             Ok(_) => {
                 let r = format!("Moved to ({}, {})", p.x, p.y);
-                self.maybe_record(&conn, "mouse_move", &args, &r, true);
+                self.maybe_record(&conn, "mouse_move", &args, &r, true, StepExecutor::RemoteApi);
                 r
             }
             Err(e) => format!("Error: {e}"),
@@ -798,7 +940,7 @@ impl QuickDeskMcpServer {
             .await
         {
             Ok(_) => {
-                self.maybe_record(&conn, "mouse_scroll", &args, "Scrolled", true);
+                self.maybe_record(&conn, "mouse_scroll", &args, "Scrolled", true, StepExecutor::RemoteApi);
                 "Scrolled".to_string()
             }
             Err(e) => format!("Error: {e}"),
@@ -817,7 +959,7 @@ impl QuickDeskMcpServer {
         {
             Ok(_) => {
                 let r = format!("Typed: {}", p.text);
-                self.maybe_record(&conn, "keyboard_type", &args, &r, true);
+                self.maybe_record(&conn, "keyboard_type", &args, &r, true, StepExecutor::RemoteApi);
                 r
             }
             Err(e) => format!("Error: {e}"),
@@ -836,7 +978,7 @@ impl QuickDeskMcpServer {
         {
             Ok(_) => {
                 let r = format!("Hotkey sent: {}", p.keys.join("+"));
-                self.maybe_record(&conn, "keyboard_hotkey", &args, &r, true);
+                self.maybe_record(&conn, "keyboard_hotkey", &args, &r, true, StepExecutor::RemoteApi);
                 r
             }
             Err(e) => format!("Error: {e}"),
@@ -867,7 +1009,7 @@ impl QuickDeskMcpServer {
             .await
         {
             Ok(_) => {
-                self.maybe_record(&conn, "set_clipboard", &args, "Clipboard set", true);
+                self.maybe_record(&conn, "set_clipboard", &args, "Clipboard set", true, StepExecutor::RemoteApi);
                 "Clipboard set".to_string()
             }
             Err(e) => format!("Error: {e}"),
@@ -894,7 +1036,7 @@ impl QuickDeskMcpServer {
         {
             Ok(_) => {
                 let r = format!("Dragged from ({}, {}) to ({}, {})", p.start_x, p.start_y, p.end_x, p.end_y);
-                self.maybe_record(&conn, "mouse_drag", &args, &r, true);
+                self.maybe_record(&conn, "mouse_drag", &args, &r, true, StepExecutor::RemoteApi);
                 r
             }
             Err(e) => format!("Error: {e}"),
@@ -913,7 +1055,7 @@ impl QuickDeskMcpServer {
         {
             Ok(_) => {
                 let r = format!("Key pressed: {}", p.key);
-                self.maybe_record(&conn, "key_press", &args, &r, true);
+                self.maybe_record(&conn, "key_press", &args, &r, true, StepExecutor::RemoteApi);
                 r
             }
             Err(e) => format!("Error: {e}"),
@@ -932,7 +1074,7 @@ impl QuickDeskMcpServer {
         {
             Ok(_) => {
                 let r = format!("Key released: {}", p.key);
-                self.maybe_record(&conn, "key_release", &args, &r, true);
+                self.maybe_record(&conn, "key_release", &args, &r, true, StepExecutor::RemoteApi);
                 r
             }
             Err(e) => format!("Error: {e}"),
@@ -1106,7 +1248,7 @@ Prefer this over screenshot→find coordinates→click for text-based UI interac
         match self.ws.request("clickText", req).await {
             Ok(v) => {
                 let r = serde_json::to_string_pretty(&v).unwrap_or_default();
-                self.maybe_record(&conn, "click_text", &args, &r, true);
+                self.maybe_record(&conn, "click_text", &args, &r, true, StepExecutor::RemoteApi);
                 r
             }
             Err(e) => format!("Error: {e}"),
@@ -1510,7 +1652,7 @@ Use skill_list_tools first to discover available tools and their parameters.")]
 
         if self.state.workflow.is_recording(&p.device_id) {
             self.state.workflow.record_step(
-                &p.device_id, &p.tool, &args, &result_str, success,
+                &p.device_id, &p.tool, &args, &result_str, success, StepExecutor::SkillHost,
             );
         }
 
@@ -1625,8 +1767,9 @@ recorded steps.")]
         }
     }
 
-    #[tool(description = "Replay a saved workflow on a connected device. Executes each step sequentially \
-via the QuickDesk WebSocket API. Supports argument overrides for parameterized steps.")]
+    #[tool(description = "Replay a saved workflow on a connected device. Executes each step through its \
+recorded transport (remote UI actions or skill host), supports parameter overrides, and persists a run report. \
+Safety failures always stop; operational failures follow stop_on_failure.")]
     async fn replay_workflow(&self, params: Parameters<ReplayWorkflowParam>) -> String {
         let p = params.0;
         let overrides = p.overrides.unwrap_or_default();
@@ -1636,80 +1779,112 @@ via the QuickDesk WebSocket API. Supports argument overrides for parameterized s
         };
 
         let total = steps.len() as u32;
-        let mut step_results = Vec::new();
+        let stop_on_failure = p.stop_on_failure.unwrap_or(true);
+        let started_at = Utc::now().to_rfc3339();
+        let mut step_results = Vec::with_capacity(steps.len());
 
-        for (seq, (tool_name, args)) in steps.iter().enumerate() {
-            let seq = seq as u32 + 1;
-
-            if self.state.trust.is_emergency_active() {
-                step_results.push(json!({
-                    "seq": seq, "tool_name": tool_name,
-                    "success": false, "error": "emergency stop active"
-                }));
-                return serde_json::to_string_pretty(&json!({
-                    "workflow_id": p.workflow_id,
-                    "total_steps": total,
-                    "completed_steps": seq - 1,
-                    "failed_step": seq,
-                    "error": "emergency stop active",
-                    "step_results": step_results,
-                })).unwrap_or_default();
+        for step in steps {
+            let step_started = std::time::Instant::now();
+            if let Err(error) = self
+                .check_trust_and_confirm(&p.device_id, &step.tool_name, &step.arguments)
+                .await
+            {
+                step_results.push(StepRunResult {
+                    seq: step.seq,
+                    tool_name: step.tool_name,
+                    executor: step.executor,
+                    success: false,
+                    result: serde_json::Value::Null,
+                    error,
+                    duration_ms: step_started.elapsed().as_millis() as u64,
+                });
+                break;
             }
 
-            if let Err(e) = self.check_trust_and_confirm(&p.device_id, tool_name, args).await {
-                step_results.push(json!({
-                    "seq": seq, "tool_name": tool_name,
-                    "success": false, "error": e,
-                }));
-                return serde_json::to_string_pretty(&json!({
-                    "workflow_id": p.workflow_id,
-                    "total_steps": total,
-                    "completed_steps": seq - 1,
-                    "failed_step": seq,
-                    "error": e,
-                    "step_results": step_results,
-                })).unwrap_or_default();
-            }
+            let (success, result, error) = match step.executor {
+                StepExecutor::RemoteApi => {
+                    match map_remote_tool_request(&step.tool_name, &step.arguments) {
+                        Ok((message, mut payload)) => {
+                            if let serde_json::Value::Object(ref mut map) = payload {
+                                map.insert("deviceId".to_string(), json!(p.device_id));
+                            }
+                            match self.ws.request(&message, payload).await {
+                                Ok(v) => (true, v, String::new()),
+                                Err(e) => (false, json!(null), e),
+                            }
+                        }
+                        Err(e) => (false, json!(null), e),
+                    }
+                }
+                StepExecutor::SkillHost => {
+                    let req = json!({
+                        "deviceId": p.device_id,
+                        "tool": step.tool_name,
+                        "args": step.arguments,
+                    });
+                    match self.ws.request("skillExec", req).await {
+                        Ok(v) => (true, v, String::new()),
+                        Err(e) => (false, json!(null), e),
+                    }
+                }
+            };
 
-            let req = json!({
-                "deviceId": p.device_id,
-                "tool": tool_name,
-                "args": args,
+            step_results.push(StepRunResult {
+                seq: step.seq,
+                tool_name: step.tool_name,
+                executor: step.executor,
+                success,
+                result,
+                error,
+                duration_ms: step_started.elapsed().as_millis() as u64,
             });
 
-            let (success, result_val, error) =
-                match self.ws.request("skillExec", req).await {
-                    Ok(v) => (true, v, String::new()),
-                    Err(e) => (false, json!(null), e),
-                };
-
-            step_results.push(json!({
-                "seq": seq,
-                "tool_name": tool_name,
-                "success": success,
-                "result": result_val,
-                "error": error,
-            }));
-
-            if !success {
-                return serde_json::to_string_pretty(&json!({
-                    "workflow_id": p.workflow_id,
-                    "total_steps": total,
-                    "completed_steps": seq - 1,
-                    "failed_step": seq,
-                    "error": error,
-                    "step_results": step_results,
-                })).unwrap_or_default();
+            if !success && should_stop_after_replay_failure(stop_on_failure, false) {
+                break;
             }
         }
 
-        serde_json::to_string_pretty(&json!({
-            "workflow_id": p.workflow_id,
-            "total_steps": total,
-            "completed_steps": total,
-            "failed_step": null,
-            "step_results": step_results,
-        })).unwrap_or_default()
+        let completed_at = Utc::now().to_rfc3339();
+        let stopped_early = step_results.len() < total as usize;
+        let report = WorkflowRunReport::from_step_results(
+            &p.workflow_id,
+            &p.device_id,
+            &started_at,
+            &completed_at,
+            total,
+            step_results,
+            stopped_early,
+        );
+
+        if let Err(error) = self.state.workflow.save_run_report(&report) {
+            return json!({
+                "error": format!("failed to persist workflow run: {error}"),
+                "report": report,
+            })
+            .to_string();
+        }
+
+        serde_json::to_string_pretty(&report).unwrap_or_default()
+    }
+
+    #[tool(description = "List persisted workflow run reports, newest first. Optionally filter by workflow_id \
+and limit the result count.")]
+    async fn list_workflow_runs(&self, params: Parameters<ListWorkflowRunsParam>) -> String {
+        let p = params.0;
+        let limit = p.limit.unwrap_or(20).clamp(1, 200);
+        let runs = self
+            .state
+            .workflow
+            .list_run_reports(p.workflow_id.as_deref(), limit);
+        serde_json::to_string_pretty(&runs).unwrap_or_default()
+    }
+
+    #[tool(description = "Get a persisted workflow run report by run_id, including every step result.")]
+    async fn get_workflow_run(&self, params: Parameters<WorkflowRunIdParam>) -> String {
+        match self.state.workflow.get_run_report(&params.0.run_id) {
+            Some(report) => serde_json::to_string_pretty(&report).unwrap_or_default(),
+            None => json!({"error": "workflow run not found"}).to_string(),
+        }
     }
 
     #[tool(description = "Delete a saved workflow.")]
@@ -2428,5 +2603,38 @@ impl ServerHandler for QuickDeskMcpServer {
             }
             Err(e) => Err(ErrorData::internal_error(e, None)),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn maps_recorded_pointer_actions_to_quickdesk_websocket_requests() {
+        let (message, payload) = map_remote_tool_request(
+            "mouse_click",
+            &json!({"x": 120, "y": 240, "button": "right"}),
+        )
+        .expect("mouse_click should be replayable");
+
+        assert_eq!(message, "mouseClick");
+        assert_eq!(payload, json!({"x": 120, "y": 240, "button": "right"}));
+    }
+
+    #[test]
+    fn rejects_unknown_remote_actions_instead_of_treating_them_as_skill_calls() {
+        let error = map_remote_tool_request("not_a_real_action", &json!({}))
+            .expect_err("unknown action should not be replayed");
+
+        assert_eq!(error, "unsupported remote action: not_a_real_action");
+    }
+
+    #[test]
+    fn replay_safety_failures_always_stop_while_operational_failures_follow_the_flag() {
+        assert!(should_stop_after_replay_failure(true, true));
+        assert!(should_stop_after_replay_failure(false, true));
+        assert!(should_stop_after_replay_failure(true, false));
+        assert!(!should_stop_after_replay_failure(false, false));
     }
 }
