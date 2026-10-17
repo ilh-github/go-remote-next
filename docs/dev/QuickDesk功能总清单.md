@@ -1,6 +1,6 @@
 # QuickDesk 功能总清单
 
-> 最后对账：2026-10-17 22:07 CST。上游与 fork 状态都是动态的，实施前必须重新执行
+> 最后对账：2026-10-17 22:09 CST。上游与 fork 状态都是动态的，实施前必须重新执行
 > `git fetch --all --prune` 并核对 GitHub issue / PR。
 >
 > 本文件是 QuickDesk fork 后续产品开发的唯一功能清单。它合并三类输入：
@@ -43,7 +43,7 @@
 
 - 仓库：`go-remote-next`
 - 本地主分支：`dev`、`master`
-- 本地代码基线：`3474203`（QD-115 信令信任边界）；验证记录和清单的 docs-only
+- 本地代码基线：`42ed9d0`（QD-911/QD-115 清单与上游候选已记录）；验证记录和清单的 docs-only
   提交位于其后，`dev` 与 `master` 保持同线
 - 远端 fork：`origin/dev` 仍为 `f6651f0`，本地 `dev` 尚未推送；领先数量以
   `git rev-list --count origin/dev..dev` 的实时值为准。远端写入恢复前不能把本地验收当成已发布
@@ -56,7 +56,7 @@
   （`74c7022`）、三端管理面实时消费、`a982a10` 的 Windows 更新闭环，以及
   `c77dcae` 的 SQLite 轻量单进程模式和 `64ab93a` 的备份/恢复、容器备份二进制、
   录像/安装包总量配额及管理存储视图；Web 屏幕墙已补单瓦片音频独占；QD-604 已补齐
-  Host 指标上报、阈值 episode、通知 outbox、Web/Qt 规则入口和四套 SDK；QD-911 的
+  Host 指标上报、阈值 episode、通知 outbox、Web/Qt 规则入口和七套 SDK；QD-911 的
   根目录 `SECURITY.md`、服务端 QD-604 stacked 候选，以及 QD-115 的上游安全边界文档
 - fork PR：<https://github.com/ilh-github/go-remote-next/pull/1>，OPEN / MERGEABLE /
   CLEAN，7 项检查全部成功；它的 head 是早期最小分支，不等于当前完整 `dev`
@@ -93,11 +93,15 @@
   `dev` 切分支贡献、Remoting 改动由维护者处理”；不能再把“暂缓”理解成停止维护。
 - 上游 PR：#22、#23、#24、#25 均为 OPEN / MERGEABLE，但 GitHub 返回的
   `mergeStateStatus=UNSTABLE` 且没有 reported checks；不能把 MERGEABLE 写成 CI 已通过。
-- 清单统计：116 个唯一 QD ID；75 个 `[x]`、22 个 `[~]`、13 个 `[ ]`、
+- 清单统计：116 个唯一 QD ID；76 个 `[x]`、21 个 `[~]`、13 个 `[ ]`、
   3 个 `[!]`、2 个 `[>]`、1 个 `[-]`。
 - 上游待办已全部映射到本清单：10 个 open issue、4 个 open PR、3 个未完成 Roadmap
   项均有对应 QD、处理边界和上游贡献方式；上游已完成的 Roadmap 项只作为继承基线，
   不重复开发。
+- 本次合并后的实施结论：上游没有新增必须立即重复开发的 issue；`QD-608`
+  （C#/PHP/Kotlin SDK）已完成，下一步做不依赖 Remoting 和外部凭据的 `QD-610`。可独立回贡的
+  QD-003/QD-114/QD-212/QD-213/QD-214/QD-215/QD-911 继续按最小 PR 保持候选；QD-004、
+  QD-505、QD-007、QD-002 和 QD-214 的 Windows 用户上下文根因继续归入 Remoting/宿主需求。
 - 融合结论：本清单的 3.1 决策台账负责固定“做/不做/等待/交 Remoting”，3.2 执行队列负责
   排序，第 16、17 节负责逐项追溯上游来源和 PR 交付方式。三者共同作为后续开发和回贡的
   唯一工作口径，不再另建一套 fork 待办。
@@ -284,8 +288,16 @@
 - QD-604 验证：SignalingServer 全量 `go test -p 1 -count=1 ./...`、相关包 race、
   `go vet ./...` 通过；真实 SQLite 服务 E2E 创建账号、设备和 device secret，上报 91.5%
   CPU 样本，确认持久 outbox 把 `device.metric.alert` 投递到真实 Webhook；WebClient
-  47/47、生产构建、四套 SDK freshness、QuickDesk Qt 6.8.3 Debug 完整构建、
+  47/47、生产构建、七套 SDK freshness、QuickDesk Qt 6.8.3 Debug 完整构建、
   `QuickDesk_qmllint`、离屏启动和 12/12 CTest 通过。
+- QD-608 功能提交：`f8927d7`（`feat(sdk): add C# PHP and Kotlin clients`）。OpenAPI 描述更新为
+  七套生成客户端；新增 `sdk/csharp`、`sdk/php`、`sdk/kotlin`，生成器支持
+  `csharp`/`php`/`kotlin`，新鲜度检查覆盖七种语言。C# 项目固定 solution GUID，PHP
+  使用 Composer/Guzzle 包并移除 TODO 测试，Kotlin 使用 Gradle/JVM OkHttp4 客户端。
+- QD-608 验证：C# `dotnet build -c Release` 通过（3 个生成代码弃用警告，0 error）；
+  PHP `composer validate`、`composer install --no-dev` 和 76 个生成 PHP 文件 `php -l`
+  通过；Kotlin `gradle --no-daemon build` 通过；七种语言 freshness 全部
+  `matches a fresh ... generation`；workflow YAML 解析和脚本 `bash -n` 通过。
 - QD-911 当前状态：上游 issue #6 仍 OPEN，GitHub API 返回
   `private-vulnerability-reporting.enabled=false`，维护者最新回复仍只是旧 release 链接。
   fork 与上游候选已新增根目录 `SECURITY.md`，覆盖支持版本、公开 issue 禁令、GitHub 私密
@@ -357,7 +369,7 @@ Roadmap 项放到同一条实施路径中。详细追溯仍以第 16 节为准�
 | 3 | 等 PR #25 基线 | QD-204 API/客户端、QD-607 服务端、QD-108 / QD-508 / QD-706 / QD-708 管理面、QD-005 客户端 | 这些能力依赖控制面、OpenAPI、录像或管理页基线；直接塞进 #25 会变成巨型 PR | 维护者确认 #25 合并或 stacked base；再按服务端/Web/Qt/更新拆 PR |
 | 4 | 跟踪上游已有 PR | PR #22 自动审批、#23 录像、#24 skill-host 运行库、#25 控制面 | 上游已有实现，重复开发只会制造分叉 | PR 合并后同步 `upstream/dev`，重跑受影响测试；删除重复本地实现 |
 | 5 | 提 Remoting 需求 | QD-002 Web 文件通道、QD-004 / QD-505 Host 权威录制、QD-007 图片剪贴板、QD-114 真实 CertVerifier、QD-214 Windows 用户上下文 | 必须改 Chromium Remoting 或宿主生命周期，维护者已明确这类改动由他处理 | 每项提交协议草案、权限边界、兼容性和验收用例；不在 fork 伪造第二套媒体链路 |
-| 6 | fork 自主增强 | QD-610 工作流、QD-608 更多 SDK、QD-904 / QD-907 / QD-908 / QD-909 | QD-006 / QD-809 / QD-810 / QD-702 / QD-604 已完成；剩余本地项不阻塞上游 | 有明确用户入口、失败路径和对应自动化或真机证据 |
+| 6 | fork 自主增强 | QD-610 工作流、QD-904 / QD-907 / QD-908 / QD-909 | QD-006 / QD-608 / QD-809 / QD-810 / QD-702 / QD-604 已完成；剩余本地项不阻塞上游 | 有明确用户入口、失败路径和对应自动化或真机证据 |
 | 7 | 暂缓跟随上游 | QD-318 Linux、QD-319 iOS/Android | 上游 Roadmap 已列出，本 fork 当前不承诺实现 | 保持接口和构建兼容；上游方向明确后再排期 |
 | 8 | 不进入待办 | RDP、重写 WebRTC/Remoting、多租户/SSO/计费、通用插件市场 | 与“复用成熟远控内核 + 补业务控制面”的路线冲突或收益不足 | 只有用户重新定义产品目标才重新评估 |
 
@@ -365,9 +377,9 @@ Roadmap 项放到同一条实施路径中。详细追溯仍以第 16 节为准�
 替换回归。自动替换链路已经用 ad-hoc DMG 真机验证；整体仍保持 `[~]`，不能把本地
 ad-hoc 成功写成正式跨平台发布完成。
 
-QD-604 已完成；QD-911 与 QD-115 的上游候选均已准备，前者等上游启用 Private
-Vulnerability Reporting，后者等协议实现。当前继续做不依赖外部凭据的完整功能项：
-先补 QD-608 缺失的 C#/PHP/Kotlin SDK，再做 QD-610 业务工作流。
+QD-604 和 QD-608 已完成；QD-911 与 QD-115 的上游候选均已准备，前者等上游启用
+Private Vulnerability Reporting，后者等协议实现。当前继续做不依赖外部凭据的完整
+功能项：QD-610 业务工作流。
 
 回贡上游不等到 fork 全部做完再一次性提交。每个已经独立验收、能从 `upstream/dev`
 干净切出的主题都应立即形成最小 PR；依赖 PR #25 的功能只准备 stacked 候选，不继续
@@ -477,7 +489,7 @@ Vulnerability Reporting，后者等协议实现。当前继续做不依赖外部
 | QD-605 | WebClient 通知管理页 | `[x]` | `/notifications` |
 | QD-606 | Qt 通知规则管理页 | `[x]` | `dbd828f` 已覆盖通道 CRUD/test/启停、静默时段、离线告警和投递运维 |
 | QD-607 | 计划任务 | `[~]` | 服务端、WebClient、Qt 管理页和重试已完成；`revoke_all_remote_sessions` 已补齐控制面批量清场（最多 200 台）。定时连接、广义批量 agent 指令及回执仍未做 |
-| QD-608 | OpenAPI 与生成 SDK | `[~]` | Go/TS/Python/Java；C#/PHP/Kotlin 未提供 |
+| QD-608 | OpenAPI 与生成 SDK | `[x]` | TypeScript/Go/Python/Java/C#/PHP/Kotlin 七套客户端已提交，生成器、freshness 门禁和 CI 编译覆盖全部语言；C# `dotnet build`、PHP Composer/lint、Kotlin Gradle build 通过 |
 | QD-609 | MCP / AI 自动化 | `[x]` | QuickDesk 原生能力；也是上游维护者当前最优先方向 |
 | QD-610 | 业务系统集成与自定义工作流 | `[~]` | 设计和工作流方向已有，完整产品未收口 |
 
@@ -581,7 +593,7 @@ Vulnerability Reporting，后者等协议实现。当前继续做不依赖外部
 - `Multi-tab multi-connection` 在上游已勾选；QD-003 补的是同一设备多个标签的控制/音频互斥，不重复“多连接”能力
 - 维护计划：issue #21，维护者明确“持续维护、暂缓更新、重点偏 MCP、欢迎从 dev 切分支贡献、Remoting 改动由维护者处理”
 - 当前 open PR：#22、#23、#24、#25
-- 2026-10-17 21:25 复核：上游两个分支、10 个 open issue、4 个 open PR 均无漂移；四个
+- 2026-10-17 22:09 复核：上游两个分支、10 个 open issue、4 个 open PR 均无漂移；四个
   PR 显示 MERGEABLE / `mergeStateStatus=UNSTABLE`，但 GitHub
   没有 reported checks；不能把“MERGEABLE”写成 CI 已通过
 - QD-006 是通用自托管增强，但当前上游没有对应 open issue/PR；候选
@@ -589,6 +601,7 @@ Vulnerability Reporting，后者等协议实现。当前继续做不依赖外部
   rebase 到 `upstream/dev` 才能开不重复 #25 提交的正式 PR。
 - 本次融合结论：当前上游没有“必须由本 fork 立即重复开发”的 open issue；真正需要决策的是
   哪些工作作为独立小 PR 先贡献、哪些等 #25 合并后再拆、哪些只能向 Remoting 提需求。
+  QD-608 已完成，立即实施顺序改为 QD-610；独立上游候选和 Remoting 需求按 3.2 的队列执行。
 
 ### 16.2 上游待办与本 fork 的统一决策矩阵
 

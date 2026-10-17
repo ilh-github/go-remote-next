@@ -8,6 +8,10 @@
 > 服务端阈值 episode、持久通知 outbox、Web/Qt 规则入口和四套 SDK 均已落地。本文下方
 > 仍出现“缺少指标型规则”的段落属于该里程碑之前的迁移背景，不再代表当前状态。
 
+> 2026-10-17 SDK 更新：QD-608 已完成，OpenAPI 现在提交并验证
+> TypeScript/Go/Python/Java/C#/PHP/Kotlin 七套生成客户端。本文件下方“四套 SDK”的
+> 历史段落只作为迁移过程记录，当前状态以功能总清单 QD-608 为准。
+
 ## 1. 结论
 
 QuickDesk 已经覆盖了远程控制最核心、最难实现的画面、输入、编码、WebRTC、P2P/TURN
