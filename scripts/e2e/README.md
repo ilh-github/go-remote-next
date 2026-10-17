@@ -19,6 +19,7 @@
 | `guest-qt-ui.ps1` | 用 UI Automation 驱动 Windows 上的 QuickDesk 桌面客户端（填设备号/接入码、点连接、发快捷键），用于验证 Qt 侧录制 |
 | `guest-notepad.ps1` | 备选靶子：用 UI Automation 读写记事本，适合快速人工核对 |
 | `qd-api-probe.mjs` | 直接打 QuickDesk 本地 WebSocket API（默认 `ws://127.0.0.1:9600`）：`listConnections` / `connectToHost` / `skillListTools` / `skillExec`，用来绕开界面单独验证 skill bridge |
+| `qd-host-stdio-harness.py` | 直接用 Chromium 原生消息协议启动 `quickdesk_host`，绕开 GUI/安全桌面；可指定独立 `--config-dir` 和 `--log-dir`，打印 `hostReady`、信令状态和 Host stderr，用于复现 SPAKE2、文件传输和用户上下文问题 |
 | `realtime-access-events.mjs` | 连上用户的实时流（`/v1/realtime/events`）等 `device.access.*` 事件，`QD_WAIT_MS` 内没等到就退出码 3，可直接当验证闸门 |
 | `notification-receiver.mjs` | 本地 webhook 接收器：打印每一条投递并校验 `X-Webhook-Signature` 的 HMAC，收满 `QD_EXPECT` 条就退出（签名不对退 4、超时退 3），用来验证用户级通知通道 |
 | `signal-client-probe.mjs` | 开一条控制端信令连接并报告服务端的裁决：退 0 = `auth_ok`，退 3 = 收到 `error`（例如 `SESSION_LIMIT_REACHED`），退 4 = 没等到 auth_ok 就断开；`QD_HOLD_MS` 可以让连上的 socket 占住名额，用来测并发上限 |
@@ -38,6 +39,7 @@
 ## 依赖
 
 - Node 18+，`npm i playwright`（用本机已安装的 Chrome，`channel: 'chrome'`）
+- Python 3.10+（仅 `qd-host-stdio-harness.py` 需要）
 - 一个跑起来的 SignalingServer，以及一个已经绑定到该用户的在线设备
 - WebClient 构建产物用静态服务器暴露，例如：
 
@@ -65,6 +67,21 @@ node remote-smoke.mjs
 - `QD_OUT`：截图与 `e2e-result.json` 的输出目录
 
 退出码 0 表示视频帧真实到达（`videoWidth > 0` 且 `currentTime` 在推进）。
+
+### 直启 Host 做协议联调
+
+```bash
+python3 scripts/e2e/qd-host-stdio-harness.py \
+  --host /path/to/quickdesk_host \
+  --config-dir /tmp/qd-host/config \
+  --log-dir /tmp/qd-host/logs \
+  --server ws://127.0.0.1:8000 \
+  --api-key "$QD_API_KEY"
+```
+
+Windows 上应分别验证两种上下文：普通交互用户用于确认 `WTSQueryUserToken` 是否被
+`0x522` 拒绝；SYSTEM/session 0 用于确认是否返回 `NOT_LOGGED_IN`。正常服务模式必须在
+有权访问活动交互用户 token 的 session 中启动 Host worker。
 
 ## 被控端准备（Parallels Windows 虚拟机）
 

@@ -1,15 +1,14 @@
 # 远端发布与上游 PR 清单
 
-**更新时间**: 2026-10-17 18:20 CST
+**更新时间**: 2026-10-17 19:20 CST
 
 这份清单只记录本地验证完成后仍需远端写入的动作。当前机器上的 `git push`
 会被执行策略拒绝，因此以下步骤应在允许远端写入的环境中执行。
 
 ## 当前本地基线
 
-- fork 主干：本地 `dev`、`master` 指向同一最新提交；代码基线为 `83d8caf`，
-  已包含 QD-607 批量远控清场、QD-204 地址簿/设备分组、QD-508 Qt 录像回放页，
-  QD-215 Windows 发布依赖校验及本清单维护提交
+- fork 主干：本地 `dev`、`master` 指向同一最新提交；本轮代码提交为 `e688869`
+  （访问码同步重试）和 `5be14da`（SPAKE2 与文件传输错误码 0~7），清单提交位于其后
 - fork 远端：`origin/dev`、`origin/master` 仍为 `f6651f0`；本地 `dev` 领先数量以
   `git rev-list --count origin/dev..dev` 为准，远端写入尚未完成
 - 功能分支：`codex/product-backlog` = `dea02f9`
@@ -17,7 +16,10 @@
 - 上游 QD-114 候选：`codex/upstream-qd-114-spki` = `13559e6`（基于 `upstream/dev`）
 - 上游 QD-212 候选：`codex/upstream-qd-212-local-device` = `f1ce096`（基于 `upstream/dev`）
 - 上游 QD-213 候选：`codex/upstream-qd-213-access-code-refresh` = `6928d24`（基于 `upstream/dev`）
-- 上游 QD-214 候选：`codex/upstream-qd-214-file-transfer-errors` = `94d3ec3`（基于 `upstream/dev`）
+- 上游 QD-214 SPAKE2 候选：`codex/upstream-qd-214-spake2-webclient` = `ed5437b`
+  （基于 `upstream/dev`）
+- 上游 QD-214 错误码候选：`codex/upstream-qd-214-file-transfer-errors` = `60837af`
+  （基于 `upstream/dev`）
 - 上游 QD-215 候选：`codex/upstream-qd-215-win-runtime-check` = `f449b87`
   （基于 `upstream/dev`，只含 Windows 发布依赖校验和打包失败关闭）
 - 上游 QD-204 API 候选：`codex/upstream-qd-204-api` = `d2321b9`（基于 PR #25 的
@@ -73,8 +75,12 @@
   QD-212 上游候选已在干净基线上构建并通过 QML 测试。
 - Qt 点击设备时如果云快照没有访问码，会按单设备 GET 回源，成功后自动继续连接；
   并发点击合并成一次请求，QD-213 上游候选已在干净基线上构建并通过集成测试。
-- WebClient 会把宿主 `type=2` 文件传输错误解释为保存失败，并提示权限、目标目录和磁盘空间；
-  上传取消发送协议取消值 1。QD-214 候选改善诊断，但宿主侧失败根因仍需日志确认。
+- WebClient 文件传输错误已按 Chromium `FileTransfer.Error.Type` 覆盖 0~7：未指定、取消、
+  保存失败、协议错误、权限拒绝、磁盘不足、IO 错误和未登录；上传取消继续发送协议值 1。
+- QD-214 根因已确认：macOS Host 上传 37 字节 probe 成功且落盘字节一致；Windows
+  普通用户 Host 在 `EnsureUserContext()` 取得 token 时返回 `0x522`，映射为
+  `type=2`；SYSTEM/session 0 没有交互桌面用户，映射为 `type=7 NOT_LOGGED_IN`。
+  修复点属于 Host 服务/宿主生命周期或 Remoting，不是 WebClient 保存逻辑。
 - Qt 新增“访问审批”页，支持按设备审批、五状态汇总、重复拒绝来源、批准/拒绝原因、
   409 已决定冲突提示和 `device.access_approval.requested/decided` 实时刷新；提交
   `7c23f13` 已通过完整 Qt 构建、6/6 CTest、QML lint 和离屏启动。
@@ -120,13 +126,12 @@
 - 本轮已加入 Windows 打包/发布校验脚本和负向回归；`version=4.2.9.0` 仍保留为
   未提交的验证版本。在 Windows 升级闭环确认前，不要把 `version` 当作正式发布版本
   盲目推送。
-- QD-214 已开始用 Windows 服务模式复现上传失败；当前在线 Host 为
-  `256983850`，下一步必须取得真实 `fileTransferError`、宿主日志和目录/磁盘/权限证据，
-  根因确认前不修改文件传输实现。
-- QD-214 前置联调实测（2026-10-17 18:23 CST）：WebClient 以生产构建连接
-  `256983850`，信令 WebSocket 已返回 `auth_ok`，但 Host 随后发送
-  `session-terminate`，原因为 `decline Verification hash mismatched.`；当前尚未进入
-  DataChannel 和文件上传阶段。必须先解释这条 SPAKE2 认证差异，不能用错误提示掩盖。
+- QD-214 的前置 SPAKE2 阻断已经解决：WebClient 现在复刻 BoringSSL
+  password-scalar 低三位修正，固定向量、真实 macOS Host 和 Windows Host 均通过验证
+  哈希并进入 DataChannel。
+- QD-214 当前状态为 `[!]`，阻塞点是 Windows Host 用户上下文，不是上传协议。下一步
+  需要把 QuickDesk Host worker 启动到活动交互 session，或向 Remoting 提正式需求；
+  在此之前不再扩大 WebClient 的错误提示补丁。
 
 ## 1. 推送前检查
 

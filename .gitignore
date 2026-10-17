@@ -80,6 +80,10 @@ SignalingServer/signaling_server.exe
 SignalingServer/signaling_server
 SignalingServer/*.pid
 
+# Python test harness caches
+__pycache__/
+*.py[cod]
+
 quickdesk-mcp/target
 quickdesk-agent/target
 quickdesk-skill-host/target

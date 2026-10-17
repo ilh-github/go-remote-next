@@ -1,6 +1,6 @@
 # QuickDesk 功能总清单
 
-> 最后对账：2026-10-17 18:20 CST。上游与 fork 状态都是动态的，实施前必须重新执行
+> 最后对账：2026-10-17 19:20 CST。上游与 fork 状态都是动态的，实施前必须重新执行
 > `git fetch --all --prune` 并核对 GitHub issue / PR。
 >
 > 本文件是 QuickDesk fork 后续产品开发的唯一功能清单。它合并三类输入：
@@ -43,13 +43,15 @@
 
 - 仓库：`go-remote-next`
 - 本地主分支：`dev`、`master`
-- 本地代码基线：`83d8caf`；清单维护提交位于其后，`dev` 与 `master` 指向同一提交
+- 本地代码基线：`5be14da`；QD-214 根因验证和错误码提交位于其后，`dev` 与 `master`
+  保持同线
 - 远端 fork：`origin/dev` 仍为 `f6651f0`，本地 `dev` 尚未推送；领先数量以
   `git rev-list --count origin/dev..dev` 的实时值为准。远端写入恢复前不能把本地验收当成已发布
 - 上游基线：`barry-ran/QuickDesk` 的 `dev` 和 `master` 当前均为 `f6651f0`
 - 上游维护口径：持续维护但暂缓更新，下一阶段重点偏 MCP；外部贡献从 `dev` 切分支，完成后合入 `dev`，维护者定期合入 `master`
 - Remoting 边界：`quickdesk-remoting` 需要编译整个 Chromium，涉及 Remoting 的改动优先向上游提需求，不要求贡献者本地编译
-- 当前主要增量：QD-215 Windows 发布依赖校验（`67bf11f`、`556f86e`）、QD-607 批量远控清场（`5028068`）、QD-204 地址簿与设备分组
+- 当前主要增量：QD-214 的 SPAKE2 兼容修复与 Windows Host 文件传输根因定位、
+  QD-215 Windows 发布依赖校验（`67bf11f`、`556f86e`）、QD-607 批量远控清场（`5028068`）、QD-204 地址簿与设备分组
   （`f270487`、`b1a1155`、`162ac6e`、`b013a62`）、QD-508 Qt 录像回放
   （`74c7022`）、三端管理面实时消费，以及 `eca3c8f` 的上游待办融合文档
 - fork PR：<https://github.com/ilh-github/go-remote-next/pull/1>，OPEN / MERGEABLE /
@@ -75,7 +77,8 @@
 
 最近验证：
 
-- 本地代码基线为 `83d8caf`，`dev` / `master` 在其后同步了清单对账提交；
+- 本轮代码提交：`e688869`（访问码同步重试）、`5be14da`（SPAKE2 与传输错误码）；
+  `dev` / `master` 在其后同步本轮验证；
   当前领先数量以 `git rev-list --count origin/dev..dev` 为准；
   QD-215 主线和上游最小候选均已提交，远端写入仍被策略拒绝。
 - 上游核对：`upstream/dev` 与 `upstream/master` 均为 `f6651f0`；当前上游 open issues 10 个、open PR 4 个。
@@ -83,8 +86,8 @@
   `dev` 切分支贡献、Remoting 改动由维护者处理”；不能再把“暂缓”理解成停止维护。
 - 上游 PR：#22、#23、#24、#25 均为 OPEN / MERGEABLE，但 GitHub 返回的
   `mergeStateStatus=UNSTABLE` 且没有 reported checks；不能把 MERGEABLE 写成 CI 已通过。
-- 清单统计：116 个唯一 QD ID；70 个 `[x]`、22 个 `[~]`、19 个 `[ ]`、
-  2 个 `[!]`、2 个 `[>]`、1 个 `[-]`。
+- 清单统计：116 个唯一 QD ID；70 个 `[x]`、21 个 `[~]`、19 个 `[ ]`、
+  3 个 `[!]`、2 个 `[>]`、1 个 `[-]`。
 - 上游待办已全部映射到本清单：10 个 open issue、4 个 open PR、3 个未完成 Roadmap
   项均有对应 QD、处理边界和上游贡献方式；上游已完成的 Roadmap 项只作为继承基线，
   不重复开发。
@@ -94,7 +97,7 @@
 - 上游 `docs/dev/*技术方案.md` 里有部分历史未勾选实现清单，抽查当前代码后多数已经落地；
   这些文件是设计历史，不直接当新增待办。权威待办仍以 README Roadmap、open issue、open PR
   和维护者最新回复为准。
-- WebClient `npm test`：34/34 通过。
+- WebClient `npm test`：37/37 通过。
 - WebClient `npm run build`：通过，JS 362.03 kB，gzip 116.68 kB。
 - Chrome 同源双标签实测：后开标签接管控制后，前一个标签释放控制；接管音频后，前一个标签释放音频。
 - QD-114 SPKI 纯 C++ 单测：通过；覆盖标准/URL-safe Base64、无 padding、重复项、
@@ -117,10 +120,23 @@
   为空时按单设备回源并自动继续连接；并发点击同一设备只发一次请求，失败显示真实错误。
 - QD-213 上游候选：`codex/upstream-qd-213-access-code-refresh` = `6928d24`，基于
   `upstream/dev`；干净基线完整构建、设备管理集成测试 1/1、QML lint 均通过。
-- QD-214 功能提交：`cea23ce`。WebClient 不再只显示 `Host error type=2`，会解释为宿主
-  保存失败并提示权限/目标目录/磁盘空间；上传取消统一使用协议取消值 1。
-- QD-214 上游候选：`codex/upstream-qd-214-file-transfer-errors` = `94d3ec3`，基于
-  `upstream/dev`；WebClient 测试 4/4、生产构建通过。该候选改善诊断，不代表上传根因已修。
+- WebClient 的 SPAKE2 Alice 现在复刻 BoringSSL password-scalar 的低三位兼容修正。
+  固定字节向量与 Chromium 140 对齐；真实 macOS Host 和 Windows Host 均通过验证哈希，
+  DataChannel、视频和数据通道不再被 `Verification hash mismatched` 阻断。
+- QD-214 根因已定位，不再归因于 WebClient：
+  - macOS Host 上传 37 字节 probe 成功，落盘文件字节和 SHA-256 与发送内容一致；
+  - Windows Host 以普通交互用户启动时，`WTSQueryUserToken(WTS_CURRENT_SESSION)` 返回
+    `0x522`，Chromium 映射为 `type=2 UNEXPECTED_ERROR`；
+  - Windows Host 以 SYSTEM/session 0 启动时没有交互桌面用户，Chromium 返回
+    `type=7 NOT_LOGGED_IN`。
+  - 正确修复点位于 Host 服务/宿主生命周期或 Remoting 的用户上下文解析，不应在
+    WebClient 文件传输协议里伪造成功。
+- WebClient 文件传输错误现在覆盖 Chromium 协议 0~7：取消、保存失败、协议错误、
+  权限拒绝、磁盘不足、IO 错误和未登录。上传取消继续使用协议值 1。
+- QD-214 SPAKE2 上游候选：`codex/upstream-qd-214-spake2-webclient` = `ed5437b`，基于
+  `upstream/dev`；固定向量 1/1、生产构建通过。
+- QD-214 错误码上游候选：`codex/upstream-qd-214-file-transfer-errors` = `60837af`，
+  基于 `upstream/dev`；0~7 错误解释测试 6/6 通过。该候选改善诊断，不代表上传根因已修。
 - QD-108 功能提交：`7c23f13`。Qt 新增“访问审批”页，支持按设备查看待审批/已决定/
   过期/已兑换/全部、五状态汇总、重复拒绝来源、批准/拒绝原因、15 秒断线兜底刷新，
   并消费 `device.access_approval.requested/decided` 实时事件。
@@ -154,7 +170,7 @@
   分组只包含当前用户名下设备，同一用户内名称唯一、跨用户可同名，单组成员上限 500。
 - QD-204 验证：全新 PostgreSQL 从零执行 `001_init.sql` 通过；全量 Go 测试
   `-p 1 -count=1` 通过；四套 SDK freshness 和编译检查通过；真实 SignalingServer
-  `openapi-smoke.mjs` 输出 `PASS: 388 documented assertions`；WebClient 34/34 与生产构建
+  `openapi-smoke.mjs` 输出 `PASS: 388 documented assertions`；WebClient 37/37 与生产构建
   通过；Qt 完整构建、11/11 CTest、新弹窗 lint、双语 764/764 和离屏启动通过。
 - QD-607 控制面批量动作：新增 `revoke_all_remote_sessions`，按执行时的设备归属关闭
   owner 所有设备上的活动远控会话，最多一次处理 200 台；不注销账号登录会话，也不会把
@@ -193,7 +209,7 @@
 - QD-215 上游候选：`codex/upstream-qd-215-win-runtime-check` = `f449b87`，基于
   `upstream/dev`，只含 release 校验器、publish 检查和 package 检查 3 个文件；
   已用该候选校验器跑完同一组正负向测试。远端 push 仍被执行策略拒绝。
-- WebClient 当前 34/34 测试通过；生产构建 JS 362.03 kB、gzip 116.68 kB。
+- WebClient 当前 37/37 测试通过；生产构建 JS 362.23 kB、gzip 116.75 kB。
 - `git diff --check`：通过。
 - 远端推送仍被当前执行策略拒绝，本地 `dev` 尚未同步到 GitHub。
 
@@ -217,7 +233,7 @@
 | 上游候选 | QD-114 自托管 WSS SPKI 兼容 | `Upstream` issue #20 / `Fork` | 候选 `codex/upstream-qd-114-spki` = `13559e6`；临时方案不替代真实证书校验 | 推送并建 issue #20 PR；补 Qt 构建、Windows 服务和真实 `wss://` |
 | 上游候选 | QD-212 设备列表本机标识 | `Upstream` issue #19 / `Legacy` | 候选 `f1ce096` 已在干净上游基线构建和测试 | 推送并建 PR；与 #19 其余问题拆开 |
 | 上游候选 | QD-213 缺失访问码回源 | `Upstream` issue #19 / `Legacy` | 候选 `6928d24` 已通过集成测试 | 推送并建 PR；补两真机换码时序回归 |
-| 上游候选 | QD-214 文件传输错误诊断 | `Upstream` issue #19 / `Legacy` | 候选 `94d3ec3` 改善 `Host error:type=2` 提示；根因未定位 | 推送诊断 PR；另收 Windows host 日志再做根因修复 |
+| 上游候选 | QD-214 SPAKE2 与文件传输错误诊断 | `Upstream` issue #19 / `Legacy` | SPAKE2 候选 `ed5437b` 修通真实 Host；错误码候选 `60837af` 覆盖 0~7；真实日志已确认 Windows Host 用户上下文失败 | 分别推送 SPAKE2 和错误码诊断 PR；根因修复作为 Host/Remoting 需求，不在 WebClient 伪装修复 |
 | Remoting 需求 | QD-002 Web 完整文件管理器 | `Legacy` / `Fork` | 当前 skill bridge 只在 Qt 与 host 间可用，浏览器没有等价通道 | 向 Remoting 提 host 文件操作通道需求；在此之前不把上传下载冒充完整管理器 |
 | Remoting 需求 | QD-004 / QD-505 Host 权威录制与断线收尾 | `Legacy` / `Fork` | PR #23 只录控制端已解码画面；Host/Relay 没有权威媒体落盘 | 提 Remoting/宿主生命周期需求；fork 不另造第二套媒体链路 |
 | Remoting 需求 | QD-007 图片剪贴板 | `Legacy` / `Fork` | Remoting `ClipboardEvent` 只承载 UTF-8 文本 | 提图片格式、分片和权限边界需求；等协议方案后再实现 |
@@ -238,11 +254,11 @@ Roadmap 项放到同一条实施路径中。详细追溯仍以第 16 节为准�
 
 | 顺序 | 队列 | 包含工作 | 为什么现在放这里 | 完成条件 |
 |---|---|---|---|---|
-| 1 | Fork 真机收口 | QD-005 / QD-808 Windows 自动更新、QD-215 Windows Qt 插件、QD-214 上传根因、QD-607 定时连接边界 | 不依赖上游合并，且有 Windows VM 可复现；先证明客户端和后端闭环，而不是继续堆页面 | 安装包升级、校验、静默安装、重启和版本证据齐全；不能伪造成功 |
-| 2 | 可独立回贡上游 | QD-003、QD-114 第一阶段、QD-212、QD-213、QD-214 诊断、QD-215 Windows 发布校验、QD-911 | 改动边界清楚，可从 `upstream/dev` 独立审查；其中 QD-114 只解决 SPKI 临时兼容 | 每个主题一个基于 `upstream/dev` 的最小分支；远端写入恢复后推送并开 PR |
+| 1 | Fork 真机收口 | QD-005 / QD-808 Windows 自动更新、QD-215 Windows Qt 插件、QD-607 定时连接边界 | 不依赖上游合并，且有 Windows VM 可复现；先证明客户端和后端闭环，而不是继续堆页面 | 安装包升级、校验、静默安装、重启和版本证据齐全；不能伪造成功 |
+| 2 | 可独立回贡上游 | QD-003、QD-114 第一阶段、QD-212、QD-213、QD-214 SPAKE2/诊断、QD-215 Windows 发布校验、QD-911 | 改动边界清楚，可从 `upstream/dev` 独立审查；其中 QD-114 只解决 SPKI 临时兼容 | 每个主题一个基于 `upstream/dev` 的最小分支；远端写入恢复后推送并开 PR |
 | 3 | 等 PR #25 基线 | QD-204 API/客户端、QD-607 服务端、QD-108 / QD-508 / QD-706 / QD-708 管理面、QD-005 客户端 | 这些能力依赖控制面、OpenAPI、录像或管理页基线；直接塞进 #25 会变成巨型 PR | 维护者确认 #25 合并或 stacked base；再按服务端/Web/Qt/更新拆 PR |
 | 4 | 跟踪上游已有 PR | PR #22 自动审批、#23 录像、#24 skill-host 运行库、#25 控制面 | 上游已有实现，重复开发只会制造分叉 | PR 合并后同步 `upstream/dev`，重跑受影响测试；删除重复本地实现 |
-| 5 | 提 Remoting 需求 | QD-002 Web 文件通道、QD-004 / QD-505 Host 权威录制、QD-007 图片剪贴板、QD-114 真实 CertVerifier | 必须改 Chromium Remoting 或宿主生命周期，维护者已明确这类改动由他处理 | 每项提交协议草案、权限边界、兼容性和验收用例；不在 fork 伪造第二套媒体链路 |
+| 5 | 提 Remoting 需求 | QD-002 Web 文件通道、QD-004 / QD-505 Host 权威录制、QD-007 图片剪贴板、QD-114 真实 CertVerifier、QD-214 Windows 用户上下文 | 必须改 Chromium Remoting 或宿主生命周期，维护者已明确这类改动由他处理 | 每项提交协议草案、权限边界、兼容性和验收用例；不在 fork 伪造第二套媒体链路 |
 | 6 | fork 自主增强 | QD-006 / QD-809 SQLite、QD-810 备份恢复、QD-604 指标告警、QD-702 墙级音频、QD-610 工作流、QD-608 更多 SDK、QD-904 / QD-907 / QD-908 / QD-909 | 有产品价值但不阻塞上游，也不是当前最小可回贡补丁 | 有明确用户入口、失败路径和对应自动化或真机证据 |
 | 7 | 暂缓跟随上游 | QD-318 Linux、QD-319 iOS/Android | 上游 Roadmap 已列出，本 fork 当前不承诺实现 | 保持接口和构建兼容；上游方向明确后再排期 |
 | 8 | 不进入待办 | RDP、重写 WebRTC/Remoting、多租户/SSO/计费、通用插件市场 | 与“复用成熟远控内核 + 补业务控制面”的路线冲突或收益不足 | 只有用户重新定义产品目标才重新评估 |
@@ -292,7 +308,7 @@ Roadmap 项放到同一条实施路径中。详细追溯仍以第 16 节为准�
 | QD-211 | 撤销冷却期 | `[x]` | 支持窗口和递增冷却 |
 | QD-212 | 设备列表标识本机 | `[x]` | 上游 issue #19；Qt 我的设备/收藏已标记“本机”，候选 `f1ce096` 已独立验证 |
 | QD-213 | 访问码不可用回归 | `[x]` | 上游 issue #19；Qt 缺失/过期访问码会按单设备回源并自动继续连接，候选 `6928d24` 已独立验证 |
-| QD-214 | 文件上传 Host error type=2 | `[~]` | 上游 issue #19；错误码已解释为宿主保存失败并给出排查方向，上传取消码已修正；真实 Windows 宿主日志和失败路径仍未定位 |
+| QD-214 | Windows 文件上传用户上下文 | `[!]` | 上游 issue #19；SPAKE2 已修通，macOS 上传成功；Windows 普通用户为 `type=2`（`0x522`），SYSTEM/session 0 为 `type=7 NOT_LOGGED_IN`，根因是 Host 服务未在可解析的交互用户上下文运行 |
 | QD-215 | Windows 启动 Qt platform plugin 错误 | `[~]` | 上游 issue #7；发布链新增 x64、VC Runtime、`qwindows.dll` 和 Qt 直接依赖校验，Windows 正负向测试通过；上游候选 `f449b87` 已准备，原始坏安装包未复现，push/PR 被策略阻塞 |
 | QD-216 | 主机连接与设备 ID/访问码加载失败 | `[~]` | 上游 issue #9；作为支持 triage 跟踪，不直接等同产品需求 |
 
@@ -476,7 +492,7 @@ Remoting 或协议改造；`不重复` 表示上游已经具备，只需验证�
 |---|---|---|---|---|
 | #21 维护计划与参与方式 | QD-001、QD-910 | 立即执行 | `Upstream-Open` | 所有新功能从 `upstream/dev` 切最小分支；持续同步清单 |
 | #20 自托管 WSS 失败 | QD-114 | 双轨推进 | `UP-Ready` + `UP-Remoting` | Qt/Windows SPKI 先做独立 PR；真实 CertVerifier 交 Remoting |
-| #19 设备列表问题 | QD-212、QD-213、QD-214 | 拆分处理 | `UP-Ready` | 本机标识、访问码回源分别提；上传错误先做诊断，根因另立项 |
+| #19 设备列表问题 | QD-212、QD-213、QD-214 | 拆分处理 | `UP-Ready` + `UP-Remoting` | 本机标识、访问码回源分别提；上传错误诊断可独立提，Windows 用户上下文根因交 Host/Remoting |
 | #18 连接历史 | QD-206 | 不重复实现 | `Upstream-Open` | 核验现有 WebClient/Qt 入口，整理版本证据后回复 issue |
 | #17 Auto Approve 失效 | QD-113 | 等待上游 | `UP-PR#22` | #22 合并后同步；不在 fork 重写第二套线程亲和性修复 |
 | #13 Linux 支持 | QD-318 | 暂缓 | `Upstream-Open` | 保留跨平台接口，不承诺当前迭代实现 |
@@ -534,7 +550,7 @@ Remoting 或协议改造；`不重复` 表示上游已经具备，只需验证�
 | #21 维护计划与参与维护意向 | 维护策略 | QD-001、QD-609 | 上游优先 MCP、从 dev 贡献、Remoting 由维护者改 | 所有新功能按 dev 最小分支准备；涉及 Remoting 先提需求 |
 | #20 自托管 HTTPS/WSS 失败 | Bug / 自托管 | QD-114 | 证书验证器在 Remoting 内未绑定；Qt-only SPKI 已支持子进程和服务安装参数 | 推送候选并补 Windows/Qt 回归；长期向 Remoting 提 CertVerifier 修复 |
 | #18 连接历史列表 | Feature | QD-206 | WebClient 已有 `ConnectionHistory`，Qt 已有 `RemoteDeviceManager` 历史下拉、删除和重连；issue 仍开放 | 在 issue 回复现有入口和版本证据，建议关闭；不再重复实现 |
-| #19 设备列表相关问题 | Bug cluster | QD-212、QD-213、QD-214 | 本机标识和访问码回源已完成；上传错误诊断已改善，但根因仍需宿主日志 | 推送三个独立候选；QD-214 在复现后继续补真实修复，不混成一个“设备列表”大修 |
+| #19 设备列表相关问题 | Bug cluster | QD-212、QD-213、QD-214 | 本机标识和访问码回源已完成；上传日志确认 Windows Host 无法取得交互用户 token，普通用户为 `0x522/type=2`，SYSTEM/session 0 为 `type=7` | 推送三个独立诊断候选；QD-214 根因按 Host 服务或 Remoting 用户上下文单独提交，不混成一个“设备列表”大修 |
 | #17 自动审批被忽略 | Bug | QD-113 | 已由 PR #22 覆盖 | 跟踪 PR #22，不重复实现 |
 | #13 Linux 支持 | Roadmap | QD-318 | 上游 Roadmap 已列出，本 fork 暂缓 | 保持跨平台接口，不在当前迭代投入 Linux 被控端 |
 | #10 信令服务器设备密钥信任 | Security | QD-115 | 服务端是否可冒充设备需要明确威胁模型 | 与上游安全维护者讨论；先写安全边界，不改协议 |
@@ -570,12 +586,13 @@ Remoting 或协议改造；`不重复` 表示上游已经具备，只需验证�
 | 2 | `fix(self-host): allow pinned SPKI for self-hosted WSS` | QD-114 / issue #20 | 候选已准备；需推送、创建 PR，并补 Qt 构建和 Windows service 实机验证 |
 | 3 | `feat(qt): mark the local device in device lists` | QD-212 / issue #19 | 候选已准备并通过上游基线构建；等远端写入后直接创建 PR |
 | 4 | `fix(qt): refresh missing access codes before connecting` | QD-213 / issue #19 | 候选已准备并通过上游基线构建；等远端写入后直接创建 PR |
-| 5 | `fix(webclient): explain host file transfer failures` | QD-214 / issue #19 | 诊断改进候选已准备；根因 PR 需等真实宿主日志 |
-| 6 | `fix(win): reject incomplete Qt runtime releases` | QD-215 / issue #7 | 候选 `f449b87` 只含 verifier 和 publish/package 失败关闭；校验器正负向测试通过 |
-| 7 | `feat(scheduled): add batch remote-session revoke` | QD-607 | 纯服务端候选 `badf990` 已基于 PR #25 独立验证；远端写入恢复后作为 stacked PR 提交 |
-| 8 | `feat(webclient): control-plane management pages` | QD-108/605/607/703 | 依赖 PR #25 合并；按页面拆成多个 PR |
-| 9 | `feat(qt): remote session and management pages` | QD-706/708 | 依赖 PR #25 合并；审批页 `7c23f13`、会话实时消费 `ea5a65f` 和计划任务页 `42b6c61` 可先拆，再补通知页 |
-| 10 | `feat(qt): consume self-hosted update channel` | QD-005 / QD-808 | 依赖 PR #25 合并；保留检查、下载、摘要校验、凭据隔离和测试，不携带 fork 私有文档 |
+| 5 | `fix(webclient): match BoringSSL SPAKE2 password scalar` | QD-214 / issue #19 | 候选 `ed5437b`；Chromium 140 固定向量、真实 macOS/Windows Host 均通过 |
+| 6 | `fix(webclient): explain host file transfer failures` | QD-214 / issue #19 | 0~7 错误码候选 `60837af`；Windows 根因需要 Host/Remoting 用户上下文修复 |
+| 7 | `fix(win): reject incomplete Qt runtime releases` | QD-215 / issue #7 | 候选 `f449b87` 只含 verifier 和 publish/package 失败关闭；校验器正负向测试通过 |
+| 8 | `feat(scheduled): add batch remote-session revoke` | QD-607 | 纯服务端候选 `badf990` 已基于 PR #25 独立验证；远端写入恢复后作为 stacked PR 提交 |
+| 9 | `feat(webclient): control-plane management pages` | QD-108/605/607/703 | 依赖 PR #25 合并；按页面拆成多个 PR |
+| 10 | `feat(qt): remote session and management pages` | QD-706/708 | 依赖 PR #25 合并；审批页 `7c23f13`、会话实时消费 `ea5a65f` 和计划任务页 `42b6c61` 可先拆，再补通知页 |
+| 11 | `feat(qt): consume self-hosted update channel` | QD-005 / QD-808 | 依赖 PR #25 合并；保留检查、下载、摘要校验、凭据隔离和测试，不携带 fork 私有文档 |
 
 QD-003 的上游候选已经单独准备：
 
@@ -617,15 +634,26 @@ QD-213 的上游候选已经单独准备：
   `QuickDesk_qmllint` 退出 0、`git diff --check upstream/dev...HEAD` 通过
 - 未完成：远端推送仍被策略拒绝，尚未创建 upstream PR
 
-QD-214 的上游候选已经单独准备：
+QD-214 的 SPAKE2 上游候选已经单独准备：
+
+- 分支：`codex/upstream-qd-214-spake2-webclient`
+- 基线：`upstream/dev` = `f6651f0`
+- 本地提交：`ed5437b`
+- 范围：BoringSSL password-scalar 兼容修正、Chromium 140 固定向量和 Node 测试入口
+- 验证：固定向量 1/1、`npm run build`、真实 macOS/Windows Host SPAKE2 均通过
+- 未完成：远端推送仍被策略拒绝，尚未创建 upstream PR
+
+QD-214 的文件传输错误码上游候选已经单独准备：
 
 - 分支：`codex/upstream-qd-214-file-transfer-errors`
 - 基线：`upstream/dev` = `f6651f0`
-- 本地提交：`94d3ec3`
-- 范围：宿主错误码解释、type=2 排查提示、上传取消协议值、Node 测试入口
-- 验证：WebClient `npm test` 4/4、`npm run build`、`git diff --check` 通过
-- 未完成：真实 Windows 宿主日志、失败目录/磁盘/权限复现和根因修复；
-  远端推送仍被策略拒绝，尚未创建 upstream PR
+- 本地提交：`94d3ec3` + `60837af`
+- 范围：宿主错误码 0~7 解释、上传取消协议值、Node 测试入口
+- 验证：错误码测试 6/6、`npm run build`、`git diff --check` 通过
+- 根因证据：Windows 普通用户 Host 报 `Failed to get current user token: 0x522`，
+  SYSTEM/session 0 报 `type=7 NOT_LOGGED_IN`；macOS Host 同文件上传成功且字节一致
+- 未完成：诊断 PR 待远端写入恢复；根因修复需要 QuickDesk Windows 服务在活动交互
+  session 中启动 Host worker，或由 Remoting 解析活动用户 token
 
 QD-215 的上游候选已经单独准备：
 
@@ -647,6 +675,7 @@ QD-215 的上游候选已经单独准备：
 | Host/Relay 权威自动录制 | QD-004 | 当前 PR #23 只做控制端录制；Host 侧录制需要 Remoting/宿主生命周期 |
 | 双向图片剪贴板 | QD-007 | `ClipboardEvent` 当前只承载 UTF-8 文本，需要新格式/分片协议 |
 | 真实证书校验 | QD-114 | `quickdesk_network_service.cc` 的 CertVerifier 管道在 Remoting 内 |
+| Windows 文件传输用户上下文 | QD-214 | `EnsureUserContext()` 依赖 `WTSQueryUserToken(WTS_CURRENT_SESSION)`；服务/session 0 或普通用户 Host 都无法满足 |
 
 ### 17.4 明确留在 fork 的内容
 
@@ -662,7 +691,8 @@ QD-215 的上游候选已经单独准备：
 - 把 QD-003、连接历史、TLS 临时修复先做成上游可审查的小 PR；
 - 把 QD-212 本机标识作为 issue #19 的第一个独立增量，先合这个再做访问码/上传问题；
 - 把 QD-213 访问码回源自愈作为 issue #19 的第二个独立增量；
-- 把 QD-214 错误诊断作为独立增量合并，同时收集宿主日志继续追真实上传失败；
+- 把 QD-214 的 SPAKE2 兼容修复和 0~7 错误诊断分别作为独立增量；Windows 上传根因作为 Host 服务/
+  Remoting 用户上下文需求提交，不在 WebClient 内绕过；
 - 把 QD-005 的 Qt 更新消费作为 PR #25 的后续增量，先保证跨平台安装行为和签名链；
 - 把 Web 文件管理器、Host 自动录制、图片剪贴板整理成 Remoting 需求，由维护者评估；
 - 把 PR #25 的控制面能力先等上游审查，避免重复提交；

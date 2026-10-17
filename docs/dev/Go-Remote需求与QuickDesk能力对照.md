@@ -53,7 +53,7 @@ QuickDesk 已经覆盖了远程控制最核心、最难实现的画面、输入�
 | 远程输入 | 鼠标、键盘、滚轮 | Chromium Remoting Host 输入注入 | 已有 | 不重写 |
 | 文本剪贴板 | 双向文本同步 | Host/Client 剪贴板同步 | 已有 | 保留并补边界测试 |
 | 图片剪贴板 | 图片复制粘贴 | 已专项核对：剪贴板在 Remoting 内核里（`remoting.protocol.ClipboardEvent`、`clipboard_win.cc`），消息体只认 UTF-8 文本，二进制会被丢掉 | 缺失 | 要做得改 Remoting 协议（新增图片格式/分片），按"不为普通业务功能编译 Chromium"暂时搁置 |
-| 文件传输 | 文件发送 | 支持远程文件传输；WebClient 已把宿主 `type=2` 解释为保存失败并提示权限/目录/磁盘空间，上传取消改用协议值 1 | 部分 | QD-214 已提交 `cea23ce`，候选 `94d3ec3`；真实 Windows 宿主日志和失败路径仍需定位 |
+| 文件传输 | 文件发送 | 支持远程文件传输；macOS Host 上传和落盘字节已验证；WebClient 已按 Chromium 协议解释 0~7 错误码 | 部分 | QD-214 当前阻塞在 Windows Host 用户上下文：普通用户 `0x522/type=2`，SYSTEM/session 0 为 `type=7 NOT_LOGGED_IN`；需要修 Host 服务 session 或 Remoting，不在 WebClient 绕过 |
 | 文件管理 | 浏览目录、新建、重命名、删除、分片上传下载 | 分片上传/下载已具备（两端）；host 侧 `file-ops` 技能提供浏览/读写/改名/新建；**Qt 控制端文件管理器已完成**（`QuickDesk/src/manager/RemoteFileManager.cpp`，在 `RemoteWindow.qml` 里挂载，见第 14 节） | 部分 | 还差 WebClient 侧的文件管理器：技能不在 WebRTC 数据通道上，网页端要么改 Remoting、要么先补一条浏览器可用的技能通道（属客户端改造，受上游 PR #23 阻塞） |
 | 音频 | 远端声音播放 | WebClient 有音频轨道和播放控制 | 已有 | 保留 |
 | 多显示器 | 多屏切换 | 多显示器、虚拟屏 | 已有 | 保留 |
