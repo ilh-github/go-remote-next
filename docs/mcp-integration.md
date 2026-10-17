@@ -1086,17 +1086,28 @@ Record AI operation sequences as reusable workflows with parameterized replay.
 | `stop_recording` | Stop recording and save. Params: `device_id`, `description`, `tags` |
 | `list_workflows` | List all saved workflows |
 | `get_workflow` | Get full workflow details with all steps |
-| `replay_workflow` | Replay a workflow with optional argument overrides |
+| `replay_workflow` | Replay through each step's recorded transport, with argument overrides and optional `stop_on_failure` |
+| `list_workflow_runs` | List persisted run reports, newest first, with optional `workflow_id` and `limit` |
+| `get_workflow_run` | Get one persisted run report by `run_id` |
 | `delete_workflow` | Delete a workflow |
 
 ### Typical Flow
 
 ```
-start_recording → execute skill_exec calls → stop_recording → get reusable workflow
+start_recording → execute remote UI actions and/or skill_exec calls → stop_recording → get reusable workflow
 replay_workflow → replay on another device
 ```
 
-During recording, all `skill_exec` calls are automatically captured as workflow steps.
+During recording, pointer, keyboard, clipboard, text-click, and `skill_exec` actions are captured with
+the transport needed for replay. Skill-host steps remain the default for workflows created before
+transport recording was introduced.
+
+- Workflow files include `format_version`; missing values are read as version 1.
+- `{{name}}` placeholders are substituted recursively. Existing top-level arguments can still be
+  overridden by matching keys, preserving pre-placeholder workflows.
+- Every replay writes a report under `~/.quickdesk/workflow-runs/`. Safety failures such as emergency
+  stop, policy blocking, or rejected confirmation always abort. Ordinary execution failures abort by
+  default and continue only when `stop_on_failure=false`.
 
 ---
 

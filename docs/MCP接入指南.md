@@ -1084,17 +1084,25 @@ QuickDesk MCP 内置持久化的设备记忆系统（SQLite），自动记录操
 | `stop_recording` | 停止录制并保存，参数：`device_id`、`description`、`tags` |
 | `list_workflows` | 列出所有已保存工作流 |
 | `get_workflow` | 获取工作流详情（含所有步骤） |
-| `replay_workflow` | 回放工作流，支持参数覆盖 |
+| `replay_workflow` | 按步骤记录的通道回放，支持参数覆盖和 `stop_on_failure` |
+| `list_workflow_runs` | 按时间倒序列出回放报告，可按 `workflow_id` 过滤并限制 `limit` |
+| `get_workflow_run` | 按 `run_id` 获取一次完整回放报告 |
 | `delete_workflow` | 删除工作流 |
 
 ### 典型流程
 
 ```
-start_recording → 执行一系列 skill_exec → stop_recording → 得到可复用工作流
+start_recording → 执行远程 UI 操作和/或 skill_exec → stop_recording → 得到可复用工作流
 replay_workflow → 在另一台设备上重放
 ```
 
-录制期间，所有 `skill_exec` 调用自动捕获为工作流步骤。
+录制期间，鼠标、键盘、剪贴板、文本点击和 `skill_exec` 会连同回放通道一起保存。旧工作流没有
+通道字段时默认按 skill-host 步骤回放。
+
+- 工作流文件包含 `format_version`；旧文件缺少该字段时按版本 1 读取。
+- `{{name}}` 占位符会递归替换；已有工作流仍支持按顶层参数同名覆盖，兼容旧格式。
+- 每次回放都会在 `~/.quickdesk/workflow-runs/` 写入报告。急停、策略阻断和人工拒绝属于安全失败，
+  永远终止；普通执行失败默认终止，只有 `stop_on_failure=false` 时才继续。
 
 ---
 
