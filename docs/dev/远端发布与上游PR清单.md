@@ -1,14 +1,14 @@
 # 远端发布与上游 PR 清单
 
-**更新时间**: 2026-10-17 20:10 CST
+**更新时间**: 2026-10-17 20:53 CST
 
 这份清单只记录本地验证完成后仍需远端写入的动作。当前机器上的 `git push`
 会被执行策略拒绝，因此以下步骤应在允许远端写入的环境中执行。
 
 ## 当前本地基线
 
-- fork 主干：本轮已验证主干为 `8f88a1d`，Windows 自动更新代码提交为 `a982a10`；
-  本文件后续 docs-only 提交可能让实际 HEAD 再前进，推送前仍以 `git rev-parse` 为准
+- fork 主干：本轮已验证主干为 `c77dcae`（SQLite 轻量单进程模式）；本文件后续
+  docs-only 提交可能让实际 HEAD 再前进，推送前仍以 `git rev-parse` 为准
 - fork 远端：`origin/dev`、`origin/master` 仍为 `f6651f0`；本地 `dev` 领先数量以
   `git rev-list --count origin/dev..dev` 为准，远端写入尚未完成
 - 功能分支：`codex/product-backlog` = `dea02f9`
@@ -29,6 +29,8 @@
 - 上游 QD-607 服务端候选：`codex/upstream-qd-607-batch-revoke` = `badf990`（基于 PR
   #25 的 `feat/signaling-control-plane` = `8998466`，只含批量远控清场服务端、handler、
   测试和用户 API 文档）
+- 上游 QD-006 候选：尚未创建；需基于 PR #25 的 SignalingServer 基线单独抽取，
+  不能直接拿 fork `dev` 的 `c77dcae` 当独立上游提交
 - 上游最小候选：`codex/upstream-access-bans` = `b89c24c`
 - 上游基线：`barry-ran/QuickDesk` 的 `dev` / `master` = `f6651f0`
 - 上游维护口径：issue #21 已确认“持续维护、暂缓更新、重点偏 MCP”；贡献从
@@ -152,6 +154,10 @@
 - QD-214 当前状态为 `[!]`，阻塞点是 Windows Host 用户上下文，不是上传协议。下一步
   需要把 QuickDesk Host worker 启动到活动交互 session，或向 Remoting 提正式需求；
   在此之前不再扩大 WebClient 的错误提示补丁。
+- QD-006 / QD-809 已在 fork 完成并提交 `c77dcae`：SQLite 单文件、`DB_DRIVER=sqlite`
+  自动选择进程内 Redis、健康检查识别 sqlite，空目录启动/重启 E2E、全量 Go 测试、
+  database race 和 `go vet` 通过。该模式只支持一个信令进程，进程内 Redis 重启即失；
+  上游候选必须保留这两个边界，并基于 PR #25 的 SignalingServer 基线重做最小增量。
 
 ## 1. 推送前检查
 

@@ -1,6 +1,6 @@
 # QuickDesk 功能总清单
 
-> 最后对账：2026-10-17 20:32 CST。上游与 fork 状态都是动态的，实施前必须重新执行
+> 最后对账：2026-10-17 20:53 CST。上游与 fork 状态都是动态的，实施前必须重新执行
 > `git fetch --all --prune` 并核对 GitHub issue / PR。
 >
 > 本文件是 QuickDesk fork 后续产品开发的唯一功能清单。它合并三类输入：
@@ -43,8 +43,8 @@
 
 - 仓库：`go-remote-next`
 - 本地主分支：`dev`、`master`
-- 本地代码基线：`a982a10`（Windows 自动更新重启与缓存清理）；验证记录和清单的
-  docs-only 提交位于其后，`dev` 与 `master` 保持同线
+- 本地代码基线：`c77dcae`（SQLite 轻量单进程模式）；验证记录和清单的 docs-only
+  提交位于其后，`dev` 与 `master` 保持同线
 - 远端 fork：`origin/dev` 仍为 `f6651f0`，本地 `dev` 尚未推送；领先数量以
   `git rev-list --count origin/dev..dev` 的实时值为准。远端写入恢复前不能把本地验收当成已发布
 - 上游基线：`barry-ran/QuickDesk` 的 `dev` 和 `master` 当前均为 `f6651f0`
@@ -54,15 +54,15 @@
   QD-215 Windows 发布依赖校验（`67bf11f`、`556f86e`）、QD-607 批量远控清场（`5028068`）、QD-204 地址簿与设备分组
   （`f270487`、`b1a1155`、`162ac6e`、`b013a62`）、QD-508 Qt 录像回放
   （`74c7022`）、三端管理面实时消费、`a982a10` 的 Windows 更新闭环，以及
-  `8f88a1d` 的上游待办融合与抽取边界文档
+  `c77dcae` 的 SQLite 轻量单进程模式
 - fork PR：<https://github.com/ilh-github/go-remote-next/pull/1>，OPEN / MERGEABLE /
   CLEAN，7 项检查全部成功；它的 head 是早期最小分支，不等于当前完整 `dev`
 - 服务端：Go SignalingServer
 - 桌面客户端：Qt 6 + QML
 - Web 客户端：Vue 3 外壳 + 原生 `remote.html`
 - 核心控制引擎：QuickDesk / Chromium Remoting
-- 持久化：PostgreSQL
-- 实时状态与令牌：Redis
+- 持久化：PostgreSQL（多实例）/ SQLite（轻量单进程）
+- 实时状态与令牌：Redis（多实例）/ 进程内 Redis（轻量单进程，重启即失）
 
 ## 3. 当前迭代
 
@@ -73,13 +73,14 @@
 | QD-003 | P0 | 多标签控制与音频抢占 | `[x]` | UP-Ready | 同一设备多个同源标签页只有一个控制者/音频播放者；新标签接管后旧标签立即释放 |
 | QD-004 | P0 | Host/Relay 权威自动录制 | `[ ]` | UP-Remoting | 被控端或中继自动录制，断线自动收尾并上传索引 |
 | QD-005 | P0 | 客户端自动更新消费 | `[~]` | UP-PR#25 + Upstream-Open | Windows 已通过检查、下载、SHA-256 校验、静默安装、自动重启、版本落盘和服务存活真机闭环；macOS 已实现受校验的 DMG 挂载、暂存替换、失败回退和重开，并通过 ad-hoc 真实 DMG E2E；剩余 Developer ID 签名、Apple 公证和公证后替换回归 |
-| QD-006 | P1 | SQLite 轻量服务端部署 | `[ ]` | Upstream-Open | 单进程、单文件数据库、无 Redis 的最小自托管模式 |
+| QD-006 | P1 | SQLite 轻量服务端部署 | `[x]` | UP-PR#25 | 单进程、单文件 SQLite、默认进程内 Redis；`/health` 区分 sqlite，空目录启动和重启持久化 E2E 通过 |
 | QD-007 | P1 | 图片剪贴板 | `[ ]` | UP-Remoting | 双向图片格式协商、分片传输、权限和边界测试 |
 
 最近验证：
 
 - 本轮代码提交：`e688869`（访问码同步重试）、`5be14da`（SPAKE2 与传输错误码）、
-  `a982a10`（Windows 自动更新重启与缓存清理）；`dev` / `master` 在其后同步本轮验证；
+  `a982a10`（Windows 自动更新重启与缓存清理）、`c77dcae`（SQLite 轻量模式）；
+  `dev` / `master` 在其后同步本轮验证；
   当前领先数量以 `git rev-list --count origin/dev..dev` 为准；
   QD-215 主线和上游最小候选均已提交，远端写入仍被策略拒绝。
 - 上游核对：`upstream/dev` 与 `upstream/master` 均为 `f6651f0`；当前上游 open issues 10 个、open PR 4 个。
@@ -87,7 +88,7 @@
   `dev` 切分支贡献、Remoting 改动由维护者处理”；不能再把“暂缓”理解成停止维护。
 - 上游 PR：#22、#23、#24、#25 均为 OPEN / MERGEABLE，但 GitHub 返回的
   `mergeStateStatus=UNSTABLE` 且没有 reported checks；不能把 MERGEABLE 写成 CI 已通过。
-- 清单统计：116 个唯一 QD ID；70 个 `[x]`、21 个 `[~]`、19 个 `[ ]`、
+- 清单统计：116 个唯一 QD ID；72 个 `[x]`、21 个 `[~]`、17 个 `[ ]`、
   3 个 `[!]`、2 个 `[>]`、1 个 `[-]`。
 - 上游待办已全部映射到本清单：10 个 open issue、4 个 open PR、3 个未完成 Roadmap
   项均有对应 QD、处理边界和上游贡献方式；上游已完成的 Roadmap 项只作为继承基线，
@@ -126,6 +127,17 @@
   公证凭据会直接失败。
 - QD-005 测试：`quickdesk_update_support_test` 与 `quickdesk_update_manager_test` 通过；
   后者使用真实本地 HTTP 服务覆盖检查、下载、摘要不匹配拒绝、残件清理和跨源凭据隔离。
+- QD-006 / QD-809 功能提交：`c77dcae`。`DB_DRIVER=sqlite` 使用单文件 SQLite；
+  `REDIS_DRIVER` 留空时自动切到进程内 Redis，不再依赖外部 PostgreSQL/Redis。轻量模式
+  强制迁移 SQLite schema、关闭通知投递/计划任务/跨实例日志等不适合单进程的后台能力，
+  `/health` 会返回 `sqlite` 而不是 `postgres`。
+- QD-006 / QD-809 验证：`scripts/e2e/test-quickdesk-minimal-server.sh` 从空临时目录构建
+  并启动真实二进制，使用不可达的 PostgreSQL/Redis 地址证明二者未被依赖，验证
+  `/health`、SQLite 文件创建、进程重启后数据库仍存在；全量 `go test -p 1 -count=1 ./...`、
+  `go test -race ./internal/database`、`go vet ./...` 和 `git diff --check` 均通过。
+- QD-006 边界：进程内 Redis 是易失的，重启会清空 refresh token、presence、限流和实时流
+  续传状态；SQLite 模式只支持一个信令进程。此边界已写入 `SignalingServer/README.md`，
+  不能把本地最小模式描述成多实例生产部署。
 - QuickDesk 完整 Qt 6.8.3 Debug 构建通过，`QuickDesk_qmllint` 退出 0；现有旧 QML
   未解析类型和布局告警仍在，本轮新增更新对话框没有阻断告警。
 - QD-212 功能提交：`4e8ea5a`。Qt 我的设备与收藏列表会用当前 Host 设备 ID 标记
@@ -247,6 +259,7 @@
 | 已完成 | QD-204 地址簿与设备分组用户入口 | `Legacy` / `Upstream` Roadmap | owner-scoped API、四套 SDK、WebClient 和 Qt 已完成；真实 service smoke 388 条断言通过 | 本地候选已准备：API `codex/upstream-qd-204-api@d2321b9`，客户端 `codex/upstream-qd-204-client@b259d03`；等远端写入恢复后建 PR |
 | 本地收口 | QD-607 计划任务执行动作 | `Fork` / `Legacy` | 服务端调度、Web/Qt 管理面、重试已完成；新增 `revoke_all_remote_sessions`，可按执行时设备归属批量关闭活动远控会话（最多 200 台）；纯服务端候选 `codex/upstream-qd-607-batch-revoke@badf990` 已独立验证 | “定时连接”仍需控制端到点发起连接的协议；更广义的批量 agent 指令仍需执行与回执通道；远端写入恢复后推送候选并作为 PR #25 的 stacked PR |
 | 本地收口 | QD-005 / QD-808 自动更新真机验证 | `Fork` / `Legacy` / `Upstream` PR #25 | Windows 已完成 4.2.8.0→4.2.9.0 自动下载、校验、静默安装、自动重启、版本和服务闭环，提交 `a982a10`；macOS 已实现 DMG 自动替换和失败回退，并通过 ad-hoc 真实 DMG E2E | 取得 Apple Developer ID 和公证凭据，执行 hardened runtime 签名、notarytool、staple、Gatekeeper 与真实升级回归；上游候选仍应在 PR #25/更新通道基线确认后重做最小增量 |
+| 已完成 | QD-006 / QD-809 SQLite 轻量服务端 | `Fork` / `Upstream-Open` | 提交 `c77dcae`；单进程 SQLite、默认进程内 Redis、健康检查、空目录启动和重启持久化 E2E 已通过，外部 PostgreSQL/Redis 未参与 | PR #25 合并后从控制面基线抽出最小 SQLite/embedded Redis 候选；明确单实例和易失 Redis 边界，不和多实例生产配置混在同一 PR |
 | 上游候选 | QD-003 多标签控制与音频抢占 | `Legacy` / `Upstream` Roadmap 补强 | 候选 `codex/upstream-cross-tab-coordination` = `6047615`，仅 WebClient 改动 | 远端写入恢复后推送并建 PR；补截图和同源双标签验证说明 |
 | 上游候选 | QD-114 自托管 WSS SPKI 兼容 | `Upstream` issue #20 / `Fork` | 候选 `codex/upstream-qd-114-spki` = `13559e6`；临时方案不替代真实证书校验 | 推送并建 issue #20 PR；补 Qt 构建、Windows 服务和真实 `wss://` |
 | 上游候选 | QD-212 设备列表本机标识 | `Upstream` issue #19 / `Legacy` | 候选 `f1ce096` 已在干净上游基线构建和测试 | 推送并建 PR；与 #19 其余问题拆开 |
@@ -277,7 +290,7 @@ Roadmap 项放到同一条实施路径中。详细追溯仍以第 16 节为准�
 | 3 | 等 PR #25 基线 | QD-204 API/客户端、QD-607 服务端、QD-108 / QD-508 / QD-706 / QD-708 管理面、QD-005 客户端 | 这些能力依赖控制面、OpenAPI、录像或管理页基线；直接塞进 #25 会变成巨型 PR | 维护者确认 #25 合并或 stacked base；再按服务端/Web/Qt/更新拆 PR |
 | 4 | 跟踪上游已有 PR | PR #22 自动审批、#23 录像、#24 skill-host 运行库、#25 控制面 | 上游已有实现，重复开发只会制造分叉 | PR 合并后同步 `upstream/dev`，重跑受影响测试；删除重复本地实现 |
 | 5 | 提 Remoting 需求 | QD-002 Web 文件通道、QD-004 / QD-505 Host 权威录制、QD-007 图片剪贴板、QD-114 真实 CertVerifier、QD-214 Windows 用户上下文 | 必须改 Chromium Remoting 或宿主生命周期，维护者已明确这类改动由他处理 | 每项提交协议草案、权限边界、兼容性和验收用例；不在 fork 伪造第二套媒体链路 |
-| 6 | fork 自主增强 | QD-006 / QD-809 SQLite、QD-810 备份恢复、QD-604 指标告警、QD-702 墙级音频、QD-610 工作流、QD-608 更多 SDK、QD-904 / QD-907 / QD-908 / QD-909 | 有产品价值但不阻塞上游，也不是当前最小可回贡补丁 | 有明确用户入口、失败路径和对应自动化或真机证据 |
+| 6 | fork 自主增强 | QD-810 备份恢复、QD-604 指标告警、QD-702 墙级音频、QD-610 工作流、QD-608 更多 SDK、QD-904 / QD-907 / QD-908 / QD-909 | QD-006 / QD-809 已完成；剩余项有产品价值但不阻塞上游，也不是当前最小可回贡补丁 | 有明确用户入口、失败路径和对应自动化或真机证据 |
 | 7 | 暂缓跟随上游 | QD-318 Linux、QD-319 iOS/Android | 上游 Roadmap 已列出，本 fork 当前不承诺实现 | 保持接口和构建兼容；上游方向明确后再排期 |
 | 8 | 不进入待办 | RDP、重写 WebRTC/Remoting、多租户/SSO/计费、通用插件市场 | 与“复用成熟远控内核 + 补业务控制面”的路线冲突或收益不足 | 只有用户重新定义产品目标才重新评估 |
 
@@ -424,7 +437,7 @@ ad-hoc 成功写成正式跨平台发布完成。
 | QD-806 | 多实例会话和租约 | `[~]` | 已有实例寻址；Redis 仍是单点 |
 | QD-807 | 安装包、升级发布服务端 | `[x]` | 上传、Range、断点续传、管理端 UI |
 | QD-808 | 客户端自动更新消费 | `[~]` | 当前迭代 QD-005；Windows 用 `/SILENT /CLOSEAPPLICATIONS /LAUNCHAPP` 启动安装器，已验证 4.2.8.0→4.2.9.0 全闭环。macOS 更新助手完成 DMG 挂载、bundle/version/签名校验、暂存替换、失败回退、重开和临时包清理，ad-hoc 真实 DMG E2E 通过。剩余：Developer ID 签名、Apple 公证和公证包升级回归 |
-| QD-809 | SQLite 轻量服务端 | `[ ]` | 当前迭代 QD-006 |
+| QD-809 | SQLite 轻量服务端 | `[x]` | QD-006 已收口；单文件 SQLite + 默认进程内 Redis，健康检查、启动和重启 E2E 通过；仅支持单进程，Redis 状态重启即失 |
 | QD-810 | 正式备份、恢复和容量配额 | `[ ]` | 还需完整演练和文档 |
 
 ## 12. 质量与验证
@@ -495,8 +508,11 @@ ad-hoc 成功写成正式跨平台发布完成。
 - `Multi-tab multi-connection` 在上游已勾选；QD-003 补的是同一设备多个标签的控制/音频互斥，不重复“多连接”能力
 - 维护计划：issue #21，维护者明确“持续维护、暂缓更新、重点偏 MCP、欢迎从 dev 切分支贡献、Remoting 改动由维护者处理”
 - 当前 open PR：#22、#23、#24、#25
-- 2026-10-17 复核：四个 PR 均显示 MERGEABLE / `mergeStateStatus=UNSTABLE`，但 GitHub
+- 2026-10-17 20:53 复核：上游两个分支、10 个 open issue、4 个 open PR 均无漂移；四个
+  PR 显示 MERGEABLE / `mergeStateStatus=UNSTABLE`，但 GitHub
   没有 reported checks；不能把“MERGEABLE”写成 CI 已通过
+- QD-006 是通用自托管增强，但当前上游没有对应 open issue/PR；它修改的是 PR #25 所在的
+  SignalingServer 基线，因此先完成 fork 验收，等 #25 审查结论后再抽成 stacked 候选。
 - 本次融合结论：当前上游没有“必须由本 fork 立即重复开发”的 open issue；真正需要决策的是
   哪些工作作为独立小 PR 先贡献、哪些等 #25 合并后再拆、哪些只能向 Remoting 提需求。
 
@@ -611,6 +627,7 @@ Remoting 或协议改造；`不重复` 表示上游已经具备，只需验证�
 | 9 | `feat(webclient): control-plane management pages` | QD-108/605/607/703 | 依赖 PR #25 合并；按页面拆成多个 PR |
 | 10 | `feat(qt): remote session and management pages` | QD-706/708 | 依赖 PR #25 合并；审批页 `7c23f13`、会话实时消费 `ea5a65f` 和计划任务页 `42b6c61` 可先拆，再补通知页 |
 | 11 | `feat(qt): consume self-hosted update channel` | QD-005 / QD-808 | 依赖 PR #25 合并；Windows 重启修复已包含在 fork `a982a10`。直接 cherry-pick `cae77ff` 到 `upstream/dev` 已实测冲突，必须在更新通道基线上重做最小增量，不携带 fork 私有文档 |
+| 12 | `feat(signaling): support SQLite minimal mode` | QD-006 / QD-809 | 依赖 PR #25 的 SignalingServer 基线；fork 提交 `c77dcae` 已完成，抽候选时只带 SQLite、embedded Redis、配置/健康检查和测试，不带 fork 清单 |
 
 QD-003 的上游候选已经单独准备：
 
@@ -712,6 +729,8 @@ QD-215 的上游候选已经单独准备：
 - 把 QD-214 的 SPAKE2 兼容修复和 0~7 错误诊断分别作为独立增量；Windows 上传根因作为 Host 服务/
   Remoting 用户上下文需求提交，不在 WebClient 内绕过；
 - 把 QD-005 的 Qt 更新消费作为 PR #25 的后续增量，先保证跨平台安装行为和签名链；
+- 把 QD-006 的 SQLite 单进程模式作为 PR #25 的独立 stacked 候选，明确“单实例、进程内
+  Redis 易失”的边界，不和多实例生产部署混在一个 PR；
 - 把 Web 文件管理器、Host 自动录制、图片剪贴板整理成 Remoting 需求，由维护者评估；
 - 把 PR #25 的控制面能力先等上游审查，避免重复提交；
 - fork 的 Web/Qt 业务页面在 #25 合并后按页面拆成增量 PR，而不是塞进一个巨型控制面 PR。
