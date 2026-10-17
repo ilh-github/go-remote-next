@@ -168,6 +168,7 @@ quickdesk-mcp [--ws-url ws://127.0.0.1:9600] [--token YOUR_TOKEN]
 | `--host` | `127.0.0.1` | `QUICKDESK_HTTP_HOST` | HTTP server bind address (HTTP mode only) |
 | `--cors-origin` | (none) | `QUICKDESK_CORS_ORIGIN` | Allowed CORS origin (HTTP mode only) |
 | `--stateless` | `false` | — | Use stateless HTTP sessions (HTTP mode only) |
+| `--trigger-token` | (none) | `QUICKDESK_TRIGGER_TOKEN` | Separate Bearer token for the local business-workflow HTTP trigger |
 
 ### 3. Use It
 
@@ -1108,6 +1109,25 @@ transport recording was introduced.
 - Every replay writes a report under `~/.quickdesk/workflow-runs/`. Safety failures such as emergency
   stop, policy blocking, or rejected confirmation always abort. Ordinary execution failures abort by
   default and continue only when `stop_on_failure=false`.
+
+### Business Workflow Trigger
+
+HTTP transport can expose a local business integration endpoint:
+
+```http
+POST /v1/workflows/{workflow_id}/run
+Authorization: Bearer <QUICKDESK_TRIGGER_TOKEN>
+Content-Type: application/json
+```
+
+The request names a connected `device_id` and may include `overrides` and `stop_on_failure`.
+The endpoint runs through the existing trust layer and returns the persisted
+`WorkflowRunReport`. `GET /v1/workflow-runs/{run_id}` returns the same report later.
+
+The trigger is disabled when `QUICKDESK_TRIGGER_TOKEN` is empty, allows one workflow run per
+process at a time, and still enforces `QUICKDESK_ALLOWED_DEVICES`. It is synchronous; schedules,
+control-plane event subscriptions, idempotency keys and outbound callbacks are not implemented yet.
+See `docs/dev/业务工作流HTTP触发器.md` for the complete contract.
 
 ---
 

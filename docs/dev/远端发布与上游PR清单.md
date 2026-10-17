@@ -67,6 +67,9 @@
   `codex/upstream-qd-506-recording-upload` = `de45538`，基于 PR #23 的 `00a7cb8`；
   候选自身 3/3 单测、生产构建和 diff check 通过，真实 SQLite E2E 因旧基线无 SQLite
   驱动而留在 fork 主线验证
+- QD-610 本机业务 HTTP trigger：fork 提交 `bca8149`，MCP 23/23、Clippy 和 release
+  构建通过；这是 fork 业务编排的第一阶段，暂不拆上游 PR，等定时/事件/回调契约稳定后再
+  判断是否把通用 HTTP trigger 独立回贡
 - fork PR #1：<https://github.com/ilh-github/go-remote-next/pull/1>，
   OPEN / MERGEABLE / CLEAN，7 项检查全部成功
 - upstream PR #25：<https://github.com/barry-ran/QuickDesk/pull/25>
