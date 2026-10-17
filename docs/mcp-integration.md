@@ -1125,6 +1125,12 @@ The request names a connected `device_id` and may include `overrides` and `stop_
 The endpoint runs through the existing trust layer and returns the persisted
 `WorkflowRunReport`. `GET /v1/workflow-runs/{run_id}` returns the same report later.
 
+For long workflows, `POST /v1/workflows/{workflow_id}/run-async` returns `202` with a
+`queued` job. Poll `GET /v1/workflow-runs/{run_id}/status` for state and the final report,
+and cancel with `POST /v1/workflow-runs/{run_id}/cancel`. A running job is cancelled at a
+step boundary or by aborting the current WebSocket request, and its report has
+`cancelled=true`.
+
 The trigger is disabled when `QUICKDESK_TRIGGER_TOKEN` is empty, allows one workflow run per
 process at a time, and still enforces `QUICKDESK_ALLOWED_DEVICES`. Requests are synchronous;
 persistent interval triggers are executed by a background worker. Control-plane event
@@ -1145,8 +1151,9 @@ POST   /v1/triggers/{trigger_id}/run
 A trigger stores the workflow, device, default overrides and an optional `interval_seconds`
 (60 seconds to 365 days). The HTTP transport worker claims at most one due trigger every five
 seconds, advances `next_run_at` before execution, and writes the last run ID/status back to the
-definition. Control-plane events, cron/calendar rules, asynchronous queues and HMAC callbacks
-remain future work.
+definition. Control-plane events, cron/calendar rules, cross-process queue recovery and HMAC
+callbacks remain future work; the current job worker is single-process and does not resume an
+interrupted queue after restart.
 
 ---
 
