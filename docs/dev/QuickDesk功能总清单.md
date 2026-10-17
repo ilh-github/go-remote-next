@@ -1,6 +1,6 @@
 # QuickDesk 功能总清单
 
-> 最后对账：2026-10-17。上游与 fork 状态都是动态的，实施前必须重新执行
+> 最后对账：2026-10-17 18:20 CST。上游与 fork 状态都是动态的，实施前必须重新执行
 > `git fetch --all --prune` 并核对 GitHub issue / PR。
 >
 > 本文件是 QuickDesk fork 后续产品开发的唯一功能清单。它合并三类输入：
@@ -43,12 +43,12 @@
 
 - 仓库：`go-remote-next`
 - 本地主分支：`dev`、`master`
-- 本地功能基线：`eca3c8f`；`dev` 与 `master` 指向同一提交
-- 远端 fork：`origin/dev` 仍为 `f6651f0`，本地 `dev` 领先 226 个提交；远端写入恢复前不能把本地验收当成已发布
+- 本地功能基线：`83d8caf`；`dev` 与 `master` 指向同一提交
+- 远端 fork：`origin/dev` 仍为 `f6651f0`，本地 `dev` 领先 232 个提交；远端写入恢复前不能把本地验收当成已发布
 - 上游基线：`barry-ran/QuickDesk` 的 `dev` 和 `master` 当前均为 `f6651f0`
 - 上游维护口径：持续维护但暂缓更新，下一阶段重点偏 MCP；外部贡献从 `dev` 切分支，完成后合入 `dev`，维护者定期合入 `master`
 - Remoting 边界：`quickdesk-remoting` 需要编译整个 Chromium，涉及 Remoting 的改动优先向上游提需求，不要求贡献者本地编译
-- 当前主要增量：QD-607 批量远控清场（`5028068`）、QD-204 地址簿与设备分组
+- 当前主要增量：QD-215 Windows 发布依赖校验（`67bf11f`、`556f86e`）、QD-607 批量远控清场（`5028068`）、QD-204 地址簿与设备分组
   （`f270487`、`b1a1155`、`162ac6e`、`b013a62`）、QD-508 Qt 录像回放
   （`74c7022`）、三端管理面实时消费，以及 `eca3c8f` 的上游待办融合文档
 - fork PR：<https://github.com/ilh-github/go-remote-next/pull/1>，OPEN / MERGEABLE /
@@ -74,6 +74,8 @@
 
 最近验证：
 
+- 本地基线：`dev` / `master` = `83d8caf`，相对 `origin/dev` 领先 232 个提交；
+  QD-215 主线和上游最小候选均已提交，远端写入仍被策略拒绝。
 - 上游核对：`upstream/dev` 与 `upstream/master` 均为 `f6651f0`；当前上游 open issues 10 个、open PR 4 个。
 - 上游维护：issue #21 已由维护者回复“持续维护、暂缓更新、重点偏 MCP、欢迎从
   `dev` 切分支贡献、Remoting 改动由维护者处理”；不能再把“暂缓”理解成停止维护。
@@ -84,6 +86,9 @@
 - 上游待办已全部映射到本清单：10 个 open issue、4 个 open PR、3 个未完成 Roadmap
   项均有对应 QD、处理边界和上游贡献方式；上游已完成的 Roadmap 项只作为继承基线，
   不重复开发。
+- 融合结论：本清单的 3.1 决策台账负责固定“做/不做/等待/交 Remoting”，3.2 执行队列负责
+  排序，第 16、17 节负责逐项追溯上游来源和 PR 交付方式。三者共同作为后续开发和回贡的
+  唯一工作口径，不再另建一套 fork 待办。
 - 上游 `docs/dev/*技术方案.md` 里有部分历史未勾选实现清单，抽查当前代码后多数已经落地；
   这些文件是设计历史，不直接当新增待办。权威待办仍以 README Roadmap、open issue、open PR
   和维护者最新回复为准。
