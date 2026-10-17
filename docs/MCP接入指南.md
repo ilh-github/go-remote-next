@@ -1135,8 +1135,8 @@ WebSocket 请求处中止，并写入 `cancelled=true` 的报告。
 `QUICKDESK_TRIGGER_TOKEN` 为空时接口关闭；每个进程一次只允许一条业务工作流运行，并继续
 受 `QUICKDESK_ALLOWED_DEVICES` 限制。HTTP 请求本身是同步执行，持久化 interval trigger 由
 后台 worker 执行。可选 `Idempotency-Key` 会把相同请求的第一次 `WorkflowRunReport`
-持久化并重放；相同 key 对应不同请求或仍在执行的请求返回 409。控制面事件订阅、
-cron/日历、回调 outbox/重试和跨进程 worker 尚未实现。完整契约见
+持久化并重放；相同 key 对应不同请求或仍在执行的请求返回 409。cron/日历、回调
+outbox/重试和跨进程 worker 尚未实现。完整契约见
 `docs/dev/业务工作流HTTP触发器.md`。
 
 持久化触发器通过以下接口管理：
@@ -1148,9 +1148,19 @@ DELETE /v1/triggers/{trigger_id}
 POST   /v1/triggers/{trigger_id}/run
 ```
 
-触发器保存工作流、设备、默认参数和可选 `interval_seconds`（60 秒到 365 天）。HTTP
-transport 的后台 worker 每 5 秒最多领取一条到期触发器，执行前推进 `next_run_at`，执行后
-回写 run ID 和 completed/failed。cron/日历规则、控制面事件、跨进程队列恢复和 HMAC 回调仍未实现。
+触发器保存工作流、设备、默认参数，以及至少一个 `interval_seconds`（60 秒到 365 天）
+或 `event_type`，两者也可同时使用。事件触发器支持 `event_device_id` 和顶层
+`event_filter`；省略
+`event_device_id` 时，设备类事件默认绑定执行目标设备，用户级的计划任务失败事件则不按
+设备过滤。当前白名单包括设备在线/离线、指标告警、访问批准/拒绝、远控会话、录像
+生命周期和计划任务失败事件。
+
+Qt 的 `CloudDeviceManager` 先完成实时流的 snapshot/replay 与 `server_rev` 顺序校验，
+再从 `data.device_id` 归一化实时信封没有稳定提供的设备字段，并通过本机 WebSocket API
+发送 `controlPlaneEvent`。MCP 只订阅该事件名，按类型、设备和过滤器匹配后先持久化
+claim 再执行。事件 `id` 是跨重启幂等键；没有 ID 的旧事件才使用 `server_rev`。
+事件订阅只处理实时到达的事件，MCP 停机期间的事件不会补发。cron/日历规则、跨进程
+队列恢复和回调 outbox/重试仍未实现。
 
 ---
 

@@ -1,8 +1,8 @@
 # QuickDesk 业务工作流 HTTP 触发器
 
-> 状态（2026-10-17）：QD-610 第五阶段。业务系统可以保存 manual/interval trigger，
-> 通过独立 Bearer token 立即运行，并由 HTTP transport 的后台 worker 每 5 秒领取一次
-> 到期触发器。`Idempotency-Key`、异步 job 和 HMAC 出站回调已支持；控制面事件订阅、
+> 状态（2026-10-17）：QD-610 第六阶段。业务系统可以保存 interval trigger 或控制面事件
+> trigger，通过独立 Bearer token 立即运行，并由 HTTP transport 的后台 worker 领取到期
+> 触发器。`Idempotency-Key`、异步 job、HMAC 出站回调和受控控制面事件订阅已支持；
 > 委托权限细分、cron/日历、回调重试 outbox 和跨进程 worker 仍未完成。
 
 ## 1. 边界
@@ -187,6 +187,7 @@ Authorization: Bearer <QUICKDESK_TRIGGER_TOKEN>
 - 名称、工作流 ID、设备 ID；
 - 默认参数覆盖和 `stop_on_failure`；
 - 可选 `interval_seconds`；
+- 可选 `event_type`、`event_device_id` 和 `event_filter`；
 - `next_run_at`、上次运行 ID/状态/错误。
 
 管理接口：
@@ -209,17 +210,94 @@ POST   /v1/triggers/{trigger_id}/run
     "target": "C:\\reports\\hourly.txt"
   },
   "stop_on_failure": true,
-    "interval_seconds": 3600,
-    "callback_url": "http://127.0.0.1:8090/quickdesk/result"
+  "interval_seconds": 3600,
+  "callback_url": "http://127.0.0.1:8090/quickdesk/result"
 }
 ```
 
-`interval_seconds` 范围是 60 秒到 365 天；省略时创建 manual trigger，只通过
-`POST /v1/triggers/{trigger_id}/run` 执行。到期领取会先推进 `next_run_at` 再执行，
+`interval_seconds` 范围是 60 秒到 365 天。`interval_seconds` 和 `event_type` 至少要
+提供一个，也可以同时使用；两者都省略时返回 `400`。只创建 interval trigger 后仍可随时通过
+`POST /v1/triggers/{trigger_id}/run` 手动执行。到期领取会先推进 `next_run_at` 再执行，
 采用 at-most-once 语义；worker 一次只领取一条，并与手动触发共用同一个执行槽。
 
 `POST /v1/triggers/{trigger_id}/run` 返回本次 `WorkflowRunReport`，同时把 run_id、
 completed/failed 和错误写回 trigger 定义。
+
+### 7.1 控制面事件触发器
+
+事件触发器把已经登录的 QuickDesk 控制面事件流映射到本机工作流：
+
+```text
+SignalingServer user event stream
+        |
+        v
+Qt CloudDeviceManager (snapshot / ordered replay / server_rev checks)
+        |
+        v
+本机 WebSocket API: controlPlaneEvent
+        |
+        v
+quickdesk-mcp event worker -> workflow replay
+```
+
+创建示例：
+
+```json
+{
+  "name": "访问被拒绝时收集诊断",
+  "workflow_id": "b7ca0a2f-0d4c-4f0c-9dbf-4a92e8a67d10",
+  "device_id": "device-1",
+  "event_type": "device.access.denied",
+  "event_device_id": "device-1",
+  "event_filter": {
+    "reason": "policy"
+  },
+  "overrides": {
+    "target": "C:\\diagnostics\\access-denied.txt"
+  },
+  "stop_on_failure": true
+}
+```
+
+字段：
+
+| 字段 | 必填 | 说明 |
+|---|---|---|
+| `event_type` | 是 | 必须来自下方白名单 |
+| `event_device_id` | 否 | 产生事件的设备；设备类事件省略时默认等于执行目标 `device_id`，避免跨设备误触发。`scheduled_task.failed` 等用户级事件默认不按设备过滤 |
+| `event_filter` | 否 | 对事件 `data` 做顶层精确匹配的 JSON 对象；不能匹配 `access_code`、password、secret 或 token 字段 |
+
+当前允许的事件类型：
+
+- `device.online.changed`
+- `device.offline.sustained`
+- `device.metric.alert`
+- `device.access.granted`
+- `device.access.denied`
+- `device.access_approval.requested`
+- `device.access_approval.decided`
+- `remote_session.started`
+- `remote_session.ended`
+- `recording.created`
+- `recording.updated`
+- `recording.deleted`
+- `scheduled_task.failed`
+
+Qt 和 MCP 各保留一份白名单，并使用同一套双层过滤：
+
+1. 先按 `event_type`、`event_device_id` 和 `event_filter` 匹配；
+2. 再持久化 claim，成功 claim 后才执行工作流。
+
+SignalingServer 的实时信封不保证有顶层 `device_id`。Qt 事件桥和 MCP worker 都会从
+`data.device_id` 归一化设备 ID；用户级 `scheduled_task.failed` 没有设备 ID，因此使用
+`event_filter`（例如按 `kind`）限定范围。
+
+事件 ID 是跨重启的幂等键：同一个 `id` 不会执行第二次。没有 `id` 的旧事件才使用
+`server_rev` 去重。SQLite 轻量模式的进程内 Redis 重启后会让 `server_rev` 重新计数，
+因此不能把 revision 单独作为长期唯一键，否则重启后触发器会永久停在旧 revision。
+claim 在执行前写入；如果工作流随后失败，也不会回滚 claim，避免重放网络或桌面操作。
+事件订阅是 live-only：`quickdesk-mcp` 必须在该用户事件到达时保持运行；当前不补发
+MCP 停机期间已经消费过的控制面事件。
 
 ## 8. 安全
 
@@ -230,6 +308,8 @@ completed/failed 和错误写回 trigger 定义。
 -  replay 仍经过 trust policy、人工确认和 emergency stop。
 - 工作流 ID 和 run ID 都经过 UUID 与路径逃逸校验。
 - `Idempotency-Key` 只做请求去重，不是认证凭证；仍需保护 trigger token。
+- 事件桥只广播白名单类型，并只保留 `id`、`type`、`device_id`、`data`、`ts` 和
+  `server_rev` 这些信封字段；不会把访问码或设备密钥转给 MCP。
 - 同步请求会占用一个执行槽；业务系统应设置足够超时并处理 429。
 - 异步任务状态写入 `~/.quickdesk/workflow-jobs/{run_id}.json`，但当前 worker 不跨
   进程恢复中断的队列；重启后应重新提交未完成任务。
@@ -237,9 +317,9 @@ completed/failed 和错误写回 trigger 定义。
 
 ## 9. 尚未完成
 
-- 控制面事件订阅和 event-to-workflow 映射；
 - cron/日历定时规则；当前只有固定 interval；
 - 跨进程 worker、持久化队列恢复和公平调度；当前只支持单进程队列；
+- 控制面事件在 MCP 停机期间的补发/outbox；当前只处理实时到达的事件；
 - 回调持久 outbox、重试、死信和投递确认；
 - Owner 委托 grant、最小权限范围和审计回传控制面。
 
