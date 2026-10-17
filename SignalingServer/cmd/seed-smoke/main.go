@@ -141,7 +141,15 @@ func createUser(client *http.Client, server, apiKey, token, username, password s
 // endpoint is a deliberately wrong access code.
 func bindDevice(deviceID, deviceName string, userID uint) error {
 	cfg := config.Load()
-	db := database.InitPostgreSQL(cfg)
+	db, err := database.OpenDatabase(cfg)
+	if err != nil {
+		return err
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = sqlDB.Close() }()
 	owner := userID
 	row := models.Device{
 		DeviceID:   deviceID,
@@ -161,7 +169,7 @@ func bindDevice(deviceID, deviceName string, userID uint) error {
 	// with an explicit -device-id is idempotent without GORM building the WHERE
 	// clause out of every non-zero field on the row.
 	var existing models.Device
-	err := db.Where("device_id = ?", deviceID).First(&existing).Error
+	err = db.Where("device_id = ?", deviceID).First(&existing).Error
 	switch {
 	case errors.Is(err, gorm.ErrRecordNotFound):
 		return db.Create(&row).Error
@@ -187,7 +195,15 @@ func bindDevice(deviceID, deviceName string, userID uint) error {
 // which would make the device fall offline again seconds later.
 func markDeviceOnline(deviceID string) error {
 	cfg := config.Load()
-	rdb := database.InitRedis(cfg)
+	if cfg.Redis.Driver == "embedded" {
+		return fmt.Errorf("seed-smoke cannot update a running server's embedded Redis; use an external REDIS_DRIVER")
+	}
+	redisRuntime, err := database.InitRedisRuntime(cfg)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = redisRuntime.Close() }()
+	rdb := redisRuntime.Client
 	ctx := context.Background()
 	instance, err := liveInstance(ctx, rdb)
 	if err != nil {

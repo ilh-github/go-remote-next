@@ -28,10 +28,11 @@ import (
 // keep retrying — the server stays usable; devices just rely on the
 // synchronous wsconn DEL path for online-changed events.
 type PresenceWatcher struct {
-	rdb        *redis.Client
-	bus        *EventBus
-	presence   *PresenceService
-	deviceRepo *repository.DeviceRepository
+	rdb          *redis.Client
+	bus          *EventBus
+	presence     *PresenceService
+	deviceRepo   *repository.DeviceRepository
+	scanInterval time.Duration
 }
 
 func NewPresenceWatcher(
@@ -40,7 +41,13 @@ func NewPresenceWatcher(
 	presence *PresenceService,
 	deviceRepo *repository.DeviceRepository,
 ) *PresenceWatcher {
-	return &PresenceWatcher{rdb: rdb, bus: bus, presence: presence, deviceRepo: deviceRepo}
+	return &PresenceWatcher{
+		rdb:          rdb,
+		bus:          bus,
+		presence:     presence,
+		deviceRepo:   deviceRepo,
+		scanInterval: offlineScanInterval,
+	}
 }
 
 // Start launches the subscription goroutine. Cancel ctx to stop.
@@ -53,6 +60,7 @@ func (w *PresenceWatcher) Start(ctx context.Context) {
 		return
 	}
 	go w.runForever(ctx)
+	go w.runOfflineScanner(ctx)
 }
 
 const (
@@ -140,7 +148,11 @@ func (w *PresenceWatcher) handleExpiry(ctx context.Context, key string) {
 }
 
 func (w *PresenceWatcher) runOfflineScanner(ctx context.Context) {
-	ticker := time.NewTicker(offlineScanInterval)
+	interval := w.scanInterval
+	if interval <= 0 {
+		interval = offlineScanInterval
+	}
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
 		select {

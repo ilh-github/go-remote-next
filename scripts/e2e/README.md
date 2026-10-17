@@ -8,6 +8,7 @@
 
 | 文件 | 作用 |
 |---|---|
+| `test-quickdesk-minimal-server.sh` | 从临时目录构建并启动轻量信令（SQLite + 进程内 Redis），断言 `/health` 不依赖外部 PostgreSQL/Redis，并在重启后确认 SQLite 数据文件仍在 |
 | `remote-smoke.mjs` | 用真实 Chrome 打开 WebClient，连接设备，断言解码后的视频帧在推进；可选向远端打字 |
 | `record.mjs` | 连上之后点录制按钮，录一段再停止，断言上传日志出现（录 → 存 → 索引） |
 | `record-failure.mjs` | 录制时拦截上传请求制造失败，断言索引行最终是 `failed` 且没有产物（不允许"假完成"） |

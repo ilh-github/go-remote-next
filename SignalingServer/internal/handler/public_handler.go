@@ -18,11 +18,11 @@ import (
 // PublicHandler serves the unauthenticated v1 surface that's neither auth
 // (see AuthHandler) nor device-side (see HostHandler):
 //
-//   GET  /health
-//   GET  /v1/preset
-//   GET  /v1/settings/public
-//   GET  /v1/features
-//   POST /v1/verification-codes
+//	GET  /health
+//	GET  /v1/preset
+//	GET  /v1/settings/public
+//	GET  /v1/features
+//	POST /v1/verification-codes
 type PublicHandler struct {
 	db       *gorm.DB
 	rdb      *redis.Client
@@ -72,18 +72,22 @@ func (h *PublicHandler) Health(c *gin.Context) {
 	components := componentStatus{}
 	overall := http.StatusOK
 
-	// Postgres: simple SELECT 1.
+	// Database: simple Ping.
+	databaseComponent := "postgres"
+	if h.db != nil && h.db.Dialector.Name() == "sqlite" {
+		databaseComponent = "sqlite"
+	}
 	sqlDB, err := h.db.DB()
 	switch {
 	case err != nil:
-		components["postgres"] = "down"
+		components[databaseComponent] = "down"
 		overall = http.StatusServiceUnavailable
 	default:
 		if err := sqlDB.PingContext(ctx); err != nil {
-			components["postgres"] = "down"
+			components[databaseComponent] = "down"
 			overall = http.StatusServiceUnavailable
 		} else {
-			components["postgres"] = "ok"
+			components[databaseComponent] = "ok"
 		}
 	}
 
