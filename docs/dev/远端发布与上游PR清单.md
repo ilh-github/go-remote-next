@@ -9,6 +9,7 @@
 
 - fork 主干：`dev` 已包含 `2deb8c8`（QD-003 多标签控制/音频抢占与功能总清单）
 - 功能分支：`codex/product-backlog` = `dea02f9`
+- 上游 QD-003 候选：`codex/upstream-cross-tab-coordination` = `6047615`（基于 `upstream/dev`）
 - 上游最小候选：`codex/upstream-access-bans` = `b89c24c`
 - 上游基线：`barry-ran/QuickDesk` 的 `dev` / `master` = `f6651f0`
 - fork PR #1：<https://github.com/ilh-github/go-remote-next/pull/1>
@@ -139,7 +140,8 @@ PR 描述至少写明：
 ### 上游可直接审查的增量
 
 - `feat(webclient): coordinate cross-tab control and audio`：QD-003，纯 WebClient，
-  无 Remoting 改动；需要补上游截图和浏览器验证说明。
+  无 Remoting 改动；候选分支 `codex/upstream-cross-tab-coordination` = `6047615`，
+  仅 6 个文件，已通过 `npm test` 6/6、`npm run build` 和真实 Chrome 双标签验证。
 - `feat(webclient): local connection history`：对应上游 issue #18；纯本地存储，
   不保存访问码。
 - `fix(self-host): pinned SPKI for self-hosted WSS`：对应上游 issue #20；先确认维护者

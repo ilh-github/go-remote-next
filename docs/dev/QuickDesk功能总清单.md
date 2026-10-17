@@ -317,6 +317,15 @@
 | 4 | `feat(webclient): control-plane management pages` | QD-108/605/607/703 | 依赖 PR #25 合并；按页面拆成多个 PR |
 | 5 | `feat(qt): remote session and management pages` | QD-706/708 | 依赖 PR #25 合并；先做实时事件消费，再拆页面 |
 
+QD-003 的上游候选已经单独准备：
+
+- 分支：`codex/upstream-cross-tab-coordination`
+- 基线：`upstream/dev` = `f6651f0`
+- 本地提交：`6047615`
+- 范围：仅 `TabCoordinator`、WebClient 接入、双语文案、Node 测试、ESM 构建兼容
+- 验证：`npm test` 6/6、`npm run build`、真实 Chrome 同源双标签接管均通过
+- 未完成：远端推送仍被策略拒绝，尚未创建 upstream PR
+
 ### 17.3 需要上游 Remoting 处理的 PR
 
 以下能力不在本 fork 强行修改预编译 Remoting，先准备需求、协议草案、验证用例，再交给维护者：
