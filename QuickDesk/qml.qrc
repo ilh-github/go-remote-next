@@ -67,5 +67,6 @@
         <file>qml/quickdeskcomponent/RemoteDeviceSelector.qml</file>
         <file>qml/quickdeskcomponent/VideoStatsOverlay.qml</file>
         <file>qml/quickdeskcomponent/LoginDialog.qml</file>        
+        <file>qml/quickdeskcomponent/DeviceDisplay.js</file>
     </qresource>
 </RCC>

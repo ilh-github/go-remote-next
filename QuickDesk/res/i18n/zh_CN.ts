@@ -106,6 +106,12 @@
         <translation>设备</translation>
     </message>
     <message>
+        <location filename="../../qml/pages/DeviceListPage.qml" line="129"/>
+        <location filename="../../qml/pages/DeviceListPage.qml" line="247"/>
+        <source>This device</source>
+        <translation>本机</translation>
+    </message>
+    <message>
         <location filename="../../qml/pages/DeviceListPage.qml" line="138"/>
         <location filename="../../qml/pages/DeviceListPage.qml" line="254"/>
         <source>Connect</source>

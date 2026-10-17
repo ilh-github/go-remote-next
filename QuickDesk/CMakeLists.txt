@@ -252,6 +252,7 @@ qt_add_qml_module(QuickDesk
         qml/quickdeskcomponent/VideoStatsOverlay.qml
         qml/quickdeskcomponent/LoginDialog.qml        
         qml/quickdeskcomponent/UpdateDialog.qml
+        qml/quickdeskcomponent/DeviceDisplay.js
     RESOURCES
         res/font/SegoeFluentIcons.ttf
         qml/component/qmldir
