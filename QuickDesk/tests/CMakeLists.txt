@@ -99,6 +99,35 @@ add_test(
     COMMAND quickdesk_cloud_device_manager_test
 )
 
+add_executable(quickdesk_access_approval_manager_test
+    accessapprovalmanager_integration_test.cpp
+    authmanager_stub.cpp
+    ../src/manager/AuthManager.h
+    ../src/manager/AccessApprovalManager.cpp
+    ../src/manager/AccessApprovalManager.h
+)
+
+target_include_directories(quickdesk_access_approval_manager_test
+    PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src
+)
+
+target_link_libraries(quickdesk_access_approval_manager_test
+    PRIVATE
+    base
+    infra
+    Qt6::Core
+)
+
+if(APPLE)
+    target_link_libraries(quickdesk_access_approval_manager_test PRIVATE "-framework Foundation")
+endif()
+
+add_test(
+    NAME quickdesk_access_approval_manager_test
+    COMMAND quickdesk_access_approval_manager_test
+)
+
 find_package(Qt6 QUIET COMPONENTS QuickTest)
 if(Qt6QuickTest_FOUND)
     add_executable(quickdesk_qml_test

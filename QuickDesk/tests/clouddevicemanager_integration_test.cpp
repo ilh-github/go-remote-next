@@ -15,7 +15,7 @@
 #include <iostream>
 
 namespace quickdesk {
-void SetUpdateTestAuthBaseUrl(const QString& baseUrl);
+void SetAuthTestBaseUrl(const QString& baseUrl);
 void SetAuthTestLoggedIn(bool loggedIn);
 void SetAuthTestRequestHandler(
     std::function<void(const QString&,
@@ -47,7 +47,7 @@ bool WaitUntil(const std::function<bool()>& predicate, int timeoutMs) {
 
 int main(int argc, char** argv) {
     QCoreApplication app(argc, argv);
-    quickdesk::SetUpdateTestAuthBaseUrl(QStringLiteral("https://quickdesk.test/"));
+    quickdesk::SetAuthTestBaseUrl(QStringLiteral("https://quickdesk.test/"));
     quickdesk::SetAuthTestLoggedIn(true);
 
     quickdesk::ServerManager serverManager;

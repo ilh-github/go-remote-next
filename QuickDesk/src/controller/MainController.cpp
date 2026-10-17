@@ -5,6 +5,7 @@
 #include "../manager/NativeMessaging.h"
 #include "../manager/SkillHostManager.h"
 #include "../manager/UpdateManager.h"
+#include "../manager/AccessApprovalManager.h"
 #include "../api/WebSocketServer.h"
 #include "../api/TrustHandler.h"
 #include "../api/OcrEngine.h"
@@ -77,6 +78,8 @@ MainController::MainController(QObject* parent)
         m_serverManager.get(), m_authManager.get(), m_hostManager.get(), this);
     m_remoteSessionManager =
         std::make_unique<RemoteSessionManager>(m_authManager.get(), this);
+    m_accessApprovalManager =
+        std::make_unique<AccessApprovalManager>(m_authManager.get(), this);
 
     // Control-side session recorder. It reads the same decoded frames the
     // remote view renders and uploads the result through the authenticated API.
@@ -602,6 +605,11 @@ UpdateManager* MainController::updateManager() const
 RemoteSessionManager* MainController::remoteSessionManager() const
 {
     return m_remoteSessionManager.get();
+}
+
+AccessApprovalManager* MainController::accessApprovalManager() const
+{
+    return m_accessApprovalManager.get();
 }
 
 QString MainController::deviceId() const

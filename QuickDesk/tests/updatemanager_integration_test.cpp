@@ -22,7 +22,7 @@
 #include <iostream>
 
 namespace quickdesk {
-void SetUpdateTestAuthBaseUrl(const QString& baseUrl);
+void SetAuthTestBaseUrl(const QString& baseUrl);
 }
 
 namespace {
@@ -158,7 +158,7 @@ int main(int argc, char** argv) {
            QStringLiteral("mock update server listens"));
     const QString baseUrl =
         QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort());
-    quickdesk::SetUpdateTestAuthBaseUrl(baseUrl);
+    quickdesk::SetAuthTestBaseUrl(baseUrl);
 
     quickdesk::ServerManager serverManager;
     quickdesk::AuthManager authManager(&serverManager);

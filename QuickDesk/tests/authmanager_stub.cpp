@@ -9,7 +9,7 @@
 #include <utility>
 
 namespace {
-QString g_updateTestBaseUrl;
+QString g_authTestBaseUrl;
 bool g_testLoggedIn = false;
 std::function<void(const QString&,
                    const QUrl&,
@@ -20,8 +20,8 @@ std::function<void(const QString&,
 
 namespace quickdesk {
 
-void SetUpdateTestAuthBaseUrl(const QString& baseUrl) {
-    g_updateTestBaseUrl = baseUrl;
+void SetAuthTestBaseUrl(const QString& baseUrl) {
+    g_authTestBaseUrl = baseUrl;
 }
 
 void SetAuthTestLoggedIn(bool loggedIn) {
@@ -42,7 +42,7 @@ AuthManager::AuthManager(ServerManager*, QObject* parent)
 }
 
 QString AuthManager::httpBaseUrl() const {
-    return g_updateTestBaseUrl;
+    return g_authTestBaseUrl;
 }
 
 QList<QPair<QString, QString>> AuthManager::publicHeaders() const {

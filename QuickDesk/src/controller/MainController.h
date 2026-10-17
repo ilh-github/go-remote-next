@@ -25,6 +25,7 @@
 #include "../manager/AuthManager.h"
 #include "../manager/CloudDeviceManager.h"
 #include "../manager/RemoteSessionManager.h"
+#include "../manager/AccessApprovalManager.h"
 #include "../manager/UpdateManager.h"
 #include "../common/ProcessStatus.h"
 
@@ -52,6 +53,7 @@ class MainController : public QObject {
     Q_PROPERTY(CloudDeviceManager* cloudDeviceManager READ cloudDeviceManager CONSTANT)
     Q_PROPERTY(UpdateManager* updateManager READ updateManager CONSTANT)
     Q_PROPERTY(RemoteSessionManager* remoteSessionManager READ remoteSessionManager CONSTANT)
+    Q_PROPERTY(AccessApprovalManager* accessApprovalManager READ accessApprovalManager CONSTANT)
     
     // Host status
     Q_PROPERTY(ProcessStatus::Status hostProcessStatus READ hostProcessStatus NOTIFY hostProcessStatusChanged)
@@ -153,6 +155,7 @@ public:
     CloudDeviceManager* cloudDeviceManager() const;
     UpdateManager* updateManager() const;
     RemoteSessionManager* remoteSessionManager() const;
+    AccessApprovalManager* accessApprovalManager() const;
 
     // Host convenience properties
     QString deviceId() const;
@@ -280,6 +283,7 @@ private:
     std::unique_ptr<CloudDeviceManager> m_cloudDeviceManager;
     std::unique_ptr<UpdateManager> m_updateManager;
     std::unique_ptr<RemoteSessionManager> m_remoteSessionManager;
+    std::unique_ptr<AccessApprovalManager> m_accessApprovalManager;
     std::unique_ptr<DeviceRecorder> m_deviceRecorder;
     std::unique_ptr<RemoteFileManager> m_remoteFileManager;
     std::unique_ptr<WebSocketApiServer> m_wsApiServer;
