@@ -105,9 +105,9 @@
   `dev` 切分支贡献、Remoting 改动由维护者处理”；不能再把“暂缓”理解成停止维护。
 - 上游 PR：#22、#23、#24、#25 均为 OPEN / MERGEABLE，但 GitHub 返回的
   `mergeStateStatus=UNSTABLE` 且没有 reported checks；不能把 MERGEABLE 写成 CI 已通过。
-- 清单统计：117 个唯一 QD ID；80 个 `[x]`、19 个 `[~]`、14 个 `[ ]`、
+- 清单统计：117 个唯一 QD ID；81 个 `[x]`、20 个 `[~]`、12 个 `[ ]`、
   1 个 `[!]`、2 个 `[>]`、1 个 `[-]`。
-- 上游待办已全部映射到本清单：10 个 open issue、4 个 open PR、3 个未完成 Roadmap
+- 上游待办已全部映射到本清单：10 个 open issue、6 个 open PR、3 个未完成 Roadmap
   项均有对应 QD、处理边界和上游贡献方式；上游已完成的 Roadmap 项只作为继承基线，
   不重复开发。
 - 本次合并后的实施结论：上游没有新增必须立即重复开发的 issue；`QD-608`
