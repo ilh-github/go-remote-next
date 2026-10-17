@@ -131,6 +131,20 @@ begin
       '   understood, and agreed to this disclaimer.';
 end;
 
+function GetHostServiceParameters(Param: String): String;
+var
+  SpkiPins: String;
+begin
+  Result := '--install-service' +
+    ' --log-dir="' + ExpandConstant('{userappdata}\QuickDesk\logs') + '"' +
+    ' --config-dir="' + ExpandConstant('{userappdata}\QuickDesk') + '"';
+
+  SpkiPins := GetEnv('QUICKDESK_SPKI');
+  if SpkiPins <> '' then
+    Result := Result +
+      ' --ignore-certificate-errors-spki-list=' + SpkiPins;
+end;
+
 procedure InitializeWizard;
 begin
   DisclaimerPage := CreateOutputMsgMemoPage(wpWelcome,
@@ -201,8 +215,10 @@ Filename: "{app}\drivers\vdd\nefconw.exe"; Parameters: "--create-device-node --c
 Filename: "{app}\drivers\vdd\nefconw.exe"; Parameters: "--install-driver --inf-path ""{app}\drivers\vdd\quickdesk_display.inf"""; StatusMsg: "Installing virtual display driver..."; Flags: runhidden waituntilterminated; Tasks: vdd
 ; Install the QuickDeskHost Windows service (runs as SYSTEM).
 ; Pass --log-dir and --config-dir so that the service worker stores logs and
-; config in the same location as the Qt child-process mode.
-Filename: "{app}\quickdesk_host.exe"; Parameters: "--install-service --log-dir=""{userappdata}\QuickDesk\logs"" --config-dir=""{userappdata}\QuickDesk"""; StatusMsg: "Installing QuickDesk Host Service..."; Flags: runhidden waituntilterminated
+; config in the same location as the Qt child-process mode. Set the
+; QUICKDESK_SPKI environment variable before running the installer to pin the
+; self-hosted signaling server certificate for the service process as well.
+Filename: "{app}\quickdesk_host.exe"; Parameters: "{code:GetHostServiceParameters}"; StatusMsg: "Installing QuickDesk Host Service..."; Flags: runhidden waituntilterminated
 ; Start the service.
 Filename: "sc.exe"; Parameters: "start QuickDeskHost"; StatusMsg: "Starting QuickDesk Host Service..."; Flags: runhidden waituntilterminated
 ; Launch the application.

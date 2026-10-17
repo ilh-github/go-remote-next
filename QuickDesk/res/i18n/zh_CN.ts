@@ -1590,6 +1590,38 @@ Frame rate: %3 fps</source>
         <translation>API Key已配置（%1 字符）</translation>
     </message>
     <message>
+        <source>TLS Public Key Pin</source>
+        <translation>TLS 公钥固定</translation>
+    </message>
+    <message>
+        <source>For self-hosted wss:// servers, enter the base64 SHA-256 hash of the server certificate SPKI. Separate multiple pins with commas.</source>
+        <translation>自托管 wss:// 服务器可填写服务器证书 SPKI 的 Base64 SHA-256 哈希；多个固定值用逗号分隔。</translation>
+    </message>
+    <message>
+        <source>Base64 SHA-256 SPKI hash</source>
+        <translation>Base64 SHA-256 SPKI 哈希</translation>
+    </message>
+    <message>
+        <source>Invalid SPKI pin. Enter one or more base64 SHA-256 certificate hashes.</source>
+        <translation>SPKI 固定值无效，请填写一个或多个 Base64 SHA-256 证书哈希。</translation>
+    </message>
+    <message>
+        <source>TLS public key pin updated. Restart to apply changes.</source>
+        <translation>TLS 公钥固定值已更新，重启后生效。</translation>
+    </message>
+    <message>
+        <source>TLS public key pin cleared. Restart to apply changes.</source>
+        <translation>TLS 公钥固定值已清除，重启后生效。</translation>
+    </message>
+    <message>
+        <source>TLS public key pin is configured</source>
+        <translation>TLS 公钥固定值已配置</translation>
+    </message>
+    <message>
+        <source>The Windows host service has its own startup arguments. Reinstall or update the service after changing this pin.</source>
+        <translation>Windows Host 服务使用独立的启动参数。修改该固定值后，需要重新安装或更新服务。</translation>
+    </message>
+    <message>
         <location filename="../../qml/pages/SettingsPage.qml" line="420"/>
         <source>TURN/STUN Servers</source>
         <translation>TURN/STUN 服务器</translation>

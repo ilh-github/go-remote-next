@@ -1590,6 +1590,38 @@ Frame rate: %3 fps</source>
         <translation>API Key is configured (%1 characters)</translation>
     </message>
     <message>
+        <source>TLS Public Key Pin</source>
+        <translation>TLS Public Key Pin</translation>
+    </message>
+    <message>
+        <source>For self-hosted wss:// servers, enter the base64 SHA-256 hash of the server certificate SPKI. Separate multiple pins with commas.</source>
+        <translation>For self-hosted wss:// servers, enter the base64 SHA-256 hash of the server certificate SPKI. Separate multiple pins with commas.</translation>
+    </message>
+    <message>
+        <source>Base64 SHA-256 SPKI hash</source>
+        <translation>Base64 SHA-256 SPKI hash</translation>
+    </message>
+    <message>
+        <source>Invalid SPKI pin. Enter one or more base64 SHA-256 certificate hashes.</source>
+        <translation>Invalid SPKI pin. Enter one or more base64 SHA-256 certificate hashes.</translation>
+    </message>
+    <message>
+        <source>TLS public key pin updated. Restart to apply changes.</source>
+        <translation>TLS public key pin updated. Restart to apply changes.</translation>
+    </message>
+    <message>
+        <source>TLS public key pin cleared. Restart to apply changes.</source>
+        <translation>TLS public key pin cleared. Restart to apply changes.</translation>
+    </message>
+    <message>
+        <source>TLS public key pin is configured</source>
+        <translation>TLS public key pin is configured</translation>
+    </message>
+    <message>
+        <source>The Windows host service has its own startup arguments. Reinstall or update the service after changing this pin.</source>
+        <translation>The Windows host service has its own startup arguments. Reinstall or update the service after changing this pin.</translation>
+    </message>
+    <message>
         <location filename="../../qml/pages/SettingsPage.qml" line="420"/>
         <source>TURN/STUN Servers</source>
         <translation>TURN/STUN Servers</translation>

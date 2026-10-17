@@ -559,6 +559,42 @@ server {
 }
 ```
 
+### TLS pin for `wss://` clients
+
+The prebuilt `quickdesk-remoting` currently creates its signaling network
+context without a bound certificate verifier. A real `wss://` handshake
+therefore stops with Chromium `net_error = -3` before an HTTP response is
+received. Until the Remoting verifier is fixed, QuickDesk can pass the
+certificate public-key pin that Chromium already supports.
+
+Compute the base64 SHA-256 hash of the certificate's SubjectPublicKeyInfo:
+
+```bash
+openssl x509 -in /etc/letsencrypt/live/your-domain.com/fullchain.pem \
+  -pubkey -noout \
+  | openssl pkey -pubin -outform der \
+  | openssl dgst -sha256 -binary \
+  | openssl base64 -A
+echo
+```
+
+Enter the result in **Settings -> Network -> TLS Public Key Pin**, then restart
+QuickDesk and both Host and Client child processes. Multiple pins may be
+separated with commas.
+
+On Windows, `QuickDeskHost` runs as a service and does not inherit the Qt
+configuration. Set `QUICKDESK_SPKI` to the same pin list before installing the
+setup package so the service is registered with the pin:
+
+```bat
+set QUICKDESK_SPKI=base64-sha256-spki-hash
+QuickDesk-win-x64-setup.exe
+```
+
+Pinning is a temporary trust mechanism, not a replacement for normal CA
+validation. Rotate the pin before replacing the certificate. The durable fix
+is to bind a real `CertVerifierService` in `quickdesk-remoting`.
+
 ## 10. Verify Deployment
 
 ```bash

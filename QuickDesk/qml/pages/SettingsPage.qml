@@ -448,6 +448,89 @@ Item {
                                 color: Theme.accent
                             }
                         }
+
+                        // TLS public key pinning Section
+                        Column {
+                            width: parent.width
+                            spacing: Theme.spacingSmall
+
+                            Rectangle { width: parent.width; height: 1; color: Theme.border }
+
+                            Text {
+                                text: qsTr("TLS Public Key Pin")
+                                font.pixelSize: Theme.fontSizeLarge
+                                font.weight: Font.DemiBold
+                                color: Theme.text
+                            }
+
+                            Text {
+                                text: qsTr("For self-hosted wss:// servers, enter the base64 SHA-256 hash of the server certificate SPKI. Separate multiple pins with commas.")
+                                font.pixelSize: Theme.fontSizeSmall
+                                color: Theme.textSecondary
+                                wrapMode: Text.WordWrap
+                                width: parent.width
+                            }
+
+                            Row {
+                                width: parent.width
+                                spacing: Theme.spacingSmall
+
+                                QDTextField {
+                                    id: signalingServerSpkiField
+                                    width: parent.width - updateSpkiBtn.width - clearSpkiBtn.width - parent.spacing * 2
+                                    placeholderText: qsTr("Base64 SHA-256 SPKI hash")
+                                    text: configViewModel.signalingServerSpki
+                                }
+
+                                QDButton {
+                                    id: updateSpkiBtn
+                                    text: qsTr("Update")
+                                    iconText: FluentIconGlyph.saveGlyph
+                                    buttonType: QDButton.Type.Primary
+                                    enabled: signalingServerSpkiField.text.trim() !== configViewModel.signalingServerSpki
+
+                                    onClicked: {
+                                        let pins = signalingServerSpkiField.text.trim()
+                                        if (!configViewModel.isValidSignalingServerSpki(pins)) {
+                                            root.showToast(qsTr("Invalid SPKI pin. Enter one or more base64 SHA-256 certificate hashes."), QDToast.Type.Error)
+                                            return
+                                        }
+                                        configViewModel.signalingServerSpki = pins
+                                        signalingServerSpkiField.text = configViewModel.signalingServerSpki
+                                        root.showToast(qsTr("TLS public key pin updated. Restart to apply changes."), QDToast.Type.Success)
+                                    }
+                                }
+
+                                QDButton {
+                                    id: clearSpkiBtn
+                                    text: qsTr("Clear")
+                                    iconText: FluentIconGlyph.deleteGlyph
+                                    visible: configViewModel.signalingServerSpki.length > 0
+
+                                    onClicked: {
+                                        signalingServerSpkiField.text = ""
+                                        configViewModel.signalingServerSpki = ""
+                                        root.showToast(qsTr("TLS public key pin cleared. Restart to apply changes."), QDToast.Type.Success)
+                                    }
+                                }
+                            }
+
+                            Text {
+                                visible: configViewModel.signalingServerSpki.length > 0
+                                text: qsTr("TLS public key pin is configured")
+                                font.pixelSize: Theme.fontSizeSmall
+                                color: Theme.accent
+                            }
+
+                            Text {
+                                visible: mainController && mainController.hostLaunchMode === HostLaunchMode.Service
+                                text: qsTr("The Windows host service has its own startup arguments. Reinstall or update the service after changing this pin.")
+                                font.pixelSize: Theme.fontSizeSmall
+                                color: Theme.warning
+                                wrapMode: Text.WordWrap
+                                width: parent.width
+                            }
+                        }
                         
                         // TURN/STUN Servers Section (hidden - ICE config is always fetched from signaling server)
                         Column {
