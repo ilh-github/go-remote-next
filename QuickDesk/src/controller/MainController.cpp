@@ -98,6 +98,12 @@ MainController::MainController(QObject* parent)
     // remote view renders and uploads the result through the authenticated API.
     m_deviceRecorder = std::make_unique<DeviceRecorder>(
         m_clientManager->sharedMemoryManager(), m_authManager.get(), m_serverManager.get(), this);
+    // A control-side recording only survives if it is finalised when the
+    // session ends. The recorder cannot see signalling state, so the lifecycle
+    // tracker decides when stopRecording() must run.
+    m_recordingLifecycle = std::make_unique<RecordingLifecycle>(this);
+    connect(m_deviceRecorder.get(), &DeviceRecorder::recordingChanged,
+            this, &MainController::sessionRecordingActiveChanged);
 
     // Control-side file browser. Talks to the host's file-ops skill over the
     // same skill bridge the MCP tools use, without blocking the GUI thread.
@@ -591,6 +597,33 @@ DeviceRecorder* MainController::deviceRecorder() const
     return m_deviceRecorder.get();
 }
 
+bool MainController::isSessionRecordingActive() const
+{
+    return m_deviceRecorder && m_deviceRecorder->isRecording();
+}
+
+void MainController::toggleSessionRecording(const QString& deviceId)
+{
+    if (!m_deviceRecorder) {
+        return;
+    }
+    if (m_deviceRecorder->isRecording()) {
+        m_deviceRecorder->stopRecording();
+        m_recordingLifecycle->started(QString());
+        emit sessionRecordingActiveChanged();
+        return;
+    }
+    const QString trimmed = deviceId.trimmed();
+    if (trimmed.isEmpty()) {
+        LOG_WARN("MainController: cannot start a session recording without a device");
+        return;
+    }
+    if (m_deviceRecorder->startRecording(trimmed)) {
+        m_recordingLifecycle->started(trimmed);
+        emit sessionRecordingActiveChanged();
+    }
+}
+
 RemoteFileManager* MainController::remoteFiles() const
 {
     return m_remoteFileManager.get();
@@ -943,6 +976,15 @@ void MainController::onClientSignalingStateChanged(const QString& deviceId,
              deviceId.toStdString(), state.toStdString());
 
     if (state == "connected" || state == "failed" || state == "disconnected") {
+        // Finalise an in-flight recording before anything else: after this the
+        // decoded frames stop arriving and the file would grow forever.
+        const QString recordingDevice = m_recordingLifecycle->shouldStopFor(deviceId, state);
+        if (!recordingDevice.isEmpty() && m_deviceRecorder->isRecording()) {
+            LOG_INFO("Finalising session recording for {} (state={})",
+                     recordingDevice.toStdString(), state.toStdString());
+            m_deviceRecorder->stopRecording();
+        }
+
         auto it = m_connectionTracks.find(deviceId);
         if (it != m_connectionTracks.end()) {
             int durationSec = 0;

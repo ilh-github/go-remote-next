@@ -30,6 +30,7 @@
 #include "../manager/ScheduledTaskManager.h"
 #include "../manager/NotificationManager.h"
 #include "../manager/RecordingManager.h"
+#include "../core/recordinglifecycle.h"
 #include "../manager/UpdateManager.h"
 #include "../common/ProcessStatus.h"
 
@@ -49,6 +50,7 @@ class MainController : public QObject {
     Q_PROPERTY(HostManager* hostManager READ hostManager CONSTANT)
     Q_PROPERTY(ClientManager* clientManager READ clientManager CONSTANT)
     Q_PROPERTY(DeviceRecorder* deviceRecorder READ deviceRecorder CONSTANT)
+    Q_PROPERTY(bool sessionRecordingActive READ isSessionRecordingActive NOTIFY sessionRecordingActiveChanged)
     Q_PROPERTY(RemoteFileManager* remoteFiles READ remoteFiles CONSTANT)
     Q_PROPERTY(TurnServerManager* turnServerManager READ turnServerManager CONSTANT)
     Q_PROPERTY(RemoteDeviceManager* remoteDeviceManager READ remoteDeviceManager CONSTANT)
@@ -155,6 +157,8 @@ public:
     HostManager* hostManager() const;
     ClientManager* clientManager() const;
     DeviceRecorder* deviceRecorder() const;
+    bool isSessionRecordingActive() const;
+    Q_INVOKABLE void toggleSessionRecording(const QString& deviceId);
     RemoteFileManager* remoteFiles() const;
     TurnServerManager* turnServerManager() const;
     RemoteDeviceManager* remoteDeviceManager() const;
@@ -253,6 +257,7 @@ signals:
     void skillHostEnabledChanged();
     void extraSkillsDirsChanged();
     void trustConfirmModeChanged();
+    void sessionRecordingActiveChanged();
 
     // Trust layer signals for QML
     void trustConfirmationRequested(const QString& confirmationId,
@@ -301,6 +306,7 @@ private:
     std::unique_ptr<NotificationManager> m_notificationManager;
     std::unique_ptr<RecordingManager> m_recordingManager;
     std::unique_ptr<DeviceRecorder> m_deviceRecorder;
+    std::unique_ptr<RecordingLifecycle> m_recordingLifecycle;
     std::unique_ptr<RemoteFileManager> m_remoteFileManager;
     std::unique_ptr<WebSocketApiServer> m_wsApiServer;
     std::unique_ptr<SkillHostManager> m_skillHostManager;

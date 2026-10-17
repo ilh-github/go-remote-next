@@ -61,11 +61,10 @@ Window {
         var devId = currentTabIndex >= 0 && currentTabIndex < connectionModel.count
             ? connectionModel.deviceIdAt(currentTabIndex)
             : ""
-        if (!devId) return
         if (mainController.deviceRecorder.recording) {
-            mainController.deviceRecorder.stopRecording()
+            mainController.toggleSessionRecording("")
         } else {
-            mainController.deviceRecorder.startRecording(devId)
+            mainController.toggleSessionRecording(devId)
         }
     }
     
