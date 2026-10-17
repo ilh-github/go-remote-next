@@ -1,6 +1,6 @@
 # QuickDesk 功能总清单
 
-> 最后对账：2026-10-17 22:09 CST。上游与 fork 状态都是动态的，实施前必须重新执行
+> 最后对账：2026-10-17 22:40 CST。上游与 fork 状态都是动态的，实施前必须重新执行
 > `git fetch --all --prune` 并核对 GitHub issue / PR。
 >
 > 本文件是 QuickDesk fork 后续产品开发的唯一功能清单。它合并三类输入：
@@ -43,7 +43,7 @@
 
 - 仓库：`go-remote-next`
 - 本地主分支：`dev`、`master`
-- 本地代码基线：`42ed9d0`（QD-911/QD-115 清单与上游候选已记录）；验证记录和清单的 docs-only
+- 本地代码基线：`001a76c`（QD-510 工作流录制与回放核心）；验证记录和清单的 docs-only
   提交位于其后，`dev` 与 `master` 保持同线
 - 远端 fork：`origin/dev` 仍为 `f6651f0`，本地 `dev` 尚未推送；领先数量以
   `git rev-list --count origin/dev..dev` 的实时值为准。远端写入恢复前不能把本地验收当成已发布
@@ -81,7 +81,7 @@
 
 最近验证：
 
-- 本轮代码提交：`e688869`（访问码同步重试）、`5be14da`（SPAKE2 与传输错误码）、
+- 本轮代码提交：`001a76c`（QD-510 工作流核心）、`e688869`（访问码同步重试）、`5be14da`（SPAKE2 与传输错误码）、
   `a982a10`（Windows 自动更新重启与缓存清理）、`c77dcae`（SQLite 轻量模式）、
   `64ab93a`（备份恢复与存储配额）、`37dd8aa`（Host 指标告警）、`3021ca9`
   （私密安全披露策略）、`3474203`（信令信任边界）；
@@ -93,7 +93,7 @@
   `dev` 切分支贡献、Remoting 改动由维护者处理”；不能再把“暂缓”理解成停止维护。
 - 上游 PR：#22、#23、#24、#25 均为 OPEN / MERGEABLE，但 GitHub 返回的
   `mergeStateStatus=UNSTABLE` 且没有 reported checks；不能把 MERGEABLE 写成 CI 已通过。
-- 清单统计：116 个唯一 QD ID；76 个 `[x]`、21 个 `[~]`、13 个 `[ ]`、
+- 清单统计：117 个唯一 QD ID；77 个 `[x]`、20 个 `[~]`、14 个 `[ ]`、
   3 个 `[!]`、2 个 `[>]`、1 个 `[-]`。
 - 上游待办已全部映射到本清单：10 个 open issue、4 个 open PR、3 个未完成 Roadmap
   项均有对应 QD、处理边界和上游贡献方式；上游已完成的 Roadmap 项只作为继承基线，
@@ -301,6 +301,12 @@
 - QD-608 上游候选：`codex/upstream-qd-608-extra-sdks` = `cca9e44`，基于 PR #25 的
   `feat/signaling-control-plane@8998466` 重新生成全部七套客户端；候选自身七种语言
   freshness、C# build、PHP Composer/lint（61 个生成文件）和 Kotlin Gradle build 均通过。
+- QD-510 功能提交：`001a76c`。步骤会记录 `remote_api` 或 `skill_host` 执行通道，旧工作流
+  缺少通道字段时默认 `skill_host`；远程鼠标、键盘、剪贴板和文本点击可按原通道回放。
+  工作流新增 `format_version=1` 兼容读取，参数支持递归 `{{name}}` 占位符和旧版顶层
+  同名覆盖。每次回放持久化成功、失败、跳过和耗时，安全失败始终中止，普通失败由
+  `stop_on_failure` 控制；新增 `list_workflow_runs` / `get_workflow_run` 查询入口。
+  `cargo test` 19/19 通过。预录/后录屏幕状态校验和智能回放另列 QD-511。
 - QD-911 当前状态：上游 issue #6 仍 OPEN，GitHub API 返回
   `private-vulnerability-reporting.enabled=false`，维护者最新回复仍只是旧 release 链接。
   fork 与上游候选已新增根目录 `SECURITY.md`，覆盖支持版本、公开 issue 禁令、GitHub 私密
@@ -355,7 +361,7 @@
 | 验证/排障 | QD-216 主机连接失败 | `Upstream` issue #9 | 缺真实 host/signaling/TLS 日志，不能直接猜实现 | 先做支持 triage；能拆出确定 bug 后再进入实现 |
 | 安全设计 | QD-115 服务端设备密钥信任边界 | `Upstream` issue #10 / `Fork` | 威胁模型已完成：device_secret 不可逆，但明文 access_code + server token/审批使当前服务器仍是设备访问信任方；候选 `codex/upstream-qd-115-trust-model@1ca2543` 已准备 | 按文档分阶段推进 Host 身份密钥、Owner 签名 grant、Host 本地验证和恶意服务器 E2E；8 条验收项完成前保持 `[~]` |
 | 上游候选 | QD-911 私密安全披露入口 | `Upstream` issue #6 | fork 与独立候选已有 `SECURITY.md`，候选 `codex/upstream-qd-911-security@9862717` 直接基于 `upstream/dev`，只含 1 个文件；上游 issue 仍开放且 Private Vulnerability Reporting 仍 disabled | 远端写入恢复后推送并开 PR；维护者合并且启用私密报告后才转为 `[x]` |
-| 后续增强 | QD-610 业务工作流 | `Legacy` / `Fork` | 有设计方向，但没有完整产品闭环；QD-604 指标告警已完成 | 下一项不依赖外部凭据的业务增强 |
+| 后续增强 | QD-610 业务工作流 | `Legacy` / `Fork` | QD-510 已完成本地 MCP 录制、回放、参数化和报告；业务事件触发、定时执行、委托授权和回调仍缺 | 下一项不依赖外部凭据的业务增强 |
 | 质量收口 | QD-906、QD-907、QD-908、QD-909 | `Legacy` / `Fork` | 真机矩阵、异常路径、2h+ 长稳、文件/剪贴板审计仍不完整 | 每完成一个主功能就补对应边界，不集中到最后一次性补测 |
 | 明确暂缓 | QD-318 Linux、QD-319 原生移动端 | `Upstream` Roadmap | 上游已列计划，当前 fork 不做实现承诺 | 保持接口和构建兼容，等上游方向明确后接 |
 | 明确不做 | RDP、重写 WebRTC/Remoting、多租户/SSO/计费、通用插件市场 | `Fork` 决策 | 与当前“复用成熟远控内核 + 补业务控制面”的路线冲突或收益不足 | 不进入待办池，除非用户重新定义产品目标 |
@@ -372,7 +378,7 @@ Roadmap 项放到同一条实施路径中。详细追溯仍以第 16 节为准�
 | 3 | 等 PR #25 基线 | QD-204 API/客户端、QD-607 服务端、QD-108 / QD-508 / QD-706 / QD-708 管理面、QD-005 客户端 | 这些能力依赖控制面、OpenAPI、录像或管理页基线；直接塞进 #25 会变成巨型 PR | 维护者确认 #25 合并或 stacked base；再按服务端/Web/Qt/更新拆 PR |
 | 4 | 跟踪上游已有 PR | PR #22 自动审批、#23 录像、#24 skill-host 运行库、#25 控制面 | 上游已有实现，重复开发只会制造分叉 | PR 合并后同步 `upstream/dev`，重跑受影响测试；删除重复本地实现 |
 | 5 | 提 Remoting 需求 | QD-002 Web 文件通道、QD-004 / QD-505 Host 权威录制、QD-007 图片剪贴板、QD-114 真实 CertVerifier、QD-214 Windows 用户上下文 | 必须改 Chromium Remoting 或宿主生命周期，维护者已明确这类改动由他处理 | 每项提交协议草案、权限边界、兼容性和验收用例；不在 fork 伪造第二套媒体链路 |
-| 6 | fork 自主增强 | QD-610 工作流、QD-904 / QD-907 / QD-908 / QD-909 | QD-006 / QD-608 / QD-809 / QD-810 / QD-702 / QD-604 已完成；剩余本地项不阻塞上游 | 有明确用户入口、失败路径和对应自动化或真机证据 |
+| 6 | fork 自主增强 | QD-610 业务集成、QD-511 智能回放、QD-904 / QD-907 / QD-908 / QD-909 | QD-510 的本地 MCP 录制回放已收口；QD-610 仍需控制面业务触发、定时执行和回调，剩余本地项不阻塞上游 | 有明确用户入口、失败路径和对应自动化或真机证据 |
 | 7 | 暂缓跟随上游 | QD-318 Linux、QD-319 iOS/Android | 上游 Roadmap 已列出，本 fork 当前不承诺实现 | 保持接口和构建兼容；上游方向明确后再排期 |
 | 8 | 不进入待办 | RDP、重写 WebRTC/Remoting、多租户/SSO/计费、通用插件市场 | 与“复用成熟远控内核 + 补业务控制面”的路线冲突或收益不足 | 只有用户重新定义产品目标才重新评估 |
 
@@ -479,7 +485,8 @@ Private Vulnerability Reporting，后者等协议实现。当前继续做不依�
 | QD-507 | Web 录像列表、播放、下载、删除 | `[x]` | `RecordingsPage.vue` |
 | QD-508 | Qt 录像回放页 | `[x]` | `74c7022` 已覆盖列表、分页、缩略图、应用内播放、外部打开、删除和实时刷新 |
 | QD-509 | 缩略图、保留期、孤儿回收 | `[x]` | 服务端生命周期已完成 |
-| QD-510 | 工作流录制与回放 | `[~]` | 有设计文档，未形成完整产品 |
+| QD-510 | 工作流录制与回放核心 | `[x]` | 远程 UI/skill-host 双通道录制回放、旧格式兼容、递归参数替换、失败策略、持久化报告和查询工具已完成；`cargo test` 19/19 通过 |
+| QD-511 | 工作流状态校验与智能回放 | `[ ]` | 预录/后录屏幕 hash、OCR 关键词、状态不匹配暂停和 AI 介入尚未实现；对应设计阶段三 |
 
 ## 9. 通知、任务与集成
 
@@ -494,7 +501,7 @@ Private Vulnerability Reporting，后者等协议实现。当前继续做不依�
 | QD-607 | 计划任务 | `[~]` | 服务端、WebClient、Qt 管理页和重试已完成；`revoke_all_remote_sessions` 已补齐控制面批量清场（最多 200 台）。定时连接、广义批量 agent 指令及回执仍未做 |
 | QD-608 | OpenAPI 与生成 SDK | `[x]` | TypeScript/Go/Python/Java/C#/PHP/Kotlin 七套客户端已提交，生成器、freshness 门禁和 CI 编译覆盖全部语言；C# `dotnet build`、PHP Composer/lint、Kotlin Gradle build 通过 |
 | QD-609 | MCP / AI 自动化 | `[x]` | QuickDesk 原生能力；也是上游维护者当前最优先方向 |
-| QD-610 | 业务系统集成与自定义工作流 | `[~]` | 设计和工作流方向已有，完整产品未收口 |
+| QD-610 | 业务系统集成与自定义工作流 | `[~]` | QD-510 已提供本地录制、回放、参数化和运行报告；控制面业务事件触发、定时执行、委托授权和业务回调仍未完成 |
 
 ## 10. Web、Qt 与管理端
 

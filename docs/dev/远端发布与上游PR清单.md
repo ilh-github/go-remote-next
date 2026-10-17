@@ -57,7 +57,8 @@
   已统一落入 `docs/dev/QuickDesk功能总清单.md`；开发和上游 PR 顺序以其 3.1、3.2、
   第 16、17 节为准
 - 本轮合并结论：上游没有新增必须立即重复开发的 issue；`QD-608`
-  （C#/PHP/Kotlin 生成 SDK）已完成并验证，下一步推进 `QD-610`
+  （C#/PHP/Kotlin 生成 SDK）和 `QD-510` MCP 工作流核心均已落地，下一步推进
+  `QD-610` 业务集成；QD-510 可拆成独立上游候选，业务触发与回调留在 fork
 - fork PR #1：<https://github.com/ilh-github/go-remote-next/pull/1>，
   OPEN / MERGEABLE / CLEAN，7 项检查全部成功
 - upstream PR #25：<https://github.com/barry-ran/QuickDesk/pull/25>
