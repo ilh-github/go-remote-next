@@ -68,8 +68,9 @@
   候选自身 3/3 单测、生产构建和 diff check 通过，真实 SQLite E2E 因旧基线无 SQLite
   驱动而留在 fork 主线验证
 - QD-610 本机业务 HTTP trigger：fork 提交 `bca8149`，MCP 23/23、Clippy 和 release
-  构建通过；这是 fork 业务编排的第一阶段，暂不拆上游 PR，等定时/事件/回调契约稳定后再
-  判断是否把通用 HTTP trigger 独立回贡
+  构建通过；通用 MCP 部分已准备 stacked 候选
+  `codex/upstream-qd-610-business-trigger` = `28af02c`，基于 QD-510 候选 `0a9ecd5`；
+  定时、事件订阅和出站回调仍留在 fork 后续阶段
 - fork PR #1：<https://github.com/ilh-github/go-remote-next/pull/1>，
   OPEN / MERGEABLE / CLEAN，7 项检查全部成功
 - upstream PR #25：<https://github.com/barry-ran/QuickDesk/pull/25>

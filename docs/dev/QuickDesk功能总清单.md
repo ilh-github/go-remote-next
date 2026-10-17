@@ -330,6 +330,10 @@
   HTTP→replay→report E2E、错误 token、设备白名单和 429 测试均通过，MCP 全量 23/23、
   Clippy 零告警和 release 构建通过。定时触发、控制面事件订阅、幂等键、出站回调和委托
   权限仍未完成，QD-610 保持 `[~]`。
+- QD-610 上游 stacked 候选：`codex/upstream-qd-610-business-trigger` = `28af02c`，
+  基于 `codex/upstream-qd-510-workflow@0a9ecd5`；候选自身 23/23 测试、Clippy 和
+  `git diff --check upstream/dev...HEAD` 通过。候选保留通用 MCP HTTP trigger 和文档，
+  不含 fork 清单、QD-506 或控制面业务记录。
 - QD-911 当前状态：上游 issue #6 仍 OPEN，GitHub API 返回
   `private-vulnerability-reporting.enabled=false`，维护者最新回复仍只是旧 release 链接。
   fork 与上游候选已新增根目录 `SECURITY.md`，覆盖支持版本、公开 issue 禁令、GitHub 私密
@@ -384,7 +388,7 @@
 | 验证/排障 | QD-216 主机连接失败 | `Upstream` issue #9 | 缺真实 host/signaling/TLS 日志，不能直接猜实现 | 先做支持 triage；能拆出确定 bug 后再进入实现 |
 | 安全设计 | QD-115 服务端设备密钥信任边界 | `Upstream` issue #10 / `Fork` | 威胁模型已完成：device_secret 不可逆，但明文 access_code + server token/审批使当前服务器仍是设备访问信任方；候选 `codex/upstream-qd-115-trust-model@1ca2543` 已准备 | 按文档分阶段推进 Host 身份密钥、Owner 签名 grant、Host 本地验证和恶意服务器 E2E；8 条验收项完成前保持 `[~]` |
 | 上游候选 | QD-911 私密安全披露入口 | `Upstream` issue #6 | fork 与独立候选已有 `SECURITY.md`，候选 `codex/upstream-qd-911-security@9862717` 直接基于 `upstream/dev`，只含 1 个文件；上游 issue 仍开放且 Private Vulnerability Reporting 仍 disabled | 远端写入恢复后推送并开 PR；维护者合并且启用私密报告后才转为 `[x]` |
-| 后续增强 | QD-610 业务工作流 | `Legacy` / `Fork` | QD-510 已完成录制/回放/报告；`bca8149` 已补本机 Bearer HTTP 业务触发和运行查询；定时触发、控制面事件订阅、幂等、回调与委托权限仍缺 | 继续做不依赖外部凭据的业务编排 |
+| 后续增强 | QD-610 业务工作流 | `Legacy` / `Fork` / `Upstream-Open` | QD-510 已完成录制/回放/报告；`bca8149` 已补本机 Bearer HTTP 业务触发和运行查询；stacked 候选 `28af02c` 已准备；定时、事件订阅、幂等、回调和委托权限仍缺 | 继续做不依赖外部凭据的业务编排 |
 | 质量收口 | QD-906、QD-907、QD-908、QD-909 | `Legacy` / `Fork` | 真机矩阵、异常路径、2h+ 长稳、文件/剪贴板审计仍不完整 | 每完成一个主功能就补对应边界，不集中到最后一次性补测 |
 | 明确暂缓 | QD-318 Linux、QD-319 原生移动端 | `Upstream` Roadmap | 上游已列计划，当前 fork 不做实现承诺 | 保持接口和构建兼容，等上游方向明确后接 |
 | 明确不做 | RDP、重写 WebRTC/Remoting、多租户/SSO/计费、通用插件市场 | `Fork` 决策 | 与当前“复用成熟远控内核 + 补业务控制面”的路线冲突或收益不足 | 不进入待办池，除非用户重新定义产品目标 |
