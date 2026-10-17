@@ -7,7 +7,7 @@
 
 ## 当前本地基线
 
-- fork 主干：`dev` = `0cc0300`
+- fork 主干：`dev` = `b3abeba`
 - 来源解封功能分支：`codex/source-unban` = `6230d16`
 - 上游最小候选：`codex/upstream-access-bans` = `b89c24c`
 - fork PR #1：<https://github.com/ilh-github/go-remote-next/pull/1>
@@ -23,6 +23,8 @@
   封禁列表和会话列表不再依赖手动刷新，10 秒轮询只作兜底。
 - realtime smoke 增加真实策略事件和客户端会话生命周期覆盖，当前为 57 条断言。
 - 上游候选包含来源解封、真实策略事件和会话生命周期 smoke，不含 fork 专属 UI。
+- WebClient 新增 `/notifications` 通知与告警管理页，覆盖通道 CRUD/测试/启停、投递记录、
+  失败重投、投递确认、静默时段与设备离线告警。
 
 ## 1. 推送前检查
 
@@ -38,7 +40,7 @@ git log --oneline --left-right origin/feat/signaling-control-plane...codex/upstr
 要求：
 
 - 除机器本地的 `.idea/` 外，工作树必须干净；
-- `dev` 必须包含 `0cc0300`；
+- `dev` 必须包含 `b3abeba`；
 - `codex/upstream-access-bans` 必须包含 `b89c24c`；
 - 如果远端出现新提交，先合并或 rebase，再重跑受影响测试，不能强推覆盖他人工作。
 
