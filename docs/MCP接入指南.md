@@ -168,6 +168,7 @@ quickdesk-mcp [--ws-url ws://127.0.0.1:9600] [--token YOUR_TOKEN]
 | `--host` | `127.0.0.1` | `QUICKDESK_HTTP_HOST` | HTTP 服务器绑定地址（仅 HTTP 模式） |
 | `--cors-origin` | （空） | `QUICKDESK_CORS_ORIGIN` | 允许的 CORS 来源（仅 HTTP 模式） |
 | `--stateless` | `false` | — | 使用无状态 HTTP 会话（仅 HTTP 模式） |
+| `--trigger-token` | （空） | `QUICKDESK_TRIGGER_TOKEN` | 本地业务工作流 HTTP 触发器的独立 Bearer Token |
 
 ### 3. 开始使用
 
@@ -1103,6 +1104,24 @@ replay_workflow → 在另一台设备上重放
 - `{{name}}` 占位符会递归替换；已有工作流仍支持按顶层参数同名覆盖，兼容旧格式。
 - 每次回放都会在 `~/.quickdesk/workflow-runs/` 写入报告。急停、策略阻断和人工拒绝属于安全失败，
   永远终止；普通执行失败默认终止，只有 `stop_on_failure=false` 时才继续。
+
+### 业务工作流 HTTP 触发器
+
+HTTP transport 可开放本机业务集成入口：
+
+```http
+POST /v1/workflows/{workflow_id}/run
+Authorization: Bearer <QUICKDESK_TRIGGER_TOKEN>
+Content-Type: application/json
+```
+
+请求体指定已连接的 `device_id`，可选 `overrides` 和 `stop_on_failure`。执行仍经过现有
+trust layer，成功后同步返回并持久化 `WorkflowRunReport`；之后可用
+`GET /v1/workflow-runs/{run_id}` 补查。
+
+`QUICKDESK_TRIGGER_TOKEN` 为空时接口关闭；每个进程一次只允许一条业务工作流运行，并继续
+受 `QUICKDESK_ALLOWED_DEVICES` 限制。当前接口是同步执行，尚无定时触发、控制面事件订阅、
+幂等键和出站回调。完整契约见 `docs/dev/业务工作流HTTP触发器.md`。
 
 ---
 

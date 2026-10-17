@@ -1,0 +1,124 @@
+# QuickDesk 业务工作流 HTTP 触发器
+
+> 状态（2026-10-17）：QD-610 的第一阶段。业务系统可以在本机通过独立 Bearer token
+> 触发已保存的 MCP 工作流，并同步取得持久化运行报告。定时触发、控制面事件订阅、
+> 出站回调、委托权限细分和异步任务队列仍未完成。
+
+## 1. 边界
+
+QuickDesk 的核心媒体与输入链路仍然由 Chromium Remoting / WebRTC 负责。该触发器只
+解决“业务系统怎样启动一条已经录好的桌面工作流”，不复制远程桌面协议，也不经过
+SignalingServer 转发桌面媒体。
+
+触发器运行在 `quickdesk-mcp` 的 HTTP transport 中：
+
+```text
+业务系统 / n8n / Zapier / 自研后台
+        |
+        | HTTP + Bearer trigger token
+        v
+quickdesk-mcp HTTP
+        |
+        | 已有 MCP workflow replay + trust layer
+        v
+QuickDesk WebSocket API -> 远端设备
+```
+
+stdio transport 不监听网络端口，因此不启用该接口。
+
+## 2. 启动
+
+```bash
+quickdesk-mcp \
+  --transport http \
+  --ws-url ws://127.0.0.1:9600 \
+  --host 127.0.0.1 \
+  --port 8080 \
+  --trigger-token "$QUICKDESK_TRIGGER_TOKEN"
+```
+
+也可以用环境变量：
+
+```bash
+QUICKDESK_TRANSPORT=http \
+QUICKDESK_WS_URL=ws://127.0.0.1:9600 \
+QUICKDESK_TRIGGER_TOKEN='a-separate-business-secret' \
+quickdesk-mcp
+```
+
+`QUICKDESK_TRIGGER_TOKEN` 为空时两个业务入口都返回 404。它应与
+`QUICKDESK_TOKEN`、`QUICKDESK_READONLY_TOKEN` 分开配置，业务系统不应持有 QuickDesk
+的完整控制 token。
+
+## 3. 触发工作流
+
+```http
+POST /v1/workflows/{workflow_id}/run
+Authorization: Bearer <QUICKDESK_TRIGGER_TOKEN>
+Content-Type: application/json
+```
+
+```json
+{
+  "device_id": "deviceId-from-list_connections",
+  "overrides": {
+    "target": "C:\\reports\\daily.txt"
+  },
+  "stop_on_failure": true
+}
+```
+
+字段：
+
+| 字段 | 必填 | 说明 |
+|---|---|---|
+| `device_id` | 是 | 要执行工作流的已连接设备；仍受 `QUICKDESK_ALLOWED_DEVICES` 限制 |
+| `overrides` | 否 | 传给 `replay_workflow` 的参数覆盖 |
+| `stop_on_failure` | 否 | 默认 `true`；安全失败不受该字段影响，永远终止 |
+
+成功时返回 `200` 和完整的 `WorkflowRunReport`，报告同时写入
+`~/.quickdesk/workflow-runs/{run_id}.json`。
+
+错误：
+
+| HTTP | 含义 |
+|---|---|
+| `400` | `device_id` 为空或其他请求体错误 |
+| `401` | Bearer token 缺失或错误 |
+| `403` | 设备不在 `QUICKDESK_ALLOWED_DEVICES` |
+| `404` | 触发器未启用、工作流不存在 |
+| `429` | 已有另一条业务工作流正在运行 |
+| `500` | QuickDesk 执行失败或报告持久化失败 |
+
+当前每个 `quickdesk-mcp` 进程只允许一个业务触发工作流并发运行。远程桌面工作流通常
+依赖当前窗口、输入焦点和屏幕状态，并发执行会让结果不可预测。
+
+## 4. 查询运行报告
+
+```http
+GET /v1/workflow-runs/{run_id}
+Authorization: Bearer <QUICKDESK_TRIGGER_TOKEN>
+```
+
+返回持久化的 `WorkflowRunReport`；不存在时返回 404。同步触发已经返回同一份报告，
+该接口用于业务系统保存 `run_id` 后补查或人工复盘。
+
+## 5. 安全
+
+- 默认绑定 `127.0.0.1`。需要跨机器调用时，应放在 TLS 反向代理后面，不能直接暴露
+  MCP HTTP 端口。
+- trigger token 使用常量时间比较，且与 QuickDesk WS token 分离。
+- 设备白名单在进入工作流前检查。
+-  replay 仍经过 trust policy、人工确认和 emergency stop。
+- 工作流 ID 和 run ID 都经过 UUID 与路径逃逸校验。
+- 同步请求会占用一个执行槽；业务系统应设置足够超时并处理 429。
+
+## 6. 尚未完成
+
+- 控制面事件订阅和 event-to-workflow 映射；
+- 定时任务直接触发桌面工作流；
+- 异步队列、取消、幂等键和跨进程 worker；
+- 运行完成后的 HMAC 出站回调；
+- Owner 委托 grant、最小权限范围和审计回传控制面。
+
+因此 QD-610 仍保持部分完成，不能把本接口描述成完整的业务流程引擎。
