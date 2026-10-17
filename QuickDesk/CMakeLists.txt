@@ -91,6 +91,8 @@ set(COMPONENT_HEADERS
 )
 
 set(CORE_SOURCES
+    src/core/controlplaneevent.h
+    src/core/controlplaneevent.cpp
     src/core/common/commontype.h
     src/core/db/appconfigdatabase.h
     src/core/db/appconfigdatabase.cpp

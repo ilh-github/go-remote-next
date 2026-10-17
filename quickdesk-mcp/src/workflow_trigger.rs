@@ -9,6 +9,22 @@ use uuid::Uuid;
 const MIN_INTERVAL_SECONDS: u64 = 60;
 const MAX_INTERVAL_SECONDS: u64 = 365 * 24 * 60 * 60;
 
+pub const SUPPORTED_EVENT_TYPES: &[&str] = &[
+    "device.online.changed",
+    "device.offline.sustained",
+    "device.metric.alert",
+    "device.access.granted",
+    "device.access.denied",
+    "device.access_approval.requested",
+    "device.access_approval.decided",
+    "remote_session.started",
+    "remote_session.ended",
+    "recording.created",
+    "recording.updated",
+    "recording.deleted",
+    "scheduled_task.failed",
+];
+
 #[derive(Clone, Debug)]
 pub struct WorkflowTriggerSpec {
     pub name: String,
@@ -17,6 +33,9 @@ pub struct WorkflowTriggerSpec {
     pub overrides: HashMap<String, Value>,
     pub stop_on_failure: bool,
     pub interval_seconds: Option<u64>,
+    pub event_type: Option<String>,
+    pub event_device_id: Option<String>,
+    pub event_filter: Option<Value>,
     pub callback_url: Option<String>,
 }
 
@@ -30,6 +49,12 @@ pub struct WorkflowTrigger {
     pub stop_on_failure: bool,
     pub interval_seconds: Option<u64>,
     #[serde(default)]
+    pub event_type: Option<String>,
+    #[serde(default)]
+    pub event_device_id: Option<String>,
+    #[serde(default)]
+    pub event_filter: Option<Value>,
+    #[serde(default)]
     pub callback_url: Option<String>,
     pub enabled: bool,
     pub next_run_at: Option<String>,
@@ -37,6 +62,10 @@ pub struct WorkflowTrigger {
     pub last_run_id: String,
     pub last_status: String,
     pub last_error: String,
+    #[serde(default)]
+    pub last_event_id: Option<String>,
+    #[serde(default)]
+    pub last_server_rev: i64,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -89,6 +118,38 @@ impl WorkflowTriggerStore {
                 ));
             }
         }
+        let event_type = spec
+            .event_type
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        if spec.interval_seconds.is_none() && event_type.is_none() {
+            return Err("trigger needs interval_seconds or event_type".to_string());
+        }
+        if let Some(event_type) = event_type.as_deref() {
+            if !SUPPORTED_EVENT_TYPES.contains(&event_type) {
+                return Err("trigger event_type is not supported".to_string());
+            }
+        }
+        if let Some(filter) = spec.event_filter.as_ref() {
+            validate_event_filter(filter, 0)?;
+        }
+        let event_device_id = if event_type.is_some() {
+            spec.event_device_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+                .or_else(|| {
+                    event_type
+                        .as_deref()
+                        .is_some_and(event_is_device_scoped)
+                        .then(|| device_id.to_string())
+                })
+        } else {
+            None
+        };
 
         let now_text = now.to_rfc3339();
         let trigger = WorkflowTrigger {
@@ -99,6 +160,9 @@ impl WorkflowTriggerStore {
             overrides: spec.overrides,
             stop_on_failure: spec.stop_on_failure,
             interval_seconds: spec.interval_seconds,
+            event_type,
+            event_device_id,
+            event_filter: spec.event_filter,
             callback_url: spec.callback_url,
             enabled: true,
             next_run_at: spec
@@ -108,6 +172,8 @@ impl WorkflowTriggerStore {
             last_run_id: String::new(),
             last_status: String::new(),
             last_error: String::new(),
+            last_event_id: None,
+            last_server_rev: 0,
             created_at: now_text.clone(),
             updated_at: now_text,
         };
@@ -181,6 +247,36 @@ impl WorkflowTriggerStore {
         claimed
     }
 
+    pub fn claim_event(
+        &self,
+        id: &str,
+        event_id: Option<&str>,
+        server_rev: i64,
+        at: DateTime<Utc>,
+    ) -> Result<bool, String> {
+        let mut trigger = self
+            .get(id)
+            .ok_or_else(|| "workflow trigger not found".to_string())?;
+        if !trigger.enabled || trigger.event_type.is_none() {
+            return Ok(false);
+        }
+        if let Some(event_id) = event_id {
+            if trigger.last_event_id.as_deref() == Some(event_id) {
+                return Ok(false);
+            }
+        } else if server_rev <= 0 || server_rev <= trigger.last_server_rev {
+            return Ok(false);
+        }
+
+        trigger.last_event_id = event_id.map(str::to_string);
+        if server_rev > 0 {
+            trigger.last_server_rev = server_rev;
+        }
+        trigger.updated_at = at.to_rfc3339();
+        self.save(&trigger)?;
+        Ok(true)
+    }
+
     pub fn record_run(
         &self,
         id: &str,
@@ -223,6 +319,42 @@ fn truncate(value: &str, max: usize) -> String {
     }
 }
 
+fn validate_event_filter(value: &Value, depth: usize) -> Result<(), String> {
+    if depth > 4 {
+        return Err("trigger event_filter is nested too deeply".to_string());
+    }
+    let Some(object) = value.as_object() else {
+        return Err("trigger event_filter must be an object".to_string());
+    };
+    if object.len() > 64 {
+        return Err("trigger event_filter has too many keys".to_string());
+    }
+    for (key, nested) in object {
+        let normalized = key.trim().to_ascii_lowercase();
+        if normalized.is_empty() || key.len() > 128 {
+            return Err("trigger event_filter contains an invalid key".to_string());
+        }
+        if normalized.contains("access_code")
+            || normalized.contains("password")
+            || normalized.contains("secret")
+            || normalized.contains("token")
+        {
+            return Err("trigger event_filter cannot match sensitive fields".to_string());
+        }
+        if nested.as_str().is_some_and(|text| text.len() > 4096) {
+            return Err("trigger event_filter string is too long".to_string());
+        }
+        if nested.is_object() {
+            validate_event_filter(nested, depth + 1)?;
+        }
+    }
+    Ok(())
+}
+
+fn event_is_device_scoped(event_type: &str) -> bool {
+    event_type != "scheduled_task.failed"
+}
+
 fn dirs_data_dir() -> Option<PathBuf> {
     #[cfg(target_os = "windows")]
     {
@@ -258,6 +390,9 @@ mod tests {
                     overrides: HashMap::from([("target".to_string(), json!("daily"))]),
                     stop_on_failure: true,
                     interval_seconds: Some(3600),
+                    event_type: None,
+                    event_device_id: None,
+                    event_filter: None,
                     callback_url: None,
                 },
                 now,
@@ -300,6 +435,9 @@ mod tests {
                     overrides: HashMap::new(),
                     stop_on_failure: true,
                     interval_seconds: Some(60),
+                    event_type: None,
+                    event_device_id: None,
+                    event_filter: None,
                     callback_url: None,
                 },
                 created,
@@ -331,12 +469,126 @@ mod tests {
             overrides: HashMap::new(),
             stop_on_failure: true,
             interval_seconds: Some(1),
+            event_type: None,
+            event_device_id: None,
+            event_filter: None,
             callback_url: None,
         };
 
         assert!(store.create(base.clone()).is_err());
         assert!(store.get("../../credentials").is_none());
         assert!(!store.delete("not-a-uuid"));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn event_trigger_defaults_to_target_device_and_claims_one_server_rev() {
+        let dir = std::env::temp_dir().join(format!("quickdesk-trigger-store-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = WorkflowTriggerStore::with_storage_dir(dir.clone());
+        let now = Utc.with_ymd_and_hms(2026, 10, 17, 15, 0, 0).unwrap();
+        let trigger = store
+            .create_at(
+                WorkflowTriggerSpec {
+                    name: "device denied".to_string(),
+                    workflow_id: Uuid::new_v4().to_string(),
+                    device_id: "target-device".to_string(),
+                    overrides: HashMap::new(),
+                    stop_on_failure: true,
+                    interval_seconds: None,
+                    event_type: Some("device.access.denied".to_string()),
+                    event_device_id: None,
+                    event_filter: Some(json!({"reason": "policy"})),
+                    callback_url: None,
+                },
+                now,
+            )
+            .unwrap();
+
+        assert_eq!(
+            trigger.event_device_id.as_deref(),
+            Some("target-device")
+        );
+        assert!(trigger.next_run_at.is_none());
+
+        assert!(store
+            .claim_event(&trigger.id, Some("evt-1"), 42, now)
+            .unwrap());
+        let loaded = store.get(&trigger.id).unwrap();
+        assert_eq!(loaded.last_event_id.as_deref(), Some("evt-1"));
+        assert_eq!(loaded.last_server_rev, 42);
+
+        assert!(!store
+            .claim_event(&trigger.id, Some("evt-1"), 42, now)
+            .unwrap());
+        assert!(store
+            .claim_event(&trigger.id, Some("evt-2"), 1, now)
+            .unwrap());
+        assert!(!store.claim_event(&trigger.id, None, 1, now).unwrap());
+        assert!(store.claim_event(&trigger.id, None, 2, now).unwrap());
+
+        let loaded = store.get(&trigger.id).unwrap();
+        assert!(loaded.last_event_id.is_none());
+        assert_eq!(loaded.last_server_rev, 2);
+
+        assert!(store
+            .claim_event(&trigger.id, Some("evt-3"), 2, now)
+            .unwrap());
+
+        let task_trigger = store
+            .create_at(
+                WorkflowTriggerSpec {
+                    name: "scheduled failure".to_string(),
+                    workflow_id: Uuid::new_v4().to_string(),
+                    device_id: "target-device".to_string(),
+                    overrides: HashMap::new(),
+                    stop_on_failure: true,
+                    interval_seconds: None,
+                    event_type: Some("scheduled_task.failed".to_string()),
+                    event_device_id: None,
+                    event_filter: Some(json!({"kind": "sign_out_all_sessions"})),
+                    callback_url: None,
+                },
+                now,
+            )
+            .unwrap();
+        assert!(task_trigger.event_device_id.is_none());
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn rejects_unsupported_event_types_and_sensitive_event_filters() {
+        let dir = std::env::temp_dir().join(format!("quickdesk-trigger-store-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = WorkflowTriggerStore::with_storage_dir(dir.clone());
+        let base = WorkflowTriggerSpec {
+            name: "event trigger".to_string(),
+            workflow_id: Uuid::new_v4().to_string(),
+            device_id: "target-device".to_string(),
+            overrides: HashMap::new(),
+            stop_on_failure: true,
+            interval_seconds: None,
+            event_type: Some("device.access.denied".to_string()),
+            event_device_id: None,
+            event_filter: Some(json!({"reason": "policy"})),
+            callback_url: None,
+        };
+
+        assert!(store.create(base.clone()).is_ok());
+
+        let mut unsupported = base.clone();
+        unsupported.event_type = Some("device.access_code.changed".to_string());
+        assert!(store.create(unsupported).is_err());
+
+        let mut non_object_filter = base.clone();
+        non_object_filter.event_filter = Some(json!("policy"));
+        assert!(store.create(non_object_filter).is_err());
+
+        let mut sensitive_filter = base;
+        sensitive_filter.event_filter = Some(json!({"access_code": "012345"}));
+        assert!(store.create(sensitive_filter).is_err());
+
         let _ = std::fs::remove_dir_all(dir);
     }
 }
