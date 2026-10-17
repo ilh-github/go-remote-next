@@ -13,6 +13,7 @@ use serde_json::json;
 use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
 
+use crate::callback::deliver_workflow_callback;
 use crate::idempotency::{IdempotencyClaim, WorkflowIdempotencyStore};
 use crate::server::{QuickDeskMcpServer, SharedState};
 use crate::workflow_job::{CancelJobError, WorkflowJobManager};
@@ -38,6 +39,7 @@ struct TriggerRunRequest {
     device_id: String,
     overrides: Option<HashMap<String, serde_json::Value>>,
     stop_on_failure: Option<bool>,
+    callback_url: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -48,6 +50,7 @@ struct CreateTriggerRequest {
     overrides: Option<HashMap<String, serde_json::Value>>,
     stop_on_failure: Option<bool>,
     interval_seconds: Option<u64>,
+    callback_url: Option<String>,
 }
 
 pub fn router(runtime: TriggerRuntime) -> Router {
@@ -123,9 +126,11 @@ async fn run_workflow(
     }
     let overrides = request.overrides.unwrap_or_default();
     let stop_on_failure = request.stop_on_failure.unwrap_or(true);
+    let callback_url = request.callback_url;
     let idempotency_request = json!({
         "overrides": overrides.clone(),
         "stop_on_failure": stop_on_failure,
+        "callback_url": callback_url.clone(),
     });
     let Ok(_permit) = state.run_slots.clone().try_acquire_owned() else {
         return error_response(
@@ -180,6 +185,19 @@ async fn run_workflow(
                     return error_response(StatusCode::INTERNAL_SERVER_ERROR, &error);
                 }
             }
+            deliver_workflow_callback(
+                callback_url.as_deref(),
+                json!({
+                    "event": "workflow.run.completed",
+                    "run_id": report.run_id.clone(),
+                    "workflow_id": report.workflow_id.clone(),
+                    "device_id": report.device_id.clone(),
+                    "success": report.success,
+                    "cancelled": report.cancelled,
+                    "report": report.clone(),
+                }),
+            )
+            .await;
             Json(report).into_response()
         }
         Err(error) => {
@@ -191,6 +209,17 @@ async fn run_workflow(
                     return error_response(StatusCode::INTERNAL_SERVER_ERROR, &store_error);
                 }
             }
+            deliver_workflow_callback(
+                callback_url.as_deref(),
+                json!({
+                    "event": "workflow.run.failed",
+                    "workflow_id": workflow_id,
+                    "device_id": device_id,
+                    "status_code": status.as_u16(),
+                    "error": error.clone(),
+                }),
+            )
+            .await;
             error_response(status, &error)
         }
     }
@@ -217,6 +246,7 @@ async fn run_workflow_async(
         device_id,
         request.overrides.unwrap_or_default(),
         request.stop_on_failure.unwrap_or(true),
+        request.callback_url,
     ) {
         Ok(job) => (StatusCode::ACCEPTED, Json(job)).into_response(),
         Err(error) if error.contains("queue is full") => {
@@ -306,6 +336,7 @@ async fn create_trigger(
         overrides: request.overrides.unwrap_or_default(),
         stop_on_failure: request.stop_on_failure.unwrap_or(true),
         interval_seconds: request.interval_seconds,
+        callback_url: request.callback_url,
     }) {
         Ok(trigger) => trigger,
         Err(error) => return error_response(StatusCode::BAD_REQUEST, &error),
@@ -373,12 +404,35 @@ async fn run_trigger_once(state: &TriggerState, trigger: &WorkflowTrigger) -> Re
             ) {
                 return error_response(StatusCode::INTERNAL_SERVER_ERROR, &error);
             }
+            deliver_workflow_callback(
+                trigger.callback_url.as_deref(),
+                json!({
+                    "event": "workflow.run.completed",
+                    "run_id": report.run_id.clone(),
+                    "workflow_id": report.workflow_id.clone(),
+                    "device_id": report.device_id.clone(),
+                    "success": report.success,
+                    "cancelled": report.cancelled,
+                    "report": report.clone(),
+                }),
+            )
+            .await;
             Json(report).into_response()
         }
         Err(error) => {
             let _ = state
                 .triggers
                 .record_run(&trigger.id, "", false, &error, Utc::now());
+            deliver_workflow_callback(
+                trigger.callback_url.as_deref(),
+                json!({
+                    "event": "workflow.run.failed",
+                    "workflow_id": trigger.workflow_id,
+                    "device_id": trigger.device_id,
+                    "error": error.clone(),
+                }),
+            )
+            .await;
             workflow_error_response(error)
         }
     }
@@ -515,6 +569,7 @@ mod tests {
     use serde_json::json;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio_tungstenite::{accept_async, tungstenite::Message};
     use tower::ServiceExt;
     use uuid::Uuid;
@@ -706,6 +761,7 @@ mod tests {
     async fn async_workflow_job_executes_and_reports_completion() {
         let temp = std::env::temp_dir().join(format!("quickdesk-trigger-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&temp).unwrap();
+        std::env::set_var("QUICKDESK_CALLBACK_SECRET", "async-callback-test-secret");
         let workflows = WorkflowStore::with_storage_dir(temp.join("workflows"));
         let workflow_id = workflows
             .start_recording("async execution", "device-1")
@@ -739,6 +795,20 @@ mod tests {
         let ws = WsClient::connect(&format!("ws://{address}"), None, EventBus::new(100))
             .await
             .unwrap();
+        let callback_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let callback_address = callback_listener.local_addr().unwrap();
+        let (callback_tx, callback_rx) = tokio::sync::oneshot::channel();
+        let callback_server = tokio::spawn(async move {
+            let (mut stream, _) = callback_listener.accept().await.unwrap();
+            let mut buffer = vec![0u8; 8192];
+            let read = stream.read(&mut buffer).await.unwrap();
+            let request = String::from_utf8_lossy(&buffer[..read]).to_string();
+            let _ = callback_tx.send(request);
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n")
+                .await
+                .unwrap();
+        });
         let shared = Arc::new(SharedState {
             memory: MemoryStore::with_db_path(temp.join("memory.db")).unwrap(),
             workflow: workflows,
@@ -764,7 +834,13 @@ mod tests {
             .uri(format!("/v1/workflows/{workflow_id}/run-async"))
             .header("Authorization", "Bearer business-secret")
             .header("Content-Type", "application/json")
-            .body(Body::from(json!({"device_id": "device-1"}).to_string()))
+            .body(Body::from(
+                json!({
+                    "device_id": "device-1",
+                    "callback_url": format!("http://{callback_address}/async-callback")
+                })
+                .to_string(),
+            ))
             .unwrap();
         let response = app.clone().oneshot(request).await.unwrap();
         assert_eq!(response.status(), StatusCode::ACCEPTED);
@@ -795,6 +871,13 @@ mod tests {
         assert_eq!(status["run_id"], run_id);
         assert_eq!(status["report"]["success"], true);
         assert_eq!(status["report"]["cancelled"], false);
+        let callback = tokio::time::timeout(Duration::from_secs(2), callback_rx)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(callback.starts_with("POST /async-callback HTTP/1.1"));
+        assert!(callback.contains("\"event\":\"workflow.run.completed\""));
+        callback_server.abort();
         fake_quickdesk.abort();
         let _ = std::fs::remove_dir_all(temp);
     }
@@ -903,6 +986,110 @@ mod tests {
 
         assert_eq!(status["report"]["cancelled"], true);
         assert_eq!(status["report"]["success"], false);
+        fake_quickdesk.abort();
+        let _ = std::fs::remove_dir_all(temp);
+    }
+
+    #[tokio::test]
+    async fn completed_workflow_posts_a_signed_callback() {
+        let temp = std::env::temp_dir().join(format!("quickdesk-trigger-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&temp).unwrap();
+        std::env::set_var("QUICKDESK_CALLBACK_SECRET", "callback-test-secret");
+        let workflows = WorkflowStore::with_storage_dir(temp.join("workflows"));
+        let workflow_id = workflows
+            .start_recording("callback workflow", "device-1")
+            .unwrap();
+        workflows.record_step(
+            "device-1",
+            "list_processes",
+            &json!({}),
+            "processes",
+            true,
+            StepExecutor::SkillHost,
+        );
+        workflows.stop_recording("device-1", "", &[]).unwrap();
+
+        let quickdesk_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let quickdesk_address = quickdesk_listener.local_addr().unwrap();
+        let fake_quickdesk = tokio::spawn(async move {
+            let (stream, _) = quickdesk_listener.accept().await.unwrap();
+            let mut socket = accept_async(stream).await.unwrap();
+            while let Some(Ok(Message::Text(text))) = socket.next().await {
+                let request: serde_json::Value = serde_json::from_str(&text).unwrap();
+                if let Some(id) = request.get("id").and_then(serde_json::Value::as_str) {
+                    let response = json!({"id": id, "result": {"processes": []}});
+                    socket
+                        .send(Message::Text(response.to_string().into()))
+                        .await
+                        .unwrap();
+                }
+            }
+        });
+        let ws = WsClient::connect(&format!("ws://{quickdesk_address}"), None, EventBus::new(100))
+            .await
+            .unwrap();
+
+        let callback_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let callback_address = callback_listener.local_addr().unwrap();
+        let (callback_tx, callback_rx) = tokio::sync::oneshot::channel();
+        let callback_server = tokio::spawn(async move {
+            let (mut stream, _) = callback_listener.accept().await.unwrap();
+            let mut buffer = vec![0u8; 8192];
+            let read = stream.read(&mut buffer).await.unwrap();
+            let request = String::from_utf8_lossy(&buffer[..read]).to_string();
+            let _ = callback_tx.send(request);
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n")
+                .await
+                .unwrap();
+        });
+
+        let shared = Arc::new(SharedState {
+            memory: MemoryStore::with_db_path(temp.join("memory.db")).unwrap(),
+            workflow: workflows,
+            trust: TrustEngine::with_db_path(temp.join("trust.db")).unwrap(),
+        });
+        let slots = Arc::new(Semaphore::new(1));
+        let jobs = test_jobs(&temp, ws.clone(), shared.clone(), slots.clone());
+        let app = router(TriggerRuntime {
+            token: Some("business-secret".to_string()),
+            ws,
+            shared_state: shared,
+            allowed_devices: Vec::new(),
+            run_slots: slots,
+            triggers: WorkflowTriggerStore::with_storage_dir(temp.join("triggers")),
+            idempotency: WorkflowIdempotencyStore::with_storage_path(
+                temp.join("idempotency.json"),
+            ),
+            jobs,
+        });
+
+        let request = Request::builder()
+            .method("POST")
+            .uri(format!("/v1/workflows/{workflow_id}/run"))
+            .header("Authorization", "Bearer business-secret")
+            .header("Content-Type", "application/json")
+            .body(Body::from(
+                json!({
+                    "device_id": "device-1",
+                    "callback_url": format!("http://{callback_address}/workflow-callback")
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let callback = tokio::time::timeout(Duration::from_secs(2), callback_rx)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(callback.starts_with("POST /workflow-callback HTTP/1.1"));
+        assert!(callback
+            .to_lowercase()
+            .contains("x-quickdesk-signature: hmac-sha1="));
+        assert!(callback.contains("\"event\":\"workflow.run.completed\""));
+        callback_server.abort();
         fake_quickdesk.abort();
         let _ = std::fs::remove_dir_all(temp);
     }
@@ -1193,6 +1380,7 @@ mod tests {
     async fn due_trigger_runs_through_quickdesk_and_records_its_report() {
         let temp = std::env::temp_dir().join(format!("quickdesk-trigger-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&temp).unwrap();
+        std::env::set_var("QUICKDESK_CALLBACK_SECRET", "scheduled-callback-secret");
         let workflows = WorkflowStore::with_storage_dir(temp.join("workflows"));
         let workflow_id = workflows
             .start_recording("scheduled workflow", "device-1")
@@ -1226,6 +1414,20 @@ mod tests {
         let ws = WsClient::connect(&format!("ws://{address}"), None, EventBus::new(100))
             .await
             .unwrap();
+        let callback_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let callback_address = callback_listener.local_addr().unwrap();
+        let (callback_tx, callback_rx) = tokio::sync::oneshot::channel();
+        let callback_server = tokio::spawn(async move {
+            let (mut stream, _) = callback_listener.accept().await.unwrap();
+            let mut buffer = vec![0u8; 8192];
+            let read = stream.read(&mut buffer).await.unwrap();
+            let request = String::from_utf8_lossy(&buffer[..read]).to_string();
+            let _ = callback_tx.send(request);
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n")
+                .await
+                .unwrap();
+        });
         let trigger_store = WorkflowTriggerStore::with_storage_dir(temp.join("triggers"));
         let created_at = Utc.with_ymd_and_hms(2026, 10, 17, 15, 0, 0).unwrap();
         let trigger = trigger_store
@@ -1237,6 +1439,7 @@ mod tests {
                     overrides: HashMap::new(),
                     stop_on_failure: true,
                     interval_seconds: Some(60),
+                    callback_url: Some(format!("http://{callback_address}/scheduled-callback")),
                 },
                 created_at,
             )
@@ -1267,6 +1470,13 @@ mod tests {
         let loaded = trigger_store.get(&trigger.id).unwrap();
         assert_eq!(loaded.last_status, "completed");
         assert!(!loaded.last_run_id.is_empty());
+        let callback = tokio::time::timeout(Duration::from_secs(2), callback_rx)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(callback.starts_with("POST /scheduled-callback HTTP/1.1"));
+        assert!(callback.contains("\"event\":\"workflow.run.completed\""));
+        callback_server.abort();
         fake_quickdesk.abort();
         let _ = std::fs::remove_dir_all(temp);
     }
