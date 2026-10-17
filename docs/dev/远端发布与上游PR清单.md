@@ -59,6 +59,9 @@
 - 本轮合并结论：上游没有新增必须立即重复开发的 issue；`QD-608`
   （C#/PHP/Kotlin 生成 SDK）和 `QD-510` MCP 工作流核心均已落地，下一步推进
   `QD-610` 业务集成；QD-510 可拆成独立上游候选，业务触发与回调留在 fork
+- 上游 QD-510 候选：`codex/upstream-qd-510-workflow` = `0a9ecd5`，基于
+  `upstream/dev@f6651f0`；8 个文件，只含 MCP 双通道工作流、报告工具和通用文档，
+  19/19 测试、Clippy 零告警及 diff check 通过
 - fork PR #1：<https://github.com/ilh-github/go-remote-next/pull/1>，
   OPEN / MERGEABLE / CLEAN，7 项检查全部成功
 - upstream PR #25：<https://github.com/barry-ran/QuickDesk/pull/25>

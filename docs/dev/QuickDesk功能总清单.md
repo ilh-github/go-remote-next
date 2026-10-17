@@ -307,6 +307,10 @@
   同名覆盖。每次回放持久化成功、失败、跳过和耗时，安全失败始终中止，普通失败由
   `stop_on_failure` 控制；新增 `list_workflow_runs` / `get_workflow_run` 查询入口。
   `cargo test` 19/19 通过。预录/后录屏幕状态校验和智能回放另列 QD-511。
+- QD-510 上游候选：`codex/upstream-qd-510-workflow` = `0a9ecd5`，直接基于
+  `upstream/dev@f6651f0`，包含 5 个 MCP 源文件和 3 个通用 MCP 文档，不含 fork 清单、
+  自托管记录或业务控制面；候选自身 19/19 测试、Clippy 零告警和
+  `git diff --check upstream/dev...HEAD` 均通过。
 - QD-911 当前状态：上游 issue #6 仍 OPEN，GitHub API 返回
   `private-vulnerability-reporting.enabled=false`，维护者最新回复仍只是旧 release 链接。
   fork 与上游候选已新增根目录 `SECURITY.md`，覆盖支持版本、公开 issue 禁令、GitHub 私密
@@ -374,7 +378,7 @@ Roadmap 项放到同一条实施路径中。详细追溯仍以第 16 节为准�
 | 顺序 | 队列 | 包含工作 | 为什么现在放这里 | 完成条件 |
 |---|---|---|---|---|
 | 1 | Fork 真机收口 | QD-005 / QD-808 macOS 签名与公证、QD-215 Windows Qt 插件、QD-214 Windows Host 用户上下文、QD-607 定时连接边界 | Windows 自动更新已闭环，macOS 自动替换和回退也已通过 ad-hoc 真实 DMG E2E；当前只缺正式签名、公证链和公证包升级回归 | 使用 Developer ID 完成 hardened runtime 签名、notarytool、staple、Gatekeeper 评估和 4.2.8→4.2.9 真实替换；Windows Host 上传和 Qt 插件问题有真实证据 |
-| 2 | 可独立回贡上游 | QD-003、QD-114 第一阶段、QD-212、QD-213、QD-214 SPAKE2/诊断、QD-215 Windows 发布校验、QD-911 私密披露策略 | 改动边界清楚，可从 `upstream/dev` 独立审查；QD-911 候选只含根目录 `SECURITY.md` | 每个主题一个基于 `upstream/dev` 的最小分支；远端写入恢复后推送并开 PR |
+| 2 | 可独立回贡上游 | QD-003、QD-114 第一阶段、QD-212、QD-213、QD-214 SPAKE2/诊断、QD-215 Windows 发布校验、QD-510 MCP 工作流、QD-911 私密披露策略 | 改动边界清楚，可从 `upstream/dev` 独立审查；QD-510 候选不含 fork 业务和清单，QD-911 候选只含根目录 `SECURITY.md` | 每个主题一个基于 `upstream/dev` 的最小分支；远端写入恢复后推送并开 PR |
 | 3 | 等 PR #25 基线 | QD-204 API/客户端、QD-607 服务端、QD-108 / QD-508 / QD-706 / QD-708 管理面、QD-005 客户端 | 这些能力依赖控制面、OpenAPI、录像或管理页基线；直接塞进 #25 会变成巨型 PR | 维护者确认 #25 合并或 stacked base；再按服务端/Web/Qt/更新拆 PR |
 | 4 | 跟踪上游已有 PR | PR #22 自动审批、#23 录像、#24 skill-host 运行库、#25 控制面 | 上游已有实现，重复开发只会制造分叉 | PR 合并后同步 `upstream/dev`，重跑受影响测试；删除重复本地实现 |
 | 5 | 提 Remoting 需求 | QD-002 Web 文件通道、QD-004 / QD-505 Host 权威录制、QD-007 图片剪贴板、QD-114 真实 CertVerifier、QD-214 Windows 用户上下文 | 必须改 Chromium Remoting 或宿主生命周期，维护者已明确这类改动由他处理 | 每项提交协议草案、权限边界、兼容性和验收用例；不在 fork 伪造第二套媒体链路 |
