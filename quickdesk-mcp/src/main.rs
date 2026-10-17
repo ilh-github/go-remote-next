@@ -3,6 +3,7 @@ mod event_bus;
 mod http_transport;
 mod memory;
 mod server;
+mod trigger;
 mod trust;
 mod workflow;
 mod ws_client;

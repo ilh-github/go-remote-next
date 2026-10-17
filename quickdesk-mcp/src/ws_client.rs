@@ -48,6 +48,16 @@ impl WsClient {
         Ok(client)
     }
 
+    #[cfg(test)]
+    pub(crate) fn disconnected() -> Self {
+        Self {
+            url: Arc::new("ws://127.0.0.1:1".to_string()),
+            token: Arc::new(None),
+            inner: Arc::new(Mutex::new(None)),
+            event_bus: EventBus::new(16),
+        }
+    }
+
     /// Establish (or re-establish) the WebSocket connection.
     /// Must be called with `self.inner` lock NOT held.
     async fn do_connect(&self) -> Result<(), String> {

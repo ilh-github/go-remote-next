@@ -77,7 +77,7 @@ impl WorkflowStore {
     }
 
     #[cfg(test)]
-    fn with_storage_dir(dir: PathBuf) -> Self {
+    pub(crate) fn with_storage_dir(dir: PathBuf) -> Self {
         Self::from_storage_dir(dir).expect("test workflow store")
     }
 

@@ -728,6 +728,98 @@ impl QuickDeskMcpServer {
             ))
         }
     }
+
+    pub async fn execute_workflow_replay(
+        &self,
+        workflow_id: &str,
+        device_id: &str,
+        overrides: HashMap<String, serde_json::Value>,
+        stop_on_failure: bool,
+    ) -> Result<WorkflowRunReport, String> {
+        self.check_device_allowed(device_id)?;
+        let steps = self
+            .state
+            .workflow
+            .build_replay_steps(workflow_id, &overrides)?;
+        let total = steps.len() as u32;
+        let started_at = Utc::now().to_rfc3339();
+        let mut step_results = Vec::with_capacity(steps.len());
+
+        for step in steps {
+            let step_started = std::time::Instant::now();
+            if let Err(error) = self
+                .check_trust_and_confirm(device_id, &step.tool_name, &step.arguments)
+                .await
+            {
+                step_results.push(StepRunResult {
+                    seq: step.seq,
+                    tool_name: step.tool_name,
+                    executor: step.executor,
+                    success: false,
+                    result: serde_json::Value::Null,
+                    error,
+                    duration_ms: step_started.elapsed().as_millis() as u64,
+                });
+                break;
+            }
+
+            let (success, result, error) = match step.executor {
+                StepExecutor::RemoteApi => {
+                    match map_remote_tool_request(&step.tool_name, &step.arguments) {
+                        Ok((message, mut payload)) => {
+                            if let serde_json::Value::Object(ref mut map) = payload {
+                                map.insert("deviceId".to_string(), json!(device_id));
+                            }
+                            match self.ws.request(&message, payload).await {
+                                Ok(v) => (true, v, String::new()),
+                                Err(e) => (false, serde_json::Value::Null, e),
+                            }
+                        }
+                        Err(e) => (false, serde_json::Value::Null, e),
+                    }
+                }
+                StepExecutor::SkillHost => {
+                    let req = json!({
+                        "deviceId": device_id,
+                        "tool": step.tool_name,
+                        "args": step.arguments,
+                    });
+                    match self.ws.request("skillExec", req).await {
+                        Ok(v) => (true, v, String::new()),
+                        Err(e) => (false, serde_json::Value::Null, e),
+                    }
+                }
+            };
+
+            step_results.push(StepRunResult {
+                seq: step.seq,
+                tool_name: step.tool_name,
+                executor: step.executor,
+                success,
+                result,
+                error,
+                duration_ms: step_started.elapsed().as_millis() as u64,
+            });
+
+            if !success && should_stop_after_replay_failure(stop_on_failure, false) {
+                break;
+            }
+        }
+
+        let completed_at = Utc::now().to_rfc3339();
+        let stopped_early = step_results.len() < total as usize;
+        let report = WorkflowRunReport::from_step_results(
+            workflow_id,
+            device_id,
+            &started_at,
+            &completed_at,
+            total,
+            step_results,
+            stopped_early,
+        );
+        self.state.workflow.save_run_report(&report)?;
+        Ok(report)
+    }
 }
 
 #[tool_router]
@@ -1773,98 +1865,19 @@ Safety failures always stop; operational failures follow stop_on_failure.")]
     async fn replay_workflow(&self, params: Parameters<ReplayWorkflowParam>) -> String {
         let p = params.0;
         let overrides = p.overrides.unwrap_or_default();
-        let steps = match self.state.workflow.build_replay_steps(&p.workflow_id, &overrides) {
-            Ok(s) => s,
-            Err(e) => return json!({"error": e}).to_string(),
-        };
-
-        let total = steps.len() as u32;
         let stop_on_failure = p.stop_on_failure.unwrap_or(true);
-        let started_at = Utc::now().to_rfc3339();
-        let mut step_results = Vec::with_capacity(steps.len());
-
-        for step in steps {
-            let step_started = std::time::Instant::now();
-            if let Err(error) = self
-                .check_trust_and_confirm(&p.device_id, &step.tool_name, &step.arguments)
-                .await
-            {
-                step_results.push(StepRunResult {
-                    seq: step.seq,
-                    tool_name: step.tool_name,
-                    executor: step.executor,
-                    success: false,
-                    result: serde_json::Value::Null,
-                    error,
-                    duration_ms: step_started.elapsed().as_millis() as u64,
-                });
-                break;
-            }
-
-            let (success, result, error) = match step.executor {
-                StepExecutor::RemoteApi => {
-                    match map_remote_tool_request(&step.tool_name, &step.arguments) {
-                        Ok((message, mut payload)) => {
-                            if let serde_json::Value::Object(ref mut map) = payload {
-                                map.insert("deviceId".to_string(), json!(p.device_id));
-                            }
-                            match self.ws.request(&message, payload).await {
-                                Ok(v) => (true, v, String::new()),
-                                Err(e) => (false, json!(null), e),
-                            }
-                        }
-                        Err(e) => (false, json!(null), e),
-                    }
-                }
-                StepExecutor::SkillHost => {
-                    let req = json!({
-                        "deviceId": p.device_id,
-                        "tool": step.tool_name,
-                        "args": step.arguments,
-                    });
-                    match self.ws.request("skillExec", req).await {
-                        Ok(v) => (true, v, String::new()),
-                        Err(e) => (false, json!(null), e),
-                    }
-                }
-            };
-
-            step_results.push(StepRunResult {
-                seq: step.seq,
-                tool_name: step.tool_name,
-                executor: step.executor,
-                success,
-                result,
-                error,
-                duration_ms: step_started.elapsed().as_millis() as u64,
-            });
-
-            if !success && should_stop_after_replay_failure(stop_on_failure, false) {
-                break;
-            }
+        match self
+            .execute_workflow_replay(
+                &p.workflow_id,
+                &p.device_id,
+                overrides,
+                stop_on_failure,
+            )
+            .await
+        {
+            Ok(report) => serde_json::to_string_pretty(&report).unwrap_or_default(),
+            Err(error) => json!({"error": error}).to_string(),
         }
-
-        let completed_at = Utc::now().to_rfc3339();
-        let stopped_early = step_results.len() < total as usize;
-        let report = WorkflowRunReport::from_step_results(
-            &p.workflow_id,
-            &p.device_id,
-            &started_at,
-            &completed_at,
-            total,
-            step_results,
-            stopped_early,
-        );
-
-        if let Err(error) = self.state.workflow.save_run_report(&report) {
-            return json!({
-                "error": format!("failed to persist workflow run: {error}"),
-                "report": report,
-            })
-            .to_string();
-        }
-
-        serde_json::to_string_pretty(&report).unwrap_or_default()
     }
 
     #[tool(description = "List persisted workflow run reports, newest first. Optionally filter by workflow_id \
