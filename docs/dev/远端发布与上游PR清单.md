@@ -19,6 +19,9 @@
   `feat/signaling-control-plane` = `8998466`）
 - 上游 QD-204 客户端候选：`codex/upstream-qd-204-client` = `b259d03`（同一 PR #25
   基线，只含 Web/Qt，不含服务端/API 提交）
+- 上游 QD-607 服务端候选：`codex/upstream-qd-607-batch-revoke` = `badf990`（基于 PR
+  #25 的 `feat/signaling-control-plane` = `8998466`，只含批量远控清场服务端、handler、
+  测试和用户 API 文档）
 - 上游最小候选：`codex/upstream-access-bans` = `b89c24c`
 - 上游基线：`barry-ran/QuickDesk` 的 `dev` / `master` = `f6651f0`
 - fork PR #1：<https://github.com/ilh-github/go-remote-next/pull/1>
@@ -82,6 +85,12 @@
 - QD-204 已通过全新 PostgreSQL 从零迁移、全量 Go 测试、四套 SDK freshness/编译、
   真实服务 `388` 条 contract smoke、WebClient 34/34 + 生产构建，以及 Qt 完整构建、
   11/11 CTest、新弹窗 lint、双语 764/764 和离屏启动。
+- QD-607 新增 `revoke_all_remote_sessions`：执行时按 owner 当前拥有的设备关闭活动远控
+  会话，复用按设备的跨实例撤销路径，一次最多 200 台；不注销账号登录会话。空测试库全量
+  Go 测试、`go vet`、`go build`、服务启动和 fork 三端测试均通过。
+- QD-607 上游候选只含服务端、handler、测试和用户 API 文档 7 个文件；在 PR #25 基线上
+  重新执行全量 Go 测试、`go vet`、`go build`、空库 `001_init.sql` 迁移和服务启动均通过。
+  候选基线还没有 Web/Qt 计划任务页，所以客户端 kind 文案留在 fork，不强行塞进服务端 PR。
 
 ## 1. 推送前检查
 
@@ -115,6 +124,7 @@ git log --oneline --left-right origin/feat/signaling-control-plane...codex/upstr
 - `dev` 必须包含 `b013a62`；
 - `codex/upstream-qd-204-api` 必须指向 `d2321b9`；
 - `codex/upstream-qd-204-client` 必须指向 `b259d03`；
+- `codex/upstream-qd-607-batch-revoke` 必须指向 `badf990`；
 - `codex/product-backlog` 必须包含 `dea02f9`；
 - `codex/upstream-access-bans` 必须包含 `b89c24c`；
 - `codex/upstream-qd-114-spki` 必须包含 `13559e6`；
@@ -129,6 +139,7 @@ git log --oneline --left-right origin/feat/signaling-control-plane...codex/upstr
 git push origin \
   dev \
   codex/product-backlog \
+  codex/upstream-qd-607-batch-revoke \
   codex/upstream-qd-114-spki \
   codex/upstream-qd-212-local-device \
   codex/upstream-qd-213-access-code-refresh \
@@ -256,6 +267,11 @@ PR 描述至少写明：
   `Host error:type=2`；候选分支 `codex/upstream-qd-214-file-transfer-errors` = `94d3ec3`，
   基于 `upstream/dev`，4 个文件。WebClient 测试 4/4 和生产构建通过；这是诊断改进，
   不是宿主上传根因修复。远端推送仍被策略拒绝。
+- `feat(scheduled): add batch remote-session revoke`：QD-607 的控制面批量清场；候选分支
+  `codex/upstream-qd-607-batch-revoke` = `badf990`，基于
+  `feat/signaling-control-plane@8998466`，7 个服务端/测试/API 文档文件。候选独立执行
+  全量 Go 测试、`go vet`、`go build`、空库迁移和服务启动通过；web/dist 是新 worktree
+  的构建前置，不属于提交内容。远端推送仍被策略拒绝。
 - 控制面管理页：等 PR #25 合并后按页面拆成独立 PR，不再使用“所有 fork 页面都留在 fork”
   的旧口径。Qt 访问审批页 `7c23f13`、会话实时消费 `ea5a65f`、计划任务页 `42b6c61`、
   通知规则页 `dbd828f` 和录像回放页 `74c7022` 作为 Qt 管理面候选，不携带 fork
