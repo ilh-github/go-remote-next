@@ -7,12 +7,13 @@
 
 ## 当前本地基线
 
-- fork 主干：`dev` 已包含 `9a2608b`（QD-213 访问码回源）
+- fork 主干：`dev` 已包含 `cea23ce`（QD-214 文件上传错误诊断）
 - 功能分支：`codex/product-backlog` = `dea02f9`
 - 上游 QD-003 候选：`codex/upstream-cross-tab-coordination` = `6047615`（基于 `upstream/dev`）
 - 上游 QD-114 候选：`codex/upstream-qd-114-spki` = `13559e6`（基于 `upstream/dev`）
 - 上游 QD-212 候选：`codex/upstream-qd-212-local-device` = `f1ce096`（基于 `upstream/dev`）
 - 上游 QD-213 候选：`codex/upstream-qd-213-access-code-refresh` = `6928d24`（基于 `upstream/dev`）
+- 上游 QD-214 候选：`codex/upstream-qd-214-file-transfer-errors` = `94d3ec3`（基于 `upstream/dev`）
 - 上游最小候选：`codex/upstream-access-bans` = `b89c24c`
 - 上游基线：`barry-ran/QuickDesk` 的 `dev` / `master` = `f6651f0`
 - fork PR #1：<https://github.com/ilh-github/go-remote-next/pull/1>
@@ -48,6 +49,8 @@
   QD-212 上游候选已在干净基线上构建并通过 QML 测试。
 - Qt 点击设备时如果云快照没有访问码，会按单设备 GET 回源，成功后自动继续连接；
   并发点击合并成一次请求，QD-213 上游候选已在干净基线上构建并通过集成测试。
+- WebClient 会把宿主 `type=2` 文件传输错误解释为保存失败，并提示权限、目标目录和磁盘空间；
+  上传取消发送协议取消值 1。QD-214 候选改善诊断，但宿主侧失败根因仍需日志确认。
 
 ## 1. 推送前检查
 
@@ -69,11 +72,13 @@ git log --oneline --left-right origin/feat/signaling-control-plane...codex/upstr
 - `dev` 必须包含 `cae77ff`；
 - `dev` 必须包含 `4e8ea5a`；
 - `dev` 必须包含 `9a2608b`；
+- `dev` 必须包含 `cea23ce`；
 - `codex/product-backlog` 必须包含 `dea02f9`；
 - `codex/upstream-access-bans` 必须包含 `b89c24c`；
 - `codex/upstream-qd-114-spki` 必须包含 `13559e6`；
 - `codex/upstream-qd-212-local-device` 必须包含 `f1ce096`；
 - `codex/upstream-qd-213-access-code-refresh` 必须包含 `6928d24`；
+- `codex/upstream-qd-214-file-transfer-errors` 必须包含 `94d3ec3`；
 - 如果远端出现新提交，先合并或 rebase，再重跑受影响测试，不能强推覆盖他人工作。
 
 ## 2. 推送 fork 分支
@@ -85,6 +90,7 @@ git push origin \
   codex/upstream-qd-114-spki \
   codex/upstream-qd-212-local-device \
   codex/upstream-qd-213-access-code-refresh \
+  codex/upstream-qd-214-file-transfer-errors \
   codex/source-unban \
   codex/upstream-access-bans
 ```
@@ -179,6 +185,10 @@ PR 描述至少写明：
   “访问码不可用”；候选分支 `codex/upstream-qd-213-access-code-refresh` = `6928d24`，
   基于 `upstream/dev`，9 个文件。已验证单设备回源、并发合并、失败路径和自动续连；
   远端推送仍被策略拒绝。
+- `fix(webclient): explain host file transfer failures`：对应上游 issue #19 的
+  `Host error:type=2`；候选分支 `codex/upstream-qd-214-file-transfer-errors` = `94d3ec3`，
+  基于 `upstream/dev`，4 个文件。WebClient 测试 4/4 和生产构建通过；这是诊断改进，
+  不是宿主上传根因修复。远端推送仍被策略拒绝。
 - 控制面管理页：等 PR #25 合并后按页面拆成独立 PR，不再使用“所有 fork 页面都留在 fork”
   的旧口径。
 - 上游 issue #18 连接历史：上游 `dev` 已存在 `ConnectionHistory` 和历史列表 UI，

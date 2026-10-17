@@ -76,8 +76,13 @@
   为空时按单设备回源并自动继续连接；并发点击同一设备只发一次请求，失败显示真实错误。
 - QD-213 上游候选：`codex/upstream-qd-213-access-code-refresh` = `6928d24`，基于
   `upstream/dev`；干净基线完整构建、设备管理集成测试 1/1、QML lint 均通过。
+- QD-214 功能提交：`cea23ce`。WebClient 不再只显示 `Host error type=2`，会解释为宿主
+  保存失败并提示权限/目标目录/磁盘空间；上传取消统一使用协议取消值 1。
+- QD-214 上游候选：`codex/upstream-qd-214-file-transfer-errors` = `94d3ec3`，基于
+  `upstream/dev`；WebClient 测试 4/4、生产构建通过。该候选改善诊断，不代表上传根因已修。
 - QuickDesk 当前 5/5 CTest 通过（SPKI、更新解析、更新 HTTP 集成、设备显示 QML、
   访问码回源集成）；双语 `.ts` 各 422 条完成、0 unfinished。
+- WebClient 当前 29/29 测试通过；生产构建 JS 348.48 kB、gzip 112.80 kB。
 - `git diff --check`：通过。
 - 远端推送仍被当前执行策略拒绝，本地 `dev` 尚未同步到 GitHub。
 
@@ -118,7 +123,7 @@
 | QD-211 | 撤销冷却期 | `[x]` | 支持窗口和递增冷却 |
 | QD-212 | 设备列表标识本机 | `[x]` | 上游 issue #19；Qt 我的设备/收藏已标记“本机”，候选 `f1ce096` 已独立验证 |
 | QD-213 | 访问码不可用回归 | `[x]` | 上游 issue #19；Qt 缺失/过期访问码会按单设备回源并自动继续连接，候选 `6928d24` 已独立验证 |
-| QD-214 | 文件上传 Host error type=2 | `[ ]` | 上游 issue #19；需要定位 Remoting 文件传输错误码和宿主机端失败路径 |
+| QD-214 | 文件上传 Host error type=2 | `[~]` | 上游 issue #19；错误码已解释为宿主保存失败并给出排查方向，上传取消码已修正；真实 Windows 宿主日志和失败路径仍未定位 |
 | QD-215 | Windows 启动 Qt platform plugin 错误 | `[ ]` | 上游 issue #7；属安装包/运行时打包问题 |
 | QD-216 | 主机连接与设备 ID/访问码加载失败 | `[~]` | 上游 issue #9；作为支持 triage 跟踪，不直接等同产品需求 |
 
@@ -305,7 +310,7 @@
 | #21 维护计划与参与维护意向 | 维护策略 | QD-001、QD-609 | 上游优先 MCP、从 dev 贡献、Remoting 由维护者改 | 所有新功能按 dev 最小分支准备；涉及 Remoting 先提需求 |
 | #20 自托管 HTTPS/WSS 失败 | Bug / 自托管 | QD-114 | 证书验证器在 Remoting 内未绑定；Qt-only SPKI 已支持子进程和服务安装参数 | 推送候选并补 Windows/Qt 回归；长期向 Remoting 提 CertVerifier 修复 |
 | #18 连接历史列表 | Feature | QD-206 | 上游 `dev` 已有 `ConnectionHistory`、历史列表、删除和重连；issue 仍开放 | 先做完整功能核对，确认无缺口后向下游说明可关闭，不再重复实现 |
-| #19 设备列表相关问题 | Bug cluster | QD-212、QD-213、QD-214 | 本机标识由 `f1ce096` 完成，访问码回源由 `6928d24` 完成；上传错误码仍是独立问题 | 分别推送 QD-212/QD-213 PR；单独复现 QD-214，不混成一个“设备列表”大修 |
+| #19 设备列表相关问题 | Bug cluster | QD-212、QD-213、QD-214 | 本机标识和访问码回源已完成；上传错误诊断已改善，但根因仍需宿主日志 | 推送三个独立候选；QD-214 在复现后继续补真实修复，不混成一个“设备列表”大修 |
 | #17 自动审批被忽略 | Bug | QD-113 | 已由 PR #22 覆盖 | 跟踪 PR #22，不重复实现 |
 | #13 Linux 支持 | Roadmap | QD-318 | 上游 Roadmap 已列出，本 fork 暂缓 | 保持跨平台接口，不在当前迭代投入 Linux 被控端 |
 | #10 信令服务器设备密钥信任 | Security | QD-115 | 服务端是否可冒充设备需要明确威胁模型 | 与上游安全维护者讨论；先写安全边界，不改协议 |
@@ -339,9 +344,10 @@
 | 2 | `fix(self-host): allow pinned SPKI for self-hosted WSS` | QD-114 / issue #20 | 候选已准备；需推送、创建 PR，并补 Qt 构建和 Windows service 实机验证 |
 | 3 | `feat(qt): mark the local device in device lists` | QD-212 / issue #19 | 候选已准备并通过上游基线构建；等远端写入后直接创建 PR |
 | 4 | `fix(qt): refresh missing access codes before connecting` | QD-213 / issue #19 | 候选已准备并通过上游基线构建；等远端写入后直接创建 PR |
-| 5 | `feat(webclient): control-plane management pages` | QD-108/605/607/703 | 依赖 PR #25 合并；按页面拆成多个 PR |
-| 6 | `feat(qt): remote session and management pages` | QD-706/708 | 依赖 PR #25 合并；先做实时事件消费，再拆页面 |
-| 7 | `feat(qt): consume self-hosted update channel` | QD-005 / QD-808 | 依赖 PR #25 合并；保留检查、下载、摘要校验、凭据隔离和测试，不携带 fork 私有文档 |
+| 5 | `fix(webclient): explain host file transfer failures` | QD-214 / issue #19 | 诊断改进候选已准备；根因 PR 需等真实宿主日志 |
+| 6 | `feat(webclient): control-plane management pages` | QD-108/605/607/703 | 依赖 PR #25 合并；按页面拆成多个 PR |
+| 7 | `feat(qt): remote session and management pages` | QD-706/708 | 依赖 PR #25 合并；先做实时事件消费，再拆页面 |
+| 8 | `feat(qt): consume self-hosted update channel` | QD-005 / QD-808 | 依赖 PR #25 合并；保留检查、下载、摘要校验、凭据隔离和测试，不携带 fork 私有文档 |
 
 QD-003 的上游候选已经单独准备：
 
@@ -383,6 +389,16 @@ QD-213 的上游候选已经单独准备：
   `QuickDesk_qmllint` 退出 0、`git diff --check upstream/dev...HEAD` 通过
 - 未完成：远端推送仍被策略拒绝，尚未创建 upstream PR
 
+QD-214 的上游候选已经单独准备：
+
+- 分支：`codex/upstream-qd-214-file-transfer-errors`
+- 基线：`upstream/dev` = `f6651f0`
+- 本地提交：`94d3ec3`
+- 范围：宿主错误码解释、type=2 排查提示、上传取消协议值、Node 测试入口
+- 验证：WebClient `npm test` 4/4、`npm run build`、`git diff --check` 通过
+- 未完成：真实 Windows 宿主日志、失败目录/磁盘/权限复现和根因修复；
+  远端推送仍被策略拒绝，尚未创建 upstream PR
+
 ### 17.3 需要上游 Remoting 处理的 PR
 
 以下能力不在本 fork 强行修改预编译 Remoting，先准备需求、协议草案、验证用例，再交给维护者：
@@ -408,6 +424,7 @@ QD-213 的上游候选已经单独准备：
 - 把 QD-003、连接历史、TLS 临时修复先做成上游可审查的小 PR；
 - 把 QD-212 本机标识作为 issue #19 的第一个独立增量，先合这个再做访问码/上传问题；
 - 把 QD-213 访问码回源自愈作为 issue #19 的第二个独立增量；
+- 把 QD-214 错误诊断作为独立增量合并，同时收集宿主日志继续追真实上传失败；
 - 把 QD-005 的 Qt 更新消费作为 PR #25 的后续增量，先保证跨平台安装行为和签名链；
 - 把 Web 文件管理器、Host 自动录制、图片剪贴板整理成 Remoting 需求，由维护者评估；
 - 把 PR #25 的控制面能力先等上游审查，避免重复提交；
