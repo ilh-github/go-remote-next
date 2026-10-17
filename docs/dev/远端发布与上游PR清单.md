@@ -7,11 +7,13 @@
 
 ## 当前本地基线
 
-- fork 主干：`dev` 已包含 `f5d3283`（访问审批页）
-- 来源解封功能分支：`codex/source-unban` = `6230d16`
+- fork 主干：`dev` 已包含 `2deb8c8`（QD-003 多标签控制/音频抢占与功能总清单）
+- 功能分支：`codex/product-backlog` = `dea02f9`
 - 上游最小候选：`codex/upstream-access-bans` = `b89c24c`
+- 上游基线：`barry-ran/QuickDesk` 的 `dev` / `master` = `f6651f0`
 - fork PR #1：<https://github.com/ilh-github/go-remote-next/pull/1>
 - upstream PR #25：<https://github.com/barry-ran/QuickDesk/pull/25>
+- 上游映射与 PR 拆分规则：`docs/dev/QuickDesk功能总清单.md` 第 16、17 节
 
 本地已经完成：
 
@@ -29,6 +31,8 @@
   重试预算、执行状态、最后错误和失败实时刷新。
 - WebClient 新增 `/access-approvals` 访问审批页，覆盖按设备审批、五状态汇总、
   重复拒绝来源、批准/拒绝原因和实时刷新。
+- WebClient 新增同源多标签控制/音频抢占，BroadcastChannel 不可用时降级到
+  localStorage；已完成真实 Chrome 双标签验证。
 
 ## 1. 推送前检查
 
@@ -45,6 +49,8 @@ git log --oneline --left-right origin/feat/signaling-control-plane...codex/upstr
 
 - 除机器本地的 `.idea/` 外，工作树必须干净；
 - `dev` 必须包含 `f5d3283`；
+- `dev` 必须包含 `2deb8c8`；
+- `codex/product-backlog` 必须包含 `dea02f9`；
 - `codex/upstream-access-bans` 必须包含 `b89c24c`；
 - 如果远端出现新提交，先合并或 rebase，再重跑受影响测试，不能强推覆盖他人工作。
 
@@ -53,6 +59,7 @@ git log --oneline --left-right origin/feat/signaling-control-plane...codex/upstr
 ```bash
 git push origin \
   dev \
+  codex/product-backlog \
   codex/source-unban \
   codex/upstream-access-bans
 ```
@@ -85,19 +92,28 @@ fork 主干，那么推送 `dev` 已经完成目标，不要为了更新 PR 把�
 如果该 PR 仍承担“控制面总集”的职责，应先把其 head 分支更新到当前目标基线，再重新运行
 PR 检查并更新说明；否则保留它作为原始控制面审查记录，新功能以 `dev` 和独立 PR 交付。
 
-## 4. 上游 PR #25 与来源解封候选
+## 4. 上游 PR 同步与候选
 
-先确认 PR #25 仍开放且基线未变化：
+先确认上游 open PR 仍开放且基线未变化：
 
 ```bash
+gh pr view 22 --repo barry-ran/QuickDesk \
+  --json number,title,state,baseRefName,headRefName,url,mergeable,commits
+gh pr view 23 --repo barry-ran/QuickDesk \
+  --json number,title,state,baseRefName,headRefName,url,mergeable,commits
+gh pr view 24 --repo barry-ran/QuickDesk \
+  --json number,title,state,baseRefName,headRefName,url,mergeable,commits
 gh pr view 25 \
   --repo barry-ran/QuickDesk \
   --json number,title,state,baseRefName,headRefName,url,mergeable,commits
 ```
 
-推荐先让 PR #25 合并或由维护者确认堆叠基线，再为来源解封开独立 PR。若 GitHub 不允许
-跨仓库把 PR 直接堆叠到 fork 的 `feat/signaling-control-plane` 分支，可以临时以下面的方式
-提交到上游 `dev`，并在 PR 描述中明确“depends on #25”：
+不要重复提交 #22、#23、#24、#25 已有内容。上游合并后先把 `upstream/dev` 合回 fork，
+再处理下面的增量候选。
+
+推荐先让 PR #25 合并或由维护者确认堆叠基线，再为来源解封和 Web/Qt 业务页面开独立 PR。
+若 GitHub 不允许跨仓库把 PR 直接堆叠到 fork 的 `feat/signaling-control-plane` 分支，
+可以临时以下面的方式提交到上游 `dev`，并在 PR 描述中明确“depends on #25”：
 
 ```bash
 gh pr create \
@@ -120,6 +136,17 @@ PR 描述至少写明：
 如果维护者要求把改动并入 #25，而不是新建重复提交的 PR，则把 `7021ad1` 追加到
 `feat/signaling-control-plane` 后更新 #25，并在评论中说明新增 scope。
 
+### 上游可直接审查的增量
+
+- `feat(webclient): coordinate cross-tab control and audio`：QD-003，纯 WebClient，
+  无 Remoting 改动；需要补上游截图和浏览器验证说明。
+- `feat(webclient): local connection history`：对应上游 issue #18；纯本地存储，
+  不保存访问码。
+- `fix(self-host): pinned SPKI for self-hosted WSS`：对应上游 issue #20；先确认维护者
+  接受 Qt-only 临时方案，Windows service 启动路径也要覆盖。
+- 控制面管理页：等 PR #25 合并后按页面拆成独立 PR，不再使用“所有 fork 页面都留在 fork”
+  的旧口径。
+
 ## 5. 上游暂不合并时
 
 不阻塞 fork 主线：
@@ -127,4 +154,5 @@ PR 描述至少写明：
 - 所有功能继续进入 `go-remote-next/dev`；
 - fork PR 保持可独立发布；
 - 上游候选分支保留 rebase 能力，定期对 `barry-ran/QuickDesk:dev` 重新应用；
-- 不把 fork 专属的 WebClient、Qt 和管理后台页面混进上游控制面补丁。
+- 通用 WebClient、Qt 和管理后台页面在控制面 #25 合并后按页面单独上游；
+- 只有品牌、部署配置、本 fork 专属业务和旧 Go 迁移文档留在 fork。
