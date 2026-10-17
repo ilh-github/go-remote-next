@@ -73,7 +73,10 @@ pub struct MemoryStore {
 
 impl MemoryStore {
     pub fn new() -> Result<Self, String> {
-        let db_path = Self::db_path();
+        Self::from_db_path(Self::db_path())
+    }
+
+    fn from_db_path(db_path: PathBuf) -> Result<Self, String> {
         if let Some(parent) = db_path.parent() {
             std::fs::create_dir_all(parent)
                 .map_err(|e| format!("cannot create memory dir: {e}"))?;
@@ -91,6 +94,11 @@ impl MemoryStore {
         Ok(Self {
             db: Arc::new(Mutex::new(conn)),
         })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_db_path(db_path: PathBuf) -> Result<Self, String> {
+        Self::from_db_path(db_path)
     }
 
     fn db_path() -> PathBuf {

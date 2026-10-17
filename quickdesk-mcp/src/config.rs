@@ -75,6 +75,10 @@ pub struct AppConfig {
     /// Enable stateless HTTP mode (no session tracking). Default is stateful.
     #[arg(long, default_value = "false")]
     pub stateless: bool,
+
+    /// Bearer token for the local business-workflow HTTP trigger. Empty disables the trigger API.
+    #[arg(long, env = "QUICKDESK_TRIGGER_TOKEN")]
+    pub trigger_token: Option<String>,
 }
 
 impl AppConfig {

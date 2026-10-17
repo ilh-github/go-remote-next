@@ -21,14 +21,17 @@ pub async fn start_http(
     let ct = CancellationToken::new();
     let allowed_devices = config.allowed_devices.clone().unwrap_or_default();
     let session_manager = Arc::new(LocalSessionManager::default());
+    let mcp_ws = ws.clone();
+    let mcp_shared_state = shared_state.clone();
+    let mcp_allowed_devices = allowed_devices.clone();
 
     let mcp_service: StreamableHttpService<QuickDeskMcpServer, LocalSessionManager> =
         StreamableHttpService::new(
             move || {
                 Ok(QuickDeskMcpServer::new(
-                    ws.clone(),
-                    allowed_devices.clone(),
-                    shared_state.clone(),
+                    mcp_ws.clone(),
+                    mcp_allowed_devices.clone(),
+                    mcp_shared_state.clone(),
                 ))
             },
             session_manager,
@@ -39,12 +42,19 @@ pub async fn start_http(
             },
         );
 
+    let business_router = crate::trigger::router(
+        config.trigger_token.clone(),
+        ws.clone(),
+        shared_state.clone(),
+        allowed_devices.clone(),
+    );
     let app = Router::new()
         .route(
             "/health",
             axum::routing::get(|| async { "ok" }),
         )
-        .nest_service("/mcp", mcp_service);
+        .nest_service("/mcp", mcp_service)
+        .merge(business_router);
 
     // Apply CORS layer when cors_origin is configured
     let app = if let Some(origins) = &config.cors_origin {
@@ -81,6 +91,16 @@ pub async fn start_http(
         "  Session mode: {}",
         if config.stateless { "stateless" } else { "stateful" }
     );
+    if config
+        .trigger_token
+        .as_deref()
+        .is_some_and(|token| !token.is_empty())
+    {
+        tracing::info!(
+            "  Business workflow trigger: POST http://{}/v1/workflows/{{workflow_id}}/run",
+            local_addr
+        );
+    }
 
     axum::serve(listener, app)
         .with_graceful_shutdown(async move {
