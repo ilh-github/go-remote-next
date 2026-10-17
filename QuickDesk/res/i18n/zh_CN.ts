@@ -465,6 +465,135 @@
         <source>Save</source>
         <translation>保存</translation>
     </message>
+    <message>
+        <location filename="../../qml/pages/DeviceListPage.qml" line="45"/>
+        <source>All devices</source>
+        <translation>全部设备</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/DeviceListPage.qml" line="54"/>
+        <source>Untitled group</source>
+        <translation>未命名分组</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/DeviceListPage.qml" line="186"/>
+        <source>Device groups</source>
+        <translation>设备分组</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/DeviceListPage.qml" line="210"/>
+        <source>Manage groups</source>
+        <translation>管理分组</translation>
+    </message>
+</context>
+<context>
+    <name>DeviceGroupManagerDialog</name>
+    <message>
+        <location filename="../../qml/quickdeskcomponent/DeviceGroupManagerDialog.qml" line="39"/>
+        <source>Device</source>
+        <translation>设备</translation>
+    </message>
+    <message>
+        <location filename="../../qml/quickdeskcomponent/DeviceGroupManagerDialog.qml" line="106"/>
+        <source>Device group saved</source>
+        <translation>设备分组已保存</translation>
+    </message>
+    <message>
+        <location filename="../../qml/quickdeskcomponent/DeviceGroupManagerDialog.qml" line="114"/>
+        <source>Group name is required</source>
+        <translation>请输入分组名称</translation>
+    </message>
+    <message>
+        <location filename="../../qml/quickdeskcomponent/DeviceGroupManagerDialog.qml" line="193"/>
+        <source>Manage device groups</source>
+        <translation>管理设备分组</translation>
+    </message>
+    <message>
+        <location filename="../../qml/quickdeskcomponent/DeviceGroupManagerDialog.qml" line="213"/>
+        <source>Close</source>
+        <translation>关闭</translation>
+    </message>
+    <message>
+        <location filename="../../qml/quickdeskcomponent/DeviceGroupManagerDialog.qml" line="240"/>
+        <source>New group</source>
+        <translation>新分组</translation>
+    </message>
+    <message>
+        <location filename="../../qml/quickdeskcomponent/DeviceGroupManagerDialog.qml" line="281"/>
+        <source>Untitled group</source>
+        <translation>未命名分组</translation>
+    </message>
+    <message>
+        <location filename="../../qml/quickdeskcomponent/DeviceGroupManagerDialog.qml" line="324"/>
+        <source>Group name</source>
+        <translation>分组名称</translation>
+    </message>
+    <message>
+        <location filename="../../qml/quickdeskcomponent/DeviceGroupManagerDialog.qml" line="332"/>
+        <source>Description</source>
+        <translation>描述</translation>
+    </message>
+    <message>
+        <location filename="../../qml/quickdeskcomponent/DeviceGroupManagerDialog.qml" line="342"/>
+        <source>Color</source>
+        <translation>颜色</translation>
+    </message>
+    <message>
+        <location filename="../../qml/quickdeskcomponent/DeviceGroupManagerDialog.qml" line="374"/>
+        <source>Color value</source>
+        <translation>颜色值</translation>
+    </message>
+    <message>
+        <location filename="../../qml/quickdeskcomponent/DeviceGroupManagerDialog.qml" line="385"/>
+        <source>Devices in this group</source>
+        <translation>分组内设备</translation>
+    </message>
+    <message>
+        <location filename="../../qml/quickdeskcomponent/DeviceGroupManagerDialog.qml" line="392"/>
+        <source>%1 selected</source>
+        <translation>已选择 %1 台</translation>
+    </message>
+    <message>
+        <location filename="../../qml/quickdeskcomponent/DeviceGroupManagerDialog.qml" line="432"/>
+        <source>No bound devices</source>
+        <translation>暂无绑定设备</translation>
+    </message>
+    <message>
+        <location filename="../../qml/quickdeskcomponent/DeviceGroupManagerDialog.qml" line="460"/>
+        <source>Delete group</source>
+        <translation>删除分组</translation>
+    </message>
+    <message>
+        <location filename="../../qml/quickdeskcomponent/DeviceGroupManagerDialog.qml" line="471"/>
+        <location filename="../../qml/quickdeskcomponent/DeviceGroupManagerDialog.qml" line="518"/>
+        <source>Cancel</source>
+        <translation>取消</translation>
+    </message>
+    <message>
+        <location filename="../../qml/quickdeskcomponent/DeviceGroupManagerDialog.qml" line="477"/>
+        <source>Save changes</source>
+        <translation>保存修改</translation>
+    </message>
+    <message>
+        <location filename="../../qml/quickdeskcomponent/DeviceGroupManagerDialog.qml" line="478"/>
+        <source>Create group</source>
+        <translation>创建分组</translation>
+    </message>
+    <message>
+        <location filename="../../qml/quickdeskcomponent/DeviceGroupManagerDialog.qml" line="507"/>
+        <source>Delete this device group? Devices are not unbound.</source>
+        <translation>删除此设备分组？设备本身不会被解绑。</translation>
+    </message>
+    <message>
+        <location filename="../../qml/quickdeskcomponent/DeviceGroupManagerDialog.qml" line="523"/>
+        <source>Delete</source>
+        <translation>删除</translation>
+    </message>
+    <message>
+        <location filename="../../qml/quickdeskcomponent/DeviceGroupManagerDialog.qml" line="567"/>
+        <source>Device group deleted</source>
+        <translation>设备分组已删除</translation>
+    </message>
 </context>
 <context>
     <name>FloatingToolButton</name>
@@ -3871,6 +4000,24 @@ Access Code: %2</source>
         <location filename="../../src/manager/ScheduledTaskManager.cpp" line="292"/>
         <source>Request failed (HTTP %1)</source>
         <translation>请求失败（HTTP %1）</translation>
+    </message>
+</context>
+<context>
+    <name>quickdesk::DeviceGroupManager</name>
+    <message>
+        <location filename="../../src/manager/DeviceGroupManager.cpp" line="77"/>
+        <source>Invalid device group response</source>
+        <translation>设备分组响应无效</translation>
+    </message>
+    <message>
+        <location filename="../../src/manager/DeviceGroupManager.cpp" line="402"/>
+        <source>Request failed (HTTP %1)</source>
+        <translation>请求失败（HTTP %1）</translation>
+    </message>
+    <message>
+        <location filename="../../src/manager/DeviceGroupManager.cpp" line="403"/>
+        <source>Request failed</source>
+        <translation>请求失败</translation>
     </message>
 </context>
 <context>

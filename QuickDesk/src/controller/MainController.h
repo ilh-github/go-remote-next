@@ -24,6 +24,7 @@
 #include "../manager/SkillHostManager.h"
 #include "../manager/AuthManager.h"
 #include "../manager/CloudDeviceManager.h"
+#include "../manager/DeviceGroupManager.h"
 #include "../manager/RemoteSessionManager.h"
 #include "../manager/AccessApprovalManager.h"
 #include "../manager/ScheduledTaskManager.h"
@@ -54,6 +55,7 @@ class MainController : public QObject {
     Q_PROPERTY(PresetManager* presetManager READ presetManager CONSTANT)
     Q_PROPERTY(AuthManager* authManager READ authManager CONSTANT)
     Q_PROPERTY(CloudDeviceManager* cloudDeviceManager READ cloudDeviceManager CONSTANT)
+    Q_PROPERTY(DeviceGroupManager* deviceGroupManager READ deviceGroupManager CONSTANT)
     Q_PROPERTY(UpdateManager* updateManager READ updateManager CONSTANT)
     Q_PROPERTY(RemoteSessionManager* remoteSessionManager READ remoteSessionManager CONSTANT)
     Q_PROPERTY(AccessApprovalManager* accessApprovalManager READ accessApprovalManager CONSTANT)
@@ -159,6 +161,7 @@ public:
     PresetManager* presetManager() const;
     AuthManager* authManager() const;
     CloudDeviceManager* cloudDeviceManager() const;
+    DeviceGroupManager* deviceGroupManager() const;
     UpdateManager* updateManager() const;
     RemoteSessionManager* remoteSessionManager() const;
     AccessApprovalManager* accessApprovalManager() const;
@@ -290,6 +293,7 @@ private:
     std::unique_ptr<PresetManager> m_presetManager;
     std::unique_ptr<AuthManager> m_authManager;
     std::unique_ptr<CloudDeviceManager> m_cloudDeviceManager;
+    std::unique_ptr<DeviceGroupManager> m_deviceGroupManager;
     std::unique_ptr<UpdateManager> m_updateManager;
     std::unique_ptr<RemoteSessionManager> m_remoteSessionManager;
     std::unique_ptr<AccessApprovalManager> m_accessApprovalManager;

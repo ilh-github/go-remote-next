@@ -18,7 +18,60 @@ Item {
 
     property var myDevices: mainController && mainController.cloudDeviceManager
                             ? mainController.cloudDeviceManager.myDevices : []
+    property var groupManager: mainController && mainController.deviceGroupManager
+                               ? mainController.deviceGroupManager : null
+    property int selectedGroupId: 0
     property string pendingConnectDeviceId: ""
+
+    property var filteredDevices: {
+        if (root.selectedGroupId <= 0 || !root.groupManager)
+            return root.myDevices
+        var groups = root.groupManager.groups || []
+        for (var i = 0; i < groups.length; ++i) {
+            if (Number(groups[i].id) !== root.selectedGroupId) continue
+            var members = groups[i].device_ids || []
+            return root.myDevices.filter(function(device) {
+                return members.indexOf(device.device_id || "") >= 0
+            })
+        }
+        return []
+    }
+
+    function rebuildGroupFilter() {
+        var previousGroupId = root.selectedGroupId
+        groupFilterModel.clear()
+        groupFilterModel.append({
+            groupId: 0,
+            text: qsTr("All devices") + " (" + root.myDevices.length + ")"
+        })
+        var groups = root.groupManager ? root.groupManager.groups || [] : []
+        var previousIndex = 0
+        for (var i = 0; i < groups.length; ++i) {
+            var group = groups[i]
+            var groupId = Number(group.id || 0)
+            groupFilterModel.append({
+                groupId: groupId,
+                text: (group.name || qsTr("Untitled group"))
+                      + " (" + Number(group.device_count || 0) + ")"
+            })
+            if (groupId === previousGroupId)
+                previousIndex = groupFilterModel.count - 1
+        }
+        var exists = previousGroupId === 0
+        for (var j = 0; j < groups.length; ++j) {
+            if (Number(groups[j].id) === previousGroupId) {
+                exists = true
+                break
+            }
+        }
+        if (!exists) {
+            root.selectedGroupId = 0
+            previousIndex = 0
+        }
+        groupFilter.currentIndex = previousIndex
+    }
+
+    Component.onCompleted: root.rebuildGroupFilter()
 
     function requestConnection(deviceId, savedAccessCode) {
         if (!deviceId) return
@@ -51,6 +104,26 @@ Item {
             root.pendingConnectDeviceId = ""
             root.showToast(error, 2)
         }
+
+        function onMyDevicesChanged() {
+            root.rebuildGroupFilter()
+        }
+    }
+
+    Connections {
+        target: root.groupManager
+
+        function onGroupsChanged() {
+            root.rebuildGroupFilter()
+        }
+
+        function onRequestFailed(message) {
+            root.showToast(message, 2)
+        }
+    }
+
+    ListModel {
+        id: groupFilterModel
     }
 
     // Not logged in prompt
@@ -96,6 +169,50 @@ Item {
         visible: root.isLoggedIn
         spacing: Theme.spacingSmall
 
+        // ---- User-owned address-book groups ----
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.preferredHeight: Theme.buttonHeightMedium
+            spacing: Theme.spacingSmall
+
+            Text {
+                text: FluentIconGlyph.groupGlyph
+                font.family: "Segoe Fluent Icons"
+                font.pixelSize: Theme.iconSizeMedium
+                color: Theme.primary
+            }
+
+            Text {
+                text: qsTr("Device groups")
+                font.pixelSize: Theme.fontSizeMedium
+                font.weight: Font.DemiBold
+                color: Theme.text
+            }
+
+            QDComboBox {
+                id: groupFilter
+                Layout.fillWidth: true
+                textRole: "text"
+                valueRole: "groupId"
+                model: groupFilterModel
+                onActivated: function(index) {
+                    root.selectedGroupId = Number(groupFilterModel.get(index).groupId)
+                }
+            }
+
+            QDSpinner {
+                size: 20
+                running: root.groupManager ? root.groupManager.busy : false
+                visible: running
+            }
+
+            QDButton {
+                text: qsTr("Manage groups")
+                iconText: FluentIconGlyph.settingsGlyph
+                onClicked: deviceGroupsDialog.open()
+            }
+        }
+
         // ---- My Devices Section ----
         QDAccordion {
             Layout.fillWidth: true
@@ -125,8 +242,7 @@ Item {
                     boundsBehavior: Flickable.StopAtBounds
                     ScrollBar.vertical: QDScrollBar {}
 
-                    model: root.mainController && root.mainController.cloudDeviceManager
-                           ? root.mainController.cloudDeviceManager.myDevices : []
+                    model: root.filteredDevices
 
                     delegate: Rectangle {
                         required property var modelData
@@ -510,5 +626,15 @@ Item {
     LoginDialog {
         id: loginDialog
         mainController: root.mainController
+    }
+
+    DeviceGroupManagerDialog {
+        id: deviceGroupsDialog
+        groupManager: root.groupManager
+        myDevices: root.myDevices
+
+        onShowToast: function(message, toastType) {
+            root.showToast(message, toastType)
+        }
     }
 }

@@ -99,6 +99,36 @@ add_test(
     COMMAND quickdesk_cloud_device_manager_test
 )
 
+add_executable(quickdesk_device_group_manager_test
+    devicegroupmanager_integration_test.cpp
+    authmanager_stub.cpp
+    ../src/manager/AuthManager.h
+    ../src/manager/DeviceGroupManager.cpp
+    ../src/manager/DeviceGroupManager.h
+)
+
+target_include_directories(quickdesk_device_group_manager_test
+    PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src
+)
+
+target_link_libraries(quickdesk_device_group_manager_test
+    PRIVATE
+    base
+    infra
+    Qt6::Core
+    Qt6::Test
+)
+
+if(APPLE)
+    target_link_libraries(quickdesk_device_group_manager_test PRIVATE "-framework Foundation")
+endif()
+
+add_test(
+    NAME quickdesk_device_group_manager_test
+    COMMAND quickdesk_device_group_manager_test
+)
+
 add_executable(quickdesk_access_approval_manager_test
     accessapprovalmanager_integration_test.cpp
     authmanager_stub.cpp

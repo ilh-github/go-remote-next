@@ -79,6 +79,8 @@ MainController::MainController(QObject* parent)
     m_authManager->setHostManager(m_hostManager.get());
     m_cloudDeviceManager = std::make_unique<CloudDeviceManager>(
         m_serverManager.get(), m_authManager.get(), m_hostManager.get(), this);
+    m_deviceGroupManager =
+        std::make_unique<DeviceGroupManager>(m_authManager.get(), this);
     m_remoteSessionManager =
         std::make_unique<RemoteSessionManager>(m_authManager.get(), this);
     m_accessApprovalManager =
@@ -253,6 +255,7 @@ MainController::MainController(QObject* parent)
         m_cloudSyncReady = false;
         m_cloudDeviceManager->startSync();
         m_cloudDeviceManager->fetchConnectionLogs();
+        m_deviceGroupManager->refreshGroups();
         // syncAccessCode runs on deviceSecretReady (or hostReady), so it
         // does not need to be triggered here.
     });
@@ -262,6 +265,7 @@ MainController::MainController(QObject* parent)
     connect(m_authManager.get(), &AuthManager::loggedOut, this, [this]() {
         m_cloudSyncReady = false;
         m_cloudDeviceManager->stopSync();
+        m_deviceGroupManager->clear();
     });
 
     // syncConnected fires only after the WS has completed auth_ok plus
@@ -604,6 +608,11 @@ AuthManager* MainController::authManager() const
 CloudDeviceManager* MainController::cloudDeviceManager() const
 {
     return m_cloudDeviceManager.get();
+}
+
+DeviceGroupManager* MainController::deviceGroupManager() const
+{
+    return m_deviceGroupManager.get();
 }
 
 UpdateManager* MainController::updateManager() const

@@ -465,6 +465,135 @@
         <source>Save</source>
         <translation>Save</translation>
     </message>
+    <message>
+        <location filename="../../qml/pages/DeviceListPage.qml" line="45"/>
+        <source>All devices</source>
+        <translation>All devices</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/DeviceListPage.qml" line="54"/>
+        <source>Untitled group</source>
+        <translation>Untitled group</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/DeviceListPage.qml" line="186"/>
+        <source>Device groups</source>
+        <translation>Device groups</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/DeviceListPage.qml" line="210"/>
+        <source>Manage groups</source>
+        <translation>Manage groups</translation>
+    </message>
+</context>
+<context>
+    <name>DeviceGroupManagerDialog</name>
+    <message>
+        <location filename="../../qml/quickdeskcomponent/DeviceGroupManagerDialog.qml" line="39"/>
+        <source>Device</source>
+        <translation>Device</translation>
+    </message>
+    <message>
+        <location filename="../../qml/quickdeskcomponent/DeviceGroupManagerDialog.qml" line="106"/>
+        <source>Device group saved</source>
+        <translation>Device group saved</translation>
+    </message>
+    <message>
+        <location filename="../../qml/quickdeskcomponent/DeviceGroupManagerDialog.qml" line="114"/>
+        <source>Group name is required</source>
+        <translation>Group name is required</translation>
+    </message>
+    <message>
+        <location filename="../../qml/quickdeskcomponent/DeviceGroupManagerDialog.qml" line="193"/>
+        <source>Manage device groups</source>
+        <translation>Manage device groups</translation>
+    </message>
+    <message>
+        <location filename="../../qml/quickdeskcomponent/DeviceGroupManagerDialog.qml" line="213"/>
+        <source>Close</source>
+        <translation>Close</translation>
+    </message>
+    <message>
+        <location filename="../../qml/quickdeskcomponent/DeviceGroupManagerDialog.qml" line="240"/>
+        <source>New group</source>
+        <translation>New group</translation>
+    </message>
+    <message>
+        <location filename="../../qml/quickdeskcomponent/DeviceGroupManagerDialog.qml" line="281"/>
+        <source>Untitled group</source>
+        <translation>Untitled group</translation>
+    </message>
+    <message>
+        <location filename="../../qml/quickdeskcomponent/DeviceGroupManagerDialog.qml" line="324"/>
+        <source>Group name</source>
+        <translation>Group name</translation>
+    </message>
+    <message>
+        <location filename="../../qml/quickdeskcomponent/DeviceGroupManagerDialog.qml" line="332"/>
+        <source>Description</source>
+        <translation>Description</translation>
+    </message>
+    <message>
+        <location filename="../../qml/quickdeskcomponent/DeviceGroupManagerDialog.qml" line="342"/>
+        <source>Color</source>
+        <translation>Color</translation>
+    </message>
+    <message>
+        <location filename="../../qml/quickdeskcomponent/DeviceGroupManagerDialog.qml" line="374"/>
+        <source>Color value</source>
+        <translation>Color value</translation>
+    </message>
+    <message>
+        <location filename="../../qml/quickdeskcomponent/DeviceGroupManagerDialog.qml" line="385"/>
+        <source>Devices in this group</source>
+        <translation>Devices in this group</translation>
+    </message>
+    <message>
+        <location filename="../../qml/quickdeskcomponent/DeviceGroupManagerDialog.qml" line="392"/>
+        <source>%1 selected</source>
+        <translation>%1 selected</translation>
+    </message>
+    <message>
+        <location filename="../../qml/quickdeskcomponent/DeviceGroupManagerDialog.qml" line="432"/>
+        <source>No bound devices</source>
+        <translation>No bound devices</translation>
+    </message>
+    <message>
+        <location filename="../../qml/quickdeskcomponent/DeviceGroupManagerDialog.qml" line="460"/>
+        <source>Delete group</source>
+        <translation>Delete group</translation>
+    </message>
+    <message>
+        <location filename="../../qml/quickdeskcomponent/DeviceGroupManagerDialog.qml" line="471"/>
+        <location filename="../../qml/quickdeskcomponent/DeviceGroupManagerDialog.qml" line="518"/>
+        <source>Cancel</source>
+        <translation>Cancel</translation>
+    </message>
+    <message>
+        <location filename="../../qml/quickdeskcomponent/DeviceGroupManagerDialog.qml" line="477"/>
+        <source>Save changes</source>
+        <translation>Save changes</translation>
+    </message>
+    <message>
+        <location filename="../../qml/quickdeskcomponent/DeviceGroupManagerDialog.qml" line="478"/>
+        <source>Create group</source>
+        <translation>Create group</translation>
+    </message>
+    <message>
+        <location filename="../../qml/quickdeskcomponent/DeviceGroupManagerDialog.qml" line="507"/>
+        <source>Delete this device group? Devices are not unbound.</source>
+        <translation>Delete this device group? Devices are not unbound.</translation>
+    </message>
+    <message>
+        <location filename="../../qml/quickdeskcomponent/DeviceGroupManagerDialog.qml" line="523"/>
+        <source>Delete</source>
+        <translation>Delete</translation>
+    </message>
+    <message>
+        <location filename="../../qml/quickdeskcomponent/DeviceGroupManagerDialog.qml" line="567"/>
+        <source>Device group deleted</source>
+        <translation>Device group deleted</translation>
+    </message>
 </context>
 <context>
     <name>FloatingToolButton</name>
@@ -3871,6 +4000,24 @@ Access Code: %2</translation>
         <location filename="../../src/manager/ScheduledTaskManager.cpp" line="292"/>
         <source>Request failed (HTTP %1)</source>
         <translation>Request failed (HTTP %1)</translation>
+    </message>
+</context>
+<context>
+    <name>quickdesk::DeviceGroupManager</name>
+    <message>
+        <location filename="../../src/manager/DeviceGroupManager.cpp" line="77"/>
+        <source>Invalid device group response</source>
+        <translation>Invalid device group response</translation>
+    </message>
+    <message>
+        <location filename="../../src/manager/DeviceGroupManager.cpp" line="402"/>
+        <source>Request failed (HTTP %1)</source>
+        <translation>Request failed (HTTP %1)</translation>
+    </message>
+    <message>
+        <location filename="../../src/manager/DeviceGroupManager.cpp" line="403"/>
+        <source>Request failed</source>
+        <translation>Request failed</translation>
     </message>
 </context>
 <context>

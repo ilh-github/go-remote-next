@@ -70,6 +70,7 @@
         <file>qml/quickdeskcomponent/FloatingToolButton.qml</file>
         <file>qml/quickdeskcomponent/ConnectionListPanel.qml</file>
         <file>qml/quickdeskcomponent/RemoteDeviceSelector.qml</file>
+        <file>qml/quickdeskcomponent/DeviceGroupManagerDialog.qml</file>
         <file>qml/quickdeskcomponent/VideoStatsOverlay.qml</file>
         <file>qml/quickdeskcomponent/LoginDialog.qml</file>        
         <file>qml/quickdeskcomponent/DeviceDisplay.js</file>

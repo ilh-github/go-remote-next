@@ -23,6 +23,7 @@ set(MANAGER_SOURCES
     src/manager/SkillHostManager.cpp
     src/manager/AuthManager.cpp
     src/manager/CloudDeviceManager.cpp
+    src/manager/DeviceGroupManager.cpp
     src/manager/RemoteSessionManager.cpp
     src/manager/AccessApprovalManager.cpp
     src/manager/ScheduledTaskManager.cpp
@@ -44,6 +45,7 @@ set(MANAGER_HEADERS
     src/manager/SkillHostManager.h
     src/manager/AuthManager.h
     src/manager/CloudDeviceManager.h
+    src/manager/DeviceGroupManager.h
     src/manager/RemoteSessionManager.h
     src/manager/AccessApprovalManager.h
     src/manager/ScheduledTaskManager.h
@@ -262,6 +264,7 @@ qt_add_qml_module(QuickDesk
         qml/quickdeskcomponent/TrustConfirmationDialog.qml
         qml/quickdeskcomponent/ConnectionListPanel.qml
         qml/quickdeskcomponent/RemoteDeviceSelector.qml
+        qml/quickdeskcomponent/DeviceGroupManagerDialog.qml
         qml/quickdeskcomponent/VideoStatsOverlay.qml
         qml/quickdeskcomponent/LoginDialog.qml        
         qml/quickdeskcomponent/UpdateDialog.qml
