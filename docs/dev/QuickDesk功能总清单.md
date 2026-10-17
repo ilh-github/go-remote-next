@@ -298,6 +298,9 @@
   PHP `composer validate`、`composer install --no-dev` 和 76 个生成 PHP 文件 `php -l`
   通过；Kotlin `gradle --no-daemon build` 通过；七种语言 freshness 全部
   `matches a fresh ... generation`；workflow YAML 解析和脚本 `bash -n` 通过。
+- QD-608 上游候选：`codex/upstream-qd-608-extra-sdks` = `cca9e44`，基于 PR #25 的
+  `feat/signaling-control-plane@8998466` 重新生成全部七套客户端；候选自身七种语言
+  freshness、C# build、PHP Composer/lint（61 个生成文件）和 Kotlin Gradle build 均通过。
 - QD-911 当前状态：上游 issue #6 仍 OPEN，GitHub API 返回
   `private-vulnerability-reporting.enabled=false`，维护者最新回复仍只是旧 release 链接。
   fork 与上游候选已新增根目录 `SECURITY.md`，覆盖支持版本、公开 issue 禁令、GitHub 私密

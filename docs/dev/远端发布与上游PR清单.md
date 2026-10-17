@@ -42,6 +42,9 @@
   GitHub Private Vulnerability Reporting 当前 `enabled=false`
 - 上游 QD-115 候选：`codex/upstream-qd-115-trust-model` = `1ca2543`，直接基于
   `upstream/dev@f6651f0`，只新增 `docs/security/signaling-trust-model.md`；对应 issue #10
+- 上游 QD-608 候选：`codex/upstream-qd-608-extra-sdks` = `cca9e44`，基于 PR #25 的
+  `feat/signaling-control-plane@8998466`；在 PR #25 基线上重新生成 TypeScript/Go/Python/
+  Java/C#/PHP/Kotlin 七套客户端，不携带 fork 后续业务代码
 - 上游 QD-810 候选：尚未创建；fork 功能提交为 `64ab93a`。它依赖 PR #25 和 QD-006
   SQLite 候选，应在两者落地后再拆 `quickdesk-backup`、配额与两个存储视图的最小增量
 - 上游最小候选：`codex/upstream-access-bans` = `b89c24c`
