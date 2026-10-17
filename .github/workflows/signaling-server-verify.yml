@@ -102,6 +102,9 @@ jobs:
           ./scripts/sdk/check-generated-sdk.sh go
           ./scripts/sdk/check-generated-sdk.sh python
           ./scripts/sdk/check-generated-sdk.sh java
+          ./scripts/sdk/check-generated-sdk.sh csharp
+          ./scripts/sdk/check-generated-sdk.sh php
+          ./scripts/sdk/check-generated-sdk.sh kotlin
       - name: Generated Go client vets and compiles
         # `go vet ./...` type-checks the hand-written examples/ package too, so a
         # change to the client's API surface that the example no longer matches
@@ -137,6 +140,42 @@ jobs:
         run: |
           npm install --no-audit --no-fund
           npm run build
+
+  additional-sdks:
+    name: C# PHP Kotlin generated clients
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          tools: composer
+          extensions: curl, json, mbstring
+      - name: Committed additional clients match the spec
+        run: |
+          ./scripts/sdk/check-generated-sdk.sh csharp
+          ./scripts/sdk/check-generated-sdk.sh php
+          ./scripts/sdk/check-generated-sdk.sh kotlin
+      - name: Generated C# client builds
+        run: dotnet build sdk/csharp/QuickDesk.Signaling.Client.sln -c Release --nologo
+      - name: Generated PHP client installs and lints
+        working-directory: sdk/php
+        run: |
+          composer validate --no-check-publish
+          composer install --no-interaction --no-dev --prefer-dist
+          find lib -type f -name '*.php' -print0 | xargs -0 -n1 php -l
+      - name: Generated Kotlin client builds
+        working-directory: sdk/kotlin
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon --console=plain build
 
   smoke:
     name: Conformance smoke against a live server
