@@ -13,8 +13,8 @@ QuickDesk 已经覆盖了远程控制最核心、最难实现的画面、输入�
 - 在 QuickDesk 上补齐 Go-Remote 原有业务能力。
 - 不重新实现采集、编码、WebRTC、P2P、输入注入和 Chromium Remoting。
 - 不为普通业务功能编译 Chromium；只有修改 Remoting 内核时才编译。
-- 会话控制面已经同时有 WebClient 用户侧页面和管理后台跨用户页面，普通客户端不再被上游 PR #23
-  卡住；Qt 的会话页仍作为后续客户端项。
+- 会话控制面已经同时有 WebClient、Qt 桌面端和管理后台三个入口，普通客户端不再被上游 PR #23
+  卡住；Qt 端的正式构建与 Windows 真机踢人回归仍待 CI/PD 验收。
 
 ## 2. 状态定义
 
