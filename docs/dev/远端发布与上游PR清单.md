@@ -7,8 +7,8 @@
 
 ## 当前本地基线
 
-- fork 主干：本地 `dev`、`master` 均在 `bec80f6`；本轮 Windows 自动更新代码提交为
-  `a982a10`，验证记录和清单更新为 `bec80f6`
+- fork 主干：本轮已验证主干为 `8f88a1d`，Windows 自动更新代码提交为 `a982a10`；
+  本文件后续 docs-only 提交可能让实际 HEAD 再前进，推送前仍以 `git rev-parse` 为准
 - fork 远端：`origin/dev`、`origin/master` 仍为 `f6651f0`；本地 `dev` 领先数量以
   `git rev-list --count origin/dev..dev` 为准，远端写入尚未完成
 - 功能分支：`codex/product-backlog` = `dea02f9`
