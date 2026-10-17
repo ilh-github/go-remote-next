@@ -10,11 +10,17 @@ port="${QD_RECORDING_UPLOAD_PORT:-18086}"
 binary="$root/signaling"
 work_dir="$root/run"
 pid=""
+dist_dir="$server_dir/web/dist"
+created_dist_placeholder=0
 
 cleanup() {
     if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
         kill "$pid" 2>/dev/null || true
         wait "$pid" 2>/dev/null || true
+    fi
+    if [ "$created_dist_placeholder" = 1 ]; then
+        rm -f "$dist_dir/index.html"
+        rmdir "$dist_dir" 2>/dev/null || true
     fi
     rm -rf "$root"
 }
@@ -34,6 +40,12 @@ fi
 
 mkdir -p "$work_dir"
 base_url="http://127.0.0.1:$port"
+
+if [ ! -f "$dist_dir/index.html" ]; then
+    mkdir -p "$dist_dir"
+    printf '<!doctype html><title>recording-upload-e2e</title>\n' >"$dist_dir/index.html"
+    created_dist_placeholder=1
+fi
 
 (
     cd "$server_dir"
