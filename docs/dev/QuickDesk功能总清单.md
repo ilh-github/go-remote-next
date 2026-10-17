@@ -33,6 +33,7 @@
 - 本轮合并：`2f61f8e`（QD-003 多标签控制与音频抢占）
 - 本轮功能：`a48d793`（QD-114 Qt/Windows 服务 SPKI 公网自托管兼容）
 - 本轮功能：`7c23f13`（QD-108 Qt 二次访问审批入口与实时消费）
+- 本轮功能：`ea5a65f`（QD-706 Qt 会话与访问策略实时消费）
 - 服务端：Go SignalingServer
 - 桌面客户端：Qt 6 + QML
 - Web 客户端：Vue 3 外壳 + 原生 `remote.html`
@@ -87,8 +88,15 @@
 - QD-108 测试：`quickdesk_access_approval_manager_test` 使用真实本地 HTTP 夹具覆盖列表/
   汇总请求、批准与拒绝、可选原因、409 已决定冲突和失败状态；QuickDesk 离屏启动确认页面
   可实例化，审批页 QML lint 无新增告警。
-- QuickDesk 当前 6/6 CTest 通过（SPKI、更新解析、更新 HTTP 集成、设备显示 QML、
-  访问码回源集成、访问审批管理集成）；双语 `.ts` 各 517 条完成、0 unfinished。
+- QD-706 功能提交：`ea5a65f`。Qt 会话页消费 `remote_session.started/ended`，匹配当前设备
+  的 150ms 防抖刷新取代常态轮询；消费 `device.access_policy.changed` 直接更新重复封禁来源，
+  WebSocket `bootstrap_done` 后停止 10 秒轮询，断线时自动恢复轮询。
+- QD-706 测试：`quickdesk_remote_session_manager_test` 覆盖匹配/非匹配会话事件与策略事件；
+  `quickdesk_cloud_device_manager_test` 用真实本地 WebSocket 服务器验证
+  `realtimeConnected` 在 `bootstrap_done` 后为真、`stopSync()` 后为假。
+- QuickDesk 当前 7/7 CTest 通过（SPKI、更新解析、更新 HTTP 集成、设备显示 QML、
+  访问码回源集成、访问审批管理集成、远程会话实时事件）；双语 `.ts` 各 517 条完成、
+  0 unfinished。
 - WebClient 当前 29/29 测试通过；生产构建 JS 348.48 kB、gzip 112.80 kB。
 - `git diff --check`：通过。
 - 远端推送仍被当前执行策略拒绝，本地 `dev` 尚未同步到 GitHub。
@@ -210,7 +218,7 @@
 | QD-703 | Web 会话页 | `[x]` | 进行中、已结束、详情、踢人、清场 |
 | QD-704 | Web 录像页 | `[x]` | 列表、播放、下载、删除 |
 | QD-705 | Qt 主界面与远程窗口 | `[x]` | Windows/macOS |
-| QD-706 | Qt 会话页 | `[~]` | 页面已有；实时事件消费仍靠轮询 |
+| QD-706 | Qt 会话页 | `[x]` | 页面已有；`ea5a65f` 已消费会话生命周期和策略变更事件，轮询只在 WebSocket 未连接时兜底 |
 | QD-707 | Qt 文件管理器 | `[x]` | host `file-ops` skill bridge |
 | QD-708 | Qt 通知/计划/审批页 | `[~]` | 审批页已完成（`7c23f13`）；通知规则页和计划任务页未完成 |
 | QD-709 | 管理后台设备、会话、审计、发布 | `[x]` | SignalingServer web |
@@ -266,8 +274,7 @@
 6. QD-004 Host/Relay 自动录制；先向 Remoting 维护者提需求，不在 fork 内自造第二套媒体链路。
 7. QD-005 客户端消费已落地，补 Windows 安装包真机升级/自动重启和 macOS DMG
    签名、公证、替换回归；上游等服务端 PR #25 合并后再拆客户端消费 PR。
-8. QD-006 SQLite 轻量部署、QD-007 图片剪贴板，以及 QD-708 剩余 Qt 通知/计划页和
-   QD-706 会话实时事件。
+8. QD-006 SQLite 轻量部署、QD-007 图片剪贴板，以及 QD-708 剩余 Qt 通知/计划页。
 9. QD-604 指标告警、QD-908 业务级长稳，以及上游 Roadmap 的地址簿、Linux、移动端。
 
 ## 15. 完成定义
@@ -354,7 +361,7 @@
 | 4 | `fix(qt): refresh missing access codes before connecting` | QD-213 / issue #19 | 候选已准备并通过上游基线构建；等远端写入后直接创建 PR |
 | 5 | `fix(webclient): explain host file transfer failures` | QD-214 / issue #19 | 诊断改进候选已准备；根因 PR 需等真实宿主日志 |
 | 6 | `feat(webclient): control-plane management pages` | QD-108/605/607/703 | 依赖 PR #25 合并；按页面拆成多个 PR |
-| 7 | `feat(qt): remote session and management pages` | QD-706/708 | 依赖 PR #25 合并；审批页候选 `7c23f13` 可先拆，再补会话实时事件、通知和计划页 |
+| 7 | `feat(qt): remote session and management pages` | QD-706/708 | 依赖 PR #25 合并；审批页 `7c23f13` 和会话实时消费 `ea5a65f` 可先拆，再补通知和计划页 |
 | 8 | `feat(qt): consume self-hosted update channel` | QD-005 / QD-808 | 依赖 PR #25 合并；保留检查、下载、摘要校验、凭据隔离和测试，不携带 fork 私有文档 |
 
 QD-003 的上游候选已经单独准备：
