@@ -18,6 +18,34 @@ pub struct WorkflowStep {
     pub parameterized_keys: Vec<String>,
     #[serde(default)]
     pub executor: StepExecutor,
+    /// Optional pre-condition verified before the step is replayed. A missing or
+    /// stale screen state means the replay would click the wrong thing, so the
+    /// step is reported as pending instead of being executed.
+    #[serde(default)]
+    pub expect: Option<StepExpectation>,
+}
+
+/// A pre-condition on the remote screen, checked before a replay step runs.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct StepExpectation {
+    /// `screen_hash` or `screen_contains`.
+    pub kind: String,
+    /// The expected hash, or the text that must be on screen.
+    pub value: String,
+    /// How many times the check is retried before the step is parked.
+    #[serde(default = "default_expectation_retries")]
+    pub retries: u32,
+}
+
+fn default_expectation_retries() -> u32 {
+    1
+}
+
+/// Outcome of checking one pre-condition against the observed screen.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ExpectationOutcome {
+    Matched,
+    Mismatched { expected: String, observed: String },
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -139,6 +167,7 @@ impl WorkflowStore {
                 success,
                 parameterized_keys: param_keys,
                 executor,
+                expect: None,
             });
         }
     }
@@ -219,6 +248,52 @@ impl WorkflowStore {
         std::fs::remove_file(&path).is_ok()
     }
 
+    /// Attach or clear the screen pre-condition on one step.
+    ///
+    /// An empty or missing `kind` clears the expectation so a workflow recorded
+    /// without one keeps replaying unguarded. Returns the updated step.
+    pub fn set_step_expectation(
+        &self,
+        workflow_id: &str,
+        seq: u32,
+        kind: Option<&str>,
+        value: Option<&str>,
+        retries: Option<u32>,
+    ) -> Result<WorkflowStep, String> {
+        let mut wf = self
+            .get_workflow(workflow_id)
+            .ok_or_else(|| "workflow not found".to_string())?;
+
+        let position = wf
+            .steps
+            .iter()
+            .position(|step| step.seq == seq)
+            .ok_or_else(|| format!("step {seq} not found in workflow {workflow_id}"))?;
+
+        let kind = kind.unwrap_or("").trim();
+        let value = value.unwrap_or("").trim();
+        wf.steps[position].expect = if kind.is_empty() {
+            None
+        } else {
+            if !matches!(kind, "screen_hash" | "screen_contains") {
+                return Err(format!(
+                    "unsupported expectation kind: {kind} (use screen_hash or screen_contains)"
+                ));
+            }
+            if value.is_empty() {
+                return Err("an expectation needs a value".to_string());
+            }
+            Some(StepExpectation {
+                kind: kind.to_string(),
+                value: value.to_string(),
+                retries: retries.unwrap_or(1).clamp(1, 10),
+            })
+        };
+
+        self.save_workflow(&wf)?;
+        Ok(wf.steps[position].clone())
+    }
+
     pub fn build_replay_steps(
         &self,
         workflow_id: &str,
@@ -236,6 +311,7 @@ impl WorkflowStore {
                 tool_name: step.tool_name.clone(),
                 arguments: apply_top_level_overrides(arguments, overrides),
                 executor: step.executor,
+                expect: step.expect.clone(),
             });
         }
         Ok(steps)
@@ -329,6 +405,7 @@ pub struct ReplayStep {
     pub tool_name: String,
     pub arguments: Value,
     pub executor: StepExecutor,
+    pub expect: Option<StepExpectation>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -425,6 +502,9 @@ pub struct StepRunResult {
     pub tool_name: String,
     pub executor: StepExecutor,
     pub success: bool,
+    /// The step was not executed because its screen expectation did not match.
+    #[serde(default)]
+    pub pending: bool,
     pub result: Value,
     pub error: String,
     pub duration_ms: u64,
@@ -458,6 +538,72 @@ fn truncate(s: &str, max: usize) -> String {
 
 fn default_workflow_format_version() -> u32 {
     1
+}
+
+/// Check one pre-condition against what is currently on the remote screen.
+///
+/// `observed_hash` and `observed_text` describe the same screen; only the field
+/// the expectation needs is consulted. A malformed expectation is reported as a
+/// mismatch so the replay parks the step instead of guessing.
+pub fn evaluate_expectation(
+    expect: &StepExpectation,
+    observed_hash: &str,
+    observed_text: &str,
+) -> ExpectationOutcome {
+    let expected = expect.value.trim();
+    if expected.is_empty() {
+        return ExpectationOutcome::Mismatched {
+            expected: String::new(),
+            observed: describe_observation(expect, observed_hash, observed_text),
+        };
+    }
+
+    let matched = match expect.kind.as_str() {
+        "screen_hash" => !observed_hash.is_empty()
+            && observed_hash.eq_ignore_ascii_case(expected),
+        "screen_contains" => {
+            !observed_text.is_empty() && observed_text.contains(expected)
+        }
+        _ => false,
+    };
+
+    if matched {
+        ExpectationOutcome::Matched
+    } else {
+        ExpectationOutcome::Mismatched {
+            expected: expected.to_string(),
+            observed: describe_observation(expect, observed_hash, observed_text),
+        }
+    }
+}
+
+fn describe_observation(expect: &StepExpectation, observed_hash: &str, observed_text: &str) -> String {
+    match expect.kind.as_str() {
+        "screen_contains" => {
+            if observed_text.is_empty() {
+                String::new()
+            } else {
+                truncate(observed_text, 120)
+            }
+        }
+        _ => observed_hash.to_string(),
+    }
+}
+
+/// Human-readable reason used in run reports when a step is parked.
+pub fn expectation_mismatch_reason(
+    seq: u32,
+    outcome: &ExpectationOutcome,
+    attempt: u32,
+    retries: u32,
+) -> String {
+    match outcome {
+        ExpectationOutcome::Matched => String::new(),
+        ExpectationOutcome::Mismatched { expected, observed } => format!(
+            "step {seq} screen state did not match after {attempt}/{retries} checks \
+             (expected {expected:?}, observed {observed:?})"
+        ),
+    }
 }
 
 fn substitute_parameters(value: &Value, overrides: &HashMap<String, Value>) -> Value {
@@ -690,6 +836,7 @@ mod tests {
                     tool_name: "mouse_click".to_string(),
                     executor: StepExecutor::RemoteApi,
                     success: true,
+                    pending: false,
                     result: serde_json::json!({"ok": true}),
                     error: String::new(),
                     duration_ms: 12,
@@ -699,6 +846,7 @@ mod tests {
                     tool_name: "run_command".to_string(),
                     executor: StepExecutor::SkillHost,
                     success: false,
+                    pending: false,
                     result: serde_json::Value::Null,
                     error: "exit 1".to_string(),
                     duration_ms: 30,
@@ -750,6 +898,7 @@ mod tests {
                 tool_name: "mouse_click".to_string(),
                 executor: StepExecutor::RemoteApi,
                 success: true,
+                pending: false,
                 result: serde_json::json!({"ok": true}),
                 error: String::new(),
                 duration_ms: 10,
@@ -759,6 +908,7 @@ mod tests {
                 tool_name: "run_command".to_string(),
                 executor: StepExecutor::SkillHost,
                 success: false,
+                pending: false,
                 result: serde_json::Value::Null,
                 error: "exit 1".to_string(),
                 duration_ms: 20,
@@ -845,5 +995,179 @@ mod tests {
 
         assert_eq!(workflow.format_version, 1);
         assert_eq!(workflow.steps[0].executor, StepExecutor::SkillHost);
+    }
+
+    fn expectation(kind: &str, value: &str) -> StepExpectation {
+        StepExpectation {
+            kind: kind.to_string(),
+            value: value.to_string(),
+            retries: 1,
+        }
+    }
+
+    #[test]
+    fn screen_expectations_match_hash_and_text() {
+        let hash = expectation("screen_hash", "abc123");
+        assert_eq!(
+            evaluate_expectation(&hash, "ABC123", "anything"),
+            ExpectationOutcome::Matched,
+            "hash comparison is case-insensitive",
+        );
+        assert_eq!(
+            evaluate_expectation(&hash, "", ""),
+            ExpectationOutcome::Mismatched {
+                expected: "abc123".to_string(),
+                observed: String::new(),
+            },
+            "an empty observation never matches",
+        );
+
+        let text = expectation("screen_contains", "Save");
+        assert_eq!(
+            evaluate_expectation(&text, "ignored", "Do you want to Save changes?"),
+            ExpectationOutcome::Matched,
+        );
+        assert_eq!(
+            evaluate_expectation(&text, "ignored", "nothing here"),
+            ExpectationOutcome::Mismatched {
+                expected: "Save".to_string(),
+                observed: "nothing here".to_string(),
+            },
+        );
+    }
+
+    #[test]
+    fn malformed_expectations_are_reported_as_mismatches() {
+        let unknown = expectation("screen_pixel", "10,20");
+        assert_eq!(
+            evaluate_expectation(&unknown, "abc", "text"),
+            ExpectationOutcome::Mismatched {
+                expected: "10,20".to_string(),
+                observed: "abc".to_string(),
+            },
+            "an unsupported kind must not silently pass",
+        );
+
+        let empty = expectation("screen_contains", "   ");
+        let outcome = evaluate_expectation(&empty, "abc", "text");
+        assert_eq!(
+            outcome,
+            ExpectationOutcome::Mismatched {
+                expected: String::new(),
+                observed: "text".to_string(),
+            },
+        );
+
+        let reason = expectation_mismatch_reason(3, &outcome, 2, 3);
+        assert!(reason.contains("step 3"), "{reason}");
+        assert!(reason.contains("2/3"), "{reason}");
+    }
+
+    #[test]
+    fn replay_plan_carries_step_expectations() {
+        let dir = std::env::temp_dir().join(format!("quickdesk-workflow-test-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = WorkflowStore::with_storage_dir(dir.clone());
+
+        let id = store.start_recording("guarded", "device-1").unwrap();
+        store.record_step(
+            "device-1",
+            "mouse_click",
+            &serde_json::json!({"x": 5, "y": 6}),
+            "clicked",
+            true,
+            StepExecutor::RemoteApi,
+        );
+        store.stop_recording("device-1", "", &[]).unwrap();
+
+        let mut workflow = store.get_workflow(&id).unwrap();
+        workflow.steps[0].expect = Some(expectation("screen_contains", "Confirm"));
+        store.save_workflow(&workflow).unwrap();
+
+        let plan = store.build_replay_steps(&id, &HashMap::new()).unwrap();
+        assert_eq!(plan[0].expect, Some(expectation("screen_contains", "Confirm")));
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn legacy_workflows_without_expectations_replay_unguarded() {
+        let dir = std::env::temp_dir().join(format!("quickdesk-workflow-test-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = WorkflowStore::with_storage_dir(dir.clone());
+
+        let id = store.start_recording("legacy", "device-1").unwrap();
+        store.record_step(
+            "device-1",
+            "run_command",
+            &serde_json::json!({"command": "echo ok"}),
+            "ok",
+            true,
+            StepExecutor::SkillHost,
+        );
+        store.stop_recording("device-1", "", &[]).unwrap();
+
+        let plan = store.build_replay_steps(&id, &HashMap::new()).unwrap();
+        assert_eq!(plan[0].expect, None);
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn step_expectations_can_be_set_validated_and_cleared() {
+        let dir = std::env::temp_dir().join(format!("quickdesk-workflow-test-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = WorkflowStore::with_storage_dir(dir.clone());
+
+        let id = store.start_recording("guarded", "device-1").unwrap();
+        store.record_step(
+            "device-1",
+            "mouse_click",
+            &serde_json::json!({"x": 1, "y": 2}),
+            "clicked",
+            true,
+            StepExecutor::RemoteApi,
+        );
+        store.stop_recording("device-1", "", &[]).unwrap();
+
+        let step = store
+            .set_step_expectation(&id, 1, Some("screen_contains"), Some(" Confirm "), Some(3))
+            .unwrap();
+        assert_eq!(
+            step.expect,
+            Some(StepExpectation {
+                kind: "screen_contains".to_string(),
+                value: "Confirm".to_string(),
+                retries: 3,
+            }),
+        );
+
+        // Reload from disk: the guard must survive a restart.
+        let reloaded = store.get_workflow(&id).unwrap();
+        assert!(reloaded.steps[0].expect.is_some());
+
+        assert!(
+            store
+                .set_step_expectation(&id, 1, Some("screen_pixel"), Some("1,2"), None)
+                .is_err(),
+            "an unsupported kind must be rejected",
+        );
+        assert!(
+            store
+                .set_step_expectation(&id, 1, Some("screen_hash"), Some("  "), None)
+                .is_err(),
+            "an expectation without a value must be rejected",
+        );
+        assert!(
+            store
+                .set_step_expectation(&id, 9, Some("screen_hash"), Some("abc"), None)
+                .is_err(),
+            "an unknown step must be rejected",
+        );
+
+        let cleared = store.set_step_expectation(&id, 1, None, None, None).unwrap();
+        assert_eq!(cleared.expect, None);
+
+        let _ = std::fs::remove_dir_all(dir);
     }
 }

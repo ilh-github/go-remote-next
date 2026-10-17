@@ -1092,6 +1092,7 @@ QuickDesk MCP 内置持久化的设备记忆系统（SQLite），自动记录操
 | `replay_workflow` | 按步骤记录的通道回放，支持参数覆盖和 `stop_on_failure` |
 | `list_workflow_runs` | 按时间倒序列出回放报告，可按 `workflow_id` 过滤并限制 `limit` |
 | `get_workflow_run` | 按 `run_id` 获取一次完整回放报告 |
+| `set_step_expectation` | 给某一步挂载/清空屏幕断言，参数：`workflow_id`、`seq`、`kind`、`value`、`retries` |
 | `delete_workflow` | 删除工作流 |
 
 ### 典型流程
@@ -1103,6 +1104,15 @@ replay_workflow → 在另一台设备上重放
 
 录制期间，鼠标、键盘、剪贴板、文本点击和 `skill_exec` 会连同回放通道一起保存。旧工作流没有
 通道字段时默认按 skill-host 步骤回放。
+
+### 屏幕断言（回放保护）
+
+`set_step_expectation` 给单个步骤挂一个前置条件：`kind` 为 `screen_hash`（对比当前 frame
+hash）或 `screen_contains`（屏幕文本需包含指定内容），`retries` 控制重试次数（默认 1，
+上限 10）。回放到该步之前会先向被控端 `assertScreenState` 校验；不匹配就跳过执行，把这
+一步记为 `pending` 并写清期望值、观测值和尝试次数，然后停止本次回放。
+
+`kind` 传空即清空断言，工作流回到无保护回放。没有断言的工作流行为与之前完全一致。
 
 - 工作流文件包含 `format_version`；旧文件缺少该字段时按版本 1 读取。
 - `{{name}}` 占位符会递归替换；已有工作流仍支持按顶层参数同名覆盖，兼容旧格式。

@@ -1094,6 +1094,7 @@ Record AI operation sequences as reusable workflows with parameterized replay.
 | `replay_workflow` | Replay through each step's recorded transport, with argument overrides and optional `stop_on_failure` |
 | `list_workflow_runs` | List persisted run reports, newest first, with optional `workflow_id` and `limit` |
 | `get_workflow_run` | Get one persisted run report by `run_id` |
+| `set_step_expectation` | Attach or clear a screen pre-condition on one step. Params: `workflow_id`, `seq`, `kind`, `value`, `retries` |
 | `delete_workflow` | Delete a workflow |
 
 ### Typical Flow
@@ -1106,6 +1107,19 @@ replay_workflow → replay on another device
 During recording, pointer, keyboard, clipboard, text-click, and `skill_exec` actions are captured with
 the transport needed for replay. Skill-host steps remain the default for workflows created before
 transport recording was introduced.
+
+### Screen Expectations (Replay Guard)
+
+`set_step_expectation` attaches a pre-condition to one step: `kind` is `screen_hash`
+(compare the current frame hash) or `screen_contains` (the screen text must contain the
+given value), and `retries` controls how many checks are made (default 1, max 10).
+
+Before replaying that step the host is asked via `assertScreenState`. When the
+pre-condition does not hold, the step is not executed: it is recorded as `pending` with
+the expected value, the observed value and the attempt count, and the replay stops.
+
+Passing an empty `kind` clears the expectation, returning the workflow to unguarded
+replay. Workflows without an expectation behave exactly as before.
 
 - Workflow files include `format_version`; missing values are read as version 1.
 - `{{name}}` placeholders are substituted recursively. Existing top-level arguments can still be

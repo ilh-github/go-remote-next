@@ -23,7 +23,8 @@ use crate::event_bus::EventBus;
 use crate::memory::MemoryStore;
 use crate::trust::TrustEngine;
 use crate::workflow::{
-    StepExecutor, StepRunResult, WorkflowRunReport, WorkflowStore,
+    evaluate_expectation, expectation_mismatch_reason, ExpectationOutcome, StepExecutor,
+    StepRunResult, WorkflowRunReport, WorkflowStore,
 };
 use crate::ws_client::WsClient;
 
@@ -605,6 +606,20 @@ struct WorkflowIdParam {
 }
 
 #[derive(Deserialize, JsonSchema)]
+struct SetStepExpectationParam {
+    /// Workflow ID that owns the step
+    workflow_id: String,
+    /// 1-based step sequence number
+    seq: u32,
+    /// `screen_hash` or `screen_contains`; omit or pass empty to clear
+    kind: Option<String>,
+    /// Expected frame hash, or text that must be on screen
+    value: Option<String>,
+    /// How many checks to make before parking the step (default 1)
+    retries: Option<u32>,
+}
+
+#[derive(Deserialize, JsonSchema)]
 struct ReplayWorkflowParam {
     /// Workflow ID to replay
     workflow_id: String,
@@ -774,6 +789,44 @@ impl QuickDeskMcpServer {
                 break;
             }
             let step_started = std::time::Instant::now();
+
+            // A recorded pre-condition is the difference between "replay what
+            // the operator did" and "click the same pixels on a different
+            // screen". When it does not hold, park the step instead of running
+            // it and producing a misleading failure further down the chain.
+            if let Some(expect) = step.expect.as_ref() {
+                let retries = expect.retries.max(1);
+                let mut outcome = evaluate_expectation(expect, "", "");
+                for attempt in 1..=retries {
+                    outcome = self
+                        .check_step_expectation(device_id, expect)
+                        .await
+                        .unwrap_or_else(|| ExpectationOutcome::Mismatched {
+                            expected: expect.value.trim().to_string(),
+                            observed: String::new(),
+                        });
+                    if outcome == ExpectationOutcome::Matched {
+                        break;
+                    }
+                    if attempt < retries {
+                        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+                    }
+                }
+                if let ExpectationOutcome::Mismatched { .. } = outcome {
+                    step_results.push(StepRunResult {
+                        seq: step.seq,
+                        tool_name: step.tool_name.clone(),
+                        executor: step.executor,
+                        success: false,
+                        pending: true,
+                        result: serde_json::Value::Null,
+                        error: expectation_mismatch_reason(step.seq, &outcome, retries, retries),
+                        duration_ms: step_started.elapsed().as_millis() as u64,
+                    });
+                    break;
+                }
+            }
+
             let trust_result = tokio::select! {
                 _ = cancellation.cancelled() => {
                     cancelled = true;
@@ -791,6 +844,7 @@ impl QuickDeskMcpServer {
                     tool_name: step.tool_name,
                     executor: step.executor,
                     success: false,
+                    pending: false,
                     result: serde_json::Value::Null,
                     error,
                     duration_ms: step_started.elapsed().as_millis() as u64,
@@ -798,7 +852,7 @@ impl QuickDeskMcpServer {
                 break;
             }
 
-            let (success, result, error) = match step.executor {
+            let (success, result, error, pending) = match step.executor {
                 StepExecutor::RemoteApi => {
                     match map_remote_tool_request(&step.tool_name, &step.arguments) {
                         Ok((message, mut payload)) => {
@@ -808,17 +862,17 @@ impl QuickDeskMcpServer {
                             tokio::select! {
                                 _ = cancellation.cancelled() => {
                                     cancelled = true;
-                                    (false, serde_json::Value::Null, "workflow cancelled".to_string())
+                                    (false, serde_json::Value::Null, "workflow cancelled".to_string(), false)
                                 }
                                 response = self.ws.request(&message, payload) => {
                                     match response {
-                                        Ok(v) => (true, v, String::new()),
-                                        Err(e) => (false, serde_json::Value::Null, e),
+                                        Ok(v) => (true, v, String::new(), false),
+                                        Err(e) => (false, serde_json::Value::Null, e, false),
                                     }
                                 }
                             }
                         }
-                        Err(e) => (false, serde_json::Value::Null, e),
+                        Err(e) => (false, serde_json::Value::Null, e, false),
                     }
                 }
                 StepExecutor::SkillHost => {
@@ -830,12 +884,12 @@ impl QuickDeskMcpServer {
                     tokio::select! {
                         _ = cancellation.cancelled() => {
                             cancelled = true;
-                            (false, serde_json::Value::Null, "workflow cancelled".to_string())
+                            (false, serde_json::Value::Null, "workflow cancelled".to_string(), false)
                         }
                         response = self.ws.request("skillExec", req) => {
                             match response {
-                                Ok(v) => (true, v, String::new()),
-                                Err(e) => (false, serde_json::Value::Null, e),
+                                Ok(v) => (true, v, String::new(), false),
+                                Err(e) => (false, serde_json::Value::Null, e, false),
                             }
                         }
                     }
@@ -847,6 +901,7 @@ impl QuickDeskMcpServer {
                 tool_name: step.tool_name,
                 executor: step.executor,
                 success,
+                pending,
                 result,
                 error,
                 duration_ms: step_started.elapsed().as_millis() as u64,
@@ -875,6 +930,66 @@ impl QuickDeskMcpServer {
         );
         self.state.workflow.save_run_report(&report)?;
         Ok(report)
+    }
+}
+
+impl QuickDeskMcpServer {
+    /// Ask the host whether one recorded pre-condition still holds.
+    ///
+    /// The host already exposes `assertScreenState`, so the expectation is
+    /// translated into that request instead of pulling a screenshot back into
+    /// this process. A transport or protocol error returns `None`; the caller
+    /// treats that as "cannot prove it still holds" and parks the step.
+    async fn check_step_expectation(
+        &self,
+        device_id: &str,
+        expect: &crate::workflow::StepExpectation,
+    ) -> Option<ExpectationOutcome> {
+        let req = build_screen_assertion_request(device_id, expect)?;
+        let response = self.ws.request("assertScreenState", req).await.ok()?;
+        Some(parse_screen_assertion_response(expect, &response))
+    }
+}
+
+/// Translate a recorded pre-condition into the host's `assertScreenState` request.
+/// Returns `None` for an unknown kind so the caller parks the step.
+fn build_screen_assertion_request(
+    device_id: &str,
+    expect: &crate::workflow::StepExpectation,
+) -> Option<serde_json::Value> {
+    let condition = match expect.kind.as_str() {
+        "screen_hash" => json!({ "type": "frameHash", "value": expect.value.trim() }),
+        "screen_contains" => json!({ "type": "textContains", "value": expect.value.trim() }),
+        _ => return None,
+    };
+    Some(json!({
+        "deviceId": device_id,
+        "expectations": [condition],
+    }))
+}
+
+/// Read the host's `assertScreenState` reply. A reply that cannot be proven to
+/// pass is a mismatch, never a silent pass.
+fn parse_screen_assertion_response(
+    expect: &crate::workflow::StepExpectation,
+    response: &serde_json::Value,
+) -> ExpectationOutcome {
+    let passed = response
+        .get("allPassed")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false);
+    if passed {
+        return ExpectationOutcome::Matched;
+    }
+    let observed = response
+        .get("observed")
+        .and_then(|value| value.get("frameHash").or_else(|| value.get("text")))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    ExpectationOutcome::Mismatched {
+        expected: expect.value.trim().to_string(),
+        observed,
     }
 }
 
@@ -1965,6 +2080,24 @@ and limit the result count.")]
         }
     }
 
+    #[tool(description = "Attach or clear a screen pre-condition on one workflow step. \
+When replaying, a step whose expectation no longer holds is parked instead of executed, \
+so a recording cannot click the wrong thing on a changed screen. \
+kind is screen_hash or screen_contains; pass an empty kind to clear it.")]
+    async fn set_step_expectation(&self, params: Parameters<SetStepExpectationParam>) -> String {
+        let p = params.0;
+        match self.state.workflow.set_step_expectation(
+            &p.workflow_id,
+            p.seq,
+            p.kind.as_deref(),
+            p.value.as_deref(),
+            p.retries,
+        ) {
+            Ok(step) => serde_json::to_string_pretty(&step).unwrap_or_default(),
+            Err(error) => json!({"error": error}).to_string(),
+        }
+    }
+
     // ==== Trust Layer & Safety Tools ====
 
     #[tool(description = "Assess the risk level of a tool call before executing it. Returns risk level \
@@ -2705,5 +2838,62 @@ mod tests {
         assert!(should_stop_after_replay_failure(false, true));
         assert!(should_stop_after_replay_failure(true, false));
         assert!(!should_stop_after_replay_failure(false, false));
+    }
+
+    fn expectation(kind: &str, value: &str) -> crate::workflow::StepExpectation {
+        crate::workflow::StepExpectation {
+            kind: kind.to_string(),
+            value: value.to_string(),
+            retries: 1,
+        }
+    }
+
+    #[test]
+    fn screen_expectations_become_host_assert_requests() {
+        assert_eq!(
+            build_screen_assertion_request("device-1", &expectation("screen_hash", " abc ")),
+            Some(json!({
+                "deviceId": "device-1",
+                "expectations": [{"type": "frameHash", "value": "abc"}],
+            })),
+        );
+        assert_eq!(
+            build_screen_assertion_request("device-1", &expectation("screen_contains", "Save")),
+            Some(json!({
+                "deviceId": "device-1",
+                "expectations": [{"type": "textContains", "value": "Save"}],
+            })),
+        );
+        assert_eq!(
+            build_screen_assertion_request("device-1", &expectation("screen_pixel", "1,2")),
+            None,
+            "an unsupported kind must not be sent to the host",
+        );
+    }
+
+    #[test]
+    fn screen_assertion_replies_that_cannot_prove_a_pass_park_the_step() {
+        let expect = expectation("screen_contains", "Save");
+
+        assert_eq!(
+            parse_screen_assertion_response(&expect, &json!({"allPassed": true})),
+            ExpectationOutcome::Matched,
+        );
+
+        // A missing allPassed is not proof of a pass.
+        assert_eq!(
+            parse_screen_assertion_response(&expect, &json!({"observed": {"text": "Other"}})),
+            ExpectationOutcome::Mismatched {
+                expected: "Save".to_string(),
+                observed: "Other".to_string(),
+            },
+        );
+        assert_eq!(
+            parse_screen_assertion_response(&expect, &json!({"allPassed": false})),
+            ExpectationOutcome::Mismatched {
+                expected: "Save".to_string(),
+                observed: String::new(),
+            },
+        );
     }
 }

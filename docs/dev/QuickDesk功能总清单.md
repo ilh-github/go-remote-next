@@ -128,6 +128,8 @@
 - WebClient `npm test`：62/62 通过，新增 skill bridge 请求关联/错误/超时、路径模型、
   分块上传下载和重命名测试。
 - WebClient `npm run build`：通过，JS 378.74 kB，gzip 119.96 kB。
+- QD-511 状态校验：`cargo test` 46/46、`cargo clippy -D warnings` 通过；新增
+  `set_step_expectation` MCP 工具和屏幕断言翻译/解析测试。
 - QD-505 断线收尾：新增 `RecordingLifecycle` 判定与 `quickdesk_recording_lifecycle_test`，
   覆盖终态/非终态、无关设备和重复事件；CTest 14/14 通过；`MainController` 在信令进入
   终态时调用 `stopRecording()`，QML 改走 `toggleSessionRecording()`。
@@ -506,7 +508,7 @@ Private Vulnerability Reporting，后者等协议实现。当前继续做不依�
 1. **QD-610 后续阶段**：`Idempotency-Key`、异步队列/取消、HMAC 回调和控制面事件订阅
    已完成；下一步做 cron/日历、事件停机补发和委托权限。通用触发链路能从当前的 MCP
    trigger 候选继续 stacked 回贡，后几项若绑定 fork 业务数据库则留在 `Fork-only`。
-2. **QD-511 智能回放**：补预录/后录屏幕 hash、状态不匹配暂停、OCR 关键词和人工接管；
+2. **QD-511 智能回放**：预录屏幕断言与状态不匹配暂停已完成；剩余 OCR 关键词、AI 介入和人工接管；
    通用部分在 QD-510 候选合并后回贡。
 3. **QD-907 异常路径**：按“协议错误、权限拒绝、重连耗尽、上传失败、设备离线”补
    可重复的自动化或真机证据，避免把 Windows 上传根因误判成 WebClient 协议错误。
@@ -614,7 +616,7 @@ fork 是否能继续开发，也不能因为 fork 自己有实现就再次向 up
 | QD-508 | Qt 录像回放页 | `[x]` | `74c7022` 已覆盖列表、分页、缩略图、应用内播放、外部打开、删除和实时刷新 |
 | QD-509 | 缩略图、保留期、孤儿回收 | `[x]` | 服务端生命周期已完成 |
 | QD-510 | 工作流录制与回放核心 | `[x]` | 远程 UI/skill-host 双通道录制回放、旧格式兼容、递归参数替换、失败策略、持久化报告和查询工具已完成；`cargo test` 19/19 通过 |
-| QD-511 | 工作流状态校验与智能回放 | `[ ]` | 预录/后录屏幕 hash、OCR 关键词、状态不匹配暂停和 AI 介入尚未实现；对应设计阶段三 |
+| QD-511 | 工作流状态校验与智能回放 | `[~]` | 预录屏幕断言与状态不匹配暂停已完成：`screen_hash` / `screen_contains` 可挂到任一步骤，回放前经 host `assertScreenState` 校验，不匹配即 park 并写入原因，新增 `set_step_expectation` 工具；OCR 关键词和 AI 介入仍未实现 |
 
 ## 9. 通知、任务与集成
 
