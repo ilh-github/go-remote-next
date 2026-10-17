@@ -1,6 +1,6 @@
 # QuickDesk 功能总清单
 
-> 最后对账：2026-10-17 21:19 CST。上游与 fork 状态都是动态的，实施前必须重新执行
+> 最后对账：2026-10-17 21:25 CST。上游与 fork 状态都是动态的，实施前必须重新执行
 > `git fetch --all --prune` 并核对 GitHub issue / PR。
 >
 > 本文件是 QuickDesk fork 后续产品开发的唯一功能清单。它合并三类输入：
@@ -55,7 +55,7 @@
   （`f270487`、`b1a1155`、`162ac6e`、`b013a62`）、QD-508 Qt 录像回放
   （`74c7022`）、三端管理面实时消费、`a982a10` 的 Windows 更新闭环，以及
   `c77dcae` 的 SQLite 轻量单进程模式和 `64ab93a` 的备份/恢复、容器备份二进制、
-  录像/安装包总量配额及管理存储视图
+  录像/安装包总量配额及管理存储视图；Web 屏幕墙已补单瓦片音频独占
 - fork PR：<https://github.com/ilh-github/go-remote-next/pull/1>，OPEN / MERGEABLE /
   CLEAN，7 项检查全部成功；它的 head 是早期最小分支，不等于当前完整 `dev`
 - 服务端：Go SignalingServer
@@ -90,7 +90,7 @@
   `dev` 切分支贡献、Remoting 改动由维护者处理”；不能再把“暂缓”理解成停止维护。
 - 上游 PR：#22、#23、#24、#25 均为 OPEN / MERGEABLE，但 GitHub 返回的
   `mergeStateStatus=UNSTABLE` 且没有 reported checks；不能把 MERGEABLE 写成 CI 已通过。
-- 清单统计：116 个唯一 QD ID；73 个 `[x]`、21 个 `[~]`、16 个 `[ ]`、
+- 清单统计：116 个唯一 QD ID；74 个 `[x]`、20 个 `[~]`、16 个 `[ ]`、
   3 个 `[!]`、2 个 `[>]`、1 个 `[-]`。
 - 上游待办已全部映射到本清单：10 个 open issue、4 个 open PR、3 个未完成 Roadmap
   项均有对应 QD、处理边界和上游贡献方式；上游已完成的 Roadmap 项只作为继承基线，
@@ -101,8 +101,8 @@
 - 上游 `docs/dev/*技术方案.md` 里有部分历史未勾选实现清单，抽查当前代码后多数已经落地；
   这些文件是设计历史，不直接当新增待办。权威待办仍以 README Roadmap、open issue、open PR
   和维护者最新回复为准。
-- WebClient `npm test`：37/37 通过。
-- WebClient `npm run build`：通过，JS 362.03 kB，gzip 116.68 kB。
+- WebClient `npm test`：46/46 通过。
+- WebClient `npm run build`：通过，JS 363.42 kB，gzip 117.06 kB。
 - Chrome 同源双标签实测：后开标签接管控制后，前一个标签释放控制；接管音频后，前一个标签释放音频。
 - QD-114 SPKI 纯 C++ 单测：通过；覆盖标准/URL-safe Base64、无 padding、重复项、
   非法项和 Chromium 参数构造。
@@ -259,7 +259,15 @@
 - QD-215 上游候选：`codex/upstream-qd-215-win-runtime-check` = `f449b87`，基于
   `upstream/dev`，只含 release 校验器、publish 检查和 package 检查 3 个文件；
   已用该候选校验器跑完同一组正负向测试。远端 push 仍被执行策略拒绝。
-- WebClient 当前 37/37 测试通过；生产构建 JS 362.23 kB、gzip 116.75 kB。
+- QD-702 墙级音频：屏幕墙新增单瓦片音频按钮和 `WallAudioSelector`，同一时刻只允许
+  一个 iframe 播放声音；切换、移除、重连、设备离线或会话失败时会先向旧瓦片发送关闭
+  消息，活动瓦片在画面恢复后会自动重新应用音频状态。`remote-main.js` 在墙模式下默认
+  关闭音频，仅在墙页选中后开启远端音频并解除 `<video>` 静音；晚到的音频轨道会合并到
+  已挂载的媒体流，且不会重复添加。
+- QD-702 验证：严格 TDD 先新增 `wallAudio.test.mjs` 和 `mediaStream.test.mjs`，分别
+  确认模块缺失 RED；实现后两组共 9/9 通过。WebClient 全量 `npm test` 46/46 通过，
+  `npm run build` 通过，
+  生产构建 JS 363.42 kB、gzip 117.06 kB。
 - `git diff --check`：通过。
 - 远端推送仍被当前执行策略拒绝，本地 `dev` 尚未同步到 GitHub。
 
@@ -294,7 +302,7 @@
 | 验证/排障 | QD-216 主机连接失败 | `Upstream` issue #9 | 缺真实 host/signaling/TLS 日志，不能直接猜实现 | 先做支持 triage；能拆出确定 bug 后再进入实现 |
 | 安全设计 | QD-115 服务端设备密钥信任边界 | `Upstream` issue #10 / `Fork` | 信令服务端是否能冒充设备仍缺威胁模型 | 先写安全边界和攻击面；需要协议改动时与维护者协作 |
 | 上游流程 | QD-911 私密安全披露入口 | `Upstream` issue #6 | 上游没有 `SECURITY.md`，issue 要求私密漏洞报告渠道 | 在 fork 准备最小文档候选，并建议上游启用 GitHub Private Vulnerability Reporting |
-| 后续增强 | QD-604 指标型告警、QD-702 墙级音频、QD-610 业务工作流 | `Legacy` / `Fork` | 均有基础或设计，但没有完整产品闭环 | 等当前 Qt/录像/更新收口后逐项做 |
+| 后续增强 | QD-604 指标型告警、QD-610 业务工作流 | `Legacy` / `Fork` | 均有基础或设计，但没有完整产品闭环；QD-702 墙级音频已完成 | 先做 QD-604 的 Host 指标上报、阈值规则和通知闭环，再做 QD-610 |
 | 质量收口 | QD-906、QD-907、QD-908、QD-909 | `Legacy` / `Fork` | 真机矩阵、异常路径、2h+ 长稳、文件/剪贴板审计仍不完整 | 每完成一个主功能就补对应边界，不集中到最后一次性补测 |
 | 明确暂缓 | QD-318 Linux、QD-319 原生移动端 | `Upstream` Roadmap | 上游已列计划，当前 fork 不做实现承诺 | 保持接口和构建兼容，等上游方向明确后接 |
 | 明确不做 | RDP、重写 WebRTC/Remoting、多租户/SSO/计费、通用插件市场 | `Fork` 决策 | 与当前“复用成熟远控内核 + 补业务控制面”的路线冲突或收益不足 | 不进入待办池，除非用户重新定义产品目标 |
@@ -311,13 +319,16 @@ Roadmap 项放到同一条实施路径中。详细追溯仍以第 16 节为准�
 | 3 | 等 PR #25 基线 | QD-204 API/客户端、QD-607 服务端、QD-108 / QD-508 / QD-706 / QD-708 管理面、QD-005 客户端 | 这些能力依赖控制面、OpenAPI、录像或管理页基线；直接塞进 #25 会变成巨型 PR | 维护者确认 #25 合并或 stacked base；再按服务端/Web/Qt/更新拆 PR |
 | 4 | 跟踪上游已有 PR | PR #22 自动审批、#23 录像、#24 skill-host 运行库、#25 控制面 | 上游已有实现，重复开发只会制造分叉 | PR 合并后同步 `upstream/dev`，重跑受影响测试；删除重复本地实现 |
 | 5 | 提 Remoting 需求 | QD-002 Web 文件通道、QD-004 / QD-505 Host 权威录制、QD-007 图片剪贴板、QD-114 真实 CertVerifier、QD-214 Windows 用户上下文 | 必须改 Chromium Remoting 或宿主生命周期，维护者已明确这类改动由他处理 | 每项提交协议草案、权限边界、兼容性和验收用例；不在 fork 伪造第二套媒体链路 |
-| 6 | fork 自主增强 | QD-604 指标告警、QD-702 墙级音频、QD-610 工作流、QD-608 更多 SDK、QD-904 / QD-907 / QD-908 / QD-909 | QD-006 / QD-809 / QD-810 已完成；剩余项有产品价值但不阻塞上游，也不是当前最小可回贡补丁 | 有明确用户入口、失败路径和对应自动化或真机证据 |
+| 6 | fork 自主增强 | QD-604 指标告警、QD-610 工作流、QD-608 更多 SDK、QD-904 / QD-907 / QD-908 / QD-909 | QD-006 / QD-809 / QD-810 / QD-702 已完成；剩余本地项不阻塞上游，QD-604 是下一条完整产品链路 | 有明确用户入口、失败路径和对应自动化或真机证据 |
 | 7 | 暂缓跟随上游 | QD-318 Linux、QD-319 iOS/Android | 上游 Roadmap 已列出，本 fork 当前不承诺实现 | 保持接口和构建兼容；上游方向明确后再排期 |
 | 8 | 不进入待办 | RDP、重写 WebRTC/Remoting、多租户/SSO/计费、通用插件市场 | 与“复用成熟远控内核 + 补业务控制面”的路线冲突或收益不足 | 只有用户重新定义产品目标才重新评估 |
 
 当前第一执行项是 `QD-005 / QD-808` 的 macOS Developer ID 签名、Apple 公证和公证包
 替换回归。自动替换链路已经用 ad-hoc DMG 真机验证；整体仍保持 `[~]`，不能把本地
 ad-hoc 成功写成正式跨平台发布完成。
+
+不依赖外部凭据的下一执行项是 `QD-604` 指标型告警：Host 通过现有 `sys-info` 采集链
+上报 CPU、内存和磁盘，服务端保存阈值规则并复用通知 outbox，Web/Qt 增加规则管理入口。
 
 回贡上游不等到 fork 全部做完再一次性提交。每个已经独立验收、能从 `upstream/dev`
 干净切出的主题都应立即形成最小 PR；依赖 PR #25 的功能只准备 stacked 候选，不继续
@@ -436,7 +447,7 @@ ad-hoc 成功写成正式跨平台发布完成。
 | ID | 功能 | 状态 | 说明 |
 |---|---|---|---|
 | QD-701 | Web 登录与设备接入 | `[x]` | Vue shell + remote.html |
-| QD-702 | Web 屏幕墙 | `[~]` | 多设备、轮巡、单砖解锁已有；墙级音频待补 |
+| QD-702 | Web 屏幕墙 | `[x]` | 多设备、轮巡、单砖输入解锁、单瓦片音频独占和晚到音频轨道合并；新增测试 9/9、WebClient 46/46 通过 |
 | QD-703 | Web 会话页 | `[x]` | 进行中、已结束、详情、踢人、清场 |
 | QD-704 | Web 录像页 | `[x]` | 列表、播放、下载、删除 |
 | QD-705 | Qt 主界面与远程窗口 | `[x]` | Windows/macOS |
@@ -529,7 +540,7 @@ ad-hoc 成功写成正式跨平台发布完成。
 - `Multi-tab multi-connection` 在上游已勾选；QD-003 补的是同一设备多个标签的控制/音频互斥，不重复“多连接”能力
 - 维护计划：issue #21，维护者明确“持续维护、暂缓更新、重点偏 MCP、欢迎从 dev 切分支贡献、Remoting 改动由维护者处理”
 - 当前 open PR：#22、#23、#24、#25
-- 2026-10-17 20:53 复核：上游两个分支、10 个 open issue、4 个 open PR 均无漂移；四个
+- 2026-10-17 21:25 复核：上游两个分支、10 个 open issue、4 个 open PR 均无漂移；四个
   PR 显示 MERGEABLE / `mergeStateStatus=UNSTABLE`，但 GitHub
   没有 reported checks；不能把“MERGEABLE”写成 CI 已通过
 - QD-006 是通用自托管增强，但当前上游没有对应 open issue/PR；候选
