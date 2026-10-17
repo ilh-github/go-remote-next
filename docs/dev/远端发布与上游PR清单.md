@@ -62,6 +62,11 @@
 - 上游 QD-510 候选：`codex/upstream-qd-510-workflow` = `0a9ecd5`，基于
   `upstream/dev@f6651f0`；8 个文件，只含 MCP 双通道工作流、报告工具和通用文档，
   19/19 测试、Clippy 零告警及 diff check 通过
+- QD-506 Web 录像分块上传：fork 提交 `de88f07`、smoke 自举 `eba7ae2`；WebClient
+  50/50、生产构建和真实 SQLite 4 分片逐字节 E2E 通过。候选
+  `codex/upstream-qd-506-recording-upload` = `de45538`，基于 PR #23 的 `00a7cb8`；
+  候选自身 3/3 单测、生产构建和 diff check 通过，真实 SQLite E2E 因旧基线无 SQLite
+  驱动而留在 fork 主线验证
 - fork PR #1：<https://github.com/ilh-github/go-remote-next/pull/1>，
   OPEN / MERGEABLE / CLEAN，7 项检查全部成功
 - upstream PR #25：<https://github.com/barry-ran/QuickDesk/pull/25>

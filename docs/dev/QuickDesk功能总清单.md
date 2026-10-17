@@ -1,6 +1,6 @@
 # QuickDesk 功能总清单
 
-> 最后对账：2026-10-17 22:40 CST。上游与 fork 状态都是动态的，实施前必须重新执行
+> 最后对账：2026-10-17 22:50 CST。上游与 fork 状态都是动态的，实施前必须重新执行
 > `git fetch --all --prune` 并核对 GitHub issue / PR。
 >
 > 本文件是 QuickDesk fork 后续产品开发的唯一功能清单。它合并三类输入：
@@ -43,7 +43,7 @@
 
 - 仓库：`go-remote-next`
 - 本地主分支：`dev`、`master`
-- 本地代码基线：`001a76c`（QD-510 工作流录制与回放核心）；验证记录和清单的 docs-only
+- 本地代码基线：`eba7ae2`（QD-506 Web 录像分块续传与 smoke 自举）；验证记录和清单的 docs-only
   提交位于其后，`dev` 与 `master` 保持同线
 - 远端 fork：`origin/dev` 仍为 `f6651f0`，本地 `dev` 尚未推送；领先数量以
   `git rev-list --count origin/dev..dev` 的实时值为准。远端写入恢复前不能把本地验收当成已发布
@@ -81,7 +81,7 @@
 
 最近验证：
 
-- 本轮代码提交：`001a76c`（QD-510 工作流核心）、`e688869`（访问码同步重试）、`5be14da`（SPAKE2 与传输错误码）、
+- 本轮代码提交：`de88f07`（QD-506 Web 录像分块续传）、`001a76c`（QD-510 工作流核心）、`e688869`（访问码同步重试）、`5be14da`（SPAKE2 与传输错误码）、
   `a982a10`（Windows 自动更新重启与缓存清理）、`c77dcae`（SQLite 轻量模式）、
   `64ab93a`（备份恢复与存储配额）、`37dd8aa`（Host 指标告警）、`3021ca9`
   （私密安全披露策略）、`3474203`（信令信任边界）；
@@ -93,7 +93,7 @@
   `dev` 切分支贡献、Remoting 改动由维护者处理”；不能再把“暂缓”理解成停止维护。
 - 上游 PR：#22、#23、#24、#25 均为 OPEN / MERGEABLE，但 GitHub 返回的
   `mergeStateStatus=UNSTABLE` 且没有 reported checks；不能把 MERGEABLE 写成 CI 已通过。
-- 清单统计：117 个唯一 QD ID；77 个 `[x]`、20 个 `[~]`、14 个 `[ ]`、
+- 清单统计：117 个唯一 QD ID；78 个 `[x]`、19 个 `[~]`、14 个 `[ ]`、
   3 个 `[!]`、2 个 `[>]`、1 个 `[-]`。
 - 上游待办已全部映射到本清单：10 个 open issue、4 个 open PR、3 个未完成 Roadmap
   项均有对应 QD、处理边界和上游贡献方式；上游已完成的 Roadmap 项只作为继承基线，
@@ -311,6 +311,18 @@
   `upstream/dev@f6651f0`，包含 5 个 MCP 源文件和 3 个通用 MCP 文档，不含 fork 清单、
   自托管记录或业务控制面；候选自身 19/19 测试、Clippy 零告警和
   `git diff --check upstream/dev...HEAD` 均通过。
+- QD-506 功能提交：`de88f07`。在线会话录像改为按 4 MiB 分块 PATCH 上传，服务端返回的
+  `Upload-Offset` 是唯一权威进度；409 会从服务端已有 offset 续传，瞬时网络错误和
+  429/5xx 重试但不推进本地 offset，4xx 立即失败。上传按钮显示进度并在上传期间禁用，
+  失败继续把索引标成 `failed`。WebClient 50/50 单测和生产构建通过；真实 SQLite
+  SignalingServer smoke 上传 196625 字节、4 个分片，完成状态和逐字节回读一致。
+- QD-506 smoke 自举提交：`eba7ae2`。真实服务脚本在源码树没有 `web/dist` 时创建临时嵌入文件，
+  构建后清理，不要求先构建管理端；脚本自身通过 `bash -n`。
+- QD-506 上游候选：`codex/upstream-qd-506-recording-upload` = `de45538`，基于 PR #23
+  当前 head `00a7cb8`。候选只含 Web 上传器、录制页接线、测试、E2E 脚本和候选基线所需
+  的 `type: module` / ESM copy-legacy 配置；候选自身 3/3 单测、生产构建和 diff check 通过。
+  PR #23 基线早于 QD-006，没有 SQLite 驱动，因此真实分片 E2E 在 fork 主线执行，候选
+  不复用 fork 后续 SQLite 代码。
 - QD-911 当前状态：上游 issue #6 仍 OPEN，GitHub API 返回
   `private-vulnerability-reporting.enabled=false`，维护者最新回复仍只是旧 release 链接。
   fork 与上游候选已新增根目录 `SECURITY.md`，覆盖支持版本、公开 issue 禁令、GitHub 私密
@@ -485,7 +497,7 @@ Private Vulnerability Reporting，后者等协议实现。当前继续做不依�
 | QD-503 | Qt 控制端手动录制 | `[x]` | DeviceRecorder |
 | QD-504 | Host/Relay 自动录制 | `[ ]` | 当前迭代 QD-004 |
 | QD-505 | 断线自动收尾 | `[ ]` | 仅控制端录制时没有 Host 侧收尾 |
-| QD-506 | 录像上传、断点续传 | `[~]` | 服务端和 SDK 已完成；Web UI 消费待补 |
+| QD-506 | 录像上传、断点续传 | `[x]` | `de88f07`：Web 在线录像按 4 MiB 分块上传，409 按服务端权威 offset 续传，瞬时错误重试、进度展示和失败收口已完成；WebClient 50/50、生产构建和真实 SQLite 4 分片逐字节 E2E 通过 |
 | QD-507 | Web 录像列表、播放、下载、删除 | `[x]` | `RecordingsPage.vue` |
 | QD-508 | Qt 录像回放页 | `[x]` | `74c7022` 已覆盖列表、分页、缩略图、应用内播放、外部打开、删除和实时刷新 |
 | QD-509 | 缩略图、保留期、孤儿回收 | `[x]` | 服务端生命周期已完成 |
