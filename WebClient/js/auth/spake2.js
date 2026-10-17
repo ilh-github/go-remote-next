@@ -63,6 +63,55 @@ function scReduce(bytes64) {
 }
 
 /**
+ * Reproduce BoringSSL's password-scalar compatibility adjustment.
+ *
+ * Adding L, 2L and 4L clears the low three bits while keeping the scalar
+ * equivalent in the prime-order subgroup. M and N also carry small-order
+ * components, so omitting this changes the SPAKE2 transcript.
+ */
+function applyBoringSslPasswordScalarHack(reducedScalar) {
+    let scalar = reducedScalar;
+    let order = CURVE_ORDER;
+
+    if ((scalar & 1n) !== 0n) {
+        scalar += order;
+    }
+    order <<= 1n;
+    if ((scalar & 2n) !== 0n) {
+        scalar += order;
+    }
+    order <<= 1n;
+    if ((scalar & 4n) !== 0n) {
+        scalar += order;
+    }
+
+    return scalar;
+}
+
+/**
+ * Multiply a point by a scalar that may exceed CURVE_ORDER.
+ *
+ * noble-curves rejects those scalars even though Edwards25519 arithmetic is
+ * well-defined. The BoringSSL-compatible password scalar needs the larger
+ * range, so use a local double-and-add loop for the two mask points only.
+ */
+function multiplyPointUnchecked(point, scalar) {
+    let result = point.constructor.ZERO;
+    let addend = point;
+    let remaining = scalar;
+
+    while (remaining > 0n) {
+        if ((remaining & 1n) !== 0n) {
+            result = result.add(addend);
+        }
+        addend = addend.add(addend);
+        remaining >>= 1n;
+    }
+
+    return result;
+}
+
+/**
  * 点乘以余因子 8: 计算 8 * (scalar * point) = (8*scalar) * point
  * 
  * noble-curves 的 multiply() 要求 scalar < CURVE_ORDER，
@@ -83,7 +132,7 @@ function multiplyWithCofactor(point, reducedScalar) {
  * 将密码字节映射为标量
  * 参照 BoringSSL SPAKE2_generate_msg:
  *   SHA512(password) → sc_reduce → password_scalar
- *   (注: 密码标量 hack 不影响协议正确性，可以省略)
+ *   sc_reduce 后再复刻 BoringSSL 的 password-scalar 兼容修正
  * 
  * @param {Uint8Array} passwordBytes - 密码字节
  * @returns {Promise<{scalar: bigint, hash: Uint8Array}>}
@@ -93,14 +142,10 @@ async function passwordToScalar(passwordBytes) {
     const passwordHash = await sha512(passwordBytes);
     
     // Step 2: sc_reduce (512-bit → mod l)
-    const scalar = scReduce(passwordHash);
-    
-    // 注: BoringSSL 的 "password scalar hack" (添加 l 的倍数清除底 3 位)
-    // 数学上证明: 因为私钥是 8 的倍数，hack 在共享密钥计算中被消除
-    // 因此可以安全省略 hack
+    const scalar = applyBoringSslPasswordScalarHack(scReduce(passwordHash));
     
     return {
-        scalar: scalar === 0n ? 1n : scalar,
+        scalar,
         hash: passwordHash,  // 64 字节，需要保存用于转录
     };
 }
@@ -164,7 +209,8 @@ export class Spake2Context {
      * 
      * 参照 BoringSSL SPAKE2_generate_msg:
      *   private_key = sc_reduce(random) * 8
-     *   password_scalar = sc_reduce(SHA512(password))
+     *   password_scalar = BoringSSL-compatible adjustment of
+     *                     sc_reduce(SHA512(password))
      *   my_msg = private_key * G + password_scalar * (M or N)
      * 
      * @param {Uint8Array} password - 密码字节 (shared_secret_hash, 32 bytes)
@@ -186,7 +232,7 @@ export class Spake2Context {
         //    等价于: 8 * (reducedPrivateKey * G) + passwordScalar * blindingPoint
         const G = ed25519.ExtendedPoint.BASE;
         const pubPoint = multiplyWithCofactor(G, this.reducedPrivateKey);
-        const blindedPoint = blindingPoint.multiply(passwordScalar);
+        const blindedPoint = multiplyPointUnchecked(blindingPoint, passwordScalar);
         const myMsgPoint = pubPoint.add(blindedPoint);
 
         // 5. 编码为压缩字节
@@ -222,7 +268,7 @@ export class Spake2Context {
         const unblindingPoint = this.role === SPAKE2_ROLE_ALICE ? this.pointN : this.pointM;
 
         // 3. 计算: Q = their_point - password_scalar * unblindingPoint
-        const blindedPoint = unblindingPoint.multiply(this.passwordScalar);
+        const blindedPoint = multiplyPointUnchecked(unblindingPoint, this.passwordScalar);
         const Q = theirPoint.add(blindedPoint.negate());
 
         // 4. K = (8 * reducedPrivateKey) * Q = 8 * (reducedPrivateKey * Q)
