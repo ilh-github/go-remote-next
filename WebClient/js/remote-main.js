@@ -15,6 +15,7 @@ import { CursorRenderer } from './ui/cursor-renderer.js';
 import { MouseButton } from './protocol/protobuf-messages.js';
 import { VideoStats } from './ui/video-stats.js';
 import { FloatingToolbar } from './ui/floating-toolbar.js';
+import { TabCoordinator } from './ui/tab-coordinator.js';
 import { IceConfigFetcher } from './ice-config-fetcher.js';
 import { t, applyI18n, getLocale, setLocale } from './i18n.js';
 import { userApi } from './api/user-api.js';
@@ -34,6 +35,7 @@ class RemoteDesktopApp {
         this.cursorRenderer = null;
         this.videoStats = null;
         this.floatingToolbar = null;
+        this.tabCoordinator = null;
 
         this._receivedStreams = null;
         this._selectedStreamId = null;
@@ -246,6 +248,7 @@ class RemoteDesktopApp {
         this._deviceId = deviceId;
         this._connectStartTime = Date.now();
         this._connectionRecorded = false;
+        this._setupTabCoordinator(deviceId);
 
         // Set up userApi base URL for connection recording
         userApi.setBaseUrl(serverUrl);
@@ -403,13 +406,62 @@ class RemoteDesktopApp {
                     : t('status.failed');
                 this._setConnectionState('failed', failMsg);
                 this._recordConnectionResult('failed', reason || 'Connection failed');
+                this.tabCoordinator?.releaseAll();
                 break;
             }
             case SessionState.CLOSED:
                 this._setConnectionState('failed', t('status.closed'));
                 this._recordConnectionResult('success');
+                this.tabCoordinator?.releaseAll();
                 break;
         }
+    }
+
+    _setupTabCoordinator(deviceId) {
+        if (this.tabCoordinator || !deviceId) return;
+
+        this.tabCoordinator = new TabCoordinator({ deviceId });
+        this.tabCoordinator.addEventListener('revoked', (event) => {
+            this._onTabResourceRevoked(event.detail);
+        });
+        this.tabCoordinator.start();
+
+        window.addEventListener('beforeunload', () => {
+            this.tabCoordinator?.releaseAll();
+        }, { once: true });
+    }
+
+    _onTabResourceRevoked(detail) {
+        if (!detail) return;
+
+        if (detail.resource === 'control') {
+            this._cleanupInputHandlers();
+            this._log(t('log.tabControlRevoked'), 'warning');
+            this._showTabControlNotice();
+            return;
+        }
+
+        if (detail.resource === 'audio') {
+            if (this.floatingToolbar) {
+                this.floatingToolbar.settings.audioEnabled = false;
+                this.floatingToolbar.refreshI18n();
+            }
+            this.dcHandler?.sendAudioControl({ enable: false });
+            this._log(t('log.tabAudioRevoked'), 'warning');
+        }
+    }
+
+    _showTabControlNotice() {
+        if (this._wallMode) return;
+        const overlay = document.getElementById('unmuteOverlay');
+        if (!overlay) return;
+        overlay.textContent = t('overlay.controlTaken');
+        overlay.style.display = 'block';
+        overlay.onclick = () => {
+            overlay.onclick = null;
+            overlay.style.display = 'none';
+            this._setupInputHandlers();
+        };
     }
 
     _recordConnectionResult(status, errorMsg) {
@@ -620,6 +672,8 @@ class RemoteDesktopApp {
         this.clipboardHandler = new ClipboardHandler(this.dcHandler);
         this.clipboardHandler.enable();
 
+        this.tabCoordinator?.claim('control');
+
         this.cursorRenderer = new CursorRenderer(videoContainer || video);
 
         this._setupDragDrop(videoContainer || video);
@@ -645,6 +699,9 @@ class RemoteDesktopApp {
         this.dcHandler.sendCapabilities(
             'sendAttentionSequenceAction lockWorkstationAction fileTransfer privacyScreen virtualDisplay');
         this.dcHandler.sendAudioControl({ enable: true });
+        if (!this._wallMode) {
+            this.tabCoordinator?.claim('audio');
+        }
         this._log(t('log.sentConfig'));
     }
 
@@ -1119,6 +1176,11 @@ class RemoteDesktopApp {
                 break;
             }
             case 'audio':
+                if (detail.value) {
+                    this.tabCoordinator?.claim('audio');
+                } else {
+                    this.tabCoordinator?.release('audio');
+                }
                 this.dcHandler.sendAudioControl({ enable: detail.value });
                 this._log(t('log.audioToggle', { state: detail.value ? t('log.audioOn') : t('log.audioOff') }));
                 break;
@@ -1154,6 +1216,7 @@ class RemoteDesktopApp {
     _disconnect() {
         // Release held input while the event data channel is still writable.
         this._cleanupInputHandlers();
+        this.tabCoordinator?.releaseAll();
         if (this.session) {
             this.session.disconnect();
         }
@@ -1208,6 +1271,7 @@ class RemoteDesktopApp {
             if (this.dcHandler) this._setupInputHandlers();
         } else {
             this._cleanupInputHandlers();
+            this.tabCoordinator?.release('control');
         }
     }
 
