@@ -12,6 +12,7 @@ import AuditLogPage from '../views/AuditLogPage.vue'
 import SystemLogsPage from '../views/SystemLogsPage.vue'
 import WebhooksPage from '../views/WebhooksPage.vue'
 import UpdateReleasesPage from '../views/UpdateReleasesPage.vue'
+import RemoteSessionsPage from '../views/RemoteSessionsPage.vue'
 import SettingsPage from '../views/SettingsPage.vue'
 
 const routes = [
@@ -29,6 +30,7 @@ const routes = [
   { path: '/system-logs', name: 'SystemLogs', component: SystemLogsPage, meta: { title: 'nav.systemLogs' } },
   { path: '/webhooks', name: 'Webhooks', component: WebhooksPage, meta: { title: 'nav.webhooks' } },
   { path: '/update-releases', name: 'UpdateReleases', component: UpdateReleasesPage, meta: { title: 'nav.updateReleases' } },
+  { path: '/remote-sessions', name: 'RemoteSessions', component: RemoteSessionsPage, meta: { title: 'nav.remoteSessions' } },
   { path: '/settings', name: 'Settings', component: SettingsPage, meta: { title: 'nav.settings' } }
 ]
 

@@ -26,6 +26,10 @@
           <el-icon><Monitor /></el-icon>
           <span v-if="!isMobile">{{ t('nav.devices') }}</span>
         </el-menu-item>
+        <el-menu-item index="/remote-sessions" :route="{ path: '/remote-sessions' }">
+          <el-icon><VideoCamera /></el-icon>
+          <span v-if="!isMobile">{{ t('nav.remoteSessions') }}</span>
+        </el-menu-item>
         <el-menu-item index="/preset" :route="{ path: '/preset' }">
           <el-icon><Setting /></el-icon>
           <span v-if="!isMobile">{{ t('nav.preset') }}</span>
@@ -113,7 +117,7 @@ import { useI18n } from 'vue-i18n'
 import { useSettingsStore } from './stores/settings.js'
 import { logout, onSessionEnded } from './api/auth.js'
 import { setLocale, getLocale } from './i18n'
-import { House, Monitor, Setting, User, UserFilled, SwitchButton, Tools, Connection, Folder, Document, Files, Link as LinkIcon, Upload } from '@element-plus/icons-vue'
+import { House, Monitor, VideoCamera, Setting, User, UserFilled, SwitchButton, Tools, Connection, Folder, Document, Files, Link as LinkIcon, Upload } from '@element-plus/icons-vue'
 
 const { t } = useI18n()
 const route = useRoute()
