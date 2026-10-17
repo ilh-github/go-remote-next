@@ -304,6 +304,53 @@ if (triggered) {
   console.log('note: set QD_SMOKE_DEVICE=<device_id> to also check a real event arriving');
 }
 
+// The WebClient updates its blocked-source list from this event, so pin the
+// event type and the fields it consumes against the live server. A full PUT is
+// used with the policy just read: it is semantically a no-op and the smoke
+// restores the same values it found.
+let policyTriggered = false;
+if (smokeDevice) {
+  const policy = await call('GET',
+    `/v1/me/devices/${smokeDevice}/access-policy`, undefined, accessToken);
+  check(policy.status === 200,
+    `GET access-policy: expected 200, got ${policy.status}`);
+  if (policy.status === 200) {
+    const put = await call('PUT',
+      `/v1/me/devices/${smokeDevice}/access-policy`, {
+        remote_disabled: policy.json?.remote_disabled ?? false,
+        allow_ips: policy.json?.allow_ips ?? [],
+        deny_ips: policy.json?.deny_ips ?? [],
+        max_sessions: policy.json?.max_sessions ?? 0,
+        allowed_windows: policy.json?.allowed_windows ?? [],
+        timezone: policy.json?.timezone ?? '',
+        exception_dates: policy.json?.exception_dates ?? [],
+        approval_required: policy.json?.approval_required ?? false,
+        approval_mode: policy.json?.approval_mode ?? 'off',
+        approval_trusted_ips: policy.json?.approval_trusted_ips ?? [],
+      }, accessToken);
+    check(put.status === 200, `PUT access-policy: expected 200, got ${put.status}`);
+    policyTriggered = put.status === 200;
+  }
+}
+
+if (policyTriggered) {
+  let policyEvent = null;
+  for (let i = 0; i < 10 && policyEvent === null; i++) {
+    const candidate = await events.next(1000).catch(() => null);
+    if (candidate?.type === 'device.access_policy.changed') policyEvent = candidate;
+  }
+  check(policyEvent !== null,
+    'events: no device.access_policy.changed event arrived after PUT access-policy');
+  if (policyEvent !== null) {
+    check(eventTypes.includes(policyEvent.type),
+      `events: live event type "${policyEvent.type}" is not in the documented catalogue`);
+    check(policyEvent.data?.device_id === smokeDevice,
+      `events: policy event device_id is "${policyEvent.data?.device_id}", want "${smokeDevice}"`);
+    check(Array.isArray(policyEvent.data?.deny_ips),
+      'events: policy event deny_ips is not an array');
+  }
+}
+
 events.close();
 
 // --- 5. events channel: a bad token is refused, not ignored -----------------
