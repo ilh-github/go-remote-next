@@ -41,3 +41,10 @@ export function revokeDeviceSessions(deviceId) {
     method: 'POST',
   })
 }
+
+export function banAccessSource(deviceId, source) {
+  return authJson(`${BASE}/devices/${encodeURIComponent(deviceId)}/access-bans`, {
+    method: 'POST',
+    body: JSON.stringify({ source }),
+  })
+}

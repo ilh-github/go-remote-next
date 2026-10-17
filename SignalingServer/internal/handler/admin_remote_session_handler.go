@@ -32,6 +32,8 @@ type AdminRemoteSessionHandler struct {
 	devices    *service.DeviceService
 	revoker    SessionRevoker
 	audit      *service.AuditService
+	policies   *service.DeviceAccessPolicyService
+	bus        *service.EventBus
 }
 
 func NewAdminRemoteSessionHandler(
@@ -41,10 +43,12 @@ func NewAdminRemoteSessionHandler(
 	devices *service.DeviceService,
 	revoker SessionRevoker,
 	audit *service.AuditService,
+	policies *service.DeviceAccessPolicyService,
+	bus *service.EventBus,
 ) *AdminRemoteSessionHandler {
 	return &AdminRemoteSessionHandler{
 		sessions: sessions, recordings: recordings, access: access, devices: devices,
-		revoker: revoker, audit: audit,
+		revoker: revoker, audit: audit, policies: policies, bus: bus,
 	}
 }
 
@@ -222,6 +226,62 @@ func (h *AdminRemoteSessionHandler) RevokeForDevice(c *gin.Context) {
 		"truncated": truncated,
 		"sessions":  results,
 	})
+}
+
+// BanIP permanently denies one controller source on any account's device.
+// Administrators already have the cross-user kick; this is the matching
+// "and do not let that source come back" action.
+func (h *AdminRemoteSessionHandler) BanIP(c *gin.Context) {
+	deviceID := strings.TrimSpace(c.Param("device_id"))
+	if deviceID == "" {
+		ProblemBadRequest(c, ProblemCodeInvalidRequest, "device_id is required")
+		return
+	}
+	var req deviceAccessBanReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		ProblemBadRequest(c, ProblemCodeInvalidRequest, err.Error())
+		return
+	}
+	device, err := h.devices.GetByDeviceID(c.Request.Context(), deviceID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			ProblemNotFound(c, ProblemCodeDeviceNotFound, "Device not found")
+			return
+		}
+		ProblemInternal(c, err.Error())
+		return
+	}
+	ownerID := uint(0)
+	if device.UserID != nil {
+		ownerID = *device.UserID
+	}
+	policy, err := h.policies.BanIP(c.Request.Context(), deviceID, ownerID, req.Source)
+	if err != nil {
+		if errors.Is(err, service.ErrInvalidDenyIP) {
+			ProblemBadRequest(c, ProblemCodeInvalidRequest, err.Error())
+			return
+		}
+		ProblemInternal(c, err.Error())
+		return
+	}
+	if h.audit != nil {
+		h.audit.Log(c.Request.Context(), middleware.MustAdminID(c), "", "device.access_ban",
+			"device", deviceID, "source="+strings.TrimSpace(req.Source), c.ClientIP())
+	}
+	if h.bus != nil && ownerID > 0 {
+		h.bus.Publish(c.Request.Context(), service.Event{
+			Type:     service.EventDevicePolicyChanged,
+			UserID:   ownerID,
+			DeviceID: deviceID,
+			Data: map[string]interface{}{
+				"device_id": deviceID,
+				"deny_ips":  decodeAllowIPsForEvent(policy.DenyIPs),
+				"ip":        c.ClientIP(),
+				"reason":    "administrator banned access source",
+			},
+		})
+	}
+	c.JSON(http.StatusOK, policyView(deviceID, policy))
 }
 
 // attachRelated is the admin twin of RemoteSessionHandler.attachRelated: it

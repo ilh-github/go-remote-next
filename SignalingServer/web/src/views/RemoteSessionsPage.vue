@@ -107,7 +107,7 @@
             <span class="mono">{{ row.session?.end_reason || '-' }}</span>
           </template>
         </el-table-column>
-        <el-table-column :label="t('common.operation')" width="110" fixed="right">
+        <el-table-column :label="t('common.operation')" width="190" fixed="right">
           <template #default="{ row }">
             <el-button
               v-if="row.session?.active"
@@ -117,6 +117,14 @@
               :loading="kickingId === row.session?.session_id"
               @click="kick(row)"
             >{{ t('remoteSessions.kick') }}</el-button>
+            <el-button
+              v-if="row.session?.active && row.session?.client_ip"
+              link
+              type="warning"
+              size="small"
+              :loading="kickingId === row.session?.session_id"
+              @click="banSource(row)"
+            >{{ t('remoteSessions.banSource') }}</el-button>
             <span v-else>-</span>
           </template>
         </el-table-column>
@@ -140,6 +148,7 @@ import {
   listRemoteSessions,
   revokeRemoteSession,
   revokeDeviceSessions,
+  banAccessSource,
 } from '../api/remoteSessions.js'
 
 const { t } = useI18n()
@@ -220,6 +229,29 @@ async function kick(row) {
     await revokeRemoteSession(session.session_id)
     ElMessage.success(t('remoteSessions.kicked'))
     await load(true)
+  } catch (err) {
+    ElMessage.error(err?.detail || err?.message || String(err))
+  } finally {
+    kickingId.value = ''
+  }
+}
+
+async function banSource(row) {
+  const session = row.session
+  if (!session?.device_id || !session?.client_ip) return
+  try {
+    await ElMessageBox.confirm(
+      t('remoteSessions.banConfirm', { ip: session.client_ip }),
+      t('remoteSessions.banSource'),
+      { type: 'warning' },
+    )
+  } catch {
+    return
+  }
+  kickingId.value = session.session_id
+  try {
+    await banAccessSource(session.device_id, session.client_ip)
+    ElMessage.success(t('remoteSessions.banned', { ip: session.client_ip }))
   } catch (err) {
     ElMessage.error(err?.detail || err?.message || String(err))
   } finally {

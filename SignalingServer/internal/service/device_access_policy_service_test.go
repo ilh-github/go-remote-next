@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"quickdesk/signaling/internal/models"
+	"quickdesk/signaling/internal/repository"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -186,6 +187,54 @@ func TestBanIPPersistsAndIsIdempotent(t *testing.T) {
 	if len(entries) != 2 || entries[0] != "198.51.100.2" || entries[1] != "203.0.113.7" {
 		t.Fatalf("deny list after two identical bans = %v", entries)
 	}
+}
+
+func TestDeletingDeviceRemovesItsAccessPolicy(t *testing.T) {
+	db := newAccessPolicyTestDB(t)
+	const (
+		deviceID = "880000004"
+		userID   = uint(990304)
+	)
+	if err := db.AutoMigrate(&models.User{}, &models.Device{}); err != nil {
+		t.Fatalf("migrate device tables: %v", err)
+	}
+	if err := db.Exec("DELETE FROM devices WHERE device_id = ?", deviceID).Error; err != nil {
+		t.Fatalf("clear device: %v", err)
+	}
+	if err := db.Exec("DELETE FROM users WHERE id = ?", userID).Error; err != nil {
+		t.Fatalf("clear user: %v", err)
+	}
+	if err := db.Exec(
+		"INSERT INTO users (id, username, password) VALUES (?, 'policy-delete-owner', 'test-hash')",
+		userID,
+	).Error; err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	owner := userID
+	if err := db.Create(&models.Device{
+		DeviceID:   deviceID,
+		DeviceUUID: "uuid-policy-delete-owner",
+		DeviceName: "policy-delete-owner",
+		UserID:     &owner,
+	}).Error; err != nil {
+		t.Fatalf("seed device: %v", err)
+	}
+	policies := NewDeviceAccessPolicyService(db)
+	if _, err := policies.BanIP(context.Background(), deviceID, userID, "203.0.113.44"); err != nil {
+		t.Fatalf("seed policy: %v", err)
+	}
+	devices := NewDeviceService(repository.NewDeviceRepository(db), NewDeviceSecretService())
+	if err := devices.Delete(context.Background(), deviceID); err != nil {
+		t.Fatalf("delete device: %v", err)
+	}
+	row, err := policies.Get(context.Background(), deviceID)
+	if err != nil {
+		t.Fatalf("reload policy: %v", err)
+	}
+	if row != nil {
+		t.Fatalf("device delete left an orphan access policy: %+v", row)
+	}
+	_ = db.Exec("DELETE FROM users WHERE id = ?", userID)
 }
 
 func TestEvaluateDeviceAccessPolicy(t *testing.T) {

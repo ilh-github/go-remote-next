@@ -413,7 +413,17 @@ func (s *DeviceService) CountSince(ctx context.Context, since time.Time) (int64,
 }
 
 func (s *DeviceService) Delete(ctx context.Context, deviceID string) error {
-	return s.repo.Delete(ctx, deviceID)
+	return s.repo.DB(ctx).Transaction(func(tx *gorm.DB) error {
+		// Access policy is keyed by device_id without a database-level foreign
+		// key. Delete it in the same transaction so a later random device-id
+		// allocation can never inherit an old deny list.
+		if err := tx.Where("device_id = ?", deviceID).
+			Delete(&models.DeviceAccessPolicy{}).Error; err != nil {
+			return err
+		}
+		return tx.Where("device_id = ?", deviceID).
+			Delete(&models.Device{}).Error
+	})
 }
 
 // allocateDeviceID tries up to 10 cryptographically-random 9-digit IDs,

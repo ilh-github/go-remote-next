@@ -526,7 +526,8 @@ func main() {
 		sessionRecordingService, auditService, recordingLifecycle,
 		cfg.Recording.RetentionDays, cfg.Recording.StaleMinutes)
 	adminRemoteSessionHandler := handler.NewAdminRemoteSessionHandler(
-		remoteSessionService, sessionRecordingService, deviceAccessService, deviceService, realtimeHandler, auditService)
+		remoteSessionService, sessionRecordingService, deviceAccessService, deviceService,
+		realtimeHandler, auditService, deviceAccessPolicyService, bus)
 	adminNotificationDeliveryHandler := handler.NewAdminNotificationDeliveryHandler(
 		notificationDeliveryService, auditService,
 		cfg.Notification.RetentionDays, cfg.Notification.ArchiveRetentionDays)
@@ -832,6 +833,7 @@ func main() {
 		// Clear every live controller off one machine, whatever instance holds
 		// each socket.
 		adminGuarded.POST("/devices/:device_id/sessions:revoke", adminRemoteSessionHandler.RevokeForDevice)
+		adminGuarded.POST("/devices/:device_id/access-bans", adminRemoteSessionHandler.BanIP)
 		adminGuarded.POST("/devices:batch", func(c *gin.Context) {
 			adminDevicesHandler.Batch(c, groupService)
 		})
