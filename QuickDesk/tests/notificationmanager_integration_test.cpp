@@ -63,6 +63,9 @@ int main(int argc, char** argv) {
     QJsonObject offlinePutBody;
     QString offlineGetPath;
     QString offlineDeletePath;
+    QJsonObject metricAlertPutBody;
+    QString metricAlertGetPath;
+    QString metricAlertDeletePath;
     QString deliveriesPath;
     QString retryDeliveryPath;
     QString ackDeliveryPath;
@@ -163,6 +166,35 @@ int main(int argc, char** argv) {
                     == QStringLiteral(
                         "/v1/me/devices/device-1/offline-alert")) {
                 offlineDeletePath = url.path();
+                callback(204, "", "");
+                return;
+            }
+            if (method == "GET"
+                && url.path()
+                    == QStringLiteral(
+                        "/v1/me/devices/device-1/metric-alert")) {
+                metricAlertGetPath = url.path();
+                callback(
+                    200, "",
+                    R"({"device_id":"device-1","enabled":true,"cpu_percent":75.0,"memory_percent":80.0,"disk_percent":90.0,"sustained_minutes":15,"repeat_minutes":60,"snoozed_until":null,"current":{"captured_at":"2026-10-17T04:10:00Z","cpu_percent":12.5,"memory_percent":42.0,"disk_percent":88.0,"disk_mount":"/"}})");
+                return;
+            }
+            if (method == "PUT"
+                && url.path()
+                    == QStringLiteral(
+                        "/v1/me/devices/device-1/metric-alert")) {
+                metricAlertPutBody = QJsonDocument::fromJson(
+                    body.toUtf8()).object();
+                callback(
+                    200, "",
+                    R"({"device_id":"device-1","enabled":true,"cpu_percent":81.0,"memory_percent":82.0,"disk_percent":91.0,"sustained_minutes":20,"repeat_minutes":120,"snoozed_until":"2026-10-18T02:00:00Z"})");
+                return;
+            }
+            if (method == "DELETE"
+                && url.path()
+                    == QStringLiteral(
+                        "/v1/me/devices/device-1/metric-alert")) {
+                metricAlertDeletePath = url.path();
                 callback(204, "", "");
                 return;
             }
@@ -400,6 +432,73 @@ int main(int argc, char** argv) {
            QStringLiteral("offline alert delete uses the owner-scoped route"));
     Expect(!manager.offlineAlert().value(QStringLiteral("enabled")).toBool(),
            QStringLiteral("offline alert delete resets the manager state"));
+
+    manager.loadMetricAlert(QStringLiteral("device-1"));
+    Expect(WaitUntil([&]() { return !manager.busy(); }, 5000),
+           QStringLiteral("metric alert load finishes"));
+    Expect(metricAlertGetPath
+               == QStringLiteral("/v1/me/devices/device-1/metric-alert"),
+           QStringLiteral("metric alert uses the owner-scoped device route"));
+    Expect(manager.metricAlert()
+               .value(QStringLiteral("cpu_percent")).toInt() == 75,
+           QStringLiteral("metric alert threshold is preserved"));
+    Expect(manager.metricCurrentValue()
+               .value(QStringLiteral("cpu_percent")).toDouble() == 12.5,
+           QStringLiteral("metric alert current values are exposed"));
+
+    manager.saveMetricAlert(
+        true, 81, 82, 91, 20, 120,
+        QStringLiteral("2026-10-18T02:00:00Z"));
+    Expect(WaitUntil([&]() { return !manager.busy(); }, 5000),
+           QStringLiteral("metric alert save finishes"));
+    Expect(metricAlertPutBody.value(QStringLiteral("enabled")).toBool(),
+           QStringLiteral("metric alert save carries enabled state"));
+    Expect(metricAlertPutBody.value(QStringLiteral("cpu_percent")).toInt()
+               == 81,
+           QStringLiteral("metric alert save carries the CPU threshold"));
+    Expect(metricAlertPutBody.value(QStringLiteral("memory_percent")).toInt()
+               == 82,
+           QStringLiteral("metric alert save carries the memory threshold"));
+    Expect(metricAlertPutBody.value(QStringLiteral("disk_percent")).toInt()
+               == 91,
+           QStringLiteral("metric alert save carries the disk threshold"));
+    Expect(metricAlertPutBody.value(QStringLiteral("sustained_minutes")).toInt()
+               == 20,
+           QStringLiteral("metric alert save carries the sustained window"));
+    Expect(metricAlertPutBody.value(QStringLiteral("repeat_minutes")).toInt()
+               == 120,
+           QStringLiteral("metric alert save carries the repeat interval"));
+    Expect(metricAlertPutBody.value(QStringLiteral("snoozed_until")).toString()
+               == QStringLiteral("2026-10-18T02:00:00Z"),
+           QStringLiteral("metric alert save carries the snooze deadline"));
+
+    manager.handleRealtimeEvent(
+        QVariantMap{
+            {QStringLiteral("type"),
+             QStringLiteral("device.metrics.updated")},
+            {QStringLiteral("data"),
+             QVariantMap{
+                 {QStringLiteral("device_id"), QStringLiteral("device-1")},
+                 {QStringLiteral("captured_at"),
+                  QStringLiteral("2026-10-17T04:15:00Z")},
+                 {QStringLiteral("cpu_percent"), 44.5},
+                 {QStringLiteral("memory_percent"), 55.5},
+                 {QStringLiteral("disk_percent"), 92.0},
+                 {QStringLiteral("disk_mount"), QStringLiteral("/")},
+             }},
+        });
+    Expect(manager.metricCurrentValue()
+               .value(QStringLiteral("cpu_percent")).toDouble() == 44.5,
+           QStringLiteral("metric realtime event updates current values"));
+
+    manager.removeMetricAlert();
+    Expect(WaitUntil([&]() { return !manager.busy(); }, 5000),
+           QStringLiteral("metric alert delete finishes"));
+    Expect(metricAlertDeletePath
+               == QStringLiteral("/v1/me/devices/device-1/metric-alert"),
+           QStringLiteral("metric alert delete uses the owner-scoped route"));
+    Expect(!manager.metricAlert().value(QStringLiteral("enabled")).toBool(),
+           QStringLiteral("metric alert delete resets the manager state"));
 
     manager.loadDeliveries(21);
     Expect(WaitUntil([&]() { return !manager.busy(); }, 5000),

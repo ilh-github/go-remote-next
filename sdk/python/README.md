@@ -162,12 +162,16 @@ Class | Method | HTTP request | Description
 *DevicesApi* | [**list_access_grants**](docs/DevicesApi.md#list_access_grants) | **GET** /v1/me/devices/{device_id}/access-grants | Guest access codes issued for a device
 *DevicesApi* | [**list_my_devices**](docs/DevicesApi.md#list_my_devices) | **GET** /v1/me/devices | Devices owned by the authenticated user
 *DevicesApi* | [**put_access_policy**](docs/DevicesApi.md#put_access_policy) | **PUT** /v1/me/devices/{device_id}/access-policy | Create or replace the device&#39;s access policy
+*DevicesApi* | [**report_host_metrics**](docs/DevicesApi.md#report_host_metrics) | **POST** /v1/devices/{device_id}/metrics | Report the host&#39;s latest resource sample
 *DevicesApi* | [**revoke_access_grant**](docs/DevicesApi.md#revoke_access_grant) | **DELETE** /v1/me/devices/{device_id}/access-grants/{grant_id} | Revoke a guest access code
 *DevicesApi* | [**unban_device_access_source**](docs/DevicesApi.md#unban_device_access_source) | **POST** /v1/me/devices/{device_id}/access-bans:remove | Remove one permanent source ban
 *DevicesApi* | [**verify_access_code**](docs/DevicesApi.md#verify_access_code) | **POST** /v1/devices/{device_id}/access-code:verify | Verify a device access code and mint a signal token
 *MeApi* | [**get_me**](docs/MeApi.md#get_me) | **GET** /v1/me | The authenticated user
+*NotificationsApi* | [**delete_metric_alert**](docs/NotificationsApi.md#delete_metric_alert) | **DELETE** /v1/me/devices/{device_id}/metric-alert | Delete the owner&#39;s metric alert rule
+*NotificationsApi* | [**get_metric_alert**](docs/NotificationsApi.md#get_metric_alert) | **GET** /v1/me/devices/{device_id}/metric-alert | The owner&#39;s CPU, memory, and disk alert rule
 *NotificationsApi* | [**get_offline_alert**](docs/NotificationsApi.md#get_offline_alert) | **GET** /v1/me/devices/{device_id}/offline-alert | The owner&#39;s offline-alert rule for a device
 *NotificationsApi* | [**list_notification_channels**](docs/NotificationsApi.md#list_notification_channels) | **GET** /v1/me/notification-channels | The user&#39;s notification channels
+*NotificationsApi* | [**put_metric_alert**](docs/NotificationsApi.md#put_metric_alert) | **PUT** /v1/me/devices/{device_id}/metric-alert | Create or replace the owner&#39;s metric alert rule
 *NotificationsApi* | [**put_offline_alert**](docs/NotificationsApi.md#put_offline_alert) | **PUT** /v1/me/devices/{device_id}/offline-alert | Create or replace the owner&#39;s offline-alert rule
 *RecordingsApi* | [**append_recording_artifact**](docs/RecordingsApi.md#append_recording_artifact) | **PATCH** /v1/me/recordings/{recording_id}/artifact | Append one chunk of a resumable recording upload
 *RecordingsApi* | [**create_recording_artifact_ticket**](docs/RecordingsApi.md#create_recording_artifact_ticket) | **POST** /v1/me/recordings/{recording_id}/artifact-ticket | Mint a short-lived playback URL for a recording
@@ -217,10 +221,16 @@ Class | Method | HTTP request | Description
  - [DeviceAccessBanRequest](docs/DeviceAccessBanRequest.md)
  - [DeviceAccessPolicy](docs/DeviceAccessPolicy.md)
  - [DeviceAccessPolicyInput](docs/DeviceAccessPolicyInput.md)
+ - [HostMetricReport](docs/HostMetricReport.md)
  - [ListAccessApprovals200Response](docs/ListAccessApprovals200Response.md)
  - [ListAccessGrants200Response](docs/ListAccessGrants200Response.md)
  - [ListMyDevices200Response](docs/ListMyDevices200Response.md)
  - [MaintenanceWindow](docs/MaintenanceWindow.md)
+ - [MetricAlertInput](docs/MetricAlertInput.md)
+ - [MetricAlertRule](docs/MetricAlertRule.md)
+ - [MetricAlertState](docs/MetricAlertState.md)
+ - [MetricAlertStates](docs/MetricAlertStates.md)
+ - [MetricSnapshot](docs/MetricSnapshot.md)
  - [NotificationChannel](docs/NotificationChannel.md)
  - [NotificationChannelList](docs/NotificationChannelList.md)
  - [OfflineAlertInput](docs/OfflineAlertInput.md)
@@ -236,6 +246,7 @@ Class | Method | HTTP request | Description
  - [RemoteSessionDetailList](docs/RemoteSessionDetailList.md)
  - [RemoteSessionList](docs/RemoteSessionList.md)
  - [RemoteSessionRevocation](docs/RemoteSessionRevocation.md)
+ - [ReportHostMetrics200Response](docs/ReportHostMetrics200Response.md)
  - [RevokeAccessGrant200Response](docs/RevokeAccessGrant200Response.md)
  - [SessionRecording](docs/SessionRecording.md)
  - [SessionRecordingInput](docs/SessionRecordingInput.md)

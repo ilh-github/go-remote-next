@@ -5,8 +5,12 @@
 #include "manager/ServerManager.h"
 
 #include <QCoreApplication>
+#include <QDateTime>
 #include <QElapsedTimer>
 #include <QEventLoop>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QWebSocket>
@@ -177,6 +181,88 @@ int main(int argc, char** argv) {
     Expect(accessCodeRequestCount == 2,
            QStringLiteral("successful sync remains de-duplicated"));
     accessCodeServer.close();
+
+    QTcpServer metricServer;
+    Expect(metricServer.listen(QHostAddress::LocalHost, 0),
+           QStringLiteral("host metrics server listens"));
+    int metricRequestCount = 0;
+    QByteArray metricRequest;
+    QObject::connect(
+        &metricServer, &QTcpServer::newConnection,
+        [&]() {
+            while (QTcpSocket* socket = metricServer.nextPendingConnection()) {
+                auto buffer = std::make_shared<QByteArray>();
+                QObject::connect(
+                    socket, &QTcpSocket::readyRead,
+                    [&, socket, buffer]() {
+                        const QByteArray request = HttpRequestBytes(socket, *buffer);
+                        if (request.isEmpty()) return;
+                        ++metricRequestCount;
+                        metricRequest = request;
+                        const QByteArray body = QByteArrayLiteral(R"({"status":"accepted"})");
+                        socket->write(
+                            "HTTP/1.1 202 Accepted\r\n"
+                            "Content-Type: application/json\r\n"
+                            "Content-Length: " + QByteArray::number(body.size()) + "\r\n"
+                            "Connection: close\r\n\r\n" + body);
+                        socket->disconnectFromHost();
+                    });
+                QObject::connect(socket, &QTcpSocket::disconnected,
+                                 socket, &QObject::deleteLater);
+            }
+        });
+
+    serverManager.setServerUrl(
+        QStringLiteral("ws://127.0.0.1:%1").arg(metricServer.serverPort()));
+    manager.reportHostMetrics(
+        QStringLiteral("metric-device"),
+        QJsonObject{
+            {QStringLiteral("cpu"),
+             QJsonObject{{QStringLiteral("usage_percent"),
+                          QStringLiteral("37.5")}}},
+            {QStringLiteral("memory"),
+             QJsonObject{{QStringLiteral("usage_percent"),
+                          QStringLiteral("61.25")}}},
+            {QStringLiteral("disks"),
+             QJsonArray{
+                 QJsonObject{
+                     {QStringLiteral("mount"), QStringLiteral("C:\\")},
+                     {QStringLiteral("total_gb"), 100.0},
+                     {QStringLiteral("available_gb"), 25.0},
+                 },
+                 QJsonObject{
+                     {QStringLiteral("mount"), QStringLiteral("D:\\")},
+                     {QStringLiteral("total_gb"), 200.0},
+                     {QStringLiteral("available_gb"), 20.0},
+                 },
+             }},
+        });
+    Expect(WaitUntil([&]() { return metricRequestCount == 1; }, 5000),
+           QStringLiteral("host metrics snapshot is posted"));
+    Expect(metricRequest.startsWith("POST /v1/devices/metric-device/metrics "),
+           QStringLiteral("host metrics uses the device POST route"));
+    Expect(metricRequest.toLower().contains(
+               "authorization: bearer test-device-secret"),
+           QStringLiteral("host metrics uses device-secret authentication"));
+    const qsizetype metricHeaderEnd = metricRequest.indexOf("\r\n\r\n");
+    Expect(metricHeaderEnd >= 0,
+           QStringLiteral("host metrics request has headers"));
+    const QJsonObject metricBody = QJsonDocument::fromJson(
+        metricRequest.mid(metricHeaderEnd + 4)).object();
+    Expect(QDateTime::fromString(
+               metricBody.value(QStringLiteral("captured_at")).toString(),
+               Qt::ISODateWithMs).isValid(),
+           QStringLiteral("host metrics carries a valid capture time"));
+    Expect(metricBody.value(QStringLiteral("cpu_percent")).toDouble() == 37.5,
+           QStringLiteral("host metrics carries CPU usage"));
+    Expect(metricBody.value(QStringLiteral("memory_percent")).toDouble() == 61.25,
+           QStringLiteral("host metrics carries memory usage"));
+    Expect(metricBody.value(QStringLiteral("disk_percent")).toDouble() == 90.0,
+           QStringLiteral("host metrics reports the most-used disk"));
+    Expect(metricBody.value(QStringLiteral("disk_mount")).toString()
+               == QStringLiteral("D:\\"),
+           QStringLiteral("host metrics identifies the reported disk"));
+    metricServer.close();
 
     bool failed = false;
     QString failedDeviceId;

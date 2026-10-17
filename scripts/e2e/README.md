@@ -9,6 +9,7 @@
 | 文件 | 作用 |
 |---|---|
 | `test-quickdesk-minimal-server.sh` | 从临时目录构建并启动轻量信令（SQLite + 进程内 Redis），断言 `/health` 不依赖外部 PostgreSQL/Redis，并在重启后确认 SQLite 数据文件仍在 |
+| `test-quickdesk-metric-alerts.sh` | 在 SQLite 轻量信令上创建真实账号、设备和 `device_secret`，设置 CPU 规则并上报超限样本，断言 `device.metric.alert` 经持久通知 outbox 投递到真实 Webhook，同时校验最新快照与独立 episode 状态 |
 | `test-quickdesk-backup-restore.sh` | 启动真实轻量信令生成 SQLite/媒体数据，运行 `quickdesk-backup` 备份并恢复，校验 manifest、数据库快照、录像和安装包字节后用恢复库重新启动 |
 | `remote-smoke.mjs` | 用真实 Chrome 打开 WebClient，连接设备，断言解码后的视频帧在推进；可选向远端打字 |
 | `record.mjs` | 连上之后点录制按钮，录一段再停止，断言上传日志出现（录 → 存 → 索引） |

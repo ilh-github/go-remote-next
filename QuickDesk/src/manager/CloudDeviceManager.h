@@ -4,6 +4,7 @@
 
 #include <functional>
 
+#include <QJsonObject>
 #include <QObject>
 #include <QSet>
 #include <QString>
@@ -70,6 +71,10 @@ public:
     // Host delivers device_secret through native-messaging at hostReady;
     // CloudDeviceManager keeps the value in memory only (HostManager owns it).
     Q_INVOKABLE void syncAccessCode(const QString& deviceId, const QString& accessCode);
+
+    // POST /v1/devices/:device_id/metrics with a single sys-info snapshot.
+    void reportHostMetrics(const QString& deviceId,
+                           const QJsonObject& systemInfo);
 
     // §2.6: verify access_code and mint a one-shot signaling token for
     // the client process. POST /v1/devices/:id/access-code:verify;
@@ -148,6 +153,7 @@ private:
     // Headers for device-level (Bearer device_secret) requests.
     QList<QPair<QString, QString>> deviceSecretHeaders() const;
     QString currentDeviceSecret() const;
+    static QJsonObject metricsBody(const QJsonObject& systemInfo);
 
     void handleEventFrame(const QJsonObject& msg);
     void handleSnapshotFrame(const QJsonObject& msg);

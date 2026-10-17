@@ -634,6 +634,28 @@ class UserApi {
     )
   }
 
+  fetchDeviceMetricAlert(deviceId) {
+    return this._req(
+      'GET',
+      `/v1/me/devices/${encodeURIComponent(deviceId)}/metric-alert`,
+    )
+  }
+
+  updateDeviceMetricAlert(deviceId, body) {
+    return this._req(
+      'PUT',
+      `/v1/me/devices/${encodeURIComponent(deviceId)}/metric-alert`,
+      body,
+    )
+  }
+
+  deleteDeviceMetricAlert(deviceId) {
+    return this._req(
+      'DELETE',
+      `/v1/me/devices/${encodeURIComponent(deviceId)}/metric-alert`,
+    )
+  }
+
   // ========================================================================
   // Session recordings — user-owned index of recorded remote sessions.
   // The control plane owns discovery/ownership/lifecycle metadata; media

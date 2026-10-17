@@ -31,6 +31,8 @@ Item {
     property date quietSnoozeDate: new Date(Date.now() + 3600000)
     property bool offlineSnoozeEnabled: false
     property date offlineSnoozeDate: new Date(Date.now() + 3600000)
+    property bool metricSnoozeEnabled: false
+    property date metricSnoozeDate: new Date(Date.now() + 3600000)
     property var quietWindows: []
     property var offlineWindows: []
     property bool refreshPending: false
@@ -41,6 +43,8 @@ Item {
         if (event === "device.access.session") return qsTr("Session started")
         if (event === "device.online.changed") return qsTr("Online status")
         if (event === "device.offline.sustained") return qsTr("Sustained offline")
+        if (event === "device.metrics.updated") return qsTr("Host metrics")
+        if (event === "device.metric.alert") return qsTr("Metric alert")
         if (event === "device.bound") return qsTr("Device bound")
         if (event === "device.unbound") return qsTr("Device unbound")
         if (event === "device.access_approval.requested") return qsTr("Approval requested")
@@ -67,6 +71,15 @@ Item {
 
     function cloneList(value) {
         return JSON.parse(JSON.stringify(value || []))
+    }
+
+    function numericOr(value, fallback) {
+        return value === undefined || value === null || value === ""
+               ? fallback : Number(value)
+    }
+
+    function percentText(value) {
+        return Number(value || 0).toFixed(1)
     }
 
     function hasDraftEvent(event) {
@@ -231,6 +244,47 @@ Item {
         root.manager.removeOfflineAlert()
     }
 
+    function applyMetricAlert() {
+        if (!root.manager) return
+        var value = root.manager.metricAlert || {}
+        metricEnabledSwitch.checked = !!value.enabled
+        metricCpuField.text = String(root.numericOr(value.cpu_percent, 80))
+        metricMemoryField.text = String(root.numericOr(value.memory_percent, 80))
+        metricDiskField.text = String(root.numericOr(value.disk_percent, 85))
+        metricSustainedField.text =
+            String(root.numericOr(value.sustained_minutes, 5))
+        metricRepeatField.text = String(root.numericOr(value.repeat_minutes, 0))
+        root.metricSnoozeEnabled = !!value.snoozed_until
+        root.metricSnoozeDate = dateFrom(
+            value.snoozed_until, new Date(Date.now() + 3600000))
+        metricSnoozeSwitch.checked = root.metricSnoozeEnabled
+        metricSnoozePicker.selectedDate = root.metricSnoozeDate
+    }
+
+    function saveMetricAlert() {
+        if (!root.manager || root.selectedDeviceId === "") return
+        root.manager.saveMetricAlert(
+            metricEnabledSwitch.checked,
+            Number(metricCpuField.text || 80),
+            Number(metricMemoryField.text || 80),
+            Number(metricDiskField.text || 85),
+            Number(metricSustainedField.text || 5),
+            Number(metricRepeatField.text || 0),
+            root.metricSnoozeEnabled
+                ? root.metricSnoozeDate.toISOString() : "")
+    }
+
+    function removeMetricAlert() {
+        if (!root.manager || root.selectedDeviceId === "") return
+        root.manager.removeMetricAlert()
+    }
+
+    function refreshDeviceAlerts() {
+        root.refreshOfflineAlert()
+        if (root.manager && root.selectedDeviceId !== "")
+            root.manager.loadMetricAlert(root.selectedDeviceId)
+    }
+
     function rebuildDevices() {
         deviceModel.clear()
         var devices = root.cloudManager ? root.cloudManager.myDevices : []
@@ -243,7 +297,7 @@ Item {
         if (root.selectedDeviceId === "" && deviceModel.count > 0) {
             root.selectedDeviceId = deviceModel.get(0).value
             deviceCombo.currentIndex = 0
-            Qt.callLater(root.refreshOfflineAlert)
+            Qt.callLater(root.refreshDeviceAlerts)
         } else if (root.selectedDeviceId !== "") {
             var selectedIndex = deviceCombo.indexOfValue(root.selectedDeviceId)
             if (selectedIndex >= 0) deviceCombo.currentIndex = selectedIndex
@@ -259,7 +313,7 @@ Item {
         if (!root.manager || !root.isLoggedIn) return
         root.manager.refreshChannels()
         root.manager.loadQuietHours()
-        root.refreshOfflineAlert()
+        root.refreshDeviceAlerts()
         if (root.deliveryChannelId > 0)
             root.manager.loadDeliveries(root.deliveryChannelId)
     }
@@ -334,6 +388,10 @@ Item {
             root.applyOfflineAlert()
         }
 
+        function onMetricAlertChanged() {
+            root.applyMetricAlert()
+        }
+
         function onLastRequeuedCountChanged() {
             if (root.manager && root.manager.lastRequeuedCount > 0) {
                 root.showToast(qsTr("%1 failed deliveries requeued")
@@ -345,6 +403,9 @@ Item {
         function onRealtimeEventReceived(type, deviceId) {
             if (type === "device.offline.sustained") {
                 root.showToast(qsTr("A device has stayed offline past its alert threshold"),
+                               QDToast.Type.Warning)
+            } else if (type === "device.metric.alert") {
+                root.showToast(qsTr("A host metric stayed above its alert threshold"),
                                QDToast.Type.Warning)
             }
         }
@@ -367,6 +428,16 @@ Item {
         onTriggered: {
             root.refreshPending = false
             root.refreshAll()
+        }
+    }
+
+    Timer {
+        interval: 60000
+        repeat: true
+        running: root.isLoggedIn && root.selectedDeviceId !== ""
+        onTriggered: {
+            if (root.manager && !root.manager.busy)
+                root.manager.loadMetricAlert(root.selectedDeviceId)
         }
     }
 
@@ -432,7 +503,7 @@ Item {
                 }
 
                 Text {
-                    text: qsTr("Webhook channels, quiet hours and sustained-offline alerts.")
+                    text: qsTr("Webhook channels, quiet hours, offline and host metric alerts.")
                     font.pixelSize: Theme.fontSizeSmall
                     color: Theme.textSecondary
                     wrapMode: Text.WordWrap
@@ -858,7 +929,7 @@ Item {
                             valueRole: "value"
                             onActivated: {
                                 root.selectedDeviceId = selectedValue
-                                root.refreshOfflineAlert()
+                                root.refreshDeviceAlerts()
                             }
                         }
 
@@ -948,6 +1019,198 @@ Item {
                                       .arg(root.formatTime(
                                            root.manager
                                            ? root.manager.offlineAlert.offline_since : ""))
+                                color: Theme.warning
+                                font.pixelSize: Theme.fontSizeSmall
+                            }
+                        }
+                    }
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: metricColumn.implicitHeight
+                                            + Theme.spacingLarge * 2
+                    color: Theme.surface
+                    radius: Theme.radiusMedium
+                    border.width: Theme.borderWidthThin
+                    border.color: Theme.border
+
+                    ColumnLayout {
+                        id: metricColumn
+                        anchors.fill: parent
+                        anchors.margins: Theme.spacingLarge
+                        spacing: Theme.spacingMedium
+
+                        RowLayout {
+                            Layout.fillWidth: true
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 2
+
+                                Text {
+                                    text: qsTr("Host metric alerts")
+                                    font.pixelSize: Theme.fontSizeLarge
+                                    font.weight: Font.DemiBold
+                                    color: Theme.text
+                                }
+
+                                Text {
+                                    text: qsTr("Alert when CPU, memory or disk usage stays above a threshold.")
+                                    font.pixelSize: Theme.fontSizeSmall
+                                    color: Theme.textSecondary
+                                    wrapMode: Text.WordWrap
+                                }
+                            }
+
+                            QDChip {
+                                text: root.manager
+                                      && root.manager.metricCurrentValue.captured_at
+                                      ? qsTr("Live") : qsTr("Waiting")
+                                chipType: root.manager
+                                          && root.manager.metricCurrentValue.captured_at
+                                          ? QDChip.Type.Success
+                                          : QDChip.Type.Default
+                                outlined: true
+                            }
+                        }
+
+                        Flow {
+                            Layout.fillWidth: true
+                            spacing: Theme.spacingSmall
+
+                            QDChip {
+                                text: qsTr("CPU %1%")
+                                      .arg(root.percentText(
+                                           root.manager
+                                           ? root.manager.metricCurrentValue.cpu_percent : 0))
+                                chipType: QDChip.Type.Info
+                                outlined: true
+                            }
+
+                            QDChip {
+                                text: qsTr("Memory %1%")
+                                      .arg(root.percentText(
+                                           root.manager
+                                           ? root.manager.metricCurrentValue.memory_percent : 0))
+                                chipType: QDChip.Type.Info
+                                outlined: true
+                            }
+
+                            QDChip {
+                                text: qsTr("Disk %1% (%2)")
+                                      .arg(root.percentText(
+                                           root.manager
+                                           ? root.manager.metricCurrentValue.disk_percent : 0))
+                                      .arg(root.manager
+                                           ? root.manager.metricCurrentValue.disk_mount || "-"
+                                           : "-")
+                                chipType: QDChip.Type.Info
+                                outlined: true
+                            }
+                        }
+
+                        Text {
+                            visible: root.manager
+                                     && !!root.manager.metricCurrentValue.captured_at
+                            Layout.fillWidth: true
+                            text: qsTr("Captured %1")
+                                  .arg(root.formatTime(
+                                       root.manager
+                                       ? root.manager.metricCurrentValue.captured_at : ""))
+                            color: Theme.textSecondary
+                            font.pixelSize: Theme.fontSizeSmall
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.spacingMedium
+
+                            QDSwitch {
+                                id: metricEnabledSwitch
+                                text: qsTr("Enabled")
+                            }
+
+                            QDTextField {
+                                id: metricCpuField
+                                Layout.preferredWidth: 150
+                                placeholderText: qsTr("CPU %")
+                            }
+
+                            QDTextField {
+                                id: metricMemoryField
+                                Layout.preferredWidth: 150
+                                placeholderText: qsTr("Memory %")
+                            }
+
+                            QDTextField {
+                                id: metricDiskField
+                                Layout.preferredWidth: 150
+                                placeholderText: qsTr("Disk %")
+                            }
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.spacingMedium
+
+                            QDTextField {
+                                id: metricSustainedField
+                                Layout.preferredWidth: 220
+                                placeholderText: qsTr("Sustained minutes")
+                            }
+
+                            QDTextField {
+                                id: metricRepeatField
+                                Layout.preferredWidth: 220
+                                placeholderText: qsTr("Repeat minutes (0 = once)")
+                            }
+
+                            QDSwitch {
+                                id: metricSnoozeSwitch
+                                text: qsTr("Snooze until")
+                                checked: root.metricSnoozeEnabled
+                                onToggled: root.metricSnoozeEnabled = checked
+                            }
+
+                            QDDateTimePicker {
+                                id: metricSnoozePicker
+                                Layout.preferredWidth: 260
+                                visible: root.metricSnoozeEnabled
+                                showTime: true
+                                selectedDate: root.metricSnoozeDate
+                                onSelectedDateChanged: root.metricSnoozeDate = selectedDate
+                            }
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+
+                            QDButton {
+                                text: qsTr("Save metric alert")
+                                buttonType: QDButton.Type.Primary
+                                enabled: root.selectedDeviceId !== ""
+                                         && !!root.manager && !root.manager.busy
+                                onClicked: root.saveMetricAlert()
+                            }
+
+                            QDButton {
+                                text: qsTr("Reset")
+                                buttonType: QDButton.Type.Secondary
+                                enabled: root.selectedDeviceId !== ""
+                                         && !!root.manager && !root.manager.busy
+                                onClicked: root.removeMetricAlert()
+                            }
+
+                            Item { Layout.fillWidth: true }
+
+                            Text {
+                                visible: root.manager
+                                         && !!root.manager.metricAlert.snoozed_until
+                                text: qsTr("Snoozed until %1")
+                                      .arg(root.formatTime(
+                                           root.manager
+                                           ? root.manager.metricAlert.snoozed_until : ""))
                                 color: Theme.warning
                                 font.pixelSize: Theme.fontSizeSmall
                             }

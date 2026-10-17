@@ -229,6 +229,127 @@
         </div>
       </section>
 
+      <section class="surface">
+        <div class="surface-head">
+          <div>
+            <h3>{{ $t('notifications.metricAlert.title') }}</h3>
+            <p>{{ $t('notifications.metricAlert.subtitle') }}</p>
+          </div>
+          <span :class="['state-chip', metricForm.enabled ? 'enabled' : 'paused']">
+            {{ metricForm.enabled ? $t('notifications.metricAlert.enabled') : $t('notifications.metricAlert.disabled') }}
+          </span>
+        </div>
+        <label class="field">
+          <span>{{ $t('notifications.metricAlert.device') }}</span>
+          <select v-model="metricDeviceId" class="form-input" @change="loadMetricAlert">
+            <option value="">{{ $t('notifications.metricAlert.pickDevice') }}</option>
+            <option v-for="device in devices" :key="device.device_id" :value="device.device_id">
+              {{ deviceName(device) }}
+            </option>
+          </select>
+        </label>
+
+        <div v-if="metricDeviceId" class="metric-alert-form">
+          <div class="metric-current-grid">
+            <article class="metric-reading">
+              <span>{{ $t('notifications.metricAlert.cpu') }}</span>
+              <strong>{{ metricPercent(metricMeta.current.cpu_percent) }}</strong>
+              <small>{{ $t('notifications.metricAlert.threshold', { value: metricForm.cpu_percent }) }}</small>
+            </article>
+            <article class="metric-reading">
+              <span>{{ $t('notifications.metricAlert.memory') }}</span>
+              <strong>{{ metricPercent(metricMeta.current.memory_percent) }}</strong>
+              <small>{{ $t('notifications.metricAlert.threshold', { value: metricForm.memory_percent }) }}</small>
+            </article>
+            <article class="metric-reading">
+              <span>{{ $t('notifications.metricAlert.disk') }}</span>
+              <strong>{{ metricPercent(metricMeta.current.disk_percent) }}</strong>
+              <small>{{ $t('notifications.metricAlert.threshold', { value: metricForm.disk_percent }) }}</small>
+            </article>
+            <article class="metric-reading">
+              <span>{{ $t('notifications.metricAlert.mount') }}</span>
+              <strong class="metric-mount">{{ metricMeta.current.disk_mount || $t('notifications.metricAlert.unknownMount') }}</strong>
+              <small>
+                {{ metricMeta.current.captured_at
+                  ? $t('notifications.metricAlert.capturedAt', { time: formatTime(metricMeta.current.captured_at) })
+                  : $t('notifications.metricAlert.noReading') }}
+              </small>
+            </article>
+          </div>
+
+          <div class="metric-state-list">
+            <div v-for="metric in ['cpu', 'memory', 'disk']" :key="metric" class="metric-state-row">
+              <span>{{ $t(`notifications.metricAlert.${metric}`) }}</span>
+              <span :class="['state-chip', metricMeta.states[metric].exceeded_since ? 'warning' : 'enabled']">
+                {{ metricMeta.states[metric].exceeded_since
+                  ? $t('notifications.metricAlert.sustained')
+                  : $t('notifications.metricAlert.normal') }}
+              </span>
+              <small v-if="metricMeta.states[metric].exceeded_since">
+                {{ $t('notifications.metricAlert.since', {
+                  time: formatTime(metricMeta.states[metric].exceeded_since),
+                }) }}
+              </small>
+              <small v-if="metricMeta.states[metric].last_alerted_at">
+                {{ $t('notifications.metricAlert.lastAlerted', {
+                  time: formatTime(metricMeta.states[metric].last_alerted_at),
+                }) }}
+              </small>
+            </div>
+          </div>
+
+          <div class="field-grid three">
+            <label class="field toggle-field">
+              <span>{{ $t('notifications.metricAlert.ruleEnabled') }}</span>
+              <label class="switch-row">
+                <input v-model="metricForm.enabled" type="checkbox" />
+                <span>{{ metricForm.enabled ? $t('notifications.on') : $t('notifications.off') }}</span>
+              </label>
+            </label>
+            <label class="field">
+              <span>{{ $t('notifications.metricAlert.cpuThreshold') }}</span>
+              <input v-model.number="metricForm.cpu_percent" class="form-input" type="number" min="0" max="100" />
+              <small>{{ $t('notifications.metricAlert.zeroDisables') }}</small>
+            </label>
+            <label class="field">
+              <span>{{ $t('notifications.metricAlert.memoryThreshold') }}</span>
+              <input v-model.number="metricForm.memory_percent" class="form-input" type="number" min="0" max="100" />
+              <small>{{ $t('notifications.metricAlert.zeroDisables') }}</small>
+            </label>
+          </div>
+          <div class="field-grid three">
+            <label class="field">
+              <span>{{ $t('notifications.metricAlert.diskThreshold') }}</span>
+              <input v-model.number="metricForm.disk_percent" class="form-input" type="number" min="0" max="100" />
+              <small>{{ $t('notifications.metricAlert.zeroDisables') }}</small>
+            </label>
+            <label class="field">
+              <span>{{ $t('notifications.metricAlert.sustainedMinutes') }}</span>
+              <input v-model.number="metricForm.sustained_minutes" class="form-input" type="number" min="0" max="10080" />
+              <small>{{ $t('notifications.metricAlert.sustainedHint') }}</small>
+            </label>
+            <label class="field">
+              <span>{{ $t('notifications.metricAlert.repeatMinutes') }}</span>
+              <input v-model.number="metricForm.repeat_minutes" class="form-input" type="number" min="0" max="10080" />
+              <small>{{ $t('notifications.metricAlert.repeatHint') }}</small>
+            </label>
+          </div>
+          <label class="field metric-snooze">
+            <span>{{ $t('notifications.metricAlert.snoozeUntil') }}</span>
+            <input v-model="metricForm.snoozed_until" class="form-input" type="datetime-local" />
+          </label>
+          <p v-if="metricError" class="inline-error">{{ metricError }}</p>
+          <div class="form-actions">
+            <button class="btn btn-primary" :disabled="metricSaving" @click="saveMetricAlert">
+              {{ metricSaving ? '...' : $t('notifications.save') }}
+            </button>
+            <button class="btn btn-secondary" :disabled="metricSaving" @click="removeMetricAlert">
+              {{ $t('notifications.metricAlert.reset') }}
+            </button>
+          </div>
+        </div>
+      </section>
+
       <section v-if="selectedChannel" class="surface">
         <div class="surface-head">
           <div>
@@ -378,9 +499,11 @@ import WindowEditor from '../components/WindowEditor.vue'
 import { userApi } from '../api/userApi'
 import {
   buildChannelPayload,
+  buildMetricAlertPayload,
   buildOfflineAlertPayload,
   buildQuietHoursPayload,
   normalizeChannelList,
+  normalizeMetricAlert,
   normalizeOfflineAlert,
   normalizeQuietHours,
   toDatetimeLocalValue,
@@ -401,6 +524,9 @@ const retryingAll = ref(false)
 const devices = ref([])
 const selectedDeviceId = ref('')
 const offlineSaving = ref(false)
+const metricDeviceId = ref('')
+const metricSaving = ref(false)
+const metricError = ref('')
 const selectedChannelId = ref(null)
 const deliveries = ref([])
 const unackedDeliveries = ref(0)
@@ -434,6 +560,30 @@ const offlineMeta = reactive({
   updated_at: null,
 })
 
+const metricForm = reactive({
+  enabled: false,
+  cpu_percent: 0,
+  memory_percent: 0,
+  disk_percent: 0,
+  sustained_minutes: 5,
+  repeat_minutes: 0,
+  snoozed_until: '',
+})
+const metricMeta = reactive({
+  current: {
+    captured_at: null,
+    cpu_percent: null,
+    memory_percent: null,
+    disk_percent: null,
+    disk_mount: '',
+  },
+  states: {
+    cpu: { exceeded_since: null, last_alerted_at: null },
+    memory: { exceeded_since: null, last_alerted_at: null },
+    disk: { exceeded_since: null, last_alerted_at: null },
+  },
+})
+
 const channelDialog = reactive({
   show: false,
   id: null,
@@ -460,6 +610,7 @@ const eventLabelKeys = {
   'device.access_approval.requested': 'approvalRequested',
   'device.access_approval.decided': 'approvalDecided',
   'scheduled_task.failed': 'scheduledTaskFailed',
+  'device.metric.alert': 'metricAlert',
 }
 
 function eventLabel(event) {
@@ -476,6 +627,13 @@ function formatTime(value) {
   if (!value) return ''
   const parsed = new Date(value)
   return Number.isNaN(parsed.getTime()) ? '' : parsed.toLocaleString()
+}
+
+function metricPercent(value) {
+  if (value === null || value === undefined || value === '') {
+    return t('notifications.metricAlert.noReading')
+  }
+  return Number.isFinite(Number(value)) ? `${Number(value).toFixed(1)}%` : t('notifications.metricAlert.noReading')
 }
 
 function statusTone(channel) {
@@ -538,6 +696,10 @@ async function loadDevices() {
   devices.value = Array.isArray(result.data?.items) ? result.data.items : []
   if (selectedDeviceId.value && !devices.value.some((row) => row.device_id === selectedDeviceId.value)) {
     selectedDeviceId.value = ''
+  }
+  if (metricDeviceId.value && !devices.value.some((row) => row.device_id === metricDeviceId.value)) {
+    metricDeviceId.value = ''
+    applyMetricAlert({})
   }
 }
 
@@ -810,6 +972,99 @@ async function removeOfflineAlert() {
   showToast(t('notifications.offline.resetDone'), 'success')
 }
 
+async function loadMetricAlert() {
+  metricError.value = ''
+  if (!metricDeviceId.value) {
+    applyMetricAlert({})
+    return
+  }
+  const result = await userApi.fetchDeviceMetricAlert(metricDeviceId.value)
+  if (!result.ok) {
+    setMetricError(result, 'notifications.metricAlert.loadFailed')
+    return
+  }
+  applyMetricAlert(result.data)
+}
+
+function applyMetricAlert(data) {
+  const view = normalizeMetricAlert(data)
+  metricForm.enabled = view.enabled
+  metricForm.cpu_percent = view.cpu_percent
+  metricForm.memory_percent = view.memory_percent
+  metricForm.disk_percent = view.disk_percent
+  metricForm.sustained_minutes = view.sustained_minutes
+  metricForm.repeat_minutes = view.repeat_minutes
+  metricForm.snoozed_until = toDatetimeLocalValue(view.snoozed_until)
+  metricMeta.current = view.current
+  metricMeta.states = view.states
+}
+
+function validateMetricAlert() {
+  const thresholds = [
+    Number(metricForm.cpu_percent),
+    Number(metricForm.memory_percent),
+    Number(metricForm.disk_percent),
+  ]
+  if (thresholds.some((value) => !Number.isFinite(value) || value < 0 || value > 100)) {
+    return t('notifications.metricAlert.invalidThreshold')
+  }
+  if (metricForm.enabled && thresholds.every((value) => value === 0)) {
+    return t('notifications.metricAlert.thresholdRequired')
+  }
+  const sustainedMinutes = Number(metricForm.sustained_minutes)
+  if (!Number.isInteger(sustainedMinutes) || sustainedMinutes < 0 || sustainedMinutes > 10080) {
+    return t('notifications.metricAlert.invalidSustained')
+  }
+  const repeatMinutes = Number(metricForm.repeat_minutes)
+  if (!Number.isInteger(repeatMinutes) || repeatMinutes < 0 || repeatMinutes > 10080) {
+    return t('notifications.metricAlert.invalidRepeat')
+  }
+  return ''
+}
+
+async function saveMetricAlert() {
+  if (!metricDeviceId.value) return
+  const validationError = validateMetricAlert()
+  if (validationError) {
+    metricError.value = validationError
+    showToast(validationError, 'error')
+    return
+  }
+  metricSaving.value = true
+  metricError.value = ''
+  const result = await userApi.updateDeviceMetricAlert(
+    metricDeviceId.value,
+    buildMetricAlertPayload(metricForm),
+  )
+  metricSaving.value = false
+  if (!result.ok) {
+    setMetricError(result, 'notifications.metricAlert.saveFailed')
+    return
+  }
+  applyMetricAlert(result.data)
+  showToast(t('notifications.metricAlert.saved'), 'success')
+}
+
+async function removeMetricAlert() {
+  if (!metricDeviceId.value || !confirm(t('notifications.metricAlert.resetConfirm'))) return
+  metricSaving.value = true
+  metricError.value = ''
+  const result = await userApi.deleteDeviceMetricAlert(metricDeviceId.value)
+  metricSaving.value = false
+  if (!result.ok) {
+    setMetricError(result, 'notifications.metricAlert.saveFailed')
+    return
+  }
+  applyMetricAlert({ device_id: metricDeviceId.value })
+  showToast(t('notifications.metricAlert.resetDone'), 'success')
+}
+
+function setMetricError(result, fallbackKey) {
+  const message = result?.error || t(fallbackKey)
+  metricError.value = message
+  showToast(message, 'error')
+}
+
 onMounted(() => {
   if (authState.isLoggedIn) refreshAll()
 })
@@ -1052,6 +1307,84 @@ onMounted(() => {
   margin-top: 18px;
 }
 
+.metric-alert-form {
+  margin-top: 18px;
+}
+
+.metric-current-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.metric-reading {
+  display: grid;
+  align-content: start;
+  gap: 5px;
+  min-height: 104px;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.metric-reading > span,
+.metric-reading small {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.metric-reading strong {
+  overflow-wrap: anywhere;
+  font-size: 22px;
+  line-height: 1.15;
+}
+
+.metric-reading .metric-mount {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 14px;
+}
+
+.metric-state-list {
+  display: grid;
+  gap: 6px;
+  margin: 12px 0 18px;
+}
+
+.metric-state-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  min-height: 30px;
+  padding: 4px 10px;
+  border-left: 2px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.02);
+  font-size: 12px;
+}
+
+.metric-state-row > span:first-child {
+  min-width: 54px;
+  font-weight: 600;
+}
+
+.metric-state-row small {
+  color: var(--text-secondary);
+  font-size: 10px;
+}
+
+.metric-snooze {
+  max-width: 360px;
+  margin-top: 14px;
+}
+
+.inline-error {
+  margin-top: 14px;
+  color: #ffaaa3;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .meta-strip,
 .signature-line,
 .unacked-count {
@@ -1252,8 +1585,18 @@ onMounted(() => {
     grid-template-columns: 1fr;
   }
 
+  .metric-current-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .surface {
     padding: 16px;
+  }
+}
+
+@media (max-width: 420px) {
+  .metric-current-grid {
+    grid-template-columns: 1fr;
   }
 }
 </style>

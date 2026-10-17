@@ -1719,8 +1719,8 @@
     </message>
     <message>
         <location filename="../../qml/pages/NotificationsPage.qml" line="435"/>
-        <source>Webhook channels, quiet hours and sustained-offline alerts.</source>
-        <translation>Webhook channels, quiet hours and sustained-offline alerts.</translation>
+        <source>Webhook channels, quiet hours, offline and host metric alerts.</source>
+        <translation>Webhook channels, quiet hours, offline and host metric alerts.</translation>
     </message>
     <message>
         <location filename="../../qml/pages/NotificationsPage.qml" line="443"/>
@@ -2031,6 +2031,74 @@
         <location filename="../../qml/pages/NotificationsPage.qml" line="1240"/>
         <source>Delete “%1”? Its delivery history will no longer be available.</source>
         <translation>Delete “%1”? Its delivery history will no longer be available.</translation>
+    </message>
+    <message>
+        <source>Host metrics</source>
+        <translation>Host metrics</translation>
+    </message>
+    <message>
+        <source>Metric alert</source>
+        <translation>Metric alert</translation>
+    </message>
+    <message>
+        <source>A host metric stayed above its alert threshold</source>
+        <translation>A host metric stayed above its alert threshold</translation>
+    </message>
+    <message>
+        <source>Host metric alerts</source>
+        <translation>Host metric alerts</translation>
+    </message>
+    <message>
+        <source>Alert when CPU, memory or disk usage stays above a threshold.</source>
+        <translation>Alert when CPU, memory or disk usage stays above a threshold.</translation>
+    </message>
+    <message>
+        <source>Live</source>
+        <translation>Live</translation>
+    </message>
+    <message>
+        <source>Waiting</source>
+        <translation>Waiting</translation>
+    </message>
+    <message>
+        <source>CPU %1%</source>
+        <translation>CPU %1%</translation>
+    </message>
+    <message>
+        <source>Memory %1%</source>
+        <translation>Memory %1%</translation>
+    </message>
+    <message>
+        <source>Disk %1% (%2)</source>
+        <translation>Disk %1% (%2)</translation>
+    </message>
+    <message>
+        <source>Captured %1</source>
+        <translation>Captured %1</translation>
+    </message>
+    <message>
+        <source>CPU %</source>
+        <translation>CPU %</translation>
+    </message>
+    <message>
+        <source>Memory %</source>
+        <translation>Memory %</translation>
+    </message>
+    <message>
+        <source>Disk %</source>
+        <translation>Disk %</translation>
+    </message>
+    <message>
+        <source>Sustained minutes</source>
+        <translation>Sustained minutes</translation>
+    </message>
+    <message>
+        <source>Save metric alert</source>
+        <translation>Save metric alert</translation>
+    </message>
+    <message>
+        <source>Snoozed until %1</source>
+        <translation>Snoozed until %1</translation>
     </message>
 </context>
 <context>
@@ -3915,6 +3983,26 @@ Access Code: %2</translation>
         <location filename="../../src/manager/NotificationManager.cpp" line="469"/>
         <source>Offline alert thresholds must be between 1 and 10080 minutes</source>
         <translation>Offline alert thresholds must be between 1 and 10080 minutes</translation>
+    </message>
+    <message>
+        <source>Select a device to configure metric alerts</source>
+        <translation>Select a device to configure metric alerts</translation>
+    </message>
+    <message>
+        <source>Please login to manage metric alerts</source>
+        <translation>Please login to manage metric alerts</translation>
+    </message>
+    <message>
+        <source>Metric thresholds must be between 0 and 100 percent</source>
+        <translation>Metric thresholds must be between 0 and 100 percent</translation>
+    </message>
+    <message>
+        <source>Enable at least one metric threshold</source>
+        <translation>Enable at least one metric threshold</translation>
+    </message>
+    <message>
+        <source>Metric alert intervals must be between 0 and 10080 minutes</source>
+        <translation>Metric alert intervals must be between 0 and 10080 minutes</translation>
     </message>
     <message>
         <location filename="../../src/manager/NotificationManager.cpp" line="1080"/>

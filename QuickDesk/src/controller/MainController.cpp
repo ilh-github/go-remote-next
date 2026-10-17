@@ -34,6 +34,7 @@
 namespace {
 constexpr const char* kMcpHttpBindHost = "0.0.0.0";
 constexpr const char* kMcpHttpDisplayHost = "127.0.0.1";
+constexpr int kHostMetricsIntervalMs = 60 * 1000;
 
 QString firstReachableIpv4Address() {
     const auto interfaces = QNetworkInterface::allInterfaces();
@@ -104,6 +105,8 @@ MainController::MainController(QObject* parent)
     // Create SkillHostManager and wire it to HostManager (host-side skill bridge)
     m_skillHostManager = std::make_unique<SkillHostManager>(this);
     m_skillHostManager->setHostManager(m_hostManager.get());
+    connect(m_skillHostManager.get(), &SkillHostManager::skillHostStarted,
+            this, &MainController::maybeStartHostMetricsReporter);
 
     // Connect ProcessManager signals
     connect(m_processManager.get(), &ProcessManager::hostProcessStarted,
@@ -230,6 +233,8 @@ MainController::MainController(QObject* parent)
     // access_code to the server so the cloud copy matches the host.
     connect(m_hostManager.get(), &HostManager::deviceSecretReady,
             this, [this](const QString&) {
+        m_deviceSecretReady = true;
+        maybeStartHostMetricsReporter();
         QString deviceId = m_hostManager->deviceId();
         QString code = m_hostManager->accessCode();
         if (!deviceId.isEmpty() && !code.isEmpty()) {
@@ -318,6 +323,9 @@ MainController::MainController(QObject* parent)
     // Setup access code auto-refresh timer
     connect(&m_accessCodeRefreshTimer, &QTimer::timeout,
             this, &MainController::onAccessCodeRefreshTimer);
+    m_metricsTimer.setInterval(kHostMetricsIntervalMs);
+    connect(&m_metricsTimer, &QTimer::timeout,
+            this, &MainController::reportHostMetrics);
     
     // Listen to configuration changes
     connect(&core::LocalConfigCenter::instance(), 
@@ -397,6 +405,8 @@ void MainController::shutdown()
     m_isShutdown = true;
 
     LOG_INFO("MainController::shutdown()");
+
+    m_metricsTimer.stop();
 
     // Stop cloud sync
     if (m_cloudDeviceManager) {
@@ -822,6 +832,11 @@ void MainController::onHostProcessStopped(int exitCode)
 {
     LOG_INFO("Host process stopped with exit code: {}", exitCode);
 
+    m_metricsTimer.stop();
+    m_hostReady = false;
+    m_deviceSecretReady = false;
+    m_metricsRequestInFlight = false;
+
     if (m_skillHostManager) {
         m_skillHostManager->stopSkillHost();
     }
@@ -969,6 +984,8 @@ void MainController::onHostReady(const QString& deviceId, const QString& accessC
     LOG_INFO("Host ready - Device ID: {} Access Code: {}", deviceId.toStdString(), accessCode.toStdString());
     m_deviceId = deviceId;
     m_accessCode = accessCode;
+    m_hostReady = true;
+    maybeStartHostMetricsReporter();
 
     // §2.11 / scenario §5 #19: persist the last known device_id so that
     // a future "logout before host ready" can still call
@@ -1015,6 +1032,60 @@ void MainController::onHostReady(const QString& deviceId, const QString& accessC
             m_cloudDeviceManager->syncAccessCode(deviceId, accessCode);
         }
     });
+}
+
+void MainController::maybeStartHostMetricsReporter()
+{
+    if (!m_hostReady || !m_deviceSecretReady || m_isShutdown) {
+        return;
+    }
+    if (!m_metricsTimer.isActive()) {
+        LOG_INFO("Starting host metrics reporter");
+        m_metricsTimer.start();
+    }
+    if (m_skillHostManager
+        && m_skillHostManager->isRunning()
+        && !m_metricsRequestInFlight) {
+        QTimer::singleShot(0, this, &MainController::reportHostMetrics);
+    }
+}
+
+void MainController::reportHostMetrics()
+{
+    if (m_metricsRequestInFlight
+        || !m_hostReady
+        || !m_deviceSecretReady
+        || !m_skillHostManager
+        || !m_skillHostManager->isRunning()) {
+        return;
+    }
+
+    const QString deviceId = m_hostManager->deviceId();
+    if (deviceId.isEmpty() || m_hostManager->deviceSecret().isEmpty()) {
+        return;
+    }
+
+    m_metricsRequestInFlight = true;
+    QPointer<MainController> self(this);
+    m_skillHostManager->requestSystemInfo(
+        [self, deviceId](const QJsonObject& systemInfo,
+                         const QString& error) {
+            if (!self) {
+                return;
+            }
+            self->m_metricsRequestInFlight = false;
+            if (!error.isEmpty()) {
+                LOG_WARN("Host metrics sys-info request failed: {}",
+                         error.toStdString());
+                return;
+            }
+            if (!self->m_hostReady
+                || self->m_hostManager->deviceId() != deviceId) {
+                return;
+            }
+            self->m_cloudDeviceManager->reportHostMetrics(
+                deviceId, systemInfo);
+        });
 }
 
 void MainController::bindHostDeviceIfReady(const char* reason)

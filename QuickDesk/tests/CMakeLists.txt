@@ -28,6 +28,53 @@ add_test(
     COMMAND quickdesk_update_support_test
 )
 
+add_executable(quickdesk_fake_skill_host
+    skillhost_fake.cpp
+)
+
+target_link_libraries(quickdesk_fake_skill_host
+    PRIVATE
+    Qt6::Core
+)
+
+add_executable(quickdesk_skill_host_manager_test
+    skillhostmanager_integration_test.cpp
+    ../src/core/db/appconfigdatabase.cpp
+    ../src/core/localconfigcenter.cpp
+    ../src/manager/NativeMessaging.cpp
+    ../src/manager/HostManager.cpp
+    ../src/manager/HostManager.h
+    ../src/manager/SkillHostManager.cpp
+    ../src/manager/SkillHostManager.h
+)
+
+add_dependencies(quickdesk_skill_host_manager_test quickdesk_fake_skill_host)
+
+target_include_directories(quickdesk_skill_host_manager_test
+    PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src
+)
+
+target_link_libraries(quickdesk_skill_host_manager_test
+    PRIVATE
+    base
+    infra
+    Qt6::Core
+    Qt6::Network
+    Qt6::Sql
+    Qt6::Test
+)
+
+if(APPLE)
+    target_link_libraries(quickdesk_skill_host_manager_test PRIVATE "-framework Foundation")
+endif()
+
+add_test(
+    NAME quickdesk_skill_host_manager_test
+    COMMAND quickdesk_skill_host_manager_test
+            $<TARGET_FILE:quickdesk_fake_skill_host>
+)
+
 add_executable(quickdesk_update_manager_test
     updatemanager_integration_test.cpp
     authmanager_stub.cpp

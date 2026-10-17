@@ -25,6 +25,7 @@ NotificationManager::NotificationManager(AuthManager* authManager,
             ++m_channelsGeneration;
             ++m_quietGeneration;
             ++m_offlineGeneration;
+            ++m_metricAlertGeneration;
             ++m_deliveryGeneration;
             m_channels.clear();
             m_supportedEvents.clear();
@@ -33,6 +34,9 @@ NotificationManager::NotificationManager(AuthManager* authManager,
             m_quietHours.clear();
             m_offlineAlert.clear();
             m_offlineDeviceId.clear();
+            m_metricAlert.clear();
+            m_metricAlertDeviceId.clear();
+            m_metricCurrentValue.clear();
             m_deliveries.clear();
             m_unackedDeliveries = 0;
             m_deliveryChannelId = 0;
@@ -43,6 +47,9 @@ NotificationManager::NotificationManager(AuthManager* authManager,
             emit quietHoursChanged();
             emit offlineAlertChanged();
             emit offlineDeviceIdChanged();
+            emit metricAlertChanged();
+            emit metricAlertDeviceIdChanged();
+            emit metricCurrentValueChanged();
             emit deliveriesChanged();
             emit deliveryChannelIdChanged();
             emit lastRequeuedCountChanged();
@@ -562,6 +569,204 @@ void NotificationManager::removeOfflineAlert()
         });
 }
 
+void NotificationManager::loadMetricAlert(const QString& deviceId)
+{
+    const QString normalizedDeviceId = deviceId.trimmed();
+    if (m_metricAlertDeviceId != normalizedDeviceId) {
+        m_metricAlertDeviceId = normalizedDeviceId;
+        m_metricCurrentValue.clear();
+        emit metricAlertDeviceIdChanged();
+        emit metricCurrentValueChanged();
+    }
+    if (!m_authManager || !m_authManager->isLoggedIn()
+        || normalizedDeviceId.isEmpty()) {
+        const QString message =
+            normalizedDeviceId.isEmpty()
+                ? tr("Select a device to configure metric alerts")
+                : tr("Please login to manage metric alerts");
+        setLastError(message);
+        emit requestFailed(message);
+        return;
+    }
+
+    const int generation = ++m_metricAlertGeneration;
+    const QUrl url(
+        m_authManager->httpBaseUrl()
+        + QStringLiteral("v1/me/devices/")
+        + QString::fromLatin1(QUrl::toPercentEncoding(normalizedDeviceId))
+        + QStringLiteral("/metric-alert"));
+    beginRequest();
+    m_authManager->request(
+        QStringLiteral("GET"), url, QString(),
+        [this, generation](int statusCode, const std::string& errorMsg,
+                           const std::string& data) {
+            QMetaObject::invokeMethod(
+                this,
+                [this, generation, statusCode, errorMsg, data]() {
+                    if (generation == m_metricAlertGeneration) {
+                        if (statusCode == 200 && errorMsg.empty()) {
+                            const QJsonObject root =
+                                QJsonDocument::fromJson(
+                                    QByteArray::fromStdString(data)).object();
+                            m_metricAlert = normalizeMetricAlert(root);
+                            if (root.value(QStringLiteral("current")).isObject()) {
+                                m_metricCurrentValue =
+                                    root.value(QStringLiteral("current"))
+                                        .toObject()
+                                        .toVariantMap();
+                            } else {
+                                m_metricCurrentValue.clear();
+                            }
+                            emit metricCurrentValueChanged();
+                            setLastError(QString());
+                            emit metricAlertChanged();
+                        } else {
+                            const QString message =
+                                problemMessage(data, errorMsg, statusCode);
+                            setLastError(message);
+                            LOG_WARN("[NotificationManager] metric-alert load failed: status={} err={}",
+                                     statusCode, message.toStdString());
+                            emit requestFailed(message);
+                        }
+                    }
+                    finishRequest();
+                });
+        });
+}
+
+void NotificationManager::saveMetricAlert(
+    bool enabled, int cpuPercent, int memoryPercent, int diskPercent,
+    int sustainedMinutes, int repeatMinutes, const QString& snoozedUntil)
+{
+    if (!m_authManager || !m_authManager->isLoggedIn()
+        || m_metricAlertDeviceId.isEmpty()) {
+        const QString message = tr("Select a device first");
+        setLastError(message);
+        emit requestFailed(message);
+        return;
+    }
+    if (cpuPercent < 0 || cpuPercent > 100
+        || memoryPercent < 0 || memoryPercent > 100
+        || diskPercent < 0 || diskPercent > 100) {
+        const QString message =
+            tr("Metric thresholds must be between 0 and 100 percent");
+        setLastError(message);
+        emit requestFailed(message);
+        return;
+    }
+    if (enabled && cpuPercent == 0 && memoryPercent == 0 && diskPercent == 0) {
+        const QString message =
+            tr("Enable at least one metric threshold");
+        setLastError(message);
+        emit requestFailed(message);
+        return;
+    }
+    if (sustainedMinutes < 0 || sustainedMinutes > 10080
+        || (repeatMinutes != 0
+            && (repeatMinutes < 1 || repeatMinutes > 10080))) {
+        const QString message =
+            tr("Metric alert intervals must be between 0 and 10080 minutes");
+        setLastError(message);
+        emit requestFailed(message);
+        return;
+    }
+
+    const int generation = ++m_metricAlertGeneration;
+    const QUrl url(
+        m_authManager->httpBaseUrl()
+        + QStringLiteral("v1/me/devices/")
+        + QString::fromLatin1(
+            QUrl::toPercentEncoding(m_metricAlertDeviceId))
+        + QStringLiteral("/metric-alert"));
+    beginRequest();
+    m_authManager->request(
+        QStringLiteral("PUT"), url,
+        metricAlertBody(enabled, cpuPercent, memoryPercent, diskPercent,
+                        sustainedMinutes, repeatMinutes, snoozedUntil),
+        [this, generation](int statusCode, const std::string& errorMsg,
+                           const std::string& data) {
+            QMetaObject::invokeMethod(
+                this,
+                [this, generation, statusCode, errorMsg, data]() {
+                    if (generation == m_metricAlertGeneration) {
+                        if (statusCode == 200 && errorMsg.empty()) {
+                            const QJsonObject root =
+                                QJsonDocument::fromJson(
+                                    QByteArray::fromStdString(data)).object();
+                            m_metricAlert = normalizeMetricAlert(root);
+                            const QJsonObject current =
+                                root.value(QStringLiteral("current")).toObject();
+                            if (!current.isEmpty()) {
+                                m_metricCurrentValue = current.toVariantMap();
+                            } else {
+                                m_metricCurrentValue.clear();
+                            }
+                            emit metricCurrentValueChanged();
+                            setLastError(QString());
+                            emit metricAlertChanged();
+                        } else {
+                            const QString message =
+                                problemMessage(data, errorMsg, statusCode);
+                            setLastError(message);
+                            LOG_WARN("[NotificationManager] metric-alert save failed: status={} err={}",
+                                     statusCode, message.toStdString());
+                            emit requestFailed(message);
+                        }
+                    }
+                    finishRequest();
+                });
+        });
+}
+
+void NotificationManager::removeMetricAlert()
+{
+    if (!m_authManager || !m_authManager->isLoggedIn()
+        || m_metricAlertDeviceId.isEmpty()) {
+        return;
+    }
+    const int generation = ++m_metricAlertGeneration;
+    const QUrl url(
+        m_authManager->httpBaseUrl()
+        + QStringLiteral("v1/me/devices/")
+        + QString::fromLatin1(
+            QUrl::toPercentEncoding(m_metricAlertDeviceId))
+        + QStringLiteral("/metric-alert"));
+    beginRequest();
+    m_authManager->request(
+        QStringLiteral("DELETE"), url, QString(),
+        [this, generation](int statusCode, const std::string& errorMsg,
+                           const std::string& data) {
+            QMetaObject::invokeMethod(
+                this,
+                [this, generation, statusCode, errorMsg, data]() {
+                    if (generation == m_metricAlertGeneration) {
+                        if (statusCode == 204 && errorMsg.empty()) {
+                            m_metricAlert = QVariantMap{
+                                {QStringLiteral("device_id"),
+                                 m_metricAlertDeviceId},
+                                {QStringLiteral("enabled"), false},
+                                {QStringLiteral("cpu_percent"), 0},
+                                {QStringLiteral("memory_percent"), 0},
+                                {QStringLiteral("disk_percent"), 0},
+                                {QStringLiteral("sustained_minutes"), 5},
+                                {QStringLiteral("repeat_minutes"), 0},
+                            };
+                            setLastError(QString());
+                            emit metricAlertChanged();
+                        } else {
+                            const QString message =
+                                problemMessage(data, errorMsg, statusCode);
+                            setLastError(message);
+                            LOG_WARN("[NotificationManager] metric-alert delete failed: status={} err={}",
+                                     statusCode, message.toStdString());
+                            emit requestFailed(message);
+                        }
+                    }
+                    finishRequest();
+                });
+        });
+}
+
 void NotificationManager::loadDeliveries(int channelId)
 {
     if (!m_authManager || !m_authManager->isLoggedIn() || channelId <= 0) {
@@ -812,6 +1017,15 @@ void NotificationManager::handleRealtimeEvent(const QVariantMap& message)
     const QVariantMap data = message.value(QStringLiteral("data")).toMap();
     emit realtimeEventReceived(
         type, data.value(QStringLiteral("device_id")).toString());
+    if (type == QStringLiteral("device.metrics.updated")) {
+        const QString eventDeviceId =
+            data.value(QStringLiteral("device_id")).toString();
+        if (m_metricAlertDeviceId.isEmpty()
+            || eventDeviceId == m_metricAlertDeviceId) {
+            m_metricCurrentValue = data;
+            emit metricCurrentValueChanged();
+        }
+    }
     if (type.startsWith(QStringLiteral("device."))
         || type == QStringLiteral("scheduled_task.failed")) {
         emit realtimeRefreshRequested();
@@ -896,6 +1110,37 @@ QVariantMap NotificationManager::normalizeOfflineAlert(
     view[QStringLiteral("in_maintenance_window")] =
         object.value(
             QStringLiteral("in_maintenance_window")).toBool();
+    return view;
+}
+
+QVariantMap NotificationManager::normalizeMetricAlert(
+    const QJsonObject& object)
+{
+    QVariantMap view = object.toVariantMap();
+    view[QStringLiteral("device_id")] =
+        object.value(QStringLiteral("device_id")).toString();
+    view[QStringLiteral("enabled")] =
+        object.value(QStringLiteral("enabled")).toBool();
+    view[QStringLiteral("cpu_percent")] =
+        qBound(0,
+               object.value(QStringLiteral("cpu_percent")).toInt(),
+               100);
+    view[QStringLiteral("memory_percent")] =
+        qBound(0,
+               object.value(QStringLiteral("memory_percent")).toInt(),
+               100);
+    view[QStringLiteral("disk_percent")] =
+        qBound(0,
+               object.value(QStringLiteral("disk_percent")).toInt(),
+               100);
+    view[QStringLiteral("sustained_minutes")] =
+        qBound(0,
+               object.value(QStringLiteral("sustained_minutes")).toInt(5),
+               10080);
+    view[QStringLiteral("repeat_minutes")] =
+        qBound(0,
+               object.value(QStringLiteral("repeat_minutes")).toInt(),
+               10080);
     return view;
 }
 
@@ -1050,6 +1295,23 @@ QString NotificationManager::offlineAlertBody(
         windowsJson(maintenanceWindows);
     body[QStringLiteral("maintenance_timezone")] =
         maintenanceTimezone.trimmed();
+    return QString::fromUtf8(
+        QJsonDocument(body).toJson(QJsonDocument::Compact));
+}
+
+QString NotificationManager::metricAlertBody(
+    bool enabled, int cpuPercent, int memoryPercent, int diskPercent,
+    int sustainedMinutes, int repeatMinutes, const QString& snoozedUntil)
+{
+    QJsonObject body;
+    body[QStringLiteral("enabled")] = enabled;
+    body[QStringLiteral("cpu_percent")] = cpuPercent;
+    body[QStringLiteral("memory_percent")] = memoryPercent;
+    body[QStringLiteral("disk_percent")] = diskPercent;
+    body[QStringLiteral("sustained_minutes")] = sustainedMinutes;
+    body[QStringLiteral("repeat_minutes")] = repeatMinutes;
+    body[QStringLiteral("snoozed_until")] =
+        optionalInstant(snoozedUntil);
     return QString::fromUtf8(
         QJsonDocument(body).toJson(QJsonDocument::Compact));
 }

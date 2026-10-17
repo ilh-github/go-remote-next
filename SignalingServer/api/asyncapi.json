@@ -458,6 +458,8 @@
           "device.ownership.lost",
           "device.online.changed",
           "device.offline.sustained",
+          "device.metric.alert",
+          "device.metrics.updated",
           "device.session.updated",
           "device.access_code.changed",
           "device.remark.changed",

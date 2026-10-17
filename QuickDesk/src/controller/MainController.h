@@ -318,6 +318,10 @@ private:
     // and re-bind the device to restore logged_in on the server.
     bool m_lastSignalingConnected = false;
     bool m_cloudSyncReady = false;
+    bool m_hostReady = false;
+    bool m_deviceSecretReady = false;
+    bool m_metricsRequestInFlight = false;
+    QTimer m_metricsTimer;
     
     // Access code auto-refresh timer
     QTimer m_accessCodeRefreshTimer;
@@ -336,6 +340,8 @@ private:
     QString getBuiltinSkillsDir() const;
     void setupWebSocketApiEvents();
     void bindHostDeviceIfReady(const char* reason);
+    void maybeStartHostMetricsReporter();
+    void reportHostMetrics();
     void verifyAndConnectToRemoteHost(const QString& deviceId,
                                       const QString& accessCode,
                                       const QString& serverUrl,

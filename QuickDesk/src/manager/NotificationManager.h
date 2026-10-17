@@ -32,6 +32,12 @@ class NotificationManager : public QObject {
                NOTIFY offlineAlertChanged)
     Q_PROPERTY(QString offlineDeviceId READ offlineDeviceId
                NOTIFY offlineDeviceIdChanged)
+    Q_PROPERTY(QVariantMap metricAlert READ metricAlert
+               NOTIFY metricAlertChanged)
+    Q_PROPERTY(QString metricAlertDeviceId READ metricAlertDeviceId
+               NOTIFY metricAlertDeviceIdChanged)
+    Q_PROPERTY(QVariantMap metricCurrentValue READ metricCurrentValue
+               NOTIFY metricCurrentValueChanged)
     Q_PROPERTY(QVariantList deliveries READ deliveries
                NOTIFY deliveriesChanged)
     Q_PROPERTY(int unackedDeliveries READ unackedDeliveries
@@ -54,6 +60,9 @@ public:
     QVariantMap quietHours() const { return m_quietHours; }
     QVariantMap offlineAlert() const { return m_offlineAlert; }
     QString offlineDeviceId() const { return m_offlineDeviceId; }
+    QVariantMap metricAlert() const { return m_metricAlert; }
+    QString metricAlertDeviceId() const { return m_metricAlertDeviceId; }
+    QVariantMap metricCurrentValue() const { return m_metricCurrentValue; }
     QVariantList deliveries() const { return m_deliveries; }
     int unackedDeliveries() const { return m_unackedDeliveries; }
     int deliveryChannelId() const { return m_deliveryChannelId; }
@@ -87,6 +96,15 @@ public:
                                       const QVariantList& maintenanceWindows,
                                       const QString& maintenanceTimezone);
     Q_INVOKABLE void removeOfflineAlert();
+    Q_INVOKABLE void loadMetricAlert(const QString& deviceId);
+    Q_INVOKABLE void saveMetricAlert(bool enabled,
+                                     int cpuPercent,
+                                     int memoryPercent,
+                                     int diskPercent,
+                                     int sustainedMinutes,
+                                     int repeatMinutes,
+                                     const QString& snoozedUntil);
+    Q_INVOKABLE void removeMetricAlert();
     Q_INVOKABLE void loadDeliveries(int channelId);
     Q_INVOKABLE void retryDelivery(int channelId, int deliveryId);
     Q_INVOKABLE void ackDelivery(int channelId, int deliveryId);
@@ -101,6 +119,9 @@ signals:
     void quietHoursChanged();
     void offlineAlertChanged();
     void offlineDeviceIdChanged();
+    void metricAlertChanged();
+    void metricAlertDeviceIdChanged();
+    void metricCurrentValueChanged();
     void deliveriesChanged();
     void deliveryChannelIdChanged();
     void lastRequeuedCountChanged();
@@ -121,6 +142,7 @@ private:
     static QVariantMap normalizeChannel(const QJsonObject& object);
     static QVariantMap normalizeQuietHours(const QJsonObject& object);
     static QVariantMap normalizeOfflineAlert(const QJsonObject& object);
+    static QVariantMap normalizeMetricAlert(const QJsonObject& object);
     static QVariantList normalizeWindows(const QJsonArray& array);
     static QJsonArray windowsJson(const QVariantList& windows);
     static QJsonValue optionalInstant(const QString& value);
@@ -141,6 +163,13 @@ private:
                                     const QString& snoozedUntil,
                                     const QVariantList& maintenanceWindows,
                                     const QString& maintenanceTimezone);
+    static QString metricAlertBody(bool enabled,
+                                   int cpuPercent,
+                                   int memoryPercent,
+                                   int diskPercent,
+                                   int sustainedMinutes,
+                                   int repeatMinutes,
+                                   const QString& snoozedUntil);
     static QString problemMessage(const std::string& data,
                                   const std::string& fallback,
                                   int statusCode);
@@ -153,6 +182,9 @@ private:
     QVariantMap m_quietHours;
     QVariantMap m_offlineAlert;
     QString m_offlineDeviceId;
+    QVariantMap m_metricAlert;
+    QString m_metricAlertDeviceId;
+    QVariantMap m_metricCurrentValue;
     QVariantList m_deliveries;
     int m_unackedDeliveries = 0;
     int m_deliveryChannelId = 0;
@@ -162,6 +194,7 @@ private:
     int m_channelsGeneration = 0;
     int m_quietGeneration = 0;
     int m_offlineGeneration = 0;
+    int m_metricAlertGeneration = 0;
     int m_deliveryGeneration = 0;
 };
 

@@ -580,6 +580,53 @@ ALTER TABLE device_offline_alert_rules
     ADD COLUMN IF NOT EXISTS maintenance_timezone VARCHAR(64) NOT NULL DEFAULT '';
 
 -- ---------------------------------------------------------------
+-- Host resource alerts. The host reports its latest CPU, memory and disk
+-- sample using device_secret; the server keeps one row per device rather than
+-- an unbounded time series. Each threshold owns an independent episode state,
+-- so CPU recovering does not reset an active memory or disk breach.
+-- ---------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS device_metric_snapshots (
+    id             BIGSERIAL PRIMARY KEY,
+    device_id      VARCHAR(9)  NOT NULL,
+    captured_at    TIMESTAMPTZ NOT NULL,
+    cpu_percent    DOUBLE PRECISION NOT NULL DEFAULT 0,
+    memory_percent DOUBLE PRECISION NOT NULL DEFAULT 0,
+    disk_percent   DOUBLE PRECISION NOT NULL DEFAULT 0,
+    disk_mount     VARCHAR(256) NOT NULL DEFAULT '',
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_device_metric_snapshots_device_id
+    ON device_metric_snapshots (device_id);
+
+CREATE TABLE IF NOT EXISTS device_metric_alert_rules (
+    id                    BIGSERIAL PRIMARY KEY,
+    device_id             VARCHAR(9)  NOT NULL,
+    owner_id              BIGINT      NOT NULL,
+    enabled               BOOLEAN     NOT NULL DEFAULT FALSE,
+    cpu_percent           INTEGER     NOT NULL DEFAULT 0,
+    memory_percent        INTEGER     NOT NULL DEFAULT 0,
+    disk_percent          INTEGER     NOT NULL DEFAULT 0,
+    sustained_minutes     INTEGER     NOT NULL DEFAULT 5,
+    repeat_minutes        INTEGER     NOT NULL DEFAULT 0,
+    snoozed_until         TIMESTAMPTZ,
+    cpu_exceeded_since    TIMESTAMPTZ,
+    cpu_alerted_at        TIMESTAMPTZ,
+    memory_exceeded_since TIMESTAMPTZ,
+    memory_alerted_at     TIMESTAMPTZ,
+    disk_exceeded_since   TIMESTAMPTZ,
+    disk_alerted_at       TIMESTAMPTZ,
+    created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_device_metric_alert_rules_device_id
+    ON device_metric_alert_rules (device_id);
+CREATE INDEX IF NOT EXISTS idx_device_metric_alert_rules_owner_id
+    ON device_metric_alert_rules (owner_id);
+
+-- ---------------------------------------------------------------
 -- Preset (single-row server config distributed to clients)
 -- ---------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS presets (

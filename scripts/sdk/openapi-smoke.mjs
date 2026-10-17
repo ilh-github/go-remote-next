@@ -273,6 +273,19 @@ for (const name of ['device_id', 'enabled', 'after_minutes', 'repeat_minutes', '
 check(Array.isArray(alertBefore.json.maintenance_windows), 'offline-alert: maintenance_windows is not an array');
 check(typeof alertBefore.json.in_maintenance_window === 'boolean', 'offline-alert: in_maintenance_window is not a boolean');
 
+// 4b. GET /v1/me/devices/{device_id}/metric-alert
+const metricAlertBefore = await call('GET', `/v1/me/devices/${deviceId}/metric-alert`, { token, expect: 200 });
+for (const name of [
+  'device_id', 'enabled', 'cpu_percent', 'memory_percent', 'disk_percent',
+  'sustained_minutes', 'repeat_minutes', 'current', 'states',
+]) {
+  field(metricAlertBefore.json, name, undefined, 'GET metric-alert');
+}
+for (const metric of ['cpu', 'memory', 'disk']) {
+  field(metricAlertBefore.json?.states?.[metric], 'exceeded_since', undefined, `MetricAlertState.${metric}`);
+  field(metricAlertBefore.json?.states?.[metric], 'last_alerted_at', undefined, `MetricAlertState.${metric}`);
+}
+
 // 5. GET /v1/me/notification-channels
 const channels = await call('GET', '/v1/me/notification-channels', { token, expect: 200 });
 const channelItems = field(channels.json, 'items', 'object', 'GET notification-channels');
@@ -280,6 +293,9 @@ check(Array.isArray(channelItems), 'GET notification-channels: items is not an a
 field(channels.json, 'supported_events', 'object', 'GET notification-channels');
 field(channels.json, 'signature_header', 'string', 'GET notification-channels');
 field(channels.json, 'signature_scheme', 'string', 'GET notification-channels');
+check(Array.isArray(channels.json?.supported_events) &&
+  channels.json.supported_events.includes('device.metric.alert'),
+  'notification supported_events is missing device.metric.alert');
 if (Array.isArray(channelItems) && channelItems.length > 0) {
   const ch = channelItems[0];
   for (const name of ['id', 'user_id', 'name', 'url', 'events', 'enabled', 'last_status']) {
@@ -634,6 +650,39 @@ if (smokeDevice) {
   if (alertBefore.json.updated_at === undefined || alertBefore.json.updated_at === null) {
     const del = await call('DELETE', `/v1/me/devices/${deviceId}/offline-alert`, { token, expect: 204 });
     check(del.status === 204, 'DELETE offline-alert did not return 204');
+  }
+
+  // 6b. PUT the metric rule back unchanged, then remove the row if this smoke
+  // created it. The defaults carry no updated_at, which is how the read-only
+  // phase distinguishes "no rule" from a disabled rule.
+  const metricPutBody = {
+    enabled: metricAlertBefore.json.enabled,
+    cpu_percent: metricAlertBefore.json.cpu_percent,
+    memory_percent: metricAlertBefore.json.memory_percent,
+    disk_percent: metricAlertBefore.json.disk_percent,
+    sustained_minutes: metricAlertBefore.json.sustained_minutes,
+    repeat_minutes: metricAlertBefore.json.repeat_minutes,
+    snoozed_until: metricAlertBefore.json.snoozed_until ?? null,
+  };
+  const metricPut = await call('PUT', `/v1/me/devices/${deviceId}/metric-alert`, {
+    token,
+    body: metricPutBody,
+    expect: 200,
+  });
+  for (const name of [
+    'device_id', 'enabled', 'cpu_percent', 'memory_percent', 'disk_percent',
+    'sustained_minutes', 'repeat_minutes', 'current', 'states',
+  ]) {
+    field(metricPut.json, name, undefined, 'PUT metric-alert');
+  }
+  check(metricPut.json.sustained_minutes === metricPutBody.sustained_minutes,
+    'PUT metric-alert did not echo sustained_minutes');
+  if (metricAlertBefore.json.updated_at === undefined || metricAlertBefore.json.updated_at === null) {
+    const metricDelete = await call('DELETE', `/v1/me/devices/${deviceId}/metric-alert`, {
+      token,
+      expect: 204,
+    });
+    check(metricDelete.status === 204, 'DELETE metric-alert did not return 204');
   }
 
   // 7. PUT the access policy back unchanged. A full replace with what was just

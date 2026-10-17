@@ -15,12 +15,18 @@
 
 import * as runtime from '../runtime';
 import type {
+  MetricAlertInput,
+  MetricAlertRule,
   NotificationChannelList,
   OfflineAlertInput,
   OfflineAlertRule,
   Problem,
 } from '../models/index';
 import {
+    MetricAlertInputFromJSON,
+    MetricAlertInputToJSON,
+    MetricAlertRuleFromJSON,
+    MetricAlertRuleToJSON,
     NotificationChannelListFromJSON,
     NotificationChannelListToJSON,
     OfflineAlertInputFromJSON,
@@ -31,8 +37,21 @@ import {
     ProblemToJSON,
 } from '../models/index';
 
+export interface DeleteMetricAlertRequest {
+    deviceId: string;
+}
+
+export interface GetMetricAlertRequest {
+    deviceId: string;
+}
+
 export interface GetOfflineAlertRequest {
     deviceId: string;
+}
+
+export interface PutMetricAlertRequest {
+    deviceId: string;
+    metricAlertInput: MetricAlertInput;
 }
 
 export interface PutOfflineAlertRequest {
@@ -44,6 +63,105 @@ export interface PutOfflineAlertRequest {
  * 
  */
 export class NotificationsApi extends runtime.BaseAPI {
+
+    /**
+     * Delete the owner\'s metric alert rule
+     */
+    async deleteMetricAlertRaw(requestParameters: DeleteMetricAlertRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<void>> {
+        if (requestParameters['deviceId'] == null) {
+            throw new runtime.RequiredError(
+                'deviceId',
+                'Required parameter "deviceId" was null or undefined when calling deleteMetricAlert().'
+            );
+        }
+
+        const queryParameters: any = {};
+
+        const headerParameters: runtime.HTTPHeaders = {};
+
+        if (this.configuration && this.configuration.apiKey) {
+            headerParameters["X-API-Key"] = await this.configuration.apiKey("X-API-Key"); // ApiKeyAuth authentication
+        }
+
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("BearerAuth", []);
+
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+
+        let urlPath = `/v1/me/devices/{device_id}/metric-alert`;
+        urlPath = urlPath.replace(`{${"device_id"}}`, encodeURIComponent(String(requestParameters['deviceId'])));
+
+        const response = await this.request({
+            path: urlPath,
+            method: 'DELETE',
+            headers: headerParameters,
+            query: queryParameters,
+        }, initOverrides);
+
+        return new runtime.VoidApiResponse(response);
+    }
+
+    /**
+     * Delete the owner\'s metric alert rule
+     */
+    async deleteMetricAlert(requestParameters: DeleteMetricAlertRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<void> {
+        await this.deleteMetricAlertRaw(requestParameters, initOverrides);
+    }
+
+    /**
+     * Returns safe defaults when the owner never configured a rule, along with the latest host sample and the independent episode state of each metric. Samples are one-per-device; this endpoint is not a time-series query. 
+     * The owner\'s CPU, memory, and disk alert rule
+     */
+    async getMetricAlertRaw(requestParameters: GetMetricAlertRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<MetricAlertRule>> {
+        if (requestParameters['deviceId'] == null) {
+            throw new runtime.RequiredError(
+                'deviceId',
+                'Required parameter "deviceId" was null or undefined when calling getMetricAlert().'
+            );
+        }
+
+        const queryParameters: any = {};
+
+        const headerParameters: runtime.HTTPHeaders = {};
+
+        if (this.configuration && this.configuration.apiKey) {
+            headerParameters["X-API-Key"] = await this.configuration.apiKey("X-API-Key"); // ApiKeyAuth authentication
+        }
+
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("BearerAuth", []);
+
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+
+        let urlPath = `/v1/me/devices/{device_id}/metric-alert`;
+        urlPath = urlPath.replace(`{${"device_id"}}`, encodeURIComponent(String(requestParameters['deviceId'])));
+
+        const response = await this.request({
+            path: urlPath,
+            method: 'GET',
+            headers: headerParameters,
+            query: queryParameters,
+        }, initOverrides);
+
+        return new runtime.JSONApiResponse(response, (jsonValue) => MetricAlertRuleFromJSON(jsonValue));
+    }
+
+    /**
+     * Returns safe defaults when the owner never configured a rule, along with the latest host sample and the independent episode state of each metric. Samples are one-per-device; this endpoint is not a time-series query. 
+     * The owner\'s CPU, memory, and disk alert rule
+     */
+    async getMetricAlert(requestParameters: GetMetricAlertRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<MetricAlertRule> {
+        const response = await this.getMetricAlertRaw(requestParameters, initOverrides);
+        return await response.value();
+    }
 
     /**
      * Returns the documented defaults (`enabled: false`, `after_minutes: 10`) when the owner never configured a rule, so a client can render the form without a second \"does it exist\" call. 
@@ -136,6 +254,65 @@ export class NotificationsApi extends runtime.BaseAPI {
      */
     async listNotificationChannels(initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<NotificationChannelList> {
         const response = await this.listNotificationChannelsRaw(initOverrides);
+        return await response.value();
+    }
+
+    /**
+     * Create or replace the owner\'s metric alert rule
+     */
+    async putMetricAlertRaw(requestParameters: PutMetricAlertRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<MetricAlertRule>> {
+        if (requestParameters['deviceId'] == null) {
+            throw new runtime.RequiredError(
+                'deviceId',
+                'Required parameter "deviceId" was null or undefined when calling putMetricAlert().'
+            );
+        }
+
+        if (requestParameters['metricAlertInput'] == null) {
+            throw new runtime.RequiredError(
+                'metricAlertInput',
+                'Required parameter "metricAlertInput" was null or undefined when calling putMetricAlert().'
+            );
+        }
+
+        const queryParameters: any = {};
+
+        const headerParameters: runtime.HTTPHeaders = {};
+
+        headerParameters['Content-Type'] = 'application/json';
+
+        if (this.configuration && this.configuration.apiKey) {
+            headerParameters["X-API-Key"] = await this.configuration.apiKey("X-API-Key"); // ApiKeyAuth authentication
+        }
+
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("BearerAuth", []);
+
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+
+        let urlPath = `/v1/me/devices/{device_id}/metric-alert`;
+        urlPath = urlPath.replace(`{${"device_id"}}`, encodeURIComponent(String(requestParameters['deviceId'])));
+
+        const response = await this.request({
+            path: urlPath,
+            method: 'PUT',
+            headers: headerParameters,
+            query: queryParameters,
+            body: MetricAlertInputToJSON(requestParameters['metricAlertInput']),
+        }, initOverrides);
+
+        return new runtime.JSONApiResponse(response, (jsonValue) => MetricAlertRuleFromJSON(jsonValue));
+    }
+
+    /**
+     * Create or replace the owner\'s metric alert rule
+     */
+    async putMetricAlert(requestParameters: PutMetricAlertRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<MetricAlertRule> {
+        const response = await this.putMetricAlertRaw(requestParameters, initOverrides);
         return await response.value();
     }
 

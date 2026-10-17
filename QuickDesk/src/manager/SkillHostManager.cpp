@@ -10,8 +10,28 @@
 #include <QRegularExpression>
 #include <QStringList>
 #include <QTimer>
+#include <QUuid>
 
 namespace quickdesk {
+
+namespace {
+
+constexpr int kInternalRequestTimeoutMs = 10000;
+
+QJsonObject toolResultObject(const QJsonValue& value)
+{
+    if (value.isObject()) {
+        return value.toObject();
+    }
+    if (!value.isString()) {
+        return {};
+    }
+    const QJsonDocument document =
+        QJsonDocument::fromJson(value.toString().toUtf8());
+    return document.isObject() ? document.object() : QJsonObject{};
+}
+
+}  // namespace
 
 SkillHostManager::SkillHostManager(QObject* parent)
     : QObject(parent)
@@ -19,6 +39,8 @@ SkillHostManager::SkillHostManager(QObject* parent)
 
 SkillHostManager::~SkillHostManager()
 {
+    failPendingInternalRequests(
+        QStringLiteral("Skill host stopped before the request completed"));
     if (m_skillHostProcess) {
         if (m_skillHostProcess->state() != QProcess::NotRunning) {
             m_skillHostProcess->kill();
@@ -98,6 +120,7 @@ void SkillHostManager::startSkillHost(const QString& skillHostPath, const QStrin
             this, &SkillHostManager::onSkillHostFinished);
     connect(m_skillHostProcess, &QProcess::started, this, [this]() {
         LOG_INFO("SkillHostManager: skill-host started (pid={})", m_skillHostProcess->processId());
+        emit skillHostStarted();
     });
     connect(m_skillHostProcess, &QProcess::errorOccurred, this, [skillHostPath](QProcess::ProcessError err) {
         if (err == QProcess::FailedToStart) {
@@ -111,6 +134,8 @@ void SkillHostManager::startSkillHost(const QString& skillHostPath, const QStrin
 void SkillHostManager::stopSkillHost()
 {
     if (!m_skillHostProcess) return;
+    failPendingInternalRequests(
+        QStringLiteral("Skill host stopped before the request completed"));
 
     if (m_skillHostProcess->state() == QProcess::NotRunning) {
         delete m_skillHostProcess;
@@ -139,6 +164,44 @@ void SkillHostManager::stopSkillHost()
 bool SkillHostManager::isRunning() const
 {
     return m_skillHostProcess && m_skillHostProcess->state() == QProcess::Running;
+}
+
+void SkillHostManager::requestSystemInfo(
+    std::function<void(const QJsonObject&, const QString&)> callback)
+{
+    if (!isRunning()) {
+        if (callback) {
+            callback(
+                {},
+                QStringLiteral("Skill host is not running"));
+        }
+        return;
+    }
+
+    const QString requestId =
+        QStringLiteral("quickdesk-internal-%1")
+            .arg(QUuid::createUuid().toString(QUuid::WithoutBraces));
+    m_pendingInternalRequests.insert(requestId, std::move(callback));
+    QTimer::singleShot(kInternalRequestTimeoutMs, this, [this, requestId]() {
+        auto pending = m_pendingInternalRequests.take(requestId);
+        if (pending) {
+            pending({}, QStringLiteral("Internal skill request timed out"));
+        }
+    });
+
+    QJsonObject request;
+    request[QStringLiteral("id")] = requestId;
+    request[QStringLiteral("type")] = QStringLiteral("toolCall");
+    request[QStringLiteral("tool")] = QStringLiteral("get_system_info");
+    request[QStringLiteral("args")] = QJsonObject{};
+    if (!sendToSkillHost(request)) {
+        auto pending = m_pendingInternalRequests.take(requestId);
+        if (pending) {
+            pending(
+                {},
+                QStringLiteral("Failed to send internal request to skill host"));
+        }
+    }
 }
 
 // ---- Private slots ----
@@ -174,6 +237,8 @@ void SkillHostManager::onSkillHostStdout()
 void SkillHostManager::onSkillHostFinished(int exitCode, QProcess::ExitStatus exitStatus)
 {
     Q_UNUSED(exitStatus);
+    failPendingInternalRequests(
+        QStringLiteral("Skill host exited before the request completed"));
     LOG_INFO("SkillHostManager: skill-host exited with code {}", exitCode);
 }
 
@@ -187,25 +252,38 @@ void SkillHostManager::onMessageFromClient(const QString& jsonData)
         return;
     }
 
-    sendToSkillHost(doc.object());
+    if (!sendToSkillHost(doc.object())) {
+        LOG_WARN("SkillHostManager: failed to forward client message to skill-host");
+    }
 }
 
 // ---- Private helpers ----
 
-void SkillHostManager::sendToSkillHost(const QJsonObject& message)
+bool SkillHostManager::sendToSkillHost(const QJsonObject& message)
 {
     if (!m_skillHostProcess || m_skillHostProcess->state() != QProcess::Running) {
         LOG_WARN("SkillHostManager: skill-host not running, dropping message");
-        return;
+        return false;
     }
 
     QByteArray line = QJsonDocument(message).toJson(QJsonDocument::Compact);
     line += '\n';
-    m_skillHostProcess->write(line);
+    const qint64 written = m_skillHostProcess->write(line);
+    if (written != line.size()) {
+        LOG_WARN("SkillHostManager: short write to skill-host ({} of {})",
+                 written,
+                 line.size());
+        return false;
+    }
+    return true;
 }
 
 void SkillHostManager::handleSkillHostMessage(const QJsonObject& message)
 {
+    if (handleInternalResponse(message)) {
+        return;
+    }
+
     QString type = message["type"].toString();
 
     if (type == "capabilitiesReady" || type == "capabilitiesChanged") {
@@ -225,6 +303,54 @@ void SkillHostManager::handleSkillHostMessage(const QJsonObject& message)
 
     emit skillHostResponseReady(message);
     m_hostManager->sendSkillBridgeSend(jsonData);
+}
+
+bool SkillHostManager::handleInternalResponse(const QJsonObject& message)
+{
+    const QString requestId =
+        message.value(QStringLiteral("id")).toString();
+    auto pending = m_pendingInternalRequests.find(requestId);
+    if (pending == m_pendingInternalRequests.end()) {
+        return false;
+    }
+
+    auto callback = m_pendingInternalRequests.take(requestId);
+    const QString type = message.value(QStringLiteral("type")).toString();
+    if (type == QStringLiteral("toolError")) {
+        const QString error =
+            message.value(QStringLiteral("error")).toString(
+                QStringLiteral("Internal system-info request failed"));
+        if (callback) {
+            callback({}, error);
+        }
+        return true;
+    }
+
+    const QJsonObject result =
+        toolResultObject(message.value(QStringLiteral("result")));
+    if (result.isEmpty()) {
+        if (callback) {
+            callback(
+                {},
+                QStringLiteral("Skill host returned an invalid system-info result"));
+        }
+        return true;
+    }
+    if (callback) {
+        callback(result, QString());
+    }
+    return true;
+}
+
+void SkillHostManager::failPendingInternalRequests(const QString& error)
+{
+    const auto pending = m_pendingInternalRequests;
+    m_pendingInternalRequests.clear();
+    for (const auto& callback : pending) {
+        if (callback) {
+            callback({}, error);
+        }
+    }
 }
 
 } // namespace quickdesk

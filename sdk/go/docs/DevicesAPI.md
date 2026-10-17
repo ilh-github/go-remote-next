@@ -15,6 +15,7 @@ Method | HTTP request | Description
 [**ListAccessGrants**](DevicesAPI.md#ListAccessGrants) | **Get** /v1/me/devices/{device_id}/access-grants | Guest access codes issued for a device
 [**ListMyDevices**](DevicesAPI.md#ListMyDevices) | **Get** /v1/me/devices | Devices owned by the authenticated user
 [**PutAccessPolicy**](DevicesAPI.md#PutAccessPolicy) | **Put** /v1/me/devices/{device_id}/access-policy | Create or replace the device&#39;s access policy
+[**ReportHostMetrics**](DevicesAPI.md#ReportHostMetrics) | **Post** /v1/devices/{device_id}/metrics | Report the host&#39;s latest resource sample
 [**RevokeAccessGrant**](DevicesAPI.md#RevokeAccessGrant) | **Delete** /v1/me/devices/{device_id}/access-grants/{grant_id} | Revoke a guest access code
 [**UnbanDeviceAccessSource**](DevicesAPI.md#UnbanDeviceAccessSource) | **Post** /v1/me/devices/{device_id}/access-bans:remove | Remove one permanent source ban
 [**VerifyAccessCode**](DevicesAPI.md#VerifyAccessCode) | **Post** /v1/devices/{device_id}/access-code:verify | Verify a device access code and mint a signal token
@@ -790,6 +791,79 @@ Name | Type | Description  | Notes
 ### Return type
 
 [**DeviceAccessPolicy**](DeviceAccessPolicy.md)
+
+### Authorization
+
+[ApiKeyAuth](../README.md#ApiKeyAuth), [BearerAuth](../README.md#BearerAuth)
+
+### HTTP request headers
+
+- **Content-Type**: application/json
+- **Accept**: application/json, application/problem+json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
+[[Back to Model list]](../README.md#documentation-for-models)
+[[Back to README]](../README.md)
+
+
+## ReportHostMetrics
+
+> ReportHostMetrics200Response ReportHostMetrics(ctx, deviceId).HostMetricReport(hostMetricReport).Execute()
+
+Report the host's latest resource sample
+
+
+
+### Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+    "time"
+	openapiclient "github.com/ilh-github/go-remote-next/signaling"
+)
+
+func main() {
+	deviceId := "deviceId_example" // string | The device id shown on the controlled machine.
+	hostMetricReport := *openapiclient.NewHostMetricReport(time.Now(), float32(123), float32(123), float32(123), "DiskMount_example") // HostMetricReport | 
+
+	configuration := openapiclient.NewConfiguration()
+	apiClient := openapiclient.NewAPIClient(configuration)
+	resp, r, err := apiClient.DevicesAPI.ReportHostMetrics(context.Background(), deviceId).HostMetricReport(hostMetricReport).Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error when calling `DevicesAPI.ReportHostMetrics``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
+	}
+	// response from `ReportHostMetrics`: ReportHostMetrics200Response
+	fmt.Fprintf(os.Stdout, "Response from `DevicesAPI.ReportHostMetrics`: %v\n", resp)
+}
+```
+
+### Path Parameters
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+**ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
+**deviceId** | **string** | The device id shown on the controlled machine. | 
+
+### Other Parameters
+
+Other parameters are passed through a pointer to a apiReportHostMetricsRequest struct via the builder pattern
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+
+ **hostMetricReport** | [**HostMetricReport**](HostMetricReport.md) |  | 
+
+### Return type
+
+[**ReportHostMetrics200Response**](ReportHostMetrics200Response.md)
 
 ### Authorization
 

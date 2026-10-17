@@ -15,6 +15,9 @@
 #include <QPointer>
 #include <QProcess>
 #include <QString>
+#include <QHash>
+
+#include <functional>
 
 namespace quickdesk {
 
@@ -52,7 +55,14 @@ public:
 
     bool isRunning() const;
 
+    // Query sys-info through the host-side skill bridge without exposing the
+    // response to connected remote clients.
+    void requestSystemInfo(
+        std::function<void(const QJsonObject& result, const QString& error)> callback);
+
 signals:
+    void skillHostStarted();
+
     // Emitted when the skill host reports its available tools (on start or hot-reload).
     void capabilitiesChanged(const QJsonArray& tools);
 
@@ -72,15 +82,20 @@ private slots:
 
 private:
     // Send a JSON object to the skill host's stdin as a single JSON Line.
-    void sendToSkillHost(const QJsonObject& message);
+    bool sendToSkillHost(const QJsonObject& message);
 
     // Handle a complete JSON object received from the skill host.
     void handleSkillHostMessage(const QJsonObject& message);
+    bool handleInternalResponse(const QJsonObject& message);
+    void failPendingInternalRequests(const QString& error);
 
     QPointer<HostManager> m_hostManager;
     QPointer<QProcess>    m_skillHostProcess;
     QByteArray            m_readBuffer;  // accumulates partial lines from stdout
     QJsonArray            m_cachedTools; // tools from the last capabilitiesReady
+    QHash<QString,
+          std::function<void(const QJsonObject&, const QString&)>>
+        m_pendingInternalRequests;
 };
 
 } // namespace quickdesk

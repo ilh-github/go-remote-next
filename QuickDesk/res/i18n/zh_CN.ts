@@ -1719,8 +1719,8 @@
     </message>
     <message>
         <location filename="../../qml/pages/NotificationsPage.qml" line="435"/>
-        <source>Webhook channels, quiet hours and sustained-offline alerts.</source>
-        <translation>Webhook 通道、静默时段和持续离线告警。</translation>
+        <source>Webhook channels, quiet hours, offline and host metric alerts.</source>
+        <translation>Webhook 通道、静默时段、离线告警和主机指标告警。</translation>
     </message>
     <message>
         <location filename="../../qml/pages/NotificationsPage.qml" line="443"/>
@@ -2031,6 +2031,74 @@
         <location filename="../../qml/pages/NotificationsPage.qml" line="1240"/>
         <source>Delete “%1”? Its delivery history will no longer be available.</source>
         <translation>删除“%1”吗？该通道的投递历史将不再可用。</translation>
+    </message>
+    <message>
+        <source>Host metrics</source>
+        <translation>主机指标</translation>
+    </message>
+    <message>
+        <source>Metric alert</source>
+        <translation>指标告警</translation>
+    </message>
+    <message>
+        <source>A host metric stayed above its alert threshold</source>
+        <translation>主机指标持续超过告警阈值</translation>
+    </message>
+    <message>
+        <source>Host metric alerts</source>
+        <translation>主机指标告警</translation>
+    </message>
+    <message>
+        <source>Alert when CPU, memory or disk usage stays above a threshold.</source>
+        <translation>CPU、内存或磁盘使用率持续超过阈值时发送告警。</translation>
+    </message>
+    <message>
+        <source>Live</source>
+        <translation>实时</translation>
+    </message>
+    <message>
+        <source>Waiting</source>
+        <translation>等待数据</translation>
+    </message>
+    <message>
+        <source>CPU %1%</source>
+        <translation>CPU %1%</translation>
+    </message>
+    <message>
+        <source>Memory %1%</source>
+        <translation>内存 %1%</translation>
+    </message>
+    <message>
+        <source>Disk %1% (%2)</source>
+        <translation>磁盘 %1%（%2）</translation>
+    </message>
+    <message>
+        <source>Captured %1</source>
+        <translation>采集于 %1</translation>
+    </message>
+    <message>
+        <source>CPU %</source>
+        <translation>CPU %</translation>
+    </message>
+    <message>
+        <source>Memory %</source>
+        <translation>内存 %</translation>
+    </message>
+    <message>
+        <source>Disk %</source>
+        <translation>磁盘 %</translation>
+    </message>
+    <message>
+        <source>Sustained minutes</source>
+        <translation>持续分钟数</translation>
+    </message>
+    <message>
+        <source>Save metric alert</source>
+        <translation>保存指标告警</translation>
+    </message>
+    <message>
+        <source>Snoozed until %1</source>
+        <translation>静默至 %1</translation>
     </message>
 </context>
 <context>
@@ -3915,6 +3983,26 @@ Access Code: %2</source>
         <location filename="../../src/manager/NotificationManager.cpp" line="469"/>
         <source>Offline alert thresholds must be between 1 and 10080 minutes</source>
         <translation>离线告警阈值必须在 1 到 10080 分钟之间</translation>
+    </message>
+    <message>
+        <source>Select a device to configure metric alerts</source>
+        <translation>请选择设备以配置指标告警</translation>
+    </message>
+    <message>
+        <source>Please login to manage metric alerts</source>
+        <translation>请先登录再管理指标告警</translation>
+    </message>
+    <message>
+        <source>Metric thresholds must be between 0 and 100 percent</source>
+        <translation>指标阈值必须在 0 到 100 百分比之间</translation>
+    </message>
+    <message>
+        <source>Enable at least one metric threshold</source>
+        <translation>请至少启用一个指标阈值</translation>
+    </message>
+    <message>
+        <source>Metric alert intervals must be between 0 and 10080 minutes</source>
+        <translation>指标告警间隔必须在 0 到 10080 分钟之间</translation>
     </message>
     <message>
         <location filename="../../src/manager/NotificationManager.cpp" line="1080"/>

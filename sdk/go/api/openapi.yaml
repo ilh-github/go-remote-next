@@ -314,6 +314,78 @@ paths:
       summary: Create or replace the owner's offline-alert rule
       tags:
       - notifications
+  /v1/me/devices/{device_id}/metric-alert:
+    delete:
+      operationId: deleteMetricAlert
+      parameters:
+      - $ref: "#/components/parameters/DeviceId"
+      responses:
+        "204":
+          description: The rule was deleted.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+      summary: Delete the owner's metric alert rule
+      tags:
+      - notifications
+    get:
+      description: |
+        Returns safe defaults when the owner never configured a rule, along
+        with the latest host sample and the independent episode state of each
+        metric. Samples are one-per-device; this endpoint is not a time-series
+        query.
+      operationId: getMetricAlert
+      parameters:
+      - $ref: "#/components/parameters/DeviceId"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MetricAlertRule"
+          description: "The rule, latest sample, and metric episode state."
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+      summary: "The owner's CPU, memory, and disk alert rule"
+      tags:
+      - notifications
+    parameters:
+    - $ref: "#/components/parameters/DeviceId"
+    put:
+      operationId: putMetricAlert
+      parameters:
+      - $ref: "#/components/parameters/DeviceId"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MetricAlertInput"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MetricAlertRule"
+          description: The stored rule and latest sample.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+      summary: Create or replace the owner's metric alert rule
+      tags:
+      - notifications
   /v1/me/devices/{device_id}/sessions:
     get:
       description: |
@@ -1040,6 +1112,43 @@ paths:
       - recordings
     parameters:
     - $ref: "#/components/parameters/RecordingId"
+  /v1/devices/{device_id}/metrics:
+    parameters:
+    - $ref: "#/components/parameters/DeviceId"
+    post:
+      description: |
+        Host-only endpoint authenticated by both the deployment API key and the
+        device secret. Values are percentages in the inclusive range 0..100.
+        Repeating a report replaces the previous sample and advances the
+        owner's metric-alert episode state.
+      operationId: reportHostMetrics
+      parameters:
+      - $ref: "#/components/parameters/DeviceId"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HostMetricReport"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/reportHostMetrics_200_response"
+          description: The accepted sample identity.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+      security:
+      - ApiKeyAuth: []
+        BearerAuth: []
+      summary: Report the host's latest resource sample
+      tags:
+      - devices
   /v1/devices/{device_id}/access-code:verify:
     parameters:
     - $ref: "#/components/parameters/DeviceId"
@@ -2330,6 +2439,215 @@ components:
       - in_maintenance_window
       - maintenance_windows
       - repeat_minutes
+    MetricAlertInput:
+      example:
+        disk_percent: 14
+        memory_percent: 60
+        snoozed_until: 2000-01-23T04:56:07.000+00:00
+        sustained_minutes: 6009
+        repeat_minutes: 5682
+        enabled: true
+        cpu_percent: 8
+      properties:
+        enabled:
+          type: boolean
+        cpu_percent:
+          description: 0 disables the CPU threshold.
+          maximum: 100
+          minimum: 0
+          type: integer
+        memory_percent:
+          description: 0 disables the memory threshold.
+          maximum: 100
+          minimum: 0
+          type: integer
+        disk_percent:
+          description: 0 disables the disk threshold.
+          maximum: 100
+          minimum: 0
+          type: integer
+        sustained_minutes:
+          description: 0 alerts on the first over-threshold sample.
+          maximum: 10080
+          minimum: 0
+          type: integer
+        repeat_minutes:
+          description: 0 sends one alert per continuous breach.
+          maximum: 10080
+          minimum: 0
+          type: integer
+        snoozed_until:
+          format: date-time
+          nullable: true
+          type: string
+      required:
+      - cpu_percent
+      - disk_percent
+      - enabled
+      - memory_percent
+      - repeat_minutes
+      - sustained_minutes
+    MetricSnapshot:
+      example:
+        disk_percent: 93.01444243932576
+        disk_mount: disk_mount
+        memory_percent: 70.61401241503108
+        captured_at: 2000-01-23T04:56:07.000+00:00
+        cpu_percent: 23.02135886934765
+      properties:
+        captured_at:
+          format: date-time
+          type: string
+        cpu_percent:
+          maximum: 100
+          minimum: 0
+          type: number
+        memory_percent:
+          maximum: 100
+          minimum: 0
+          type: number
+        disk_percent:
+          maximum: 100
+          minimum: 0
+          type: number
+        disk_mount:
+          type: string
+      required:
+      - captured_at
+      - cpu_percent
+      - disk_mount
+      - disk_percent
+      - memory_percent
+    MetricAlertState:
+      example:
+        last_alerted_at: 2000-01-23T04:56:07.000+00:00
+        exceeded_since: 2000-01-23T04:56:07.000+00:00
+      properties:
+        exceeded_since:
+          format: date-time
+          nullable: true
+          type: string
+        last_alerted_at:
+          format: date-time
+          nullable: true
+          type: string
+    MetricAlertStates:
+      example:
+        disk:
+          last_alerted_at: 2000-01-23T04:56:07.000+00:00
+          exceeded_since: 2000-01-23T04:56:07.000+00:00
+        memory:
+          last_alerted_at: 2000-01-23T04:56:07.000+00:00
+          exceeded_since: 2000-01-23T04:56:07.000+00:00
+        cpu:
+          last_alerted_at: 2000-01-23T04:56:07.000+00:00
+          exceeded_since: 2000-01-23T04:56:07.000+00:00
+      properties:
+        cpu:
+          $ref: "#/components/schemas/MetricAlertState"
+        memory:
+          $ref: "#/components/schemas/MetricAlertState"
+        disk:
+          $ref: "#/components/schemas/MetricAlertState"
+      required:
+      - cpu
+      - disk
+      - memory
+    MetricAlertRule:
+      example:
+        disk_percent: 1
+        current:
+          disk_percent: 93.01444243932576
+          disk_mount: disk_mount
+          memory_percent: 70.61401241503108
+          captured_at: 2000-01-23T04:56:07.000+00:00
+          cpu_percent: 23.02135886934765
+        device_id: device_id
+        updated_at: 2000-01-23T04:56:07.000+00:00
+        memory_percent: 6
+        snoozed_until: 2000-01-23T04:56:07.000+00:00
+        sustained_minutes: 5
+        repeat_minutes: 5
+        enabled: true
+        cpu_percent: 0
+        states:
+          disk:
+            last_alerted_at: 2000-01-23T04:56:07.000+00:00
+            exceeded_since: 2000-01-23T04:56:07.000+00:00
+          memory:
+            last_alerted_at: 2000-01-23T04:56:07.000+00:00
+            exceeded_since: 2000-01-23T04:56:07.000+00:00
+          cpu:
+            last_alerted_at: 2000-01-23T04:56:07.000+00:00
+            exceeded_since: 2000-01-23T04:56:07.000+00:00
+      properties:
+        device_id:
+          type: string
+        enabled:
+          type: boolean
+        cpu_percent:
+          type: integer
+        memory_percent:
+          type: integer
+        disk_percent:
+          type: integer
+        sustained_minutes:
+          type: integer
+        repeat_minutes:
+          type: integer
+        snoozed_until:
+          format: date-time
+          nullable: true
+          type: string
+        current:
+          $ref: "#/components/schemas/MetricSnapshot"
+        states:
+          $ref: "#/components/schemas/MetricAlertStates"
+        updated_at:
+          format: date-time
+          nullable: true
+          type: string
+      required:
+      - cpu_percent
+      - device_id
+      - disk_percent
+      - enabled
+      - memory_percent
+      - repeat_minutes
+      - states
+      - sustained_minutes
+    HostMetricReport:
+      example:
+        disk_percent: 14.658129805029452
+        disk_mount: disk_mount
+        memory_percent: 60.27456183070403
+        captured_at: 2000-01-23T04:56:07.000+00:00
+        cpu_percent: 8.008281904610115
+      properties:
+        captured_at:
+          format: date-time
+          type: string
+        cpu_percent:
+          maximum: 100
+          minimum: 0
+          type: number
+        memory_percent:
+          maximum: 100
+          minimum: 0
+          type: number
+        disk_percent:
+          maximum: 100
+          minimum: 0
+          type: number
+        disk_mount:
+          maxLength: 256
+          type: string
+      required:
+      - captured_at
+      - cpu_percent
+      - disk_mount
+      - disk_percent
+      - memory_percent
     NotificationChannel:
       example:
         last_triggered: 2000-01-23T04:56:07.000+00:00
@@ -4014,6 +4332,19 @@ components:
           type: string
       required:
       - file
+    reportHostMetrics_200_response:
+      example:
+        device_id: device_id
+        captured_at: 2000-01-23T04:56:07.000+00:00
+      properties:
+        device_id:
+          type: string
+        captured_at:
+          format: date-time
+          type: string
+      required:
+      - captured_at
+      - device_id
     listAccessGrants_200_response:
       example:
         items:

@@ -16,9 +16,11 @@ globalThis.localStorage = {
 
 const {
   buildChannelPayload,
+  buildMetricAlertPayload,
   buildOfflineAlertPayload,
   buildQuietHoursPayload,
   normalizeChannelList,
+  normalizeMetricAlert,
   normalizeOfflineAlert,
   normalizeQuietHours,
   toDatetimeLocalValue,
@@ -113,6 +115,55 @@ test('offline alert payload applies documented defaults and clears empty windows
   })
 })
 
+test('metric alert rules preserve current readings and serialize threshold settings', () => {
+  const view = normalizeMetricAlert({
+    device_id: ' device/1 ',
+    enabled: true,
+    cpu_percent: '85',
+    memory_percent: 90,
+    disk_percent: 92.5,
+    sustained_minutes: '15',
+    repeat_minutes: 60,
+    snoozed_until: '2026-10-17T04:00:00Z',
+    current: {
+      captured_at: '2026-10-17T03:55:00Z',
+      cpu_percent: 81.2,
+      memory_percent: 67,
+      disk_percent: 93.1,
+      disk_mount: '/data',
+    },
+    states: {
+      cpu: { exceeded_since: '2026-10-17T03:50:00Z', last_alerted_at: null },
+      memory: { exceeded_since: null, last_alerted_at: null },
+      disk: { exceeded_since: '2026-10-17T03:40:00Z', last_alerted_at: '2026-10-17T03:45:00Z' },
+    },
+  })
+
+  assert.equal(view.device_id, 'device/1')
+  assert.equal(view.cpu_percent, 85)
+  assert.equal(view.sustained_minutes, 15)
+  assert.equal(view.current.disk_mount, '/data')
+  assert.equal(view.states.disk.last_alerted_at, '2026-10-17T03:45:00Z')
+
+  assert.deepEqual(buildMetricAlertPayload({
+    enabled: true,
+    cpu_percent: '85',
+    memory_percent: 90,
+    disk_percent: 92.5,
+    sustained_minutes: '15',
+    repeat_minutes: 60,
+    snoozed_until: '2026-10-17T12:00',
+  }, { timeZoneOffsetMinutes: -480 }), {
+    enabled: true,
+    cpu_percent: 85,
+    memory_percent: 90,
+    disk_percent: 92.5,
+    sustained_minutes: 15,
+    repeat_minutes: 60,
+    snoozed_until: '2026-10-17T04:00:00.000Z',
+  })
+})
+
 test('notification API methods use owner-scoped v1 paths', async () => {
   const calls = []
   const original = userApi._req
@@ -128,6 +179,9 @@ test('notification API methods use owner-scoped v1 paths', async () => {
     await userApi.retryFailedNotificationDeliveriesForUser({ dry_run: true })
     await userApi.updateNotificationQuietHours({ quiet_hours: [] })
     await userApi.updateDeviceOfflineAlert('device/1', { enabled: true })
+    await userApi.fetchDeviceMetricAlert('device/2')
+    await userApi.updateDeviceMetricAlert('device/2', { enabled: true })
+    await userApi.deleteDeviceMetricAlert('device/2')
   } finally {
     userApi._req = original
   }
@@ -140,5 +194,8 @@ test('notification API methods use owner-scoped v1 paths', async () => {
     ['POST', '/v1/me/notification-channels:retry-failed', { dry_run: true }],
     ['PUT', '/v1/me/notification-quiet-hours', { quiet_hours: [] }],
     ['PUT', '/v1/me/devices/device%2F1/offline-alert', { enabled: true }],
+    ['GET', '/v1/me/devices/device%2F2/metric-alert'],
+    ['PUT', '/v1/me/devices/device%2F2/metric-alert', { enabled: true }],
+    ['DELETE', '/v1/me/devices/device%2F2/metric-alert'],
   ])
 })

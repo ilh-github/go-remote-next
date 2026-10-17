@@ -306,6 +306,69 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+  /v1/me/devices/{device_id}/metric-alert:
+    parameters:
+      - $ref: '#/components/parameters/DeviceId'
+    get:
+      tags: [notifications]
+      summary: The owner's CPU, memory, and disk alert rule
+      operationId: getMetricAlert
+      description: |
+        Returns safe defaults when the owner never configured a rule, along
+        with the latest host sample and the independent episode state of each
+        metric. Samples are one-per-device; this endpoint is not a time-series
+        query.
+      responses:
+        '200':
+          description: The rule, latest sample, and metric episode state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MetricAlertRule'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [notifications]
+      summary: Create or replace the owner's metric alert rule
+      operationId: putMetricAlert
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MetricAlertInput'
+      responses:
+        '200':
+          description: The stored rule and latest sample.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MetricAlertRule'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [notifications]
+      summary: Delete the owner's metric alert rule
+      operationId: deleteMetricAlert
+      responses:
+        '204':
+          description: The rule was deleted.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /v1/me/devices/{device_id}/sessions:
     get:
       tags: [remoteSessions]
@@ -947,6 +1010,47 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
+  /v1/devices/{device_id}/metrics:
+    parameters:
+      - $ref: '#/components/parameters/DeviceId'
+    post:
+      tags: [devices]
+      summary: Report the host's latest resource sample
+      operationId: reportHostMetrics
+      description: |
+        Host-only endpoint authenticated by both the deployment API key and the
+        device secret. Values are percentages in the inclusive range 0..100.
+        Repeating a report replaces the previous sample and advances the
+        owner's metric-alert episode state.
+      security:
+        - ApiKeyAuth: []
+          BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HostMetricReport'
+      responses:
+        '200':
+          description: The accepted sample identity.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [device_id, captured_at]
+                properties:
+                  device_id:
+                    type: string
+                  captured_at:
+                    type: string
+                    format: date-time
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
   /v1/devices/{device_id}/access-code:verify:
     parameters:
       - $ref: '#/components/parameters/DeviceId'
@@ -1970,6 +2074,146 @@ components:
         updated_at:
           type: [string, 'null']
           format: date-time
+    MetricAlertInput:
+      type: object
+      required:
+        - enabled
+        - cpu_percent
+        - memory_percent
+        - disk_percent
+        - sustained_minutes
+        - repeat_minutes
+      properties:
+        enabled:
+          type: boolean
+        cpu_percent:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: 0 disables the CPU threshold.
+        memory_percent:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: 0 disables the memory threshold.
+        disk_percent:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: 0 disables the disk threshold.
+        sustained_minutes:
+          type: integer
+          minimum: 0
+          maximum: 10080
+          description: 0 alerts on the first over-threshold sample.
+        repeat_minutes:
+          type: integer
+          minimum: 0
+          maximum: 10080
+          description: 0 sends one alert per continuous breach.
+        snoozed_until:
+          type: [string, 'null']
+          format: date-time
+    MetricSnapshot:
+      type: object
+      required: [captured_at, cpu_percent, memory_percent, disk_percent, disk_mount]
+      properties:
+        captured_at:
+          type: string
+          format: date-time
+        cpu_percent:
+          type: number
+          minimum: 0
+          maximum: 100
+        memory_percent:
+          type: number
+          minimum: 0
+          maximum: 100
+        disk_percent:
+          type: number
+          minimum: 0
+          maximum: 100
+        disk_mount:
+          type: string
+    MetricAlertState:
+      type: object
+      properties:
+        exceeded_since:
+          type: [string, 'null']
+          format: date-time
+        last_alerted_at:
+          type: [string, 'null']
+          format: date-time
+    MetricAlertStates:
+      type: object
+      required: [cpu, memory, disk]
+      properties:
+        cpu:
+          $ref: '#/components/schemas/MetricAlertState'
+        memory:
+          $ref: '#/components/schemas/MetricAlertState'
+        disk:
+          $ref: '#/components/schemas/MetricAlertState'
+    MetricAlertRule:
+      type: object
+      required:
+        - device_id
+        - enabled
+        - cpu_percent
+        - memory_percent
+        - disk_percent
+        - sustained_minutes
+        - repeat_minutes
+        - states
+      properties:
+        device_id:
+          type: string
+        enabled:
+          type: boolean
+        cpu_percent:
+          type: integer
+        memory_percent:
+          type: integer
+        disk_percent:
+          type: integer
+        sustained_minutes:
+          type: integer
+        repeat_minutes:
+          type: integer
+        snoozed_until:
+          type: [string, 'null']
+          format: date-time
+        current:
+          oneOf:
+            - $ref: '#/components/schemas/MetricSnapshot'
+            - type: 'null'
+        states:
+          $ref: '#/components/schemas/MetricAlertStates'
+        updated_at:
+          type: [string, 'null']
+          format: date-time
+    HostMetricReport:
+      type: object
+      required: [captured_at, cpu_percent, memory_percent, disk_percent, disk_mount]
+      properties:
+        captured_at:
+          type: string
+          format: date-time
+        cpu_percent:
+          type: number
+          minimum: 0
+          maximum: 100
+        memory_percent:
+          type: number
+          minimum: 0
+          maximum: 100
+        disk_percent:
+          type: number
+          minimum: 0
+          maximum: 100
+        disk_mount:
+          type: string
+          maxLength: 256
     NotificationChannel:
       type: object
       required: [id, user_id, name, url, events, enabled, last_status]

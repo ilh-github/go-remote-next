@@ -9,11 +9,13 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
+#include <QDateTime>
 #include <QUrl>
 #include <QTimer>
 #include <QRandomGenerator>
 
 #include <algorithm>
+#include <cmath>
 
 #ifndef QUICKDESK_API_KEY
 #define QUICKDESK_API_KEY ""
@@ -27,6 +29,16 @@ constexpr int kSyncReconnectBaseMs = 1000;   // exponential backoff base
 constexpr int kSyncReconnectMaxMs  = 30000;  // cap
 constexpr int kAccessCodeSyncRetryBaseMs = 1000;
 constexpr int kAccessCodeSyncRetryMaxMs = 30000;
+
+double percentValue(const QJsonValue& value)
+{
+    bool ok = false;
+    const double numeric = value.toVariant().toDouble(&ok);
+    if (ok) {
+        return numeric;
+    }
+    return value.toString().toDouble();
+}
 }
 
 CloudDeviceManager::CloudDeviceManager(ServerManager* serverManager,
@@ -82,6 +94,45 @@ QString CloudDeviceManager::currentDeviceSecret() const
     return m_hostManager ? m_hostManager->deviceSecret() : QString();
 }
 
+QJsonObject CloudDeviceManager::metricsBody(const QJsonObject& systemInfo)
+{
+    QJsonObject body;
+    body[QStringLiteral("captured_at")] =
+        QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
+    body[QStringLiteral("cpu_percent")] =
+        percentValue(systemInfo.value(QStringLiteral("cpu"))
+                         .toObject()
+                         .value(QStringLiteral("usage_percent")));
+    body[QStringLiteral("memory_percent")] =
+        percentValue(systemInfo.value(QStringLiteral("memory"))
+                         .toObject()
+                         .value(QStringLiteral("usage_percent")));
+
+    double selectedPercent = 0.0;
+    QString selectedMount;
+    for (const QJsonValue& value :
+         systemInfo.value(QStringLiteral("disks")).toArray()) {
+        const QJsonObject disk = value.toObject();
+        const double total =
+            percentValue(disk.value(QStringLiteral("total_gb")));
+        const double available =
+            percentValue(disk.value(QStringLiteral("available_gb")));
+        const double usedPercent =
+            total > 0.0
+                ? qBound(0.0, (total - available) / total * 100.0, 100.0)
+                : 0.0;
+        if (selectedMount.isEmpty() || usedPercent > selectedPercent) {
+            selectedPercent = usedPercent;
+            selectedMount =
+                disk.value(QStringLiteral("mount")).toString();
+        }
+    }
+    body[QStringLiteral("disk_percent")] =
+        std::round(selectedPercent * 10.0) / 10.0;
+    body[QStringLiteral("disk_mount")] = selectedMount;
+    return body;
+}
+
 QList<QPair<QString, QString>> CloudDeviceManager::deviceSecretHeaders() const
 {
     QList<QPair<QString, QString>> headers;
@@ -101,6 +152,51 @@ QList<QPair<QString, QString>> CloudDeviceManager::deviceSecretHeaders() const
                                   QStringLiteral("Bearer ") + secret));
     }
     return headers;
+}
+
+void CloudDeviceManager::reportHostMetrics(
+    const QString& deviceId, const QJsonObject& systemInfo)
+{
+    const QString normalizedDeviceId = deviceId.trimmed();
+    const QString secret = currentDeviceSecret();
+    if (normalizedDeviceId.isEmpty()) {
+        LOG_WARN("[CloudDeviceManager] reportHostMetrics skipped: missing device_id");
+        return;
+    }
+    if (secret.isEmpty()) {
+        LOG_WARN("[CloudDeviceManager] reportHostMetrics skipped: no device_secret");
+        return;
+    }
+
+    const QString encodedDeviceId =
+        QString::fromLatin1(QUrl::toPercentEncoding(normalizedDeviceId));
+    const QUrl url(
+        httpBaseUrl() + QStringLiteral("v1/devices/")
+        + encodedDeviceId + QStringLiteral("/metrics"));
+    const QString bodyData = QString::fromUtf8(
+        QJsonDocument(metricsBody(systemInfo))
+            .toJson(QJsonDocument::Compact));
+
+    LOG_INFO("[CloudDeviceManager] Reporting host metrics for device={}",
+             normalizedDeviceId.toStdString());
+
+    infra::HttpRequest::instance().sendPostRequest(
+        url, deviceSecretHeaders(), bodyData, kRequestTimeoutMs,
+        [normalizedDeviceId](int statusCode,
+                             const std::string& errorMsg,
+                             const std::string& data) {
+            Q_UNUSED(data);
+            if ((statusCode == 200 || statusCode == 202 || statusCode == 204)
+                && errorMsg.empty()) {
+                LOG_INFO("[CloudDeviceManager] Host metrics accepted for device={}",
+                         normalizedDeviceId.toStdString());
+                return;
+            }
+            LOG_WARN("[CloudDeviceManager] Host metrics failed for device={}: status={} err={}",
+                     normalizedDeviceId.toStdString(),
+                     statusCode,
+                     errorMsg);
+        });
 }
 
 // ========================================================================

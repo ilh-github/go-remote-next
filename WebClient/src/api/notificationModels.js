@@ -1,7 +1,19 @@
 const DEFAULT_OFFLINE_ALERT_MINUTES = 10
+const DEFAULT_METRIC_SUSTAINED_MINUTES = 5
 
 function trimmed(value) {
   return typeof value === 'string' ? value.trim() : ''
+}
+
+function finiteNumber(value, fallback = 0) {
+  const number = Number(value)
+  return Number.isFinite(number) ? number : fallback
+}
+
+function nullableNumber(value) {
+  if (value === null || value === undefined || value === '') return null
+  const number = Number(value)
+  return Number.isFinite(number) ? number : null
 }
 
 function uniqueStrings(values) {
@@ -157,6 +169,50 @@ export function buildOfflineAlertPayload(form) {
     snoozed_until: wallClockToRFC3339(form?.snoozed_until),
     maintenance_windows: normalizeWindows(form?.maintenance_windows),
     maintenance_timezone: trimmed(form?.maintenance_timezone),
+  }
+}
+
+function normalizeMetricState(raw) {
+  return {
+    exceeded_since: raw?.exceeded_since || null,
+    last_alerted_at: raw?.last_alerted_at || null,
+  }
+}
+
+export function normalizeMetricAlert(data) {
+  return {
+    device_id: trimmed(data?.device_id),
+    enabled: !!data?.enabled,
+    cpu_percent: finiteNumber(data?.cpu_percent),
+    memory_percent: finiteNumber(data?.memory_percent),
+    disk_percent: finiteNumber(data?.disk_percent),
+    sustained_minutes: finiteNumber(data?.sustained_minutes, DEFAULT_METRIC_SUSTAINED_MINUTES),
+    repeat_minutes: finiteNumber(data?.repeat_minutes),
+    snoozed_until: data?.snoozed_until || null,
+    current: {
+      captured_at: data?.current?.captured_at || null,
+      cpu_percent: nullableNumber(data?.current?.cpu_percent),
+      memory_percent: nullableNumber(data?.current?.memory_percent),
+      disk_percent: nullableNumber(data?.current?.disk_percent),
+      disk_mount: trimmed(data?.current?.disk_mount),
+    },
+    states: {
+      cpu: normalizeMetricState(data?.states?.cpu),
+      memory: normalizeMetricState(data?.states?.memory),
+      disk: normalizeMetricState(data?.states?.disk),
+    },
+  }
+}
+
+export function buildMetricAlertPayload(form, options = {}) {
+  return {
+    enabled: !!form?.enabled,
+    cpu_percent: finiteNumber(form?.cpu_percent),
+    memory_percent: finiteNumber(form?.memory_percent),
+    disk_percent: finiteNumber(form?.disk_percent),
+    sustained_minutes: finiteNumber(form?.sustained_minutes, DEFAULT_METRIC_SUSTAINED_MINUTES),
+    repeat_minutes: finiteNumber(form?.repeat_minutes),
+    snoozed_until: wallClockToRFC3339(form?.snoozed_until, options.timeZoneOffsetMinutes),
   }
 }
 
