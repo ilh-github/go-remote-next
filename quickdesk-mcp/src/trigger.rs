@@ -1,16 +1,20 @@
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use chrono::Utc;
 use serde::Deserialize;
 use serde_json::json;
 use tokio::sync::Semaphore;
+use tokio_util::sync::CancellationToken;
 
 use crate::server::{QuickDeskMcpServer, SharedState};
+use crate::workflow_trigger::{WorkflowTrigger, WorkflowTriggerSpec, WorkflowTriggerStore};
 use crate::ws_client::WsClient;
 
 #[derive(Clone)]
@@ -20,6 +24,7 @@ struct TriggerState {
     shared_state: Arc<SharedState>,
     allowed_devices: Vec<String>,
     run_slots: Arc<Semaphore>,
+    triggers: WorkflowTriggerStore,
 }
 
 #[derive(Deserialize)]
@@ -29,18 +34,31 @@ struct TriggerRunRequest {
     stop_on_failure: Option<bool>,
 }
 
+#[derive(Deserialize)]
+struct CreateTriggerRequest {
+    name: String,
+    workflow_id: String,
+    device_id: String,
+    overrides: Option<HashMap<String, serde_json::Value>>,
+    stop_on_failure: Option<bool>,
+    interval_seconds: Option<u64>,
+}
+
 pub fn router(
     token: Option<String>,
     ws: WsClient,
     shared_state: Arc<SharedState>,
     allowed_devices: Vec<String>,
+    triggers: WorkflowTriggerStore,
+    run_slots: Arc<Semaphore>,
 ) -> Router {
     router_with_slots(
         token,
         ws,
         shared_state,
         allowed_devices,
-        Arc::new(Semaphore::new(1)),
+        triggers,
+        run_slots,
     )
 }
 
@@ -49,6 +67,7 @@ fn router_with_slots(
     ws: WsClient,
     shared_state: Arc<SharedState>,
     allowed_devices: Vec<String>,
+    triggers: WorkflowTriggerStore,
     run_slots: Arc<Semaphore>,
 ) -> Router {
     let state = TriggerState {
@@ -57,10 +76,17 @@ fn router_with_slots(
         shared_state,
         allowed_devices,
         run_slots,
+        triggers,
     };
     Router::new()
         .route("/v1/workflows/{workflow_id}/run", post(run_workflow))
         .route("/v1/workflow-runs/{run_id}", get(get_workflow_run))
+        .route("/v1/triggers", get(list_triggers).post(create_trigger))
+        .route(
+            "/v1/triggers/{trigger_id}",
+            axum::routing::delete(delete_trigger),
+        )
+        .route("/v1/triggers/{trigger_id}/run", post(run_saved_trigger))
         .with_state(state)
 }
 
@@ -152,6 +178,164 @@ async fn get_workflow_run(
     }
 }
 
+async fn list_triggers(State(state): State<TriggerState>, headers: HeaderMap) -> Response {
+    if let Err(error) = authorize_request(&state, &headers) {
+        return auth_error_response(error);
+    }
+    Json(state.triggers.list()).into_response()
+}
+
+async fn create_trigger(
+    State(state): State<TriggerState>,
+    headers: HeaderMap,
+    Json(request): Json<CreateTriggerRequest>,
+) -> Response {
+    if let Err(error) = authorize_request(&state, &headers) {
+        return auth_error_response(error);
+    }
+    if state
+        .shared_state
+        .workflow
+        .get_workflow(&request.workflow_id)
+        .is_none()
+    {
+        return error_response(StatusCode::NOT_FOUND, "workflow not found");
+    }
+    let trigger = match state.triggers.create(WorkflowTriggerSpec {
+        name: request.name,
+        workflow_id: request.workflow_id,
+        device_id: request.device_id,
+        overrides: request.overrides.unwrap_or_default(),
+        stop_on_failure: request.stop_on_failure.unwrap_or(true),
+        interval_seconds: request.interval_seconds,
+    }) {
+        Ok(trigger) => trigger,
+        Err(error) => return error_response(StatusCode::BAD_REQUEST, &error),
+    };
+    (StatusCode::CREATED, Json(trigger)).into_response()
+}
+
+async fn delete_trigger(
+    State(state): State<TriggerState>,
+    Path(trigger_id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    if let Err(error) = authorize_request(&state, &headers) {
+        return auth_error_response(error);
+    }
+    if state.triggers.delete(&trigger_id) {
+        StatusCode::NO_CONTENT.into_response()
+    } else {
+        error_response(StatusCode::NOT_FOUND, "workflow trigger not found")
+    }
+}
+
+async fn run_saved_trigger(
+    State(state): State<TriggerState>,
+    Path(trigger_id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    if let Err(error) = authorize_request(&state, &headers) {
+        return auth_error_response(error);
+    }
+    let Some(trigger) = state.triggers.get(&trigger_id) else {
+        return error_response(StatusCode::NOT_FOUND, "workflow trigger not found");
+    };
+    let Ok(_permit) = state.run_slots.clone().try_acquire_owned() else {
+        return error_response(
+            StatusCode::TOO_MANY_REQUESTS,
+            "another business workflow is already running",
+        );
+    };
+    run_trigger_once(&state, &trigger).await
+}
+
+async fn run_trigger_once(state: &TriggerState, trigger: &WorkflowTrigger) -> Response {
+    let server = QuickDeskMcpServer::new(
+        state.ws.clone(),
+        state.allowed_devices.clone(),
+        state.shared_state.clone(),
+    );
+    let result = server
+        .execute_workflow_replay(
+            &trigger.workflow_id,
+            &trigger.device_id,
+            trigger.overrides.clone(),
+            trigger.stop_on_failure,
+        )
+        .await;
+    match result {
+        Ok(report) => {
+            if let Err(error) = state.triggers.record_run(
+                &trigger.id,
+                &report.run_id,
+                report.success,
+                "",
+                Utc::now(),
+            ) {
+                return error_response(StatusCode::INTERNAL_SERVER_ERROR, &error);
+            }
+            Json(report).into_response()
+        }
+        Err(error) => {
+            let _ = state
+                .triggers
+                .record_run(&trigger.id, "", false, &error, Utc::now());
+            workflow_error_response(error)
+        }
+    }
+}
+
+fn workflow_error_response(error: String) -> Response {
+    if error == "workflow not found" {
+        error_response(StatusCode::NOT_FOUND, &error)
+    } else if error.starts_with("Device '") {
+        error_response(StatusCode::FORBIDDEN, &error)
+    } else {
+        error_response(StatusCode::INTERNAL_SERVER_ERROR, &error)
+    }
+}
+
+pub fn start_scheduler(
+    cancellation: CancellationToken,
+    ws: WsClient,
+    shared_state: Arc<SharedState>,
+    allowed_devices: Vec<String>,
+    triggers: WorkflowTriggerStore,
+    run_slots: Arc<Semaphore>,
+) {
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(Duration::from_secs(5));
+        loop {
+            tokio::select! {
+                _ = cancellation.cancelled() => break,
+                _ = ticker.tick() => {
+                    let Ok(_permit) = run_slots.clone().try_acquire_owned() else {
+                        continue;
+                    };
+                    let state = TriggerState {
+                        token: None,
+                        ws: ws.clone(),
+                        shared_state: shared_state.clone(),
+                        allowed_devices: allowed_devices.clone(),
+                        run_slots: run_slots.clone(),
+                        triggers: triggers.clone(),
+                    };
+                    run_due_trigger(&state, Utc::now()).await;
+                }
+            }
+        }
+    });
+}
+
+async fn run_due_trigger(state: &TriggerState, now: chrono::DateTime<Utc>) -> usize {
+    let due = state.triggers.claim_due_limit(now, 1);
+    for trigger in &due {
+        let _ = run_trigger_once(state, trigger).await;
+    }
+    due.len()
+}
+
 fn constant_time_eq(left: &str, right: &str) -> bool {
     let left = left.as_bytes();
     let right = right.as_bytes();
@@ -185,9 +369,11 @@ mod tests {
     use crate::server::SharedState;
     use crate::trust::TrustEngine;
     use crate::workflow::{StepExecutor, WorkflowRunReport, WorkflowStore};
+    use crate::workflow_trigger::WorkflowTriggerStore;
     use crate::ws_client::WsClient;
     use axum::body::{to_bytes, Body};
     use axum::http::{Request, StatusCode};
+    use chrono::TimeZone;
     use futures_util::{SinkExt, StreamExt};
     use serde_json::json;
     use std::sync::Arc;
@@ -256,7 +442,14 @@ mod tests {
             workflow: workflows,
             trust: TrustEngine::with_db_path(temp.join("trust.db")).unwrap(),
         });
-        let app = router(Some("business-secret".to_string()), ws, shared, Vec::new());
+        let app = router(
+            Some("business-secret".to_string()),
+            ws,
+            shared,
+            Vec::new(),
+            WorkflowTriggerStore::with_storage_dir(temp.join("triggers")),
+            Arc::new(Semaphore::new(1)),
+        );
 
         let request = Request::builder()
             .method("POST")
@@ -302,6 +495,8 @@ mod tests {
             WsClient::disconnected(),
             shared,
             vec!["allowed-device".to_string()],
+            WorkflowTriggerStore::with_storage_dir(temp.join("triggers")),
+            Arc::new(Semaphore::new(1)),
         );
         let workflow_id = Uuid::new_v4();
 
@@ -348,6 +543,7 @@ mod tests {
             WsClient::disconnected(),
             shared,
             Vec::new(),
+            WorkflowTriggerStore::with_storage_dir(temp.join("triggers")),
             slots,
         );
 
@@ -361,6 +557,157 @@ mod tests {
         let response = app.oneshot(request).await.unwrap();
 
         assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+        let _ = std::fs::remove_dir_all(temp);
+    }
+
+    #[tokio::test]
+    async fn trigger_definitions_can_be_created_listed_and_deleted_over_http() {
+        let temp = std::env::temp_dir().join(format!("quickdesk-trigger-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&temp).unwrap();
+        let workflows = WorkflowStore::with_storage_dir(temp.join("workflows"));
+        let workflow_id = workflows
+            .start_recording("business workflow", "device-1")
+            .unwrap();
+        workflows.record_step(
+            "device-1",
+            "list_processes",
+            &json!({}),
+            "processes",
+            true,
+            StepExecutor::SkillHost,
+        );
+        workflows.stop_recording("device-1", "", &[]).unwrap();
+        let shared = Arc::new(SharedState {
+            memory: MemoryStore::with_db_path(temp.join("memory.db")).unwrap(),
+            workflow: workflows,
+            trust: TrustEngine::with_db_path(temp.join("trust.db")).unwrap(),
+        });
+        let app = router(
+            Some("business-secret".to_string()),
+            WsClient::disconnected(),
+            shared,
+            Vec::new(),
+            WorkflowTriggerStore::with_storage_dir(temp.join("triggers")),
+            Arc::new(Semaphore::new(1)),
+        );
+
+        let request = Request::builder()
+            .method("POST")
+            .uri("/v1/triggers")
+            .header("Authorization", "Bearer business-secret")
+            .header("Content-Type", "application/json")
+            .body(Body::from(
+                json!({
+                    "name": "nightly",
+                    "workflow_id": workflow_id,
+                    "device_id": "device-1",
+                    "interval_seconds": 60
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        let response = app.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::CREATED);
+        let body = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+        let trigger: WorkflowTrigger = serde_json::from_slice(&body).unwrap();
+        assert_eq!(trigger.name, "nightly");
+        assert!(trigger.next_run_at.is_some());
+
+        let request = Request::builder()
+            .uri("/v1/triggers")
+            .header("Authorization", "Bearer business-secret")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+        let triggers: Vec<WorkflowTrigger> = serde_json::from_slice(&body).unwrap();
+        assert_eq!(triggers.len(), 1);
+
+        let request = Request::builder()
+            .method("DELETE")
+            .uri(format!("/v1/triggers/{}", trigger.id))
+            .header("Authorization", "Bearer business-secret")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+
+        let _ = std::fs::remove_dir_all(temp);
+    }
+
+    #[tokio::test]
+    async fn due_trigger_runs_through_quickdesk_and_records_its_report() {
+        let temp = std::env::temp_dir().join(format!("quickdesk-trigger-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&temp).unwrap();
+        let workflows = WorkflowStore::with_storage_dir(temp.join("workflows"));
+        let workflow_id = workflows
+            .start_recording("scheduled workflow", "device-1")
+            .unwrap();
+        workflows.record_step(
+            "device-1",
+            "list_processes",
+            &json!({}),
+            "processes",
+            true,
+            StepExecutor::SkillHost,
+        );
+        workflows.stop_recording("device-1", "", &[]).unwrap();
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let fake_quickdesk = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut socket = accept_async(stream).await.unwrap();
+            while let Some(Ok(Message::Text(text))) = socket.next().await {
+                let request: serde_json::Value = serde_json::from_str(&text).unwrap();
+                if let Some(id) = request.get("id").and_then(serde_json::Value::as_str) {
+                    let response = json!({"id": id, "result": {"processes": []}});
+                    socket
+                        .send(Message::Text(response.to_string().into()))
+                        .await
+                        .unwrap();
+                }
+            }
+        });
+        let ws = WsClient::connect(&format!("ws://{address}"), None, EventBus::new(100))
+            .await
+            .unwrap();
+        let trigger_store = WorkflowTriggerStore::with_storage_dir(temp.join("triggers"));
+        let created_at = Utc.with_ymd_and_hms(2026, 10, 17, 15, 0, 0).unwrap();
+        let trigger = trigger_store
+            .create_at(
+                WorkflowTriggerSpec {
+                    name: "every minute".to_string(),
+                    workflow_id,
+                    device_id: "device-1".to_string(),
+                    overrides: HashMap::new(),
+                    stop_on_failure: true,
+                    interval_seconds: Some(60),
+                },
+                created_at,
+            )
+            .unwrap();
+        let state = TriggerState {
+            token: None,
+            ws,
+            shared_state: Arc::new(SharedState {
+                memory: MemoryStore::with_db_path(temp.join("memory.db")).unwrap(),
+                workflow: workflows,
+                trust: TrustEngine::with_db_path(temp.join("trust.db")).unwrap(),
+            }),
+            allowed_devices: Vec::new(),
+            run_slots: Arc::new(Semaphore::new(1)),
+            triggers: trigger_store.clone(),
+        };
+
+        let ran = run_due_trigger(&state, created_at + chrono::Duration::seconds(60)).await;
+
+        assert_eq!(ran, 1);
+        let loaded = trigger_store.get(&trigger.id).unwrap();
+        assert_eq!(loaded.last_status, "completed");
+        assert!(!loaded.last_run_id.is_empty());
+        fake_quickdesk.abort();
         let _ = std::fs::remove_dir_all(temp);
     }
 }
