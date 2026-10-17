@@ -7,7 +7,7 @@
 
 ## 当前本地基线
 
-- fork 主干：`dev` 已包含 `ea5a65f`（QD-706 Qt 会话实时事件）
+- fork 主干：`dev` 已包含 `42b6c61`（QD-708 Qt 计划任务页）
 - 功能分支：`codex/product-backlog` = `dea02f9`
 - 上游 QD-003 候选：`codex/upstream-cross-tab-coordination` = `6047615`（基于 `upstream/dev`）
 - 上游 QD-114 候选：`codex/upstream-qd-114-spki` = `13559e6`（基于 `upstream/dev`）
@@ -58,6 +58,9 @@
   `device.access_policy.changed`；会话事件按设备过滤并 150ms 防抖刷新，封禁来源直接
   使用事件中的 `deny_ips` 更新。WebSocket 未 bootstrap 完成时保留 10 秒轮询，断线后
   自动恢复；提交 `ea5a65f` 已通过完整构建和 7/7 CTest。
+- Qt 新增计划任务页：一次、固定间隔和五种日历排期，服务端 action/排期能力直接驱动
+  UI，展示下一次执行、尝试次数、最后错误并支持删除；`scheduled_task.failed` 会即时
+  提示并刷新。提交 `42b6c61` 已通过完整构建、8/8 CTest、零新增页面 lint 和离屏启动。
 
 ## 1. 推送前检查
 
@@ -82,6 +85,7 @@ git log --oneline --left-right origin/feat/signaling-control-plane...codex/upstr
 - `dev` 必须包含 `cea23ce`；
 - `dev` 必须包含 `7c23f13`；
 - `dev` 必须包含 `ea5a65f`；
+- `dev` 必须包含 `42b6c61`；
 - `codex/product-backlog` 必须包含 `dea02f9`；
 - `codex/upstream-access-bans` 必须包含 `b89c24c`；
 - `codex/upstream-qd-114-spki` 必须包含 `13559e6`；
@@ -199,8 +203,8 @@ PR 描述至少写明：
   基于 `upstream/dev`，4 个文件。WebClient 测试 4/4 和生产构建通过；这是诊断改进，
   不是宿主上传根因修复。远端推送仍被策略拒绝。
 - 控制面管理页：等 PR #25 合并后按页面拆成独立 PR，不再使用“所有 fork 页面都留在 fork”
-  的旧口径。Qt 访问审批页 `7c23f13` 和会话实时消费 `ea5a65f` 作为 Qt 管理面候选，
-  不携带 fork 专属总清单。
+  的旧口径。Qt 访问审批页 `7c23f13`、会话实时消费 `ea5a65f` 和计划任务页 `42b6c61`
+  作为 Qt 管理面候选，不携带 fork 专属总清单。
 - 上游 issue #18 连接历史：上游 `dev` 已存在 `ConnectionHistory` 和历史列表 UI，
   当前不应重复实现；先核对完整功能，再决定是否在 issue 中说明可关闭。
 

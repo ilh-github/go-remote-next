@@ -34,6 +34,7 @@
 - 本轮功能：`a48d793`（QD-114 Qt/Windows 服务 SPKI 公网自托管兼容）
 - 本轮功能：`7c23f13`（QD-108 Qt 二次访问审批入口与实时消费）
 - 本轮功能：`ea5a65f`（QD-706 Qt 会话与访问策略实时消费）
+- 本轮功能：`42b6c61`（QD-708 Qt 计划任务管理页）
 - 服务端：Go SignalingServer
 - 桌面客户端：Qt 6 + QML
 - Web 客户端：Vue 3 外壳 + 原生 `remote.html`
@@ -94,9 +95,14 @@
 - QD-706 测试：`quickdesk_remote_session_manager_test` 覆盖匹配/非匹配会话事件与策略事件；
   `quickdesk_cloud_device_manager_test` 用真实本地 WebSocket 服务器验证
   `realtimeConnected` 在 `bootstrap_done` 后为真、`stopSync()` 后为假。
-- QuickDesk 当前 7/7 CTest 通过（SPKI、更新解析、更新 HTTP 集成、设备显示 QML、
-  访问码回源集成、访问审批管理集成、远程会话实时事件）；双语 `.ts` 各 517 条完成、
-  0 unfinished。
+- QD-708 计划任务功能提交：`42b6c61`。Qt 新增计划任务页，支持一次、固定间隔和五种
+  日历排期，展示服务端支持的 action/排期、下一次执行、尝试次数、最后错误，并支持删除；
+  消费 `scheduled_task.failed` 实时提示和防抖刷新，30 秒轮询作为断线兜底。
+- QD-708 计划任务测试：`quickdesk_scheduled_task_manager_test` 使用真实本地 HTTP 夹具
+  覆盖列表解析、一次性/日历 payload 分离、删除路径和失败事件信号。
+- QuickDesk 当前 8/8 CTest 通过（SPKI、更新解析、更新 HTTP 集成、设备显示 QML、
+  访问码回源集成、访问审批管理集成、远程会话实时事件、计划任务管理）；双语 `.ts`
+  各 591 条完成、0 unfinished。
 - WebClient 当前 29/29 测试通过；生产构建 JS 348.48 kB、gzip 112.80 kB。
 - `git diff --check`：通过。
 - 远端推送仍被当前执行策略拒绝，本地 `dev` 尚未同步到 GitHub。
@@ -204,7 +210,7 @@
 | QD-604 | 指标型告警 | `[ ]` | CPU/内存等依赖被控端上报 |
 | QD-605 | WebClient 通知管理页 | `[x]` | `/notifications` |
 | QD-606 | Qt 通知规则管理页 | `[ ]` | Qt 端待补 |
-| QD-607 | 计划任务 | `[~]` | 服务端、WebClient 和重试已完成；Qt/客户端动作待补 |
+| QD-607 | 计划任务 | `[~]` | 服务端、WebClient、Qt 管理页和重试已完成；定时连接/批量运维等客户端动作待补 |
 | QD-608 | OpenAPI 与生成 SDK | `[~]` | Go/TS/Python/Java；C#/PHP/Kotlin 未提供 |
 | QD-609 | MCP / AI 自动化 | `[x]` | QuickDesk 原生能力；也是上游维护者当前最优先方向 |
 | QD-610 | 业务系统集成与自定义工作流 | `[~]` | 设计和工作流方向已有，完整产品未收口 |
@@ -220,7 +226,7 @@
 | QD-705 | Qt 主界面与远程窗口 | `[x]` | Windows/macOS |
 | QD-706 | Qt 会话页 | `[x]` | 页面已有；`ea5a65f` 已消费会话生命周期和策略变更事件，轮询只在 WebSocket 未连接时兜底 |
 | QD-707 | Qt 文件管理器 | `[x]` | host `file-ops` skill bridge |
-| QD-708 | Qt 通知/计划/审批页 | `[~]` | 审批页已完成（`7c23f13`）；通知规则页和计划任务页未完成 |
+| QD-708 | Qt 通知/计划/审批页 | `[~]` | 审批页 `7c23f13` 和计划任务页 `42b6c61` 已完成；只剩通知规则页 |
 | QD-709 | 管理后台设备、会话、审计、发布 | `[x]` | SignalingServer web |
 | QD-710 | 中英文与移动布局 | `[x]` | Web 端已有回归 |
 
@@ -274,7 +280,7 @@
 6. QD-004 Host/Relay 自动录制；先向 Remoting 维护者提需求，不在 fork 内自造第二套媒体链路。
 7. QD-005 客户端消费已落地，补 Windows 安装包真机升级/自动重启和 macOS DMG
    签名、公证、替换回归；上游等服务端 PR #25 合并后再拆客户端消费 PR。
-8. QD-006 SQLite 轻量部署、QD-007 图片剪贴板，以及 QD-708 剩余 Qt 通知/计划页。
+8. QD-006 SQLite 轻量部署、QD-007 图片剪贴板，以及 QD-708 剩余 Qt 通知规则页。
 9. QD-604 指标告警、QD-908 业务级长稳，以及上游 Roadmap 的地址簿、Linux、移动端。
 
 ## 15. 完成定义
@@ -361,7 +367,7 @@
 | 4 | `fix(qt): refresh missing access codes before connecting` | QD-213 / issue #19 | 候选已准备并通过上游基线构建；等远端写入后直接创建 PR |
 | 5 | `fix(webclient): explain host file transfer failures` | QD-214 / issue #19 | 诊断改进候选已准备；根因 PR 需等真实宿主日志 |
 | 6 | `feat(webclient): control-plane management pages` | QD-108/605/607/703 | 依赖 PR #25 合并；按页面拆成多个 PR |
-| 7 | `feat(qt): remote session and management pages` | QD-706/708 | 依赖 PR #25 合并；审批页 `7c23f13` 和会话实时消费 `ea5a65f` 可先拆，再补通知和计划页 |
+| 7 | `feat(qt): remote session and management pages` | QD-706/708 | 依赖 PR #25 合并；审批页 `7c23f13`、会话实时消费 `ea5a65f` 和计划任务页 `42b6c61` 可先拆，再补通知页 |
 | 8 | `feat(qt): consume self-hosted update channel` | QD-005 / QD-808 | 依赖 PR #25 合并；保留检查、下载、摘要校验、凭据隔离和测试，不携带 fork 私有文档 |
 
 QD-003 的上游候选已经单独准备：
