@@ -88,7 +88,7 @@
 | QD-203 | 设备列表、收藏、最近连接 | `[x]` | WebClient 和 Qt 均有入口 |
 | QD-204 | 设备分组与批量操作 | `[~]` | 上游 Roadmap 的 Address book & device groups；管理后台已有基础，用户端入口仍可补 |
 | QD-205 | 在线状态与心跳 | `[x]` | Redis presence + heartbeat |
-| QD-206 | 连接历史与快速连接 | `[x]` | Fork 已有本地历史；上游 issue #18 仍开放，需拆成最小 Web/Qt PR 共享 |
+| QD-206 | 连接历史与快速连接 | `[x]` | 上游 `dev` 与 fork 都已有 `ConnectionHistory` 和连接历史 UI；issue #18 看起来已过期，先验证再关闭，不重复实现 |
 | QD-207 | 会话创建、运行、结束、清理 | `[x]` | `remote_sessions` 控制面已落地 |
 | QD-208 | 会话详情、录像、访问日志聚合 | `[x]` | WebClient 和 API 已完成 |
 | QD-209 | 单会话踢人、按设备批量清场 | `[~]` | 服务端和 Web 已完成；Qt 真机回归待补 |
@@ -280,7 +280,7 @@
 |---|---|---|---|---|
 | #21 维护计划与参与维护意向 | 维护策略 | QD-001、QD-609 | 上游优先 MCP、从 dev 贡献、Remoting 由维护者改 | 所有新功能按 dev 最小分支准备；涉及 Remoting 先提需求 |
 | #20 自托管 HTTPS/WSS 失败 | Bug / 自托管 | QD-114 | 证书验证器在 Remoting 内未绑定；Qt-only SPKI 可短期解 | 先实现/验证 Qt 子进程 SPKI 方案；长期向 Remoting 提 CertVerifier 修复 |
-| #18 连接历史列表 | Feature | QD-206 | 本 fork 已有本地历史，上游仍开放 | 拆出 Web/Qt 本地历史最小 PR，禁止上传访问码 |
+| #18 连接历史列表 | Feature | QD-206 | 上游 `dev` 已有 `ConnectionHistory`、历史列表、删除和重连；issue 仍开放 | 先做完整功能核对，确认无缺口后向下游说明可关闭，不再重复实现 |
 | #19 设备列表相关问题 | Bug cluster | QD-212、QD-213、QD-214 | 本机标识、访问码和上传错误码三个独立问题 | 分别复现、分别提 PR；不要混成一个“设备列表”大修 |
 | #17 自动审批被忽略 | Bug | QD-113 | 已由 PR #22 覆盖 | 跟踪 PR #22，不重复实现 |
 | #13 Linux 支持 | Roadmap | QD-318 | 上游 Roadmap 已列出，本 fork 暂缓 | 保持跨平台接口，不在当前迭代投入 Linux 被控端 |
@@ -312,10 +312,9 @@
 | 顺序 | PR 主题 | 来源 | 前置条件 |
 |---|---|---|---|
 | 1 | `feat(webclient): coordinate cross-tab control and audio` | QD-003 | 当前功能已测试；补上游 WebClient 约定和截图 |
-| 2 | `feat(webclient): local connection history` | QD-206 / issue #18 | 确保纯本地、可选别名、删除/清空，不存访问码 |
-| 3 | `fix(self-host): allow pinned SPKI for self-hosted WSS` | QD-114 / issue #20 | 需维护者确认 Qt-only 临时方案；Windows service 启动路径也要覆盖 |
-| 4 | `feat(webclient): control-plane management pages` | QD-108/605/607/703 | 依赖 PR #25 合并；按页面拆成多个 PR |
-| 5 | `feat(qt): remote session and management pages` | QD-706/708 | 依赖 PR #25 合并；先做实时事件消费，再拆页面 |
+| 2 | `fix(self-host): allow pinned SPKI for self-hosted WSS` | QD-114 / issue #20 | 需维护者确认 Qt-only 临时方案；Windows service 启动路径也要覆盖 |
+| 3 | `feat(webclient): control-plane management pages` | QD-108/605/607/703 | 依赖 PR #25 合并；按页面拆成多个 PR |
+| 4 | `feat(qt): remote session and management pages` | QD-706/708 | 依赖 PR #25 合并；先做实时事件消费，再拆页面 |
 
 QD-003 的上游候选已经单独准备：
 

@@ -142,12 +142,12 @@ PR 描述至少写明：
 - `feat(webclient): coordinate cross-tab control and audio`：QD-003，纯 WebClient，
   无 Remoting 改动；候选分支 `codex/upstream-cross-tab-coordination` = `6047615`，
   仅 6 个文件，已通过 `npm test` 6/6、`npm run build` 和真实 Chrome 双标签验证。
-- `feat(webclient): local connection history`：对应上游 issue #18；纯本地存储，
-  不保存访问码。
 - `fix(self-host): pinned SPKI for self-hosted WSS`：对应上游 issue #20；先确认维护者
   接受 Qt-only 临时方案，Windows service 启动路径也要覆盖。
 - 控制面管理页：等 PR #25 合并后按页面拆成独立 PR，不再使用“所有 fork 页面都留在 fork”
   的旧口径。
+- 上游 issue #18 连接历史：上游 `dev` 已存在 `ConnectionHistory` 和历史列表 UI，
+  当前不应重复实现；先核对完整功能，再决定是否在 issue 中说明可关闭。
 
 ## 5. 上游暂不合并时
 
