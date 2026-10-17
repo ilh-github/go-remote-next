@@ -416,6 +416,49 @@ void RemoteSessionManager::removeDeniedSource(const QString& deviceId, const QSt
         });
 }
 
+void RemoteSessionManager::handleRealtimeEvent(const QVariantMap& message)
+{
+    const QString type =
+        message.value(QStringLiteral("type")).toString();
+    QVariantMap data =
+        message.value(QStringLiteral("data")).toMap();
+    QString deviceId =
+        data.value(QStringLiteral("device_id")).toString();
+    if (deviceId.isEmpty()) {
+        deviceId = message.value(QStringLiteral("device_id")).toString();
+    }
+
+    if (type == QStringLiteral("remote_session.started")
+        || type == QStringLiteral("remote_session.ended")) {
+        if (m_deviceIdFilter.isEmpty()
+            || deviceId.isEmpty()
+            || deviceId == m_deviceIdFilter) {
+            emit realtimeSessionChanged(deviceId, type);
+        }
+        return;
+    }
+
+    if (type != QStringLiteral("device.access_policy.changed")
+        || m_deviceIdFilter.isEmpty()
+        || deviceId != m_deviceIdFilter) {
+        return;
+    }
+
+    if (!data.contains(QStringLiteral("deny_ips"))) {
+        fetchDeniedSources(deviceId);
+        return;
+    }
+
+    QVariantList sources;
+    for (const QVariant& value :
+         data.value(QStringLiteral("deny_ips")).toList()) {
+        sources.append(value.toString());
+    }
+    m_deniedSources = sources;
+    setLastError(QString());
+    emit deniedSourcesChanged();
+}
+
 void RemoteSessionManager::beginRequest()
 {
     const bool wasBusy = busy();

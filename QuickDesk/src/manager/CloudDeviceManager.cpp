@@ -772,12 +772,12 @@ void CloudDeviceManager::startSync()
         m_syncSocket->deleteLater();
         m_syncSocket = nullptr;
         m_syncAuthOk = false;
-        m_syncBootstrapComplete = false;
+        setSyncBootstrapComplete(false);
         m_syncFamilyId.clear();
     }
 
     m_syncAuthOk = false;
-    m_syncBootstrapComplete = false;
+    setSyncBootstrapComplete(false);
     m_syncFamilyId.clear();
     m_syncSocket = new QWebSocket(QString(),
                                     QWebSocketProtocol::VersionLatest, this);
@@ -806,7 +806,7 @@ void CloudDeviceManager::stopSync()
         m_syncSocket->deleteLater();
         m_syncSocket = nullptr;
         m_syncAuthOk = false;
-        m_syncBootstrapComplete = false;
+        setSyncBootstrapComplete(false);
         m_syncFamilyId.clear();
         m_serverRev = 0;
         m_lastAppliedRev = 0;
@@ -862,7 +862,7 @@ void CloudDeviceManager::onSyncTextMessageReceived(const QString& message)
 
     if (type == "auth_ok") {
         m_syncAuthOk = true;
-        m_syncBootstrapComplete = false;
+        setSyncBootstrapComplete(false);
         m_reconnectAttempt = 0;
         QString familyId = msg["data"].toObject()["family_id"].toString();
         if (!familyId.isEmpty()) {
@@ -903,7 +903,7 @@ void CloudDeviceManager::onSyncTextMessageReceived(const QString& message)
     }
     if (type == "bootstrap_done") {
         if (frameRev > m_lastAppliedRev) m_lastAppliedRev = frameRev;
-        m_syncBootstrapComplete = true;
+        setSyncBootstrapComplete(true);
         LOG_INFO("[CloudDeviceManager] Realtime events bootstrap_done (server_rev={})", m_lastAppliedRev);
         emit syncConnected();
         return;
@@ -928,7 +928,7 @@ void CloudDeviceManager::onSyncDisconnected()
 {
     bool wasAuthOk = m_syncAuthOk;
     m_syncAuthOk = false;
-    m_syncBootstrapComplete = false;
+    setSyncBootstrapComplete(false);
     m_syncFamilyId.clear();
     int attempt = ++m_reconnectAttempt;
     int delayMs = qMin(kSyncReconnectBaseMs * (1 << qMin(attempt - 1, 5)),
@@ -957,6 +957,15 @@ bool CloudDeviceManager::shouldApplyWireFrame(const QString& type, qint64 rev)
     }
     m_lastAppliedRev = rev;
     return true;
+}
+
+void CloudDeviceManager::setSyncBootstrapComplete(bool connected)
+{
+    if (m_syncBootstrapComplete == connected) {
+        return;
+    }
+    m_syncBootstrapComplete = connected;
+    emit realtimeConnectedChanged();
 }
 
 void CloudDeviceManager::setDeviceRev(const QString& deviceId, qint64 rev)

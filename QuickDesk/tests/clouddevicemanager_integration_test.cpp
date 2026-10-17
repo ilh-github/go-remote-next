@@ -7,6 +7,8 @@
 #include <QCoreApplication>
 #include <QElapsedTimer>
 #include <QEventLoop>
+#include <QWebSocket>
+#include <QWebSocketServer>
 #include <QThread>
 #include <QUrl>
 
@@ -116,6 +118,45 @@ int main(int argc, char** argv) {
            QStringLiteral("failure signal carries the device"));
     Expect(failedError.contains(QStringLiteral("server unavailable")),
            QStringLiteral("failure signal carries the server error"));
+
+    QWebSocketServer realtimeServer(QStringLiteral("QuickDesk test realtime"),
+                                    QWebSocketServer::NonSecureMode);
+    Expect(realtimeServer.listen(QHostAddress::LocalHost, 0),
+           QStringLiteral("realtime test server listens"));
+    serverManager.setServerUrl(
+        QStringLiteral("ws://127.0.0.1:%1").arg(realtimeServer.serverPort()));
+
+    QWebSocket* realtimeSocket = nullptr;
+    QObject::connect(
+        &realtimeServer, &QWebSocketServer::newConnection,
+        [&]() {
+            realtimeSocket = realtimeServer.nextPendingConnection();
+            Expect(realtimeSocket != nullptr,
+                   QStringLiteral("realtime client connects"));
+            QObject::connect(
+                realtimeSocket, &QWebSocket::textMessageReceived,
+                [&, realtimeSocket](const QString&) {
+                    realtimeSocket->sendTextMessage(
+                        R"({"type":"auth_ok","server_rev":1,"data":{"family_id":"family-test"}})");
+                    realtimeSocket->sendTextMessage(
+                        R"({"type":"snapshot","server_rev":2,"data":{"devices":[],"favorites":[]}})");
+                    realtimeSocket->sendTextMessage(
+                        R"({"type":"bootstrap_done","server_rev":2})");
+                });
+        });
+
+    manager.startSync();
+    Expect(WaitUntil(
+               [&]() {
+                   return manager.property("realtimeConnected").toBool();
+               },
+               5000),
+           QStringLiteral("manager exposes connected realtime state"));
+
+    manager.stopSync();
+    Expect(!manager.property("realtimeConnected").toBool(),
+           QStringLiteral("stopping sync clears connected realtime state"));
+    realtimeServer.close();
 
     std::cout << "cloud device manager integration tests passed\n";
     return 0;

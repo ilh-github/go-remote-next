@@ -50,6 +50,7 @@ public:
     Q_INVOKABLE void banSource(const QString& deviceId, const QString& source);
     Q_INVOKABLE void fetchDeniedSources(const QString& deviceId);
     Q_INVOKABLE void removeDeniedSource(const QString& deviceId, const QString& source);
+    Q_INVOKABLE void handleRealtimeEvent(const QVariantMap& message);
 
 signals:
     void sessionsChanged();
@@ -64,6 +65,8 @@ signals:
     void sourceBanned(const QString& deviceId, const QString& source);
     void sourceUnbanned(const QString& deviceId, const QString& source);
     void deniedSourcesChanged();
+    void realtimeSessionChanged(const QString& deviceId,
+                                const QString& eventType);
 
 private:
     void requestList(bool append, int generation);

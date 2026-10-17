@@ -43,6 +43,8 @@ class CloudDeviceManager : public QObject {
     Q_PROPERTY(QVariantList myDevices READ myDevices NOTIFY myDevicesChanged)
     Q_PROPERTY(QVariantList myFavorites READ myFavorites NOTIFY myFavoritesChanged)
     Q_PROPERTY(QVariantList connectionLogs READ connectionLogs NOTIFY connectionLogsChanged)
+    Q_PROPERTY(bool realtimeConnected READ realtimeConnected
+               NOTIFY realtimeConnectedChanged)
 
 public:
     explicit CloudDeviceManager(ServerManager* serverManager,
@@ -109,6 +111,7 @@ public:
     QVariantList myDevices() const;
     QVariantList myFavorites() const;
     QVariantList connectionLogs() const;
+    bool realtimeConnected() const { return m_syncBootstrapComplete; }
 
 signals:
     void myDevicesChanged();
@@ -122,6 +125,7 @@ signals:
     // baseline and are applied by server_rev.
     void syncConnected();
     void syncDisconnected();
+    void realtimeConnectedChanged();
     void deviceAccessCodeReady(const QString& deviceId,
                                const QString& accessCode);
     void deviceAccessCodeFailed(const QString& deviceId, const QString& error);
@@ -144,6 +148,7 @@ private:
     void refreshDeviceAccessCode(const QString& deviceId, qint64 eventRev);
     void sendAuthFrame();
     bool shouldApplyWireFrame(const QString& type, qint64 rev);
+    void setSyncBootstrapComplete(bool connected);
     void setDeviceRev(const QString& deviceId, qint64 rev);
     qint64 deviceRev(const QString& deviceId) const;
 

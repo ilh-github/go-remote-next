@@ -15,8 +15,12 @@ Item {
 
     property var manager: mainController && mainController.remoteSessionManager
                           ? mainController.remoteSessionManager : null
+    property var cloudManager: mainController && mainController.cloudDeviceManager
+                               ? mainController.cloudDeviceManager : null
     property bool isLoggedIn: mainController && mainController.authManager
                               ? mainController.authManager.isLoggedIn : false
+    property bool syncConnected: root.cloudManager
+                                 ? root.cloudManager.realtimeConnected : false
     property string statusFilter: "active"
     property string deviceFilter: ""
     property string expandedSessionId: ""
@@ -24,6 +28,7 @@ Item {
     property string pendingSessionId: ""
     property string pendingDeviceId: ""
     property string pendingSource: ""
+    property bool realtimeRefreshPending: false
 
     function formatTime(value) {
         if (!value) return "-"
@@ -71,6 +76,15 @@ Item {
         expandedSessionId = ""
         manager.refresh(statusFilter, deviceFilter)
         manager.fetchDeniedSources(deviceFilter)
+    }
+
+    function scheduleRealtimeSessionRefresh() {
+        if (!root.manager || !root.isLoggedIn) return
+        if (root.manager.busy) {
+            root.realtimeRefreshPending = true
+            return
+        }
+        realtimeRefreshTimer.restart()
     }
 
     function requestKick(sessionId, deviceId) {
@@ -172,6 +186,52 @@ Item {
             root.showToast(qsTr("Unbanned %1").arg(source),
                            QDToast.Type.Success)
         }
+
+        function onRealtimeSessionChanged(deviceId, eventType) {
+            root.scheduleRealtimeSessionRefresh()
+        }
+
+        function onBusyChanged() {
+            if (root.manager && !root.manager.busy
+                    && root.realtimeRefreshPending) {
+                root.scheduleRealtimeSessionRefresh()
+            }
+        }
+    }
+
+    Connections {
+        target: root.cloudManager
+
+        function onSyncMessage(message) {
+            if (root.manager) {
+                root.manager.handleRealtimeEvent(message)
+            }
+        }
+
+        function onSyncConnected() {
+            root.scheduleRealtimeSessionRefresh()
+            if (root.manager && root.deviceFilter) {
+                root.manager.fetchDeniedSources(root.deviceFilter)
+            }
+        }
+    }
+
+    Timer {
+        id: realtimeRefreshTimer
+        interval: 150
+        repeat: false
+        onTriggered: {
+            if (!root.manager || !root.isLoggedIn) {
+                root.realtimeRefreshPending = false
+                return
+            }
+            if (root.manager.busy) {
+                root.realtimeRefreshPending = true
+                return
+            }
+            root.realtimeRefreshPending = false
+            root.manager.refresh(root.statusFilter, root.deviceFilter)
+        }
     }
 
     Timer {
@@ -179,6 +239,7 @@ Item {
         repeat: true
         running: root.isLoggedIn && root.statusFilter === "active"
                  && root.manager && !root.manager.busy
+                 && !root.syncConnected
         onTriggered: {
             if (root.manager) {
                 root.manager.refresh(root.statusFilter, root.deviceFilter)
