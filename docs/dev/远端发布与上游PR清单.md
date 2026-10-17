@@ -7,7 +7,7 @@
 
 ## 当前本地基线
 
-- fork 主干：`dev` 已包含 `2deb8c8`（QD-003 多标签控制/音频抢占与功能总清单）
+- fork 主干：`dev` 已包含 `cae77ff`（QD-005 Qt 客户端自动更新消费）
 - 功能分支：`codex/product-backlog` = `dea02f9`
 - 上游 QD-003 候选：`codex/upstream-cross-tab-coordination` = `6047615`（基于 `upstream/dev`）
 - 上游 QD-114 候选：`codex/upstream-qd-114-spki` = `13559e6`（基于 `upstream/dev`）
@@ -38,6 +38,10 @@
 - Qt 设置页支持自托管 `wss://` 信令服务器的 SPKI 固定值，Host/Client 子进程会自动
   附加 Chromium `--ignore-certificate-errors-spki-list`；Windows Host 服务安装器支持
   通过 `QUICKDESK_SPKI` 把同一固定值写入服务注册参数。
+- Qt 客户端已消费自有更新通道：自动/手动检查、提示、下载进度与取消、大小和
+  SHA-256 校验、可选版本推迟、强制更新、Windows 静默安装、macOS 打开 DMG。
+- 更新下载只在同一 origin 携带 API key；跨源安装包请求已验证不会泄漏凭据。
+- QD-005 真实本地 HTTP 集成测试覆盖成功下载、摘要不匹配拒绝、残件清理和跨源隔离。
 
 ## 1. 推送前检查
 
@@ -56,6 +60,7 @@ git log --oneline --left-right origin/feat/signaling-control-plane...codex/upstr
 - `dev` 必须包含 `f5d3283`；
 - `dev` 必须包含 `2deb8c8`；
 - `dev` 必须包含 `a48d793`；
+- `dev` 必须包含 `cae77ff`；
 - `codex/product-backlog` 必须包含 `dea02f9`；
 - `codex/upstream-access-bans` 必须包含 `b89c24c`；
 - `codex/upstream-qd-114-spki` 必须包含 `13559e6`；

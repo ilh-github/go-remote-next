@@ -47,7 +47,7 @@
 | QD-002 | P0 | Web 控制端完整文件管理器 | `[!]` | UP-Remoting | 目录浏览、新建、重命名、软删除、上传下载；需要先补浏览器可用的 host 文件操作通道 |
 | QD-003 | P0 | 多标签控制与音频抢占 | `[x]` | UP-Ready | 同一设备多个同源标签页只有一个控制者/音频播放者；新标签接管后旧标签立即释放 |
 | QD-004 | P0 | Host/Relay 权威自动录制 | `[ ]` | UP-Remoting | 被控端或中继自动录制，断线自动收尾并上传索引 |
-| QD-005 | P0 | 客户端自动更新消费 | `[~]` | UP-PR#25 + UP-Ready | 客户端检查、下载、校验、安装和重启闭环 |
+| QD-005 | P0 | 客户端自动更新消费 | `[~]` | UP-PR#25 + Upstream-Open | 客户端检查、下载、校验、安装和重启闭环；Windows 静默安装与 macOS DMG 打开已实现，真机安装/重启验收待补 |
 | QD-006 | P1 | SQLite 轻量服务端部署 | `[ ]` | Upstream-Open | 单进程、单文件数据库、无 Redis 的最小自托管模式 |
 | QD-007 | P1 | 图片剪贴板 | `[ ]` | UP-Remoting | 双向图片格式协商、分片传输、权限和边界测试 |
 
@@ -61,6 +61,13 @@
   非法项和 Chromium 参数构造。
 - QD-114 上游候选：`codex/upstream-qd-114-spki` = `13559e6`，基于 `upstream/dev`，
   17 个文件；当前机器没有 CMake/Qt 开发环境，完整 Qt 构建和 Windows 安装器编译待补。
+- QD-005 功能提交：`cae77ff`。Qt 客户端已有启动后自动检查和每 6 小时复查、手动检查、
+  更新提示、下载进度/取消、大小与 SHA-256 校验、可选版本推迟、强制更新、同源 API key
+  下载和安装器启动；非同一 origin 的下载不会泄漏 API key。
+- QD-005 测试：`quickdesk_update_support_test` 与 `quickdesk_update_manager_test` 通过；
+  后者使用真实本地 HTTP 服务覆盖检查、下载、摘要不匹配拒绝、残件清理和跨源凭据隔离。
+- QuickDesk 完整 Qt 6.8.3 Debug 构建通过，`QuickDesk_qmllint` 退出 0；现有旧 QML
+  未解析类型和布局告警仍在，本轮新增更新对话框没有阻断告警。三个 CTest 目标全部通过。
 - `git diff --check`：通过。
 - 远端推送仍被当前执行策略拒绝，本地 `dev` 尚未同步到 GitHub。
 
@@ -198,7 +205,7 @@
 | QD-805 | 日志检索和跨实例聚合 | `[x]` | 本地/聚合搜索 |
 | QD-806 | 多实例会话和租约 | `[~]` | 已有实例寻址；Redis 仍是单点 |
 | QD-807 | 安装包、升级发布服务端 | `[x]` | 上传、Range、断点续传、管理端 UI |
-| QD-808 | 客户端自动更新消费 | `[~]` | 当前迭代 QD-005 |
+| QD-808 | 客户端自动更新消费 | `[~]` | 当前迭代 QD-005；客户端检查/下载/校验/安装入口已完成。Windows 用 `/SILENT /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS` 启动安装器后退出；macOS 打开 DMG 后退出。剩余：Windows 安装包真机升级/自动重启、macOS DMG 真机替换与签名/公证回归 |
 | QD-809 | SQLite 轻量服务端 | `[ ]` | 当前迭代 QD-006 |
 | QD-810 | 正式备份、恢复和容量配额 | `[ ]` | 还需完整演练和文档 |
 
@@ -235,7 +242,8 @@
 4. 把 QD-206 本地连接历史按上游 issue #18 拆成最小 Web/Qt PR。
 5. QD-002 Web 文件操作通道与完整文件管理器；若必须改 Remoting，改为上游需求。
 6. QD-004 Host/Relay 自动录制；先向 Remoting 维护者提需求，不在 fork 内自造第二套媒体链路。
-7. QD-005 客户端自动更新消费。
+7. QD-005 客户端消费已落地，补 Windows 安装包真机升级/自动重启和 macOS DMG
+   签名、公证、替换回归；上游等服务端 PR #25 合并后再拆客户端消费 PR。
 8. QD-006 SQLite 轻量部署、QD-007 图片剪贴板、QD-708 Qt 管理页和实时事件。
 9. QD-604 指标告警、QD-908 业务级长稳，以及上游 Roadmap 的地址簿、Linux、移动端。
 
@@ -275,7 +283,7 @@
 
 | 上游项 | 状态 | 涉及 QD | 当前处理 | 后续动作 |
 |---|---|---|---|---|
-| PR #25 self-hosted control plane | OPEN，MERGEABLE，CI unstable | QD-101~110、QD-201~211、QD-501、QD-601~608、QD-801~807 | 服务端、契约、SDK、smoke 已在本 fork；本地不重复造一套 | 等维护者审查；若要求拆分，按 access / alerting / recording / ops / update 拆 |
+| PR #25 self-hosted control plane | OPEN，MERGEABLE，CI unstable | QD-101~110、QD-201~211、QD-501、QD-601~608、QD-801~808 | 服务端、契约、SDK、smoke 和 Qt 更新消费已在本 fork；本地不重复造一套 | 等维护者审查；若要求拆分，按 access / alerting / recording / ops / update 拆 |
 | PR #23 session recordings | OPEN，MERGEABLE，CI unstable | QD-501~507 | 控制端手动录制、索引、回放、生命周期已具备 | 先等 PR #23；Host 权威录制另走 `UP-Remoting` |
 | PR #24 skill-host runtime path | OPEN | QD-402、QD-609 | 本 fork 已包含 PATH/stderr 修复，和上游补丁同向 | 上游合并后同步回 fork，避免二套实现 |
 | PR #22 auto-approve thread affinity | OPEN，基于 master | QD-113 | 本 fork 尚未重复实现 | 等 PR #22 合并后 cherry-pick；不要重复提交 issue #17 |
@@ -321,6 +329,7 @@
 | 2 | `fix(self-host): allow pinned SPKI for self-hosted WSS` | QD-114 / issue #20 | 候选已准备；需推送、创建 PR，并补 Qt 构建和 Windows service 实机验证 |
 | 3 | `feat(webclient): control-plane management pages` | QD-108/605/607/703 | 依赖 PR #25 合并；按页面拆成多个 PR |
 | 4 | `feat(qt): remote session and management pages` | QD-706/708 | 依赖 PR #25 合并；先做实时事件消费，再拆页面 |
+| 5 | `feat(qt): consume self-hosted update channel` | QD-005 / QD-808 | 依赖 PR #25 合并；保留检查、下载、摘要校验、凭据隔离和测试，不携带 fork 私有文档 |
 
 QD-003 的上游候选已经单独准备：
 
@@ -365,6 +374,7 @@ QD-114 的上游候选已经单独准备：
 
 - 继续使用上游 Chromium Remoting 作为核心，不在 fork 里重写媒体栈；
 - 把 QD-003、连接历史、TLS 临时修复先做成上游可审查的小 PR；
+- 把 QD-005 的 Qt 更新消费作为 PR #25 的后续增量，先保证跨平台安装行为和签名链；
 - 把 Web 文件管理器、Host 自动录制、图片剪贴板整理成 Remoting 需求，由维护者评估；
 - 把 PR #25 的控制面能力先等上游审查，避免重复提交；
 - fork 的 Web/Qt 业务页面在 #25 合并后按页面拆成增量 PR，而不是塞进一个巨型控制面 PR。
