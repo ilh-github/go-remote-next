@@ -20,6 +20,7 @@ import { TabCoordinator } from './ui/tab-coordinator.js';
 import { IceConfigFetcher } from './ice-config-fetcher.js';
 import { t, applyI18n, getLocale, setLocale } from './i18n.js';
 import { userApi } from './api/user-api.js';
+import { uploadRecordingArtifact } from './recording-upload.js';
 
 class RemoteDesktopApp {
     constructor() {
@@ -37,6 +38,7 @@ class RemoteDesktopApp {
         this.videoStats = null;
         this.floatingToolbar = null;
         this.tabCoordinator = null;
+        this._recordingUploading = false;
 
         this._receivedStreams = null;
         this._selectedStreamId = null;
@@ -1593,6 +1595,10 @@ class RemoteDesktopApp {
 
     startRecording() {
         if (this._recorder) return true;
+        if (this._recordingUploading) {
+            this._log(t('log.recordUploadInProgress'), 'error');
+            return false;
+        }
         const video = document.getElementById('remoteVideo');
         const stream = video && video.srcObject;
         if (!stream) {
@@ -1701,6 +1707,9 @@ class RemoteDesktopApp {
         // upload dies at the transport layer (an aborted fetch throws instead
         // of resolving with a non-2xx status).
         let rowId = null;
+        this._recordingUploading = true;
+        this._setRecordingUploadProgress(0);
+        let lastLoggedPercent = 0;
         try {
             const created = await fetch(`${base}/v1/me/recordings`, {
                 method: 'POST',
@@ -1722,26 +1731,35 @@ class RemoteDesktopApp {
             const row = await created.json();
             rowId = row.id;
 
-            const uploaded = await this._postWithRetry(
-                `${base}/v1/me/recordings/${row.id}/artifact`,
+            const saved = await uploadRecordingArtifact({
+                url: `${base}/v1/me/recordings/${row.id}/artifact`,
                 token,
-                () => {
-                    const form = new FormData();
-                    form.append('file', blob, `recording.${ext}`);
-                    return form;
+                blob,
+                ext,
+                onProgress: ({ percent }) => {
+                    this._setRecordingUploadProgress(percent);
+                    const bucket = Math.floor(percent / 10) * 10;
+                    if (bucket > lastLoggedPercent) {
+                        lastLoggedPercent = bucket;
+                        this._log(t('log.recordUploadProgress', { percent: bucket }));
+                    }
                 },
-                'artifact',
-            );
-            const saved = await uploaded.json();
+                onRetry: ({ attempt }) => {
+                    this._log(t('log.recordRetry', { label: 'artifact', attempt }));
+                },
+            });
             this._log(t('log.recordUploaded', { id: saved.id, kb: Math.round((saved.size_bytes || 0) / 1024) }));
             // Best effort from here down: the recording is already stored, so a
             // missing preview is a cosmetic loss, not a failed capture.
             await this._uploadThumbnail(row.id, token, base, poster);
             return saved;
         } catch (err) {
-            if (rowId) await this._markRecordingFailed(rowId, token, base);
+            if (rowId && err.status !== 200) await this._markRecordingFailed(rowId, token, base);
             this._log(t('log.recordUploadFailed', { error: err.message }), 'error');
             return null;
+        } finally {
+            this._recordingUploading = false;
+            this._setRecordButtonState(false);
         }
     }
 
@@ -1817,7 +1835,17 @@ class RemoteDesktopApp {
         if (!button) return;
         button.classList.toggle('recording', !!recording);
         button.textContent = recording ? '■' : '●';
-        button.title = recording ? t('remote.stopRecording') : t('remote.startRecording');
+        button.disabled = !!recording || this._recordingUploading;
+        button.title = this._recordingUploading
+            ? t('remote.recordingUpload', { percent: 0 })
+            : (recording ? t('remote.stopRecording') : t('remote.startRecording'));
+    }
+
+    _setRecordingUploadProgress(percent) {
+        const button = document.getElementById('btnRecord');
+        if (!button) return;
+        button.disabled = true;
+        button.title = t('remote.recordingUpload', { percent });
     }
 
     _log(message, level = 'info') {
