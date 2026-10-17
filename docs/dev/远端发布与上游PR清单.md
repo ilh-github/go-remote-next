@@ -15,6 +15,10 @@
 - 上游 QD-212 候选：`codex/upstream-qd-212-local-device` = `f1ce096`（基于 `upstream/dev`）
 - 上游 QD-213 候选：`codex/upstream-qd-213-access-code-refresh` = `6928d24`（基于 `upstream/dev`）
 - 上游 QD-214 候选：`codex/upstream-qd-214-file-transfer-errors` = `94d3ec3`（基于 `upstream/dev`）
+- 上游 QD-204 API 候选：`codex/upstream-qd-204-api` = `d2321b9`（基于 PR #25 的
+  `feat/signaling-control-plane` = `8998466`）
+- 上游 QD-204 客户端候选：`codex/upstream-qd-204-client` = `b259d03`（同一 PR #25
+  基线，只含 Web/Qt，不含服务端/API 提交）
 - 上游最小候选：`codex/upstream-access-bans` = `b89c24c`
 - 上游基线：`barry-ran/QuickDesk` 的 `dev` / `master` = `f6651f0`
 - fork PR #1：<https://github.com/ilh-github/go-remote-next/pull/1>
@@ -109,6 +113,8 @@ git log --oneline --left-right origin/feat/signaling-control-plane...codex/upstr
 - `dev` 必须包含 `b1a1155`；
 - `dev` 必须包含 `162ac6e`；
 - `dev` 必须包含 `b013a62`；
+- `codex/upstream-qd-204-api` 必须指向 `d2321b9`；
+- `codex/upstream-qd-204-client` 必须指向 `b259d03`；
 - `codex/product-backlog` 必须包含 `dea02f9`；
 - `codex/upstream-access-bans` 必须包含 `b89c24c`；
 - `codex/upstream-qd-114-spki` 必须包含 `13559e6`；
@@ -190,6 +196,31 @@ gh pr create \
   --title "feat(access): remove permanent source bans" \
   --body-file /tmp/source-unban-pr.md
 ```
+
+### 4.1 QD-204 两个上游候选
+
+两个候选都从 `feat/signaling-control-plane@8998466` 切出，不包含 fork 的文档、品牌页或
+其他管理面：
+
+- `codex/upstream-qd-204-api`：owner-scoped 表、service、handler、迁移、OpenAPI、
+  TypeScript/Go/Python/Java SDK 和 contract smoke。已验证全量 Go 测试、`go vet`、
+  四套 SDK freshness，以及真实服务 `PASS: 380 documented assertions`。
+- `codex/upstream-qd-204-client`：WebClient 分组筛选/管理弹窗和 Qt `DeviceGroupManager`
+  对话框，包括最小测试入口。已验证 Web 5/5、生产构建、Qt 完整 Debug 构建、
+  CTest 1/1、弹窗 lint 和离屏启动。
+
+远端写入恢复后：
+
+```bash
+git push origin \
+  codex/upstream-qd-204-api \
+  codex/upstream-qd-204-client
+```
+
+如果 PR #25 仍开放，两个 PR 的 base 先选 `feat/signaling-control-plane`；#25 合并后
+GitHub 会自动把已合并功能的后续 PR 重定向到 `dev`。如果 GitHub 不接受以该分支为
+base，先合并 #25/API PR，再把客户端候选 rebase 到新的 `upstream/dev`。当前机器
+`git push` 仍被策略拒绝，因此尚未创建实际 PR。
 
 PR 描述至少写明：
 
