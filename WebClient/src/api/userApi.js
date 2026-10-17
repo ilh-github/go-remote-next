@@ -447,6 +447,97 @@ class UserApi {
   }
 
   // ========================================================================
+  // Notifications — user-owned webhook channels, quiet hours, and the
+  // per-device sustained-offline rule. Channel events are stored as a JSON
+  // string by the server model, so callers should feed list rows through
+  // normalizeChannelList before rendering them.
+  // ========================================================================
+
+  fetchNotificationChannels() {
+    return this._req('GET', '/v1/me/notification-channels')
+  }
+
+  createNotificationChannel(body) {
+    return this._req('POST', '/v1/me/notification-channels', body)
+  }
+
+  updateNotificationChannel(id, body) {
+    return this._req('PATCH', `/v1/me/notification-channels/${encodeURIComponent(id)}`, body)
+  }
+
+  deleteNotificationChannel(id) {
+    return this._req('DELETE', `/v1/me/notification-channels/${encodeURIComponent(id)}`)
+  }
+
+  testNotificationChannel(id) {
+    return this._req('POST', `/v1/me/notification-channels/${encodeURIComponent(id)}/test`)
+  }
+
+  fetchNotificationDeliveries(id, limit) {
+    const q = limit ? `?limit=${encodeURIComponent(limit)}` : ''
+    return this._req(
+      'GET',
+      `/v1/me/notification-channels/${encodeURIComponent(id)}/deliveries${q}`,
+    )
+  }
+
+  retryNotificationDelivery(id, deliveryId) {
+    return this._req(
+      'POST',
+      `/v1/me/notification-channels/${encodeURIComponent(id)}/deliveries/${encodeURIComponent(deliveryId)}/retry`,
+    )
+  }
+
+  ackNotificationDelivery(id, deliveryId) {
+    return this._req(
+      'POST',
+      `/v1/me/notification-channels/${encodeURIComponent(id)}/deliveries/${encodeURIComponent(deliveryId)}/ack`,
+    )
+  }
+
+  retryFailedNotificationDeliveries(id, body) {
+    return this._req(
+      'POST',
+      `/v1/me/notification-channels/${encodeURIComponent(id)}/deliveries:retry-failed`,
+      body,
+    )
+  }
+
+  retryFailedNotificationDeliveriesForUser(body) {
+    return this._req('POST', '/v1/me/notification-channels:retry-failed', body)
+  }
+
+  fetchNotificationQuietHours() {
+    return this._req('GET', '/v1/me/notification-quiet-hours')
+  }
+
+  updateNotificationQuietHours(body) {
+    return this._req('PUT', '/v1/me/notification-quiet-hours', body)
+  }
+
+  fetchDeviceOfflineAlert(deviceId) {
+    return this._req(
+      'GET',
+      `/v1/me/devices/${encodeURIComponent(deviceId)}/offline-alert`,
+    )
+  }
+
+  updateDeviceOfflineAlert(deviceId, body) {
+    return this._req(
+      'PUT',
+      `/v1/me/devices/${encodeURIComponent(deviceId)}/offline-alert`,
+      body,
+    )
+  }
+
+  deleteDeviceOfflineAlert(deviceId) {
+    return this._req(
+      'DELETE',
+      `/v1/me/devices/${encodeURIComponent(deviceId)}/offline-alert`,
+    )
+  }
+
+  // ========================================================================
   // Session recordings — user-owned index of recorded remote sessions.
   // The control plane owns discovery/ownership/lifecycle metadata; media
   // bytes are produced by the recording engine, so playback/download use

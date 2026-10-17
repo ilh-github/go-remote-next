@@ -86,6 +86,7 @@ const navItems = computed(() => {
     { path: '/wall', icon: '🧱', label: 'nav.wall' },
   ]
   if (authState.isLoggedIn) {
+    items.push({ path: '/notifications', icon: '🔔', label: 'nav.notifications' })
     items.push({ path: '/account', icon: '👤', label: 'nav.account' })
   }
   items.push(
