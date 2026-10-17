@@ -6,11 +6,13 @@ use rmcp::transport::streamable_http_server::{
     session::local::LocalSessionManager,
 };
 use tokio::io::AsyncReadExt;
+use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
 use tower_http::cors::{AllowHeaders, AllowMethods, CorsLayer};
 
 use crate::config::AppConfig;
 use crate::server::{QuickDeskMcpServer, SharedState};
+use crate::workflow_trigger::WorkflowTriggerStore;
 use crate::ws_client::WsClient;
 
 pub async fn start_http(
@@ -24,6 +26,8 @@ pub async fn start_http(
     let mcp_ws = ws.clone();
     let mcp_shared_state = shared_state.clone();
     let mcp_allowed_devices = allowed_devices.clone();
+    let workflow_triggers = WorkflowTriggerStore::new()?;
+    let business_run_slots = Arc::new(Semaphore::new(1));
 
     let mcp_service: StreamableHttpService<QuickDeskMcpServer, LocalSessionManager> =
         StreamableHttpService::new(
@@ -47,7 +51,23 @@ pub async fn start_http(
         ws.clone(),
         shared_state.clone(),
         allowed_devices.clone(),
+        workflow_triggers.clone(),
+        business_run_slots.clone(),
     );
+    if config
+        .trigger_token
+        .as_deref()
+        .is_some_and(|token| !token.is_empty())
+    {
+        crate::trigger::start_scheduler(
+            ct.child_token(),
+            ws.clone(),
+            shared_state.clone(),
+            allowed_devices.clone(),
+            workflow_triggers,
+            business_run_slots,
+        );
+    }
     let app = Router::new()
         .route(
             "/health",
