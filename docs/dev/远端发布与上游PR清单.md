@@ -7,10 +7,11 @@
 
 ## 当前本地基线
 
-- fork 主干：本地 `dev`、`master` = `eca3c8f`，已包含 QD-607 批量远控清场、
-  QD-204 地址簿/设备分组、QD-508 Qt 录像回放页及上游待办融合文档
+- fork 主干：本地 `dev`、`master` 指向同一最新提交；功能基线为 `eca3c8f`，
+  已包含 QD-607 批量远控清场、QD-204 地址簿/设备分组、QD-508 Qt 录像回放页，
+  功能基线之后还有本清单维护提交
 - fork 远端：`origin/dev`、`origin/master` 仍为 `f6651f0`；本地 `dev` 领先
-  `origin/dev` 226 个提交，远端写入尚未完成
+  `origin/dev` 226 个功能提交，另有清单文档提交，远端写入尚未完成
 - 功能分支：`codex/product-backlog` = `dea02f9`
 - 上游 QD-003 候选：`codex/upstream-cross-tab-coordination` = `6047615`（基于 `upstream/dev`）
 - 上游 QD-114 候选：`codex/upstream-qd-114-spki` = `13559e6`（基于 `upstream/dev`）
