@@ -1,13 +1,13 @@
 # 远端发布与上游 PR 清单
 
-**更新时间**: 2026-10-17 20:53 CST
+**更新时间**: 2026-10-17 21:19 CST
 
 这份清单只记录本地验证完成后仍需远端写入的动作。当前机器上的 `git push`
 会被执行策略拒绝，因此以下步骤应在允许远端写入的环境中执行。
 
 ## 当前本地基线
 
-- fork 主干：本轮已验证主干为 `c77dcae`（SQLite 轻量单进程模式）；本文件后续
+- fork 主干：本轮已验证主干为 `64ab93a`（备份/恢复与存储配额）；本文件后续
   docs-only 提交可能让实际 HEAD 再前进，推送前仍以 `git rev-parse` 为准
 - fork 远端：`origin/dev`、`origin/master` 仍为 `f6651f0`；本地 `dev` 领先数量以
   `git rev-list --count origin/dev..dev` 为准，远端写入尚未完成
@@ -33,6 +33,8 @@
   `feat/signaling-control-plane@8998466`；候选自身完整 Go 测试、database race、
   `go vet`、Web 生产构建和最小服务 E2E 通过。PR #25 合并后需 rebase 到
   `upstream/dev` 再创建正式 PR，不能直接拿 fork `dev` 的 `c77dcae`
+- 上游 QD-810 候选：尚未创建；fork 功能提交为 `64ab93a`。它依赖 PR #25 和 QD-006
+  SQLite 候选，应在两者落地后再拆 `quickdesk-backup`、配额与两个存储视图的最小增量
 - 上游最小候选：`codex/upstream-access-bans` = `b89c24c`
 - 上游基线：`barry-ran/QuickDesk` 的 `dev` / `master` = `f6651f0`
 - 上游维护口径：issue #21 已确认“持续维护、暂缓更新、重点偏 MCP”；贡献从
