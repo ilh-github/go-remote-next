@@ -1,14 +1,15 @@
 # 远端发布与上游 PR 清单
 
-**更新时间**: 2026-10-18 00:08 CST
+**更新时间**: 2026-10-18 00:22 CST
 
 这份清单只记录本地验证完成后仍需远端写入的动作。当前机器上的 `git push`
 会被执行策略拒绝，因此以下步骤应在允许远端写入的环境中执行。
 
 ## 当前本地基线
 
-- fork 主干：本轮代码基线为 `2e09d5b`（QD-610 控制面事件触发器）；本文件
-  后续 docs-only 提交可能让实际 HEAD 再前进，推送前仍以 `git rev-parse` 为准
+- fork 主干：本轮启动基线为 `50bec36`（QD-610 控制面事件触发器记录）；
+  QD-002/QD-403 的 file-ops、WebClient、Qt 收口提交位于其后，推送前仍以
+  `git rev-parse` 为准
 - fork 远端：`origin/dev`、`origin/master` 仍为 `f6651f0`；本地 `dev` 领先数量以
   `git rev-list --count origin/dev..dev` 为准，远端写入尚未完成
 - 功能分支：`codex/product-backlog` = `dea02f9`
@@ -22,6 +23,10 @@
   （基于 `upstream/dev`）
 - 上游 QD-215 候选：`codex/upstream-qd-215-win-runtime-check` = `f449b87`
   （基于 `upstream/dev`，只含 Windows 发布依赖校验和打包失败关闭）
+- 上游 QD-002 file-ops 候选：待从本轮工作树冻结，基于 `upstream/dev@f6651f0`；
+  只含分块读写、默认目录、版本保留软删除、SKILL.md 和 Rust 测试
+- 上游 QD-403 WebClient 候选：待基于 QD-002 候选创建 stacked 分支；只含
+  `SkillBridgeClient`、Web 文件管理器、remote-main 接线、样式、双语和 Node 测试
 - 上游 QD-204 API 候选：`codex/upstream-qd-204-api` = `d2321b9`（基于 PR #25 的
   `feat/signaling-control-plane` = `8998466`）
 - 上游 QD-204 客户端候选：`codex/upstream-qd-204-client` = `b259d03`（同一 PR #25
@@ -102,6 +107,9 @@
   重复拒绝来源、批准/拒绝原因和实时刷新。
 - WebClient 新增同源多标签控制/音频抢占，BroadcastChannel 不可用时降级到
   localStorage；已完成真实 Chrome 双标签验证。
+- WebClient 新增“远程文件”侧栏：经预编译 Remoting 的 `qd-skill-bridge` 调用 host
+  `file-ops`，支持目录、新建、重命名、版本保留软删除、文本预览和 64 KiB 分块上传下载；
+  file-ops 4/4、WebClient 62/62、生产构建和桌面/移动 Chrome 烟测通过。
 - Qt 设置页支持自托管 `wss://` 信令服务器的 SPKI 固定值，Host/Client 子进程会自动
   附加 Chromium `--ignore-certificate-errors-spki-list`；Windows Host 服务安装器支持
   通过 `QUICKDESK_SPKI` 把同一固定值写入服务注册参数。

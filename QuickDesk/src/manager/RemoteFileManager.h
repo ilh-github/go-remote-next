@@ -40,9 +40,8 @@ public:
     /// Rename/move within the same directory.
     Q_INVOKABLE void renamePath(const QString& deviceId, const QString& path,
                                 const QString& newName);
-    /// Soft delete: create `<parent>/.quickdesk-trash` and move the entry there.
-    /// file-ops has no delete tool on purpose; a reversible move is the safe
-    /// equivalent and works with the tools every host already has.
+    /// Soft delete through file-ops `trash_path`. The host keeps every deleted
+    /// version under `<parent>/.quickdesk-trash` instead of overwriting it.
     Q_INVOKABLE void trashPath(const QString& deviceId, const QString& path);
     /// Read a text file (for the preview pane).
     Q_INVOKABLE void readFile(const QString& deviceId, const QString& path);
@@ -64,10 +63,6 @@ private:
         QString op;
         QString deviceId;
         QString path;
-        QString destination;
-        QString newName;
-        // trashPath is two calls: mkdir the trash directory, then move into it.
-        bool trashSecondStage = false;
     };
 
     void sendTool(const QString& deviceId, const QString& tool, const QJsonObject& args,

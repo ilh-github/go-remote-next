@@ -839,8 +839,7 @@ Window {
     // ---------------------------------------------------------------
     // Remote file manager (host file-ops skill over the skill bridge).
     // Browsing, new folder, rename and a reversible "move to .quickdesk-trash"
-    // delete: the skill deliberately has no delete tool, so the safe
-    // equivalent is create-trash-directory + move.
+    // delete through the host's version-preserving trash_path tool.
     // ---------------------------------------------------------------
     QDDrawer {
         id: fileManagerDrawer

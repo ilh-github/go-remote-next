@@ -32,6 +32,7 @@ export class FloatingToolbar extends EventTarget {
         this._supportsSAS = false;
         this._supportsLock = false;
         this._supportsFileTransfer = false;
+        this._supportsFileManager = false;
         this._supportsPrivacyScreen = false;
         this._supportsVirtualDisplay = false;
         this._privacyScreenActive = false;
@@ -129,6 +130,7 @@ export class FloatingToolbar extends EventTarget {
             { textKey: 'menu.uploadFile', icon: '📤', action: 'uploadFile', id: 'uploadMenuItem', hidden: true },
             { textKey: 'menu.downloadFile', icon: '📥', action: 'downloadFile', id: 'downloadMenuItem', hidden: true },
             { textKey: 'menu.transfers', icon: '📊', action: 'showTransfers', id: 'transfersMenuItem', hidden: true },
+            { textKey: 'menu.fileManager', icon: '🗂', action: 'fileManager', id: 'fileManagerMenuItem', hidden: true },
             { type: 'separator', id: 'vdSeparator', hidden: true },
             { textKey: 'menu.virtualDisplay', icon: '🖥️', hasSubmenu: true, action: 'submenu-virtualDisplay', id: 'vdMenuItem', hidden: true },
             { type: 'separator' },
@@ -362,6 +364,10 @@ export class FloatingToolbar extends EventTarget {
                 break;
             case 'showTransfers':
                 this.dispatchEvent(new CustomEvent('action', { detail: { action: 'showTransfers' } }));
+                this._hideMenu();
+                break;
+            case 'fileManager':
+                this.dispatchEvent(new CustomEvent('action', { detail: { action: 'fileManager' } }));
                 this._hideMenu();
                 break;
         }
@@ -678,6 +684,12 @@ export class FloatingToolbar extends EventTarget {
         if (transfersItem) transfersItem.style.display = supportsFileTransfer ? '' : 'none';
     }
 
+    setFileManagerSupport(supported) {
+        this._supportsFileManager = Boolean(supported);
+        const item = this._menuElement.querySelector('#fileManagerMenuItem');
+        if (item) item.style.display = this._supportsFileManager ? '' : 'none';
+    }
+
     updateTransferCount(count) {
         const transfersItem = this._menuElement.querySelector('#transfersMenuItem');
         if (transfersItem) {
@@ -701,6 +713,7 @@ export class FloatingToolbar extends EventTarget {
         this._hideMenu();
         this._buildMenu();
         this.setActionSupport(this._supportsSAS, this._supportsLock, this._supportsFileTransfer, this._supportsPrivacyScreen, this._supportsVirtualDisplay);
+        this.setFileManagerSupport(this._supportsFileManager);
     }
 
     /** @private */

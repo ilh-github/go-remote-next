@@ -1,6 +1,6 @@
 # QuickDesk 功能总清单
 
-> 最后对账：2026-10-18 00:08 CST。上游与 fork 状态都是动态的，实施前必须重新执行
+> 最后对账：2026-10-18 00:22 CST。上游与 fork 状态都是动态的，实施前必须重新执行
 > `git fetch --all --prune` 并核对 GitHub issue / PR。
 >
 > 本文件是 QuickDesk fork 后续产品开发的唯一功能清单。它合并三类输入：
@@ -43,13 +43,16 @@
 
 - 仓库：`go-remote-next`
 - 本地主分支：`dev`、`master`
-- 本地代码基线：`2e09d5b`（QD-610 控制面事件触发器）；验证记录和清单的 docs-only
-  提交位于其后，`dev` 与 `master` 保持同线
+- 本地代码基线：`50bec36`（QD-610 控制面事件触发器与上游候选记录）；QD-002 的
+  file-ops、WebClient、Qt 收口和本轮验证记录作为后续提交落在同一 `dev` 主线
 - 远端 fork：`origin/dev` 仍为 `f6651f0`，本地 `dev` 尚未推送；领先数量以
   `git rev-list --count origin/dev..dev` 的实时值为准。远端写入恢复前不能把本地验收当成已发布
 - 上游基线：`barry-ran/QuickDesk` 的 `dev` 和 `master` 当前均为 `f6651f0`
 - 上游维护口径：持续维护但暂缓更新，下一阶段重点偏 MCP；外部贡献从 `dev` 切分支，完成后合入 `dev`，维护者定期合入 `master`
 - Remoting 边界：`quickdesk-remoting` 需要编译整个 Chromium，涉及 Remoting 的改动优先向上游提需求，不要求贡献者本地编译
+- 浏览器技能桥边界：预编译 Remoting 已带 `qd-skill-bridge`，WebClient 可通过
+  control DataChannel 发送扩展消息，经 Host 转发到 `quickdesk-skill-host`；Web 文件
+  管理器不需要重新编译 Chromium
 - 当前主要增量：QD-214 的 SPAKE2 兼容修复与 Windows Host 文件传输根因定位、
   QD-215 Windows 发布依赖校验（`67bf11f`、`556f86e`）、QD-607 批量远控清场（`5028068`）、QD-204 地址簿与设备分组
   （`f270487`、`b1a1155`、`162ac6e`、`b013a62`）、QD-508 Qt 录像回放
@@ -58,6 +61,9 @@
   录像/安装包总量配额及管理存储视图；Web 屏幕墙已补单瓦片音频独占；QD-604 已补齐
   Host 指标上报、阈值 episode、通知 outbox、Web/Qt 规则入口和七套 SDK；QD-911 的
   根目录 `SECURITY.md`、服务端 QD-604 stacked 候选，以及 QD-115 的上游安全边界文档
+- QD-002 / QD-403 Web 文件管理器已补齐：利用现有 `qd-skill-bridge` 浏览目录、新建、
+  重命名、版本保留软删除、文本预览及 64 KiB 分块上传下载；host `file-ops` 新增
+  `read_file_chunk`、`write_file_chunk`、`trash_path` 和 `get_default_directory`
 - QD-610 已补控制面事件订阅：Qt `CloudDeviceManager` 只向本机 MCP 广播白名单事件，
   MCP 支持 `event_type` / `event_device_id` / `event_filter`、设备 ID 归一化、
   claim-before-run 和事件 ID 幂等；SQLite 模式重启后不依赖会重置的 `server_rev`
@@ -75,7 +81,7 @@
 | ID | 优先级 | 功能 | 状态 | 上游 | 验收标准 |
 |---|---|---|---|---|---|
 | QD-001 | P0 | 建立独立功能总清单 | `[x]` | Fork-only | 文件覆盖全部范围、状态、优先级和验收口径 |
-| QD-002 | P0 | Web 控制端完整文件管理器 | `[!]` | UP-Remoting | 目录浏览、新建、重命名、软删除、上传下载；需要先补浏览器可用的 host 文件操作通道 |
+| QD-002 | P0 | Web 控制端完整文件管理器 | `[x]` | UP-Ready | 经 `qd-skill-bridge` 完成目录浏览、新建、重命名、版本保留软删除、文本预览、分块上传下载；62 项 WebClient 测试、生产构建和桌面/移动浏览器烟测通过 |
 | QD-003 | P0 | 多标签控制与音频抢占 | `[x]` | UP-Ready | 同一设备多个同源标签页只有一个控制者/音频播放者；新标签接管后旧标签立即释放 |
 | QD-004 | P0 | Host/Relay 权威自动录制 | `[ ]` | UP-Remoting | 被控端或中继自动录制，断线自动收尾并上传索引 |
 | QD-005 | P0 | 客户端自动更新消费 | `[~]` | UP-PR#25 + Upstream-Open | Windows 已通过检查、下载、SHA-256 校验、静默安装、自动重启、版本落盘和服务存活真机闭环；macOS 已实现受校验的 DMG 挂载、暂存替换、失败回退和重开，并通过 ad-hoc 真实 DMG E2E；剩余 Developer ID 签名、Apple 公证和公证后替换回归 |
@@ -96,23 +102,34 @@
   `dev` 切分支贡献、Remoting 改动由维护者处理”；不能再把“暂缓”理解成停止维护。
 - 上游 PR：#22、#23、#24、#25 均为 OPEN / MERGEABLE，但 GitHub 返回的
   `mergeStateStatus=UNSTABLE` 且没有 reported checks；不能把 MERGEABLE 写成 CI 已通过。
-- 清单统计：117 个唯一 QD ID；78 个 `[x]`、19 个 `[~]`、14 个 `[ ]`、
-  3 个 `[!]`、2 个 `[>]`、1 个 `[-]`。
+- 清单统计：117 个唯一 QD ID；80 个 `[x]`、19 个 `[~]`、14 个 `[ ]`、
+  1 个 `[!]`、2 个 `[>]`、1 个 `[-]`。
 - 上游待办已全部映射到本清单：10 个 open issue、4 个 open PR、3 个未完成 Roadmap
   项均有对应 QD、处理边界和上游贡献方式；上游已完成的 Roadmap 项只作为继承基线，
   不重复开发。
 - 本次合并后的实施结论：上游没有新增必须立即重复开发的 issue；`QD-608`
-  （C#/PHP/Kotlin SDK）已完成，下一步做不依赖 Remoting 和外部凭据的 `QD-610`。可独立回贡的
-  QD-003/QD-114/QD-212/QD-213/QD-214/QD-215/QD-911 继续按最小 PR 保持候选；QD-004、
-  QD-505、QD-007、QD-002 和 QD-214 的 Windows 用户上下文根因继续归入 Remoting/宿主需求。
+  （C#/PHP/Kotlin SDK）和 `QD-002` / `QD-403`（Web 文件管理器）已完成。可独立回贡的
+  QD-002/QD-003/QD-114/QD-212/QD-213/QD-214/QD-215/QD-911 继续按最小 PR 保持候选；
+  QD-004、QD-505、QD-007 和 QD-214 的 Windows 用户上下文根因继续归入 Remoting/宿主需求。
 - 融合结论：本清单的 3.1 决策台账负责固定“做/不做/等待/交 Remoting”，3.2 执行队列负责
   排序，第 16、17 节负责逐项追溯上游来源和 PR 交付方式。三者共同作为后续开发和回贡的
   唯一工作口径，不再另建一套 fork 待办。
 - 上游 `docs/dev/*技术方案.md` 里有部分历史未勾选实现清单，抽查当前代码后多数已经落地；
   这些文件是设计历史，不直接当新增待办。权威待办仍以 README Roadmap、open issue、open PR
   和维护者最新回复为准。
-- WebClient `npm test`：46/46 通过。
-- WebClient `npm run build`：通过，JS 363.42 kB，gzip 117.06 kB。
+- file-ops `cargo test --offline -p file-ops -- --nocapture`：4/4 通过，覆盖分块往返、
+  Base64 错误、最大 256 KiB 截断、重复软删除和默认目录。
+- file-ops `cargo clippy --offline --workspace --all-targets -- -D warnings`：通过，
+  显式关闭自动 truncate，首块仍由 `set_len(0)` 控制。
+- WebClient `npm test`：62/62 通过，新增 skill bridge 请求关联/错误/超时、路径模型、
+  分块上传下载和重命名测试。
+- WebClient `npm run build`：通过，JS 378.74 kB，gzip 119.96 kB。
+- Web 文件管理器 Chrome 烟测：桌面 1280x720 与移动 390x844 均打开成功；目录行、
+  操作按钮、文本预览和响应式布局无重叠，截图见 `docs/e2e/e2e-web-file-manager*.png`。
+- `remote-main` 接线烟测：收到完整 `capabilitiesReady` 后 `_supportsFileManager=true`，
+  浮动菜单“远程文件”从隐藏变为可点击；Qt `RemoteFileManager.cpp` 编译通过，
+  `ctest` 13/13 通过；完整 App 最终链接仍因预编译 Remoting 引用已移除的 macOS `AGL`
+  framework 失败，属于既有外部依赖兼容问题。
 - Chrome 同源双标签实测：后开标签接管控制后，前一个标签释放控制；接管音频后，前一个标签释放音频。
 - QD-114 SPKI 纯 C++ 单测：通过；覆盖标准/URL-safe Base64、无 padding、重复项、
   非法项和 Chromium 参数构造。
@@ -417,7 +434,7 @@
 | 上游候选 | QD-212 设备列表本机标识 | `Upstream` issue #19 / `Legacy` | 候选 `f1ce096` 已在干净上游基线构建和测试 | 推送并建 PR；与 #19 其余问题拆开 |
 | 上游候选 | QD-213 缺失访问码回源 | `Upstream` issue #19 / `Legacy` | 候选 `6928d24` 已通过集成测试 | 推送并建 PR；补两真机换码时序回归 |
 | 上游候选 | QD-214 SPAKE2 与文件传输错误诊断 | `Upstream` issue #19 / `Legacy` | SPAKE2 候选 `ed5437b` 修通真实 Host；错误码候选 `60837af` 覆盖 0~7；真实日志已确认 Windows Host 用户上下文失败 | 分别推送 SPAKE2 和错误码诊断 PR；根因修复作为 Host/Remoting 需求，不在 WebClient 伪装修复 |
-| Remoting 需求 | QD-002 Web 完整文件管理器 | `Legacy` / `Fork` | 当前 skill bridge 只在 Qt 与 host 间可用，浏览器没有等价通道 | 向 Remoting 提 host 文件操作通道需求；在此之前不把上传下载冒充完整管理器 |
+| 已完成 / 上游候选 | QD-002 / QD-403 Web 完整文件管理器 | `Legacy` / `Fork` / `Upstream` 通用能力 | 预编译 Remoting 的 `qd-skill-bridge` 已可承载浏览器工具调用；WebClient 完成目录、新建、重命名、软删除、预览、分块上传下载，host `file-ops` 新增对应工具 | 作为 `UP-Ready` 从 `upstream/dev` 准备最小候选：`file-ops` 工具与 WebClient 页面可拆成两个相邻 PR，不携带 fork 清单和品牌 |
 | Remoting 需求 | QD-004 / QD-505 Host 权威录制与断线收尾 | `Legacy` / `Fork` | PR #23 只录控制端已解码画面；Host/Relay 没有权威媒体落盘 | 提 Remoting/宿主生命周期需求；fork 不另造第二套媒体链路 |
 | Remoting 需求 | QD-007 图片剪贴板 | `Legacy` / `Fork` | Remoting `ClipboardEvent` 只承载 UTF-8 文本 | 提图片格式、分片和权限边界需求；等协议方案后再实现 |
 | Remoting 需求 | QD-114 真实 CertVerifier | `Upstream` issue #20 | SPKI 只是临时放行；根因是 `quickdesk_network_service.cc` 未绑定真实证书校验器 | 向 Remoting 维护者提正式修复需求和回归用例 |
@@ -438,10 +455,10 @@ Roadmap 项放到同一条实施路径中。详细追溯仍以第 16 节为准�
 | 顺序 | 队列 | 包含工作 | 为什么现在放这里 | 完成条件 |
 |---|---|---|---|---|
 | 1 | Fork 真机收口 | QD-005 / QD-808 macOS 签名与公证、QD-215 Windows Qt 插件、QD-214 Windows Host 用户上下文、QD-607 定时连接边界 | Windows 自动更新已闭环，macOS 自动替换和回退也已通过 ad-hoc 真实 DMG E2E；当前只缺正式签名、公证链和公证包升级回归 | 使用 Developer ID 完成 hardened runtime 签名、notarytool、staple、Gatekeeper 评估和 4.2.8→4.2.9 真实替换；Windows Host 上传和 Qt 插件问题有真实证据 |
-| 2 | 可独立回贡上游 | QD-003、QD-114 第一阶段、QD-212、QD-213、QD-214 SPAKE2/诊断、QD-215 Windows 发布校验、QD-510 MCP 工作流、QD-911 私密披露策略 | 改动边界清楚，可从 `upstream/dev` 独立审查；QD-510 候选不含 fork 业务和清单，QD-911 候选只含根目录 `SECURITY.md` | 每个主题一个基于 `upstream/dev` 的最小分支；远端写入恢复后推送并开 PR |
+| 2 | 可独立回贡上游 | QD-002/QD-403 Web 文件管理、QD-003、QD-114 第一阶段、QD-212、QD-213、QD-214 SPAKE2/诊断、QD-215 Windows 发布校验、QD-510 MCP 工作流、QD-911 私密披露策略 | 改动边界清楚，可从 `upstream/dev` 独立审查；Web 文件管理只依赖现有 `qd-skill-bridge`，QD-510 候选不含 fork 业务和清单，QD-911 候选只含根目录 `SECURITY.md` | 每个主题一个基于 `upstream/dev` 的最小分支；Web 文件管理拆成 `file-ops` 与 WebClient 两个 PR；远端写入恢复后推送 |
 | 3 | 等 PR #25 基线 | QD-204 API/客户端、QD-607 服务端、QD-108 / QD-508 / QD-706 / QD-708 管理面、QD-005 客户端 | 这些能力依赖控制面、OpenAPI、录像或管理页基线；直接塞进 #25 会变成巨型 PR | 维护者确认 #25 合并或 stacked base；再按服务端/Web/Qt/更新拆 PR |
 | 4 | 跟踪上游已有 PR | PR #22 自动审批、#23 录像、#24 skill-host 运行库、#25 控制面 | 上游已有实现，重复开发只会制造分叉 | PR 合并后同步 `upstream/dev`，重跑受影响测试；删除重复本地实现 |
-| 5 | 提 Remoting 需求 | QD-002 Web 文件通道、QD-004 / QD-505 Host 权威录制、QD-007 图片剪贴板、QD-114 真实 CertVerifier、QD-214 Windows 用户上下文 | 必须改 Chromium Remoting 或宿主生命周期，维护者已明确这类改动由他处理 | 每项提交协议草案、权限边界、兼容性和验收用例；不在 fork 伪造第二套媒体链路 |
+| 5 | 提 Remoting 需求 | QD-004 / QD-505 Host 权威录制、QD-007 图片剪贴板、QD-114 真实 CertVerifier、QD-214 Windows 用户上下文 | 必须改 Chromium Remoting 或宿主生命周期，维护者已明确这类改动由他处理 | 每项提交协议草案、权限边界、兼容性和验收用例；不在 fork 伪造第二套媒体链路 |
 | 6 | fork 自主增强 | QD-610 业务集成、QD-511 智能回放、QD-904 / QD-907 / QD-908 / QD-909 | QD-510、HTTP trigger、持久化固定 interval trigger、Idempotency-Key、异步队列/取消、HMAC 回调和控制面事件订阅已落地；剩余业务编排仍缺 cron、事件停机补发、跨进程恢复和回调 outbox/重试 | 有明确用户入口、失败路径和对应自动化或真机证据 |
 | 7 | 暂缓跟随上游 | QD-318 Linux、QD-319 iOS/Android | 上游 Roadmap 已列出，本 fork 当前不承诺实现 | 保持接口和构建兼容；上游方向明确后再排期 |
 | 8 | 不进入待办 | RDP、重写 WebRTC/Remoting、多租户/SSO/计费、通用插件市场 | 与“复用成熟远控内核 + 补业务控制面”的路线冲突或收益不足 | 只有用户重新定义产品目标才重新评估 |
@@ -469,9 +486,9 @@ Private Vulnerability Reporting，后者等协议实现。当前继续做不依�
 | 批次 | 包含工作 | 当前动作 | 上游交付方式 | 明确不做 |
 |---|---|---|---|---|
 | U0 同步闸门 | PR #22 自动审批线程亲和性、#23 录像、#24 skill-host 运行库、#25 自托管控制面 | 先审查和同步上游已有 PR；本 fork 不重复实现 | `UP-PR#22` ~ `UP-PR#25` | 不把已有 PR 再写一遍，不抢跑 #25 控制面 |
-| U1 立即回贡 | QD-003、QD-114 SPKI、QD-212、QD-213、QD-214 SPAKE2/错误诊断、QD-215、QD-510、QD-610 通用触发器、QD-911、QD-115 文档 | 远端写入恢复后按主题各推一个最小分支；每次从 `upstream/dev`/PR 基线重切 | `UP-Ready` | 不带 fork 清单、品牌、部署地址或无关业务代码 |
+| U1 立即回贡 | QD-002/QD-403 Web 文件管理、QD-003、QD-114 SPKI、QD-212、QD-213、QD-214 SPAKE2/错误诊断、QD-215、QD-510、QD-610 通用触发器、QD-911、QD-115 文档 | 远端写入恢复后按主题各推一个最小分支；Web 文件管理拆为 `file-ops` 工具和 WebClient 页面两个相邻 PR | `UP-Ready` | 不带 fork 清单、品牌、部署地址或无关业务代码 |
 | U2 等 #25 基线 | QD-204、QD-607、QD-006、QD-604、QD-810、QD-005、QD-108/QD-508/QD-706/QD-708 管理面 | 先把 fork 功能做完整，保留 stacked 候选；#25 合并或维护者确认基线后 rebase | `UP-Stacked` | 不直接 cherry-pick 整个 fork 提交；不把服务端、Web、Qt 塞进同一个 PR |
-| U3 交 Remoting | QD-002、QD-004/QD-505、QD-007、QD-114 真实 CertVerifier、QD-214 Windows 用户上下文、QD-111/QD-408 所需的文件事件 | 写协议草案、权限边界、兼容性和验收用例，先向上游提需求 | `UP-Remoting` | 不重写媒体/输入链路，不在 fork 造第二套 RDP 或伪协议 |
+| U3 交 Remoting | QD-004/QD-505、QD-007、QD-114 真实 CertVerifier、QD-214 Windows 用户上下文、QD-111/QD-408 所需的文件事件 | 写协议草案、权限边界、兼容性和验收用例，先向上游提需求 | `UP-Remoting` | 不重写媒体/输入链路，不在 fork 造第二套 RDP 或伪协议 |
 | U4 fork 产品层 | 业务系统专属 provider、委托权限策略、运营页面、品牌和部署配置；QD-610 中依赖具体业务凭据的部分 | 在 fork 主干完成产品化，通用底层抽成 U1/U2 的 PR | `Fork-only` | 不把私有业务规则伪装成上游通用能力 |
 | U5 质量底座 | QD-904、QD-906、QD-907、QD-908、QD-909、QD-910 | 每完成一个主功能同步补测试、真机或长稳证据；上游通用测试随后回贡 | `UP-Ready` 或 `Fork-only` | 不集中到最后补测，不用单次成功代替稳定性 |
 | U6 跟随上游 | QD-318 Linux、QD-319 原生移动端 | 保持接口和构建兼容，等待上游路线明确 | `Upstream-Open` | 不提前承诺实现，不把 Web 触摸或跨平台构建冒充原生客户端 |
@@ -486,8 +503,9 @@ Private Vulnerability Reporting，后者等协议实现。当前继续做不依�
 3. **QD-907 异常路径**：按“协议错误、权限拒绝、重连耗尽、上传失败、设备离线”补
    可重复的自动化或真机证据，避免把 Windows 上传根因误判成 WebClient 协议错误。
 4. **QD-904 / QD-908**：补 Web E2E、2 小时桌面长稳和几百路观看基线，作为发布门禁。
-5. **Remoting 需求单**：QD-002、QD-004/QD-505、QD-007、QD-114 根因和 QD-214 用户
-   上下文分别写清协议、权限、兼容性和验收标准，交给上游维护者评估。
+5. **Remoting 需求单**：QD-004/QD-505、QD-007、QD-114 根因和 QD-214 用户上下文
+   分别写清协议、权限、兼容性和验收标准，交给上游维护者评估。QD-002 已由现有
+   `qd-skill-bridge` 解除阻塞，不再列入 Remoting 需求。
 6. **#25 后置队列**：QD-204、QD-607、QD-006、QD-604、QD-810 和通用 Web/Qt 管理面
    在 #25 合并/基线确认后按服务端、Web、Qt 拆分回贡。
 
@@ -567,7 +585,7 @@ fork 是否能继续开发，也不能因为 fork 自己有实现就再次向 up
 |---|---|---|---|
 | QD-401 | 文件上传、下载和分片传输 | `[x]` | Remoting 数据通道已具备 |
 | QD-402 | Qt 完整文件管理器 | `[x]` | `RemoteFileManager` + `file-ops` skill bridge |
-| QD-403 | Web 完整文件管理器 | `[!]` | 当前迭代 QD-002，缺浏览器 host 文件通道 |
+| QD-403 | Web 完整文件管理器 | `[x]` | QD-002 已完成；`SkillBridgeClient` + `RemoteFileManager` + `FileManagerPanel` 经 `qd-skill-bridge` 调用 host `file-ops` |
 | QD-404 | 文件传输进度、取消、重试 | `[x]` | WebClient 和 Qt 已有基础 |
 | QD-405 | 双向文本剪贴板 | `[x]` | UTF-8 文本 |
 | QD-406 | 双向图片剪贴板 | `[ ]` | 当前迭代 QD-007，需要 Remoting 协议扩展 |
@@ -666,14 +684,14 @@ fork 是否能继续开发，也不能因为 fork 自己有实现就再次向 up
 执行顺序按“先解除上游重复投入，再完成本地闭环，最后做协议扩展”排列：
 
 1. **上游同步闸门**：持续跟踪 PR #22 / #23 / #24 / #25；已有 PR 的功能不重复实现。
-   远端写入恢复后，先推送已准备好的 QD-003、QD-114、QD-212、QD-213、QD-214、QD-215
-   最小候选。
+   远端写入恢复后，先推送已准备好的 QD-002/QD-403、QD-003、QD-114、QD-212、QD-213、
+   QD-214、QD-215 最小候选。
 2. **把 QD-204 回馈上游**：PR #25 的控制面/ API 基线确认后，先推送 owner-scoped
    服务端、OpenAPI 和 SDK 候选，再推送 Web/Qt 客户端候选；不把 fork 文档带入 PR。
 3. **补任务和更新真机链路**：QD-607 的批量远控清场已完成；继续定义定时连接和广义
    批量 agent 指令/回执，补 QD-005 / QD-808 Windows 与 macOS 安装、重启、签名和
    公证验证。QD-215 已补发布依赖校验、正负向回归和上游候选 `f449b87`，剩余原始坏包复现与远端 PR。
-4. **准备 Remoting 需求单**：QD-002 Web 文件操作通道、QD-004 / QD-505 Host 权威录制、
+4. **准备 Remoting 需求单**：QD-004 / QD-505 Host 权威录制、
    QD-007 图片剪贴板、QD-114 真实 CertVerifier。每项写清协议、宿主生命周期、权限、
    兼容性和验收用例，先交上游维护者评估。
 5. **安全与可观测性**：QD-911 候选等上游启用 Private Vulnerability Reporting；
@@ -819,6 +837,8 @@ Remoting 或协议改造；`不重复` 表示上游已经具备，只需验证�
 
 | 顺序 | PR 主题 | 来源 | 前置条件 |
 |---|---|---|---|
+| 0a | `feat(file-ops): add browser-safe chunking and versioned trash` | QD-002 / QD-403 | 本轮实现已完成；从 `upstream/dev` 只取 `file-ops` crate、SKILL.md 和 `Cargo.lock`，先独立提交 |
+| 0b | `feat(webclient): add remote file manager over skill bridge` | QD-002 / QD-403 | stacked 在 0a 之后；只取 `SkillBridgeClient`、文件管理器模块、remote-main 接线、样式、双语和 Node 测试 |
 | 1 | `feat(webclient): coordinate cross-tab control and audio` | QD-003 | 当前功能已测试；补上游 WebClient 约定和截图 |
 | 2 | `fix(self-host): allow pinned SPKI for self-hosted WSS` | QD-114 / issue #20 | 候选已准备；需推送、创建 PR，并补 Qt 构建和 Windows service 实机验证 |
 | 3 | `feat(qt): mark the local device in device lists` | QD-212 / issue #19 | 候选已准备并通过上游基线构建；等远端写入后直接创建 PR |
@@ -835,6 +855,15 @@ Remoting 或协议改造；`不重复` 表示上游已经具备，只需验证�
 | 14 | `feat(signaling): report host metrics and alert on sustained thresholds` | QD-604 | 服务端候选 `codex/upstream-qd-604-metrics@0ea9e7c` 已基于 `codex/upstream-qd-006-sqlite@7758456` 独立验证；含 SignalingServer、OpenAPI、四套 SDK、smoke 和真实 SQLite+Webhook E2E。fork 功能提交为 `37dd8aa` | 远端写入恢复后推送并作为 QD-006 的 stacked PR；Web/Qt 等 PR #25 客户端基线确认后单独拆 |
 | 15 | `docs: add private security disclosure policy` | QD-911 / issue #6 | 候选 `codex/upstream-qd-911-security@9862717` 直接基于 `upstream/dev@f6651f0`，只新增根目录 `SECURITY.md`；上游 Private Vulnerability Reporting 仍 disabled | 推送后创建 issue #6 PR；请维护者同时启用 GitHub Private Vulnerability Reporting |
 | 16 | `docs(security): define signaling trust boundary` | QD-115 / issue #10 | 候选 `codex/upstream-qd-115-trust-model@1ca2543` 直接基于 `upstream/dev@f6651f0`，只新增 `docs/security/signaling-trust-model.md` | 推送并关联 issue #10；文档批准后再按 Host 身份密钥与 Owner 签名授权拆协议 PR |
+
+QD-002 / QD-403 的上游候选拆分已经确定：
+
+- `codex/upstream-qd-002-file-ops`：基于 `upstream/dev@f6651f0`，只含 host
+  `file-ops` 的分块读写、默认目录、版本保留软删除、SKILL.md 和 Rust 测试。
+- `codex/upstream-qd-403-webclient`：stacked 在 file-ops 分支上，只含浏览器
+  `qd-skill-bridge` 客户端、Web 文件管理器 UI、remote-main 接线、样式、双语和 Node 测试。
+- 验证基线：file-ops 4/4、WebClient 62/62、生产构建、桌面与移动 Chrome 烟测。
+- 未完成：候选分支尚未从本轮工作树冻结，远端推送仍被策略拒绝。
 
 QD-003 的上游候选已经单独准备：
 
@@ -913,7 +942,6 @@ QD-215 的上游候选已经单独准备：
 
 | 能力 | 来源 | 为什么不能只改 Qt/Web |
 |---|---|---|
-| 浏览器可用 host 文件操作通道 | QD-002 | WebClient 目前只能走 `filetransfer-*`，完整目录管理需要 Remoting 数据通道或宿主命令协议 |
 | Host/Relay 权威自动录制 | QD-004 | 当前 PR #23 只做控制端录制；Host 侧录制需要 Remoting/宿主生命周期 |
 | 双向图片剪贴板 | QD-007 | `ClipboardEvent` 当前只承载 UTF-8 文本，需要新格式/分片协议 |
 | 真实证书校验 | QD-114 | `quickdesk_network_service.cc` 的 CertVerifier 管道在 Remoting 内 |
@@ -944,6 +972,7 @@ QD-215 的上游候选已经单独准备：
   禁止贴利用细节，同时请维护者启用 Private Vulnerability Reporting；
 - 把 QD-115 的信任边界文档单独提 PR，先把“服务器不能恢复 device_secret”与“服务器
   仍可冒充 Controller”区分清楚，再推进签名授权协议；
-- 把 Web 文件管理器、Host 自动录制、图片剪贴板整理成 Remoting 需求，由维护者评估；
+- 把 Host 自动录制、图片剪贴板整理成 Remoting 需求，由维护者评估；Web 文件管理器已经
+  通过现有 `qd-skill-bridge` 完成，并作为两个最小上游增量准备；
 - 把 PR #25 的控制面能力先等上游审查，避免重复提交；
 - fork 的 Web/Qt 业务页面在 #25 合并后按页面拆成增量 PR，而不是塞进一个巨型控制面 PR。

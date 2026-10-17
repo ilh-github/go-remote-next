@@ -518,6 +518,10 @@ assert_text_present(device_id=dev_id, text="确认删除")
 | `create_directory` | 创建目录（含父目录） | `path` |
 | `move_file` | 移动或重命名文件/目录 | `source`、`destination` |
 | `get_file_info` | 文件元信息：大小、修改时间、权限、类型 | `path` |
+| `get_default_directory` | 获取被控端用户主目录和路径分隔符 | （无） |
+| `read_file_chunk` | 分块读取二进制文件并返回 Base64 | `path`、`offset`、`length` |
+| `write_file_chunk` | 分块写入 Base64 文件内容 | `path`、`offset`、`truncate`、`data_base64` |
+| `trash_path` | 将文件或目录移入同级的 `.quickdesk-trash`，保留历史删除版本 | `path` |
 
 **shell-runner** — 远程主机命令执行
 
@@ -1001,7 +1005,7 @@ QuickDesk 包含一个主机端技能宿主（`quickdesk-skill-host`），可在
 | 技能 | 二进制 | 工具 |
 |------|--------|------|
 | **系统信息** | `sys-info` | `get_system_info`、`list_processes` |
-| **文件操作** | `file-ops` | `read_file`、`write_file`、`list_directory`、`create_directory`、`move_file`、`get_file_info` |
+| **文件操作** | `file-ops` | `read_file`、`write_file`、`list_directory`、`create_directory`、`move_file`、`get_file_info`、`get_default_directory`、`read_file_chunk`、`write_file_chunk`、`trash_path` |
 | **Shell 执行** | `shell-runner` | `run_command` |
 
 ### 技能宿主 MCP 工具

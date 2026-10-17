@@ -62,7 +62,7 @@ QuickDesk 已经覆盖了远程控制最核心、最难实现的画面、输入�
 | 文本剪贴板 | 双向文本同步 | Host/Client 剪贴板同步 | 已有 | 保留并补边界测试 |
 | 图片剪贴板 | 图片复制粘贴 | 已专项核对：剪贴板在 Remoting 内核里（`remoting.protocol.ClipboardEvent`、`clipboard_win.cc`），消息体只认 UTF-8 文本，二进制会被丢掉 | 缺失 | 要做得改 Remoting 协议（新增图片格式/分片），按"不为普通业务功能编译 Chromium"暂时搁置 |
 | 文件传输 | 文件发送 | 支持远程文件传输；macOS Host 上传和落盘字节已验证；WebClient 已按 Chromium 协议解释 0~7 错误码 | 部分 | QD-214 当前阻塞在 Windows Host 用户上下文：普通用户 `0x522/type=2`，SYSTEM/session 0 为 `type=7 NOT_LOGGED_IN`；需要修 Host 服务 session 或 Remoting，不在 WebClient 绕过 |
-| 文件管理 | 浏览目录、新建、重命名、删除、分片上传下载 | 分片上传/下载已具备（两端）；host 侧 `file-ops` 技能提供浏览/读写/改名/新建；**Qt 控制端文件管理器已完成**（`QuickDesk/src/manager/RemoteFileManager.cpp`，在 `RemoteWindow.qml` 里挂载，见第 14 节） | 部分 | 还差 WebClient 侧的文件管理器：技能不在 WebRTC 数据通道上，网页端要么改 Remoting、要么先补一条浏览器可用的技能通道（属客户端改造，受上游 PR #23 阻塞） |
+| 文件管理 | 浏览目录、新建、重命名、删除、分片上传下载 | **Qt 与 Web 文件管理器均已完成**：Qt 使用 `RemoteFileManager` + `file-ops`；Web 通过预编译 Remoting 内置的 `qd-skill-bridge` 转发到同一套工具。host 新增 `get_default_directory`、`read_file_chunk`、`write_file_chunk`、`trash_path`；Web 支持目录、新建、重命名、版本保留软删除、文本预览和 64 KiB 分块上传下载 | 已完成 | 后续只需补真实 Windows/macOS Host 的跨平台 E2E 和大于 4 GiB 文件边界；不需要为文件管理器编译 Chromium |
 | 音频 | 远端声音播放 | WebClient 有音频轨道和播放控制 | 已有 | 保留 |
 | 多显示器 | 多屏切换 | 多显示器、虚拟屏 | 已有 | 保留 |
 | 隐私屏 | 被控端隐私保护 | Windows 隐私屏 | 已有 | 保留 |
@@ -133,16 +133,14 @@ QuickDesk 已经覆盖了远程控制最核心、最难实现的画面、输入�
 
 1. 屏幕墙。**已完成**：WebClient `/wall`，支持多设备同屏、单砖放大、轮巡、默认只看不控、
    单砖解锁输入、离线/未登录占位。
-2. 完整远程文件管理器。**Qt 侧已完成 / 浏览器端仍缺**：
-   - 传输已具备：两个控制端都有分片上传/下载（WebClient 走 `filetransfer-*` 数据通道）；
-   - **Qt 控制端已完成**：`RemoteWindow.qml` 的「远程文件」抽屉走 **skill bridge**
-     调用 host 侧 `file-ops` 技能，浏览 / 新建 / 重命名 / 预览 / 软删除（建
-     `.quickdesk-trash` 再 `move_file`）都已在真机跑通，详见
-     `docs/dev/自托管端到端联调记录.md` 第 14 节；
-   - **浏览器端目前没有这条路**：skill bridge 是 Qt↔host 的原生消息通道
-     （`skillBridgeSend` / `skillBridgeResponse`），不在 WebRTC 数据通道上。
-     所以 WebClient 文件管理器要么先补一条浏览器可用的技能通道（涉及 Remoting），
-     要么先把文件管理器做在 Qt 侧。
+2. 完整远程文件管理器。**Qt 与 Web 均已完成**：
+   - Qt 的「远程文件」抽屉和 Web 的「远程文件」侧栏调用同一套 host `file-ops`；
+   - WebClient 通过 control DataChannel 的 `qd-skill-bridge` extension message 发送
+     `toolCall`，Host 的 `SkillHostManager` 转发到 `quickdesk-skill-host`，无需改 Remoting；
+   - file-ops 增加分块读写、默认目录和版本保留软删除；Web 使用 64 KiB 分块传输并对
+     单块施加 256 KiB 上限，文本预览只读取首块；
+   - 验证：file-ops 4/4、WebClient 62/62、生产构建、桌面与移动 Chrome 烟测通过；
+   - 详见 `docs/dev/自托管端到端联调记录.md` 的新增章节。
 3. 图片剪贴板。**已专项核对，暂缓**：剪贴板在 Remoting 内核里且只认 UTF-8 文本，
    要做图片必须改 Remoting 协议（见第 3 节）。
 4. 业务审计事件。**已完成**：设备访问尝试/真实会话/策略拦截都进审计表与访问时间线，
@@ -224,7 +222,7 @@ P0
 
 P1
   1. 屏幕墙
-  2. 文件管理器
+  2. 文件管理器（Qt/Web 已完成）
   3. 图片剪贴板
   4. 业务审计和通知
   5. 压力和长稳测试

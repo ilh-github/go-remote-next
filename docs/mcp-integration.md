@@ -520,6 +520,10 @@ The following tools are provided by built-in skills that ship with QuickDesk (ze
 | `create_directory` | Create a directory (including parents) | `path` |
 | `move_file` | Move or rename a file/directory | `source`, `destination` |
 | `get_file_info` | File metadata: size, modified time, permissions, type | `path` |
+| `get_default_directory` | Resolve the host user's home directory and path separator | (none) |
+| `read_file_chunk` | Read a bounded binary chunk and return Base64 | `path`, `offset`, `length` |
+| `write_file_chunk` | Write one bounded Base64 file chunk | `path`, `offset`, `truncate`, `data_base64` |
+| `trash_path` | Move a file or directory into sibling `.quickdesk-trash` without overwriting prior versions | `path` |
 
 **shell-runner** — Remote host command execution
 
@@ -1003,7 +1007,7 @@ QuickDesk includes a host-side skill host (`quickdesk-skill-host`) that runs str
 | Skill | Binary | Tools |
 |-------|--------|-------|
 | **System Info** | `sys-info` | `get_system_info`, `list_processes` |
-| **File Operations** | `file-ops` | `read_file`, `write_file`, `list_directory`, `create_directory`, `move_file`, `get_file_info` |
+| **File Operations** | `file-ops` | `read_file`, `write_file`, `list_directory`, `create_directory`, `move_file`, `get_file_info`, `get_default_directory`, `read_file_chunk`, `write_file_chunk`, `trash_path` |
 | **Shell Runner** | `shell-runner` | `run_command` |
 
 ### Skill Host MCP Tools

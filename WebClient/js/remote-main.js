@@ -21,6 +21,9 @@ import { IceConfigFetcher } from './ice-config-fetcher.js';
 import { t, applyI18n, getLocale, setLocale } from './i18n.js';
 import { userApi } from './api/user-api.js';
 import { uploadRecordingArtifact } from './recording-upload.js';
+import { SkillBridgeClient } from './protocol/skill-bridge-client.js';
+import { RemoteFileManager } from './files/remote-file-manager.js';
+import { FileManagerPanel } from './files/file-manager-panel.js';
 
 class RemoteDesktopApp {
     constructor() {
@@ -37,6 +40,10 @@ class RemoteDesktopApp {
         this.cursorRenderer = null;
         this.videoStats = null;
         this.floatingToolbar = null;
+        this.skillBridge = null;
+        this.fileManager = null;
+        this.fileManagerPanel = null;
+        this._supportsFileManager = false;
         this.tabCoordinator = null;
         this._recordingUploading = false;
 
@@ -244,6 +251,7 @@ class RemoteDesktopApp {
             if (this.floatingToolbar) {
                 this.floatingToolbar.refreshI18n();
             }
+            this.fileManagerPanel?.refreshI18n();
         });
     }
 
@@ -268,6 +276,7 @@ class RemoteDesktopApp {
             });
 
             this.dcHandler = new DataChannelHandler();
+            this._setupSkillBridge();
 
             this.session.addEventListener('stateChange', (e) => {
                 this._onSessionStateChange(e.detail);
@@ -433,6 +442,15 @@ class RemoteDesktopApp {
         window.addEventListener('beforeunload', () => {
             this.tabCoordinator?.releaseAll();
         }, { once: true });
+    }
+
+    _setupSkillBridge() {
+        if (this.skillBridge) return;
+        this.skillBridge = new SkillBridgeClient(
+            (data) => this.dcHandler?.sendExtensionMessage('qd-skill-bridge', data),
+            { idPrefix: `web-${this._deviceId || 'device'}` },
+        );
+        this.fileManager = new RemoteFileManager(this.skillBridge);
     }
 
     _onTabResourceRevoked(detail) {
@@ -768,6 +786,9 @@ class RemoteDesktopApp {
             case 'showTransfers':
                 this._toggleTransferPanel();
                 break;
+            case 'fileManager':
+                this._openFileManager();
+                break;
             case 'selectDisplay':
                 this._selectDisplay(detail.index);
                 break;
@@ -842,7 +863,20 @@ class RemoteDesktopApp {
     }
 
     _onExtensionMessage(msg) {
-        if (!msg || msg.type !== 'qd-virtual-display') return;
+        if (!msg) return;
+        if (msg.type === 'qd-skill-bridge') {
+            let skillMessage;
+            try {
+                skillMessage = JSON.parse(msg.data);
+            } catch {
+                this._log(t('log.skillBridgeInvalidJson'), 'warning');
+                return;
+            }
+            this.skillBridge?.handleMessage(skillMessage);
+            this._updateFileManagerSupport();
+            return;
+        }
+        if (msg.type !== 'qd-virtual-display') return;
 
         let state;
         try {
@@ -869,6 +903,39 @@ class RemoteDesktopApp {
         } else if (type === 'error') {
             this._log(t('log.vdError', { message: state.message || 'Unknown' }), 'warning');
         }
+    }
+
+    _updateFileManagerSupport() {
+        const requiredTools = [
+            'get_default_directory',
+            'list_directory',
+            'create_directory',
+            'move_file',
+            'trash_path',
+            'read_file_chunk',
+            'write_file_chunk',
+        ];
+        const supported = Boolean(
+            this.skillBridge
+            && requiredTools.every(tool => this.skillBridge.supportsTool(tool))
+        );
+        if (supported === this._supportsFileManager) return;
+        this._supportsFileManager = supported;
+        this.floatingToolbar?.setFileManagerSupport(supported);
+        this._log(supported
+            ? t('log.fileManagerReady')
+            : t('log.fileManagerUnavailable'), supported ? 'info' : 'warning');
+        if (!supported) this.fileManagerPanel?.close();
+    }
+
+    _openFileManager() {
+        if (!this._supportsFileManager || this._wallMode) return;
+        if (!this.fileManagerPanel) {
+            const container = document.getElementById('remoteContainer');
+            if (!container || !this.fileManager) return;
+            this.fileManagerPanel = new FileManagerPanel(container, this.fileManager);
+        }
+        this.fileManagerPanel.open();
     }
 
     // ==================== File Transfer ====================
@@ -1230,6 +1297,7 @@ class RemoteDesktopApp {
     _disconnect() {
         // Release held input while the event data channel is still writable.
         this._cleanupInputHandlers();
+        this.skillBridge?.close();
         this.tabCoordinator?.releaseAll();
         if (this.session) {
             this.session.disconnect();

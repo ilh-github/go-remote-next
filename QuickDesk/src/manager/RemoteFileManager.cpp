@@ -38,12 +38,6 @@ QString parentOf(const QString& path)
     return path.left(index);
 }
 
-QString nameOf(const QString& path)
-{
-    const int index = lastSeparator(path);
-    return index < 0 ? path : path.mid(index + 1);
-}
-
 QString joinPath(const QString& directory, const QString& name)
 {
     if (directory.isEmpty()) {
@@ -104,25 +98,21 @@ void RemoteFileManager::renamePath(const QString& deviceId, const QString& path,
     pending.op = QStringLiteral("rename");
     pending.deviceId = deviceId;
     pending.path = path;
-    pending.newName = newName;
-    pending.destination = joinPath(parentOf(path), newName);
+    const QString destination = joinPath(parentOf(path), newName);
     QJsonObject args;
     args[QStringLiteral("source")] = path;
-    args[QStringLiteral("destination")] = pending.destination;
+    args[QStringLiteral("destination")] = destination;
     sendTool(deviceId, QStringLiteral("move_file"), args, pending);
 }
 
 void RemoteFileManager::trashPath(const QString& deviceId, const QString& path) {
-    const QString trashDir = joinPath(parentOf(path), QStringLiteral(".quickdesk-trash"));
     Pending pending;
     pending.op = QStringLiteral("trash");
     pending.deviceId = deviceId;
     pending.path = path;
-    pending.destination = joinPath(trashDir, nameOf(path));
-    // Stage 1: make sure the trash directory exists (idempotent on the host).
     QJsonObject args;
-    args[QStringLiteral("path")] = trashDir;
-    sendTool(deviceId, QStringLiteral("create_directory"), args, pending);
+    args[QStringLiteral("path")] = path;
+    sendTool(deviceId, QStringLiteral("trash_path"), args, pending);
 }
 
 void RemoteFileManager::readFile(const QString& deviceId, const QString& path) {
@@ -202,17 +192,6 @@ void RemoteFileManager::onSkillResponse(const QString& deviceId,
         emit fileReady(deviceId, pending.path,
                        resultObject.value(QStringLiteral("content")).toString());
         finish(pending, true, QString());
-        return;
-    }
-
-    if (pending.op == QLatin1String("trash") && !pending.trashSecondStage) {
-        // Stage 2: move the entry into the trash directory we just ensured.
-        Pending second = pending;
-        second.trashSecondStage = true;
-        QJsonObject args;
-        args[QStringLiteral("source")] = pending.path;
-        args[QStringLiteral("destination")] = pending.destination;
-        sendTool(deviceId, QStringLiteral("move_file"), args, second);
         return;
     }
 
