@@ -7,8 +7,10 @@
 
 ## 当前本地基线
 
-- fork 主干：`dev` 已包含 QD-204 地址簿/设备分组、QD-508 Qt 录像回放页及上游待办融合文档；具体 SHA 以
-  `git rev-parse HEAD` 为准
+- fork 主干：本地 `dev`、`master` = `b283c7f`，已包含 QD-607 批量远控清场、
+  QD-204 地址簿/设备分组、QD-508 Qt 录像回放页及上游待办融合文档
+- fork 远端：`origin/dev`、`origin/master` 仍为 `f6651f0`；本地 `dev` 领先
+  `origin/dev` 225 个提交，远端写入尚未完成
 - 功能分支：`codex/product-backlog` = `dea02f9`
 - 上游 QD-003 候选：`codex/upstream-cross-tab-coordination` = `6047615`（基于 `upstream/dev`）
 - 上游 QD-114 候选：`codex/upstream-qd-114-spki` = `13559e6`（基于 `upstream/dev`）
@@ -24,10 +26,14 @@
   测试和用户 API 文档）
 - 上游最小候选：`codex/upstream-access-bans` = `b89c24c`
 - 上游基线：`barry-ran/QuickDesk` 的 `dev` / `master` = `f6651f0`
+- 上游维护口径：issue #21 已确认“持续维护、暂缓更新、重点偏 MCP”；贡献从
+  `upstream/dev` 切分支，完成后 PR 合入 `dev`；Remoting 改动由维护者处理
+- 上游待办快照：10 个 open issue、4 个 open PR（#22、#23、#24、#25）
 - fork PR #1：<https://github.com/ilh-github/go-remote-next/pull/1>
 - upstream PR #25：<https://github.com/barry-ran/QuickDesk/pull/25>
 - 上游 issue、PR、Roadmap 与本 fork 的融合矩阵：`docs/dev/QuickDesk功能总清单.md`
   第 16.2 节
+- 两套清单合并后的实施顺序：`docs/dev/QuickDesk功能总清单.md` 第 3.2 节
 - 上游映射与 PR 拆分规则：`docs/dev/QuickDesk功能总清单.md` 第 16、17 节
 
 本地已经完成：
