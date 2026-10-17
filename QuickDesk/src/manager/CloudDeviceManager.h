@@ -5,6 +5,7 @@
 #include <functional>
 
 #include <QObject>
+#include <QSet>
 #include <QString>
 #include <QHash>
 #include <QVariantList>
@@ -81,6 +82,7 @@ public:
 
     Q_INVOKABLE QString getDeviceAccessCode(const QString& deviceId) const;
     Q_INVOKABLE QString getDeviceDisplayName(const QString& deviceId) const;
+    Q_INVOKABLE void requestDeviceAccessCode(const QString& deviceId);
 
     void refreshDeviceAccessCodeNow(
         const QString& deviceId,
@@ -120,6 +122,9 @@ signals:
     // baseline and are applied by server_rev.
     void syncConnected();
     void syncDisconnected();
+    void deviceAccessCodeReady(const QString& deviceId,
+                               const QString& accessCode);
+    void deviceAccessCodeFailed(const QString& deviceId, const QString& error);
 
 private slots:
     void onSyncTextMessageReceived(const QString& message);
@@ -158,6 +163,7 @@ private:
     QVariantList m_myFavorites;
     QVariantList m_connectionLogs;
     QHash<QString, qint64> m_deviceRevs;
+    QSet<QString> m_accessCodeRequests;
 
     // De-dup guard for syncAccessCode (R28): three MainController
     // listeners (hostReady / accessCodeChanged / deviceSecretReady) can

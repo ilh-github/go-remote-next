@@ -486,6 +486,62 @@ QString CloudDeviceManager::getDeviceAccessCode(const QString& deviceId) const
     return QString();
 }
 
+void CloudDeviceManager::requestDeviceAccessCode(const QString& deviceId)
+{
+    if (deviceId.isEmpty()) {
+        emit deviceAccessCodeFailed(
+            deviceId, QStringLiteral("Device ID is empty"));
+        return;
+    }
+
+    QString accessCode = getDeviceAccessCode(deviceId);
+    if (accessCode.isEmpty()) {
+        for (const auto& v : m_myFavorites) {
+            QVariantMap favorite = v.toMap();
+            if (favorite["device_id"].toString() == deviceId) {
+                accessCode = favorite["access_password"].toString();
+                break;
+            }
+        }
+    }
+    if (!accessCode.isEmpty()) {
+        emit deviceAccessCodeReady(deviceId, accessCode);
+        return;
+    }
+    if (m_accessCodeRequests.contains(deviceId)) {
+        return;
+    }
+
+    m_accessCodeRequests.insert(deviceId);
+    refreshDeviceAccessCodeNow(
+        deviceId,
+        [this, deviceId](const QString& refreshedCode) {
+            m_accessCodeRequests.remove(deviceId);
+            if (refreshedCode.isEmpty()) {
+                emit deviceAccessCodeFailed(
+                    deviceId,
+                    QStringLiteral("Server returned an empty access code"));
+                return;
+            }
+            emit deviceAccessCodeReady(deviceId, refreshedCode);
+        },
+        [this, deviceId](int status, const QString& code,
+                         const QString& detail) {
+            m_accessCodeRequests.remove(deviceId);
+            QString error = detail;
+            if (error.isEmpty()) {
+                error = code;
+            }
+            if (error.isEmpty()) {
+                error = QStringLiteral("Unable to load the access code");
+            }
+            if (status > 0) {
+                error += QStringLiteral(" (HTTP %1)").arg(status);
+            }
+            emit deviceAccessCodeFailed(deviceId, error);
+        });
+}
+
 QString CloudDeviceManager::getDeviceDisplayName(const QString& deviceId) const
 {
     for (const auto& v : m_myDevices) {

@@ -18,6 +18,40 @@ Item {
 
     property var myDevices: mainController && mainController.cloudDeviceManager
                             ? mainController.cloudDeviceManager.myDevices : []
+    property string pendingConnectDeviceId: ""
+
+    function requestConnection(deviceId, savedAccessCode) {
+        if (!deviceId) return
+
+        var accessCode = root.mainController.cloudDeviceManager.getDeviceAccessCode(deviceId)
+        if (!accessCode) {
+            accessCode = savedAccessCode
+        }
+        if (accessCode) {
+            root.connectToDevice(deviceId, accessCode)
+            return
+        }
+
+        root.pendingConnectDeviceId = deviceId
+        root.mainController.cloudDeviceManager.requestDeviceAccessCode(deviceId)
+    }
+
+    Connections {
+        target: root.mainController && root.mainController.cloudDeviceManager
+                ? root.mainController.cloudDeviceManager : null
+
+        function onDeviceAccessCodeReady(deviceId, accessCode) {
+            if (root.pendingConnectDeviceId !== deviceId) return
+            root.pendingConnectDeviceId = ""
+            root.connectToDevice(deviceId, accessCode)
+        }
+
+        function onDeviceAccessCodeFailed(deviceId, error) {
+            if (root.pendingConnectDeviceId !== deviceId) return
+            root.pendingConnectDeviceId = ""
+            root.showToast(error, 2)
+        }
+    }
 
     // Not logged in prompt
     Item {
@@ -139,13 +173,7 @@ Item {
 
                                 QDToolTip { visible: parent.hovered; text: qsTr("Connect") }
 
-                                onClicked: {
-                                    var accessCode = root.mainController.cloudDeviceManager.getDeviceAccessCode(modelData.device_id)
-                                    if (accessCode)
-                                        root.connectToDevice(modelData.device_id, accessCode)
-                                    else
-                                        root.showToast(qsTr("Access code not available"), 2)
-                                }
+                                onClicked: root.requestConnection(modelData.device_id, "")
                             }
                         }
 
@@ -166,11 +194,7 @@ Item {
                             }
                             onDoubleClicked: {
                                 if (modelData.online !== true || modelData.logged_in !== true) return
-                                var accessCode = root.mainController.cloudDeviceManager.getDeviceAccessCode(modelData.device_id)
-                                if (accessCode)
-                                    root.connectToDevice(modelData.device_id, accessCode)
-                                else
-                                    root.showToast(qsTr("Access code not available"), 2)
+                                root.requestConnection(modelData.device_id, "")
                             }
                         }
                     }
@@ -256,13 +280,9 @@ Item {
 
                                 QDToolTip { visible: parent.hovered; text: qsTr("Connect") }
 
-                                onClicked: {
-                                    var password = modelData.access_password || ""
-                                    if (password)
-                                        root.connectToDevice(modelData.device_id, password)
-                                    else
-                                        root.showToast(qsTr("No password saved for this device"), 2)
-                                }
+                                onClicked: root.requestConnection(
+                                               modelData.device_id,
+                                               modelData.access_password || "")
                             }
                         }
 
@@ -282,11 +302,9 @@ Item {
                                 }
                             }
                             onDoubleClicked: {
-                                var password = modelData.access_password || ""
-                                if (password)
-                                    root.connectToDevice(modelData.device_id, password)
-                                else
-                                    root.showToast(qsTr("No password saved for this device"), 2)
+                                root.requestConnection(
+                                            modelData.device_id,
+                                            modelData.access_password || "")
                             }
                         }
                     }
