@@ -90,7 +90,14 @@
         <div
           v-for="tile in tiles"
           :key="tile.deviceId"
-          :class="['wall-tile', { armed: armedId === tile.deviceId, focused: focusedId === tile.deviceId }]"
+          :class="[
+            'wall-tile',
+            {
+              armed: armedId === tile.deviceId,
+              focused: focusedId === tile.deviceId,
+              audio: audioId === tile.deviceId,
+            },
+          ]"
         >
           <div class="tile-head">
             <span :class="['tile-dot', tile.state]"></span>
@@ -110,6 +117,13 @@
               :disabled="!canArm(tile)"
               @click="toggleInput(tile)"
             >{{ armedId === tile.deviceId ? '🔓' : '🔒' }}</button>
+            <button
+              class="tile-btn"
+              :class="{ 'audio-on': audioId === tile.deviceId }"
+              :title="audioId === tile.deviceId ? $t('wall.audioOff') : $t('wall.audioOn')"
+              :disabled="!canArm(tile)"
+              @click="toggleAudio(tile)"
+            >{{ audioId === tile.deviceId ? '🔊' : '🔈' }}</button>
             <button
               class="tile-btn"
               :title="$t('wall.openWindow')"
@@ -148,6 +162,7 @@ import { computed, inject, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { userApi } from '../api/userApi'
 import { openRemoteSession, prepareRemoteSession } from '../utils/remoteLauncher'
+import { WallAudioSelector } from '../../js/ui/wall-audio.js'
 
 const { t } = useI18n()
 const showToast = inject('showToast')
@@ -163,6 +178,8 @@ const pickerOpen = ref(false)
 const columns = ref(readColumns())
 // Only one tile may hold input at a time: arming a second one locks the first.
 const armedId = ref('')
+const audioSelector = new WallAudioSelector()
+const audioId = ref(audioSelector.activeId)
 // The focused tile spans the whole row; rotation walks that focus through the
 // wall so a control room can follow several machines on one screen.
 const focusedId = ref('')
@@ -250,6 +267,10 @@ async function loadDevices() {
   const r = await userApi.fetchMyDevices()
   if (r.ok && r.data) {
     devices.value = Array.isArray(r.data.items) ? r.data.items : []
+    if (audioId.value) {
+      const owner = devices.value.find((d) => d.device_id === audioId.value)
+      if (!owner || !owner.online || !owner.logged_in) disableAudio()
+    }
   }
 }
 
@@ -297,6 +318,7 @@ function toggleDevice(deviceId) {
 }
 
 function removeDevice(deviceId) {
+  if (audioId.value === deviceId) disableAudio(deviceId)
   if (armedId.value === deviceId) armedId.value = ''
   if (focusedId.value === deviceId) focusedId.value = ''
   selected.value = selected.value.filter((id) => id !== deviceId)
@@ -309,6 +331,7 @@ function removeTile(tile) {
 }
 
 function removeAll() {
+  disableAudio()
   armedId.value = ''
   focusedId.value = ''
   stopRotate()
@@ -318,11 +341,13 @@ function removeAll() {
 }
 
 async function reloadTile(tile) {
+  if (audioId.value === tile.deviceId) disableAudio(tile.deviceId)
   if (armedId.value === tile.deviceId) armedId.value = ''
   await mintTile(tile.deviceId)
 }
 
 async function reloadAll() {
+  disableAudio()
   armedId.value = ''
   await Promise.all(selected.value.map((id) => mintTile(id)))
 }
@@ -341,6 +366,30 @@ function sendControl(deviceId, armed) {
     { type: 'quickdesk-wall-control', device: deviceId, armed },
     window.location.origin,
   )
+}
+
+function sendAudio(deviceId, enabled) {
+  const el = frameRefs.get(deviceId)
+  if (!el || !el.contentWindow) return
+  el.contentWindow.postMessage(
+    { type: 'quickdesk-wall-audio', device: deviceId, enabled },
+    window.location.origin,
+  )
+}
+
+function disableAudio(deviceId = '') {
+  const previous = audioSelector.clear(deviceId)
+  audioId.value = audioSelector.activeId
+  if (previous) sendAudio(previous, false)
+}
+
+function toggleAudio(tile) {
+  if (!canArm(tile)) return
+  const next = audioId.value === tile.deviceId ? '' : tile.deviceId
+  const previous = audioSelector.setActive(next)
+  audioId.value = audioSelector.activeId
+  if (previous && previous !== next) sendAudio(previous, false)
+  if (next) sendAudio(next, true)
 }
 
 function toggleInput(tile) {
@@ -424,8 +473,13 @@ function onWallMessage(event) {
   // handlers to, and drop it if the session died.
   if (data.state === 'live' && armedId.value === data.device) {
     sendControl(data.device, true)
-  } else if (data.state === 'error' && armedId.value === data.device) {
-    armedId.value = ''
+  }
+  if (data.state === 'live' && audioId.value === data.device) {
+    sendAudio(data.device, true)
+  }
+  if (data.state === 'error') {
+    if (armedId.value === data.device) armedId.value = ''
+    if (audioId.value === data.device) disableAudio(data.device)
   }
 }
 
@@ -444,6 +498,7 @@ onMounted(async () => {
 onUnmounted(() => {
   window.removeEventListener('message', onWallMessage)
   if (refreshTimer) clearInterval(refreshTimer)
+  disableAudio()
   stopRotate()
 })
 </script>
@@ -497,9 +552,11 @@ onUnmounted(() => {
 }
 .tile-btn + .tile-btn { margin-left: 0; }
 .tile-btn:hover:not(:disabled) { background: rgba(255,255,255,0.1); color: var(--text-primary); }
+.tile-btn.audio-on { background: rgba(33,150,243,0.18); color: var(--accent); }
 .tile-btn:disabled { opacity: 0.3; cursor: not-allowed; }
 .tile-btn.danger:hover { background: rgba(244,67,54,0.2); color: var(--error); }
 .wall-tile.armed { border-color: var(--error); box-shadow: 0 0 0 1px rgba(244,67,54,0.35); }
+.wall-tile.audio:not(.armed) { border-color: var(--accent); }
 .wall-tile.focused { grid-column: 1 / -1; }
 .wall-tile.focused .tile-body { aspect-ratio: auto; height: min(70vh, 1000px); }
 .tile-armed { padding: 1px 6px; border-radius: 4px; font-size: 11px; background: rgba(244,67,54,0.18); color: var(--error); }

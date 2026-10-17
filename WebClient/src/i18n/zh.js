@@ -33,6 +33,8 @@ export const zh = {
     armInput: '解锁输入',
     disarmInput: '锁定输入',
     armed: '输入已解锁',
+    audioOn: '开启声音',
+    audioOff: '关闭声音',
     focus: '放大查看',
     unfocus: '取消放大',
     rotateOn: '开始轮巡',

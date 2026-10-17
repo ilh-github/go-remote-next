@@ -33,6 +33,8 @@ export const en = {
     armInput: 'Unlock input',
     disarmInput: 'Lock input',
     armed: 'Input unlocked',
+    audioOn: 'Play audio',
+    audioOff: 'Stop audio',
     focus: 'Enlarge',
     unfocus: 'Exit enlarge',
     rotateOn: 'Start rotation',

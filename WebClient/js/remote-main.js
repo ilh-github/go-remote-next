@@ -13,6 +13,7 @@ import { TouchHandler } from './input/touch-handler.js';
 import { ClipboardHandler } from './input/clipboard-handler.js';
 import { CursorRenderer } from './ui/cursor-renderer.js';
 import { MouseButton } from './protocol/protobuf-messages.js';
+import { addTrackOnce } from './protocol/media-stream.js';
 import { VideoStats } from './ui/video-stats.js';
 import { FloatingToolbar } from './ui/floating-toolbar.js';
 import { TabCoordinator } from './ui/tab-coordinator.js';
@@ -52,6 +53,7 @@ class RemoteDesktopApp {
         // A wall tile can be explicitly armed for input from the wall page; the
         // wall only ever arms one tile at a time.
         this._inputArmed = false;
+        this._wallAudioEnabled = false;
     }
 
     /**
@@ -487,6 +489,10 @@ class RemoteDesktopApp {
         if (track.kind === 'audio') {
             this._log(t('log.audioTrack', { enabled: track.enabled, muted: track.muted, state: track.readyState }));
             this._pendingAudioTrack = track;
+            const video = document.getElementById('remoteVideo');
+            if (video?.srcObject && addTrackOnce(video.srcObject, track)) {
+                this._log(t('log.audioMerged'));
+            }
             return;
         }
 
@@ -506,11 +512,15 @@ class RemoteDesktopApp {
 
         const combinedStream = new MediaStream();
         if (this._pendingAudioTrack && this._pendingAudioTrack.readyState === 'live') {
-            combinedStream.addTrack(this._pendingAudioTrack);
-            this._log(t('log.audioMerged'));
+            if (addTrackOnce(combinedStream, this._pendingAudioTrack)) {
+                this._log(t('log.audioMerged'));
+            }
         }
         combinedStream.addTrack(track);
         video.srcObject = combinedStream;
+        if (this._wallMode) {
+            video.muted = !this._wallAudioEnabled;
+        }
 
         video.play().catch(e => {
             this._log(t('log.autoplayFailed', { error: e.message }), 'warning');
@@ -698,7 +708,9 @@ class RemoteDesktopApp {
     _sendInitialConfig() {
         this.dcHandler.sendCapabilities(
             'sendAttentionSequenceAction lockWorkstationAction fileTransfer privacyScreen virtualDisplay');
-        this.dcHandler.sendAudioControl({ enable: true });
+        this.dcHandler.sendAudioControl({
+            enable: this._wallMode ? this._wallAudioEnabled : true,
+        });
         if (!this._wallMode) {
             this.tabCoordinator?.claim('audio');
         }
@@ -1255,10 +1267,14 @@ class RemoteDesktopApp {
     _onWallMessage(event) {
         if (!this._wallMode || event.origin !== window.location.origin) return;
         const data = event.data;
-        if (!data || data.type !== 'quickdesk-wall-control') return;
+        if (!data || !data.type) return;
         const device = new URLSearchParams(window.location.search).get('device') || '';
         if (data.device && data.device !== device) return;
-        this._setWallInput(!!data.armed);
+        if (data.type === 'quickdesk-wall-control') {
+            this._setWallInput(!!data.armed);
+        } else if (data.type === 'quickdesk-wall-audio') {
+            this._setWallAudio(!!data.enabled);
+        }
     }
 
     _setWallInput(armed) {
@@ -1272,6 +1288,20 @@ class RemoteDesktopApp {
         } else {
             this._cleanupInputHandlers();
             this.tabCoordinator?.release('control');
+        }
+    }
+
+    _setWallAudio(enabled) {
+        if (!this._wallMode || this._wallAudioEnabled === enabled) return;
+        this._wallAudioEnabled = enabled;
+        this.dcHandler?.sendAudioControl({ enable: enabled });
+        const video = document.getElementById('remoteVideo');
+        if (!video) return;
+        video.muted = !enabled;
+        if (enabled) {
+            video.play().catch((error) => {
+                this._log(t('log.autoplayFailed', { error: error.message }), 'warning');
+            });
         }
     }
 
