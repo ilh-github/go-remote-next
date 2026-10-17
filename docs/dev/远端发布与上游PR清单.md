@@ -7,7 +7,7 @@
 
 ## 当前本地基线
 
-- fork 主干：`dev` = `e999b83`
+- fork 主干：`dev` = `0cc0300`
 - 来源解封功能分支：`codex/source-unban` = `6230d16`
 - 上游最小候选：`codex/upstream-access-bans` = `7021ad1`
 - fork PR #1：<https://github.com/ilh-github/go-remote-next/pull/1>
@@ -21,6 +21,7 @@
 - `dev` 合并以及只含服务端/契约的上游候选提交；
 - WebClient 实时消费 `device.access_policy.changed` 与 `remote_session.started/ended`，
   封禁列表和会话列表不再依赖手动刷新，10 秒轮询只作兜底。
+- realtime smoke 增加真实策略事件和客户端会话生命周期覆盖，当前为 57 条断言。
 
 ## 1. 推送前检查
 
@@ -36,7 +37,7 @@ git log --oneline --left-right origin/feat/signaling-control-plane...codex/upstr
 要求：
 
 - 除机器本地的 `.idea/` 外，工作树必须干净；
-- `dev` 必须包含 `e999b83`；
+- `dev` 必须包含 `0cc0300`；
 - `codex/upstream-access-bans` 必须包含 `7021ad1`；
 - 如果远端出现新提交，先合并或 rebase，再重跑受影响测试，不能强推覆盖他人工作。
 
