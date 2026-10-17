@@ -13,6 +13,7 @@ use serde_json::json;
 use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
 
+use crate::idempotency::{IdempotencyClaim, WorkflowIdempotencyStore};
 use crate::server::{QuickDeskMcpServer, SharedState};
 use crate::workflow_trigger::{WorkflowTrigger, WorkflowTriggerSpec, WorkflowTriggerStore};
 use crate::ws_client::WsClient;
@@ -25,6 +26,7 @@ struct TriggerState {
     allowed_devices: Vec<String>,
     run_slots: Arc<Semaphore>,
     triggers: WorkflowTriggerStore,
+    idempotency: WorkflowIdempotencyStore,
 }
 
 #[derive(Deserialize)]
@@ -50,6 +52,7 @@ pub fn router(
     shared_state: Arc<SharedState>,
     allowed_devices: Vec<String>,
     triggers: WorkflowTriggerStore,
+    idempotency: WorkflowIdempotencyStore,
     run_slots: Arc<Semaphore>,
 ) -> Router {
     router_with_slots(
@@ -58,6 +61,7 @@ pub fn router(
         shared_state,
         allowed_devices,
         triggers,
+        idempotency,
         run_slots,
     )
 }
@@ -68,6 +72,7 @@ fn router_with_slots(
     shared_state: Arc<SharedState>,
     allowed_devices: Vec<String>,
     triggers: WorkflowTriggerStore,
+    idempotency: WorkflowIdempotencyStore,
     run_slots: Arc<Semaphore>,
 ) -> Router {
     let state = TriggerState {
@@ -77,6 +82,7 @@ fn router_with_slots(
         allowed_devices,
         run_slots,
         triggers,
+        idempotency,
     };
     Router::new()
         .route("/v1/workflows/{workflow_id}/run", post(run_workflow))
@@ -128,15 +134,51 @@ async fn run_workflow(
     if let Err(error) = authorize_request(&state, &headers) {
         return auth_error_response(error);
     }
+    let idempotency_key = match read_idempotency_key(&headers) {
+        Ok(key) => key,
+        Err(error) => return error_response(StatusCode::BAD_REQUEST, &error),
+    };
+    let device_id = request.device_id.trim();
+    if device_id.is_empty() {
+        return error_response(StatusCode::BAD_REQUEST, "device_id is required");
+    }
+    let overrides = request.overrides.unwrap_or_default();
+    let stop_on_failure = request.stop_on_failure.unwrap_or(true);
+    let idempotency_request = json!({
+        "overrides": overrides.clone(),
+        "stop_on_failure": stop_on_failure,
+    });
     let Ok(_permit) = state.run_slots.clone().try_acquire_owned() else {
         return error_response(
             StatusCode::TOO_MANY_REQUESTS,
             "another business workflow is already running",
         );
     };
-    let device_id = request.device_id.trim();
-    if device_id.is_empty() {
-        return error_response(StatusCode::BAD_REQUEST, "device_id is required");
+    if let Some(key) = idempotency_key.as_deref() {
+        match state
+            .idempotency
+            .claim(key, &workflow_id, device_id, &idempotency_request)
+        {
+            Ok(IdempotencyClaim::Execute) => {}
+            Ok(IdempotencyClaim::Replay {
+                run_id,
+                error,
+                status_code,
+            }) => return replay_idempotent_response(&state, run_id, error, status_code),
+            Ok(IdempotencyClaim::InProgress) => {
+                return error_response(
+                    StatusCode::CONFLICT,
+                    "a request with this Idempotency-Key is already running",
+                )
+            }
+            Ok(IdempotencyClaim::Conflict) => {
+                return error_response(
+                    StatusCode::CONFLICT,
+                    "Idempotency-Key was already used with a different request",
+                )
+            }
+            Err(error) => return error_response(StatusCode::INTERNAL_SERVER_ERROR, &error),
+        }
     }
 
     let server = QuickDeskMcpServer::new(
@@ -148,19 +190,30 @@ async fn run_workflow(
         .execute_workflow_replay(
             &workflow_id,
             device_id,
-            request.overrides.unwrap_or_default(),
-            request.stop_on_failure.unwrap_or(true),
+            overrides,
+            stop_on_failure,
         )
         .await
     {
-        Ok(report) => Json(report).into_response(),
-        Err(error) if error == "workflow not found" => {
-            error_response(StatusCode::NOT_FOUND, &error)
+        Ok(report) => {
+            if let Some(key) = idempotency_key.as_deref() {
+                if let Err(error) = state.idempotency.complete(key, &report.run_id) {
+                    return error_response(StatusCode::INTERNAL_SERVER_ERROR, &error);
+                }
+            }
+            Json(report).into_response()
         }
-        Err(error) if error.starts_with("Device '") => {
-            error_response(StatusCode::FORBIDDEN, &error)
+        Err(error) => {
+            let status = workflow_error_status(&error);
+            if let Some(key) = idempotency_key.as_deref() {
+                if let Err(store_error) =
+                    state.idempotency.fail(key, status.as_u16(), &error)
+                {
+                    return error_response(StatusCode::INTERNAL_SERVER_ERROR, &store_error);
+                }
+            }
+            error_response(status, &error)
         }
-        Err(error) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &error),
     }
 }
 
@@ -287,13 +340,61 @@ async fn run_trigger_once(state: &TriggerState, trigger: &WorkflowTrigger) -> Re
 }
 
 fn workflow_error_response(error: String) -> Response {
+    error_response(workflow_error_status(&error), &error)
+}
+
+fn workflow_error_status(error: &str) -> StatusCode {
     if error == "workflow not found" {
-        error_response(StatusCode::NOT_FOUND, &error)
+        StatusCode::NOT_FOUND
     } else if error.starts_with("Device '") {
-        error_response(StatusCode::FORBIDDEN, &error)
+        StatusCode::FORBIDDEN
     } else {
-        error_response(StatusCode::INTERNAL_SERVER_ERROR, &error)
+        StatusCode::INTERNAL_SERVER_ERROR
     }
+}
+
+fn read_idempotency_key(headers: &HeaderMap) -> Result<Option<String>, String> {
+    let Some(value) = headers.get("Idempotency-Key") else {
+        return Ok(None);
+    };
+    let value = value
+        .to_str()
+        .map_err(|_| "Idempotency-Key must be valid UTF-8".to_string())?;
+    let value = value.trim();
+    if value.is_empty() || value.len() > 128 {
+        return Err("Idempotency-Key must be 1..128 characters".to_string());
+    }
+    Ok(Some(value.to_string()))
+}
+
+fn replay_idempotent_response(
+    state: &TriggerState,
+    run_id: Option<String>,
+    error: Option<String>,
+    status_code: u16,
+) -> Response {
+    let status = StatusCode::from_u16(status_code).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+    if status.is_success() {
+        let Some(run_id) = run_id else {
+            return error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "idempotent run report is missing",
+            );
+        };
+        let Some(report) = state.shared_state.workflow.get_run_report(&run_id) else {
+            return error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "idempotent workflow run report not found",
+            );
+        };
+        return Json(report).into_response();
+    }
+    error_response(
+        status,
+        error
+            .as_deref()
+            .unwrap_or("the original request with this Idempotency-Key failed"),
+    )
 }
 
 pub fn start_scheduler(
@@ -302,6 +403,7 @@ pub fn start_scheduler(
     shared_state: Arc<SharedState>,
     allowed_devices: Vec<String>,
     triggers: WorkflowTriggerStore,
+    idempotency: WorkflowIdempotencyStore,
     run_slots: Arc<Semaphore>,
 ) {
     tokio::spawn(async move {
@@ -320,6 +422,7 @@ pub fn start_scheduler(
                         allowed_devices: allowed_devices.clone(),
                         run_slots: run_slots.clone(),
                         triggers: triggers.clone(),
+                        idempotency: idempotency.clone(),
                     };
                     run_due_trigger(&state, Utc::now()).await;
                 }
@@ -376,6 +479,7 @@ mod tests {
     use chrono::TimeZone;
     use futures_util::{SinkExt, StreamExt};
     use serde_json::json;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
     use tokio_tungstenite::{accept_async, tungstenite::Message};
     use tower::ServiceExt;
@@ -448,6 +552,7 @@ mod tests {
             shared,
             Vec::new(),
             WorkflowTriggerStore::with_storage_dir(temp.join("triggers")),
+            WorkflowIdempotencyStore::with_storage_path(temp.join("idempotency.json")),
             Arc::new(Semaphore::new(1)),
         );
 
@@ -482,6 +587,96 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn repeated_idempotency_key_returns_the_first_workflow_run() {
+        let temp = std::env::temp_dir().join(format!("quickdesk-trigger-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&temp).unwrap();
+
+        let workflows = WorkflowStore::with_storage_dir(temp.join("workflows"));
+        let workflow_id = workflows
+            .start_recording("idempotent workflow", "device-1")
+            .unwrap();
+        workflows.record_step(
+            "device-1",
+            "list_processes",
+            &json!({}),
+            "processes",
+            true,
+            StepExecutor::SkillHost,
+        );
+        workflows.stop_recording("device-1", "", &[]).unwrap();
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let executions = Arc::new(AtomicUsize::new(0));
+        let executions_for_server = executions.clone();
+        let fake_quickdesk = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut socket = accept_async(stream).await.unwrap();
+            while let Some(Ok(Message::Text(text))) = socket.next().await {
+                let request: serde_json::Value = serde_json::from_str(&text).unwrap();
+                if let Some(id) = request.get("id").and_then(serde_json::Value::as_str) {
+                    executions_for_server.fetch_add(1, Ordering::SeqCst);
+                    let response = json!({"id": id, "result": {"processes": []}});
+                    socket
+                        .send(Message::Text(response.to_string().into()))
+                        .await
+                        .unwrap();
+                }
+            }
+        });
+        let ws = WsClient::connect(&format!("ws://{address}"), None, EventBus::new(100))
+            .await
+            .unwrap();
+
+        let shared = Arc::new(SharedState {
+            memory: MemoryStore::with_db_path(temp.join("memory.db")).unwrap(),
+            workflow: workflows,
+            trust: TrustEngine::with_db_path(temp.join("trust.db")).unwrap(),
+        });
+        let app = router(
+            Some("business-secret".to_string()),
+            ws,
+            shared,
+            Vec::new(),
+            WorkflowTriggerStore::with_storage_dir(temp.join("triggers")),
+            WorkflowIdempotencyStore::with_storage_path(temp.join("idempotency.json")),
+            Arc::new(Semaphore::new(1)),
+        );
+
+        let idempotency_key = format!("request-{}", Uuid::new_v4());
+        let request = Request::builder()
+            .method("POST")
+            .uri(format!("/v1/workflows/{workflow_id}/run"))
+            .header("Authorization", "Bearer business-secret")
+            .header("Idempotency-Key", &idempotency_key)
+            .header("Content-Type", "application/json")
+            .body(Body::from(json!({"device_id": "device-1"}).to_string()))
+            .unwrap();
+        let response = app.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+        let first: WorkflowRunReport = serde_json::from_slice(&body).unwrap();
+
+        let request = Request::builder()
+            .method("POST")
+            .uri(format!("/v1/workflows/{workflow_id}/run"))
+            .header("Authorization", "Bearer business-secret")
+            .header("Idempotency-Key", &idempotency_key)
+            .header("Content-Type", "application/json")
+            .body(Body::from(json!({"device_id": "device-1"}).to_string()))
+            .unwrap();
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+        let second: WorkflowRunReport = serde_json::from_slice(&body).unwrap();
+
+        assert_eq!(second.run_id, first.run_id);
+        assert_eq!(executions.load(Ordering::SeqCst), 1);
+        fake_quickdesk.abort();
+        let _ = std::fs::remove_dir_all(temp);
+    }
+
+    #[tokio::test]
     async fn business_trigger_rejects_a_bad_token_and_disallowed_device() {
         let temp = std::env::temp_dir().join(format!("quickdesk-trigger-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&temp).unwrap();
@@ -496,6 +691,7 @@ mod tests {
             shared,
             vec!["allowed-device".to_string()],
             WorkflowTriggerStore::with_storage_dir(temp.join("triggers")),
+            WorkflowIdempotencyStore::with_storage_path(temp.join("idempotency.json")),
             Arc::new(Semaphore::new(1)),
         );
         let workflow_id = Uuid::new_v4();
@@ -544,6 +740,7 @@ mod tests {
             shared,
             Vec::new(),
             WorkflowTriggerStore::with_storage_dir(temp.join("triggers")),
+            WorkflowIdempotencyStore::with_storage_path(temp.join("idempotency.json")),
             slots,
         );
 
@@ -588,6 +785,7 @@ mod tests {
             shared,
             Vec::new(),
             WorkflowTriggerStore::with_storage_dir(temp.join("triggers")),
+            WorkflowIdempotencyStore::with_storage_path(temp.join("idempotency.json")),
             Arc::new(Semaphore::new(1)),
         );
 
@@ -699,6 +897,9 @@ mod tests {
             allowed_devices: Vec::new(),
             run_slots: Arc::new(Semaphore::new(1)),
             triggers: trigger_store.clone(),
+            idempotency: WorkflowIdempotencyStore::with_storage_path(
+                temp.join("idempotency.json"),
+            ),
         };
 
         let ran = run_due_trigger(&state, created_at + chrono::Duration::seconds(60)).await;

@@ -1,6 +1,7 @@
 mod config;
 mod event_bus;
 mod http_transport;
+mod idempotency;
 mod memory;
 mod server;
 mod trigger;
