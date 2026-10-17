@@ -226,6 +226,37 @@ CREATE TABLE IF NOT EXISTS device_group_members (
 );
 
 -- ---------------------------------------------------------------
+-- Owner-scoped address-book groups
+-- ---------------------------------------------------------------
+-- The administrator-wide device_groups above are an inventory view. These
+-- tables are the end-user address book: names are unique per owner, and a
+-- member must be one of that owner's devices (enforced by the service layer).
+CREATE TABLE IF NOT EXISTS user_device_groups (
+    id          BIGSERIAL PRIMARY KEY,
+    user_id     BIGINT       NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name        VARCHAR(100) NOT NULL,
+    description VARCHAR(500) NOT NULL DEFAULT '',
+    color       VARCHAR(20)  NOT NULL DEFAULT '',
+    created_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_user_device_group_name UNIQUE (user_id, name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_device_groups_user_id
+    ON user_device_groups(user_id);
+
+CREATE TABLE IF NOT EXISTS user_device_group_members (
+    id         BIGSERIAL PRIMARY KEY,
+    group_id   BIGINT      NOT NULL REFERENCES user_device_groups(id) ON DELETE CASCADE,
+    device_id  VARCHAR(20) NOT NULL REFERENCES devices(device_id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_user_device_group_member UNIQUE (group_id, device_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_device_group_members_group_id
+    ON user_device_group_members(group_id);
+
+-- ---------------------------------------------------------------
 -- Device access log (owner-scoped audit of incoming session attempts)
 -- ---------------------------------------------------------------
 -- Written by the server at access-code verification time: a controller

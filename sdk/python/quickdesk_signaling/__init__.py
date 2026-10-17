@@ -19,6 +19,7 @@ __version__ = "1.0.0"
 # Define package exports
 __all__ = [
     "AuthApi",
+    "DeviceGroupsApi",
     "DevicesApi",
     "MeApi",
     "NotificationsApi",
@@ -52,6 +53,7 @@ __all__ = [
     "ApproveAccessApprovalRequest",
     "AuthSessionRequest",
     "AuthSessionResponse",
+    "DeleteMyDeviceGroup200Response",
     "Device",
     "DeviceAccessBanRequest",
     "DeviceAccessPolicy",
@@ -83,10 +85,16 @@ __all__ = [
     "UpdateCheckResult",
     "UpdateRelease",
     "User",
+    "UserDeviceGroup",
+    "UserDeviceGroupDevicesInput",
+    "UserDeviceGroupInput",
+    "UserDeviceGroupList",
+    "UserDeviceGroupPatch",
 ]
 
 # import apis into sdk package
 from quickdesk_signaling.api.auth_api import AuthApi as AuthApi
+from quickdesk_signaling.api.device_groups_api import DeviceGroupsApi as DeviceGroupsApi
 from quickdesk_signaling.api.devices_api import DevicesApi as DevicesApi
 from quickdesk_signaling.api.me_api import MeApi as MeApi
 from quickdesk_signaling.api.notifications_api import NotificationsApi as NotificationsApi
@@ -124,6 +132,7 @@ from quickdesk_signaling.models.approval_summary_denied_sources_inner import App
 from quickdesk_signaling.models.approve_access_approval_request import ApproveAccessApprovalRequest as ApproveAccessApprovalRequest
 from quickdesk_signaling.models.auth_session_request import AuthSessionRequest as AuthSessionRequest
 from quickdesk_signaling.models.auth_session_response import AuthSessionResponse as AuthSessionResponse
+from quickdesk_signaling.models.delete_my_device_group200_response import DeleteMyDeviceGroup200Response as DeleteMyDeviceGroup200Response
 from quickdesk_signaling.models.device import Device as Device
 from quickdesk_signaling.models.device_access_ban_request import DeviceAccessBanRequest as DeviceAccessBanRequest
 from quickdesk_signaling.models.device_access_policy import DeviceAccessPolicy as DeviceAccessPolicy
@@ -155,3 +164,8 @@ from quickdesk_signaling.models.session_recording_patch import SessionRecordingP
 from quickdesk_signaling.models.update_check_result import UpdateCheckResult as UpdateCheckResult
 from quickdesk_signaling.models.update_release import UpdateRelease as UpdateRelease
 from quickdesk_signaling.models.user import User as User
+from quickdesk_signaling.models.user_device_group import UserDeviceGroup as UserDeviceGroup
+from quickdesk_signaling.models.user_device_group_devices_input import UserDeviceGroupDevicesInput as UserDeviceGroupDevicesInput
+from quickdesk_signaling.models.user_device_group_input import UserDeviceGroupInput as UserDeviceGroupInput
+from quickdesk_signaling.models.user_device_group_list import UserDeviceGroupList as UserDeviceGroupList
+from quickdesk_signaling.models.user_device_group_patch import UserDeviceGroupPatch as UserDeviceGroupPatch

@@ -249,6 +249,9 @@ func (s *DeviceService) BindToUser(ctx context.Context, deviceID string, userID 
 				Update("status", false).Error; err != nil {
 				return err
 			}
+			if err := removeDeviceFromUserGroups(tx, *d.UserID, deviceID); err != nil {
+				return err
+			}
 		}
 
 		d.UserID = &userID
@@ -300,10 +303,21 @@ func (s *DeviceService) UnbindFromUser(ctx context.Context, deviceID string, use
 		if err := tx.Save(&d).Error; err != nil {
 			return err
 		}
+		if err := removeDeviceFromUserGroups(tx, userID, deviceID); err != nil {
+			return err
+		}
 		return tx.Model(&models.UserDevice{}).
 			Where("user_id = ? AND device_id = ?", userID, deviceID).
 			Update("status", false).Error
 	})
+}
+
+func removeDeviceFromUserGroups(tx *gorm.DB, userID uint, deviceID string) error {
+	groupIDs := tx.Model(&models.UserDeviceGroup{}).
+		Select("id").
+		Where("user_id = ?", userID)
+	return tx.Where("group_id IN (?) AND device_id = ?", groupIDs, deviceID).
+		Delete(&models.UserDeviceGroupMember{}).Error
 }
 
 // ClearSession implements DELETE /v1/me/devices/:id/session 鈥?flips

@@ -146,6 +146,11 @@ All URIs are relative to *https://your-signaling-host*
 Class | Method | HTTP request | Description
 ------------ | ------------- | ------------- | -------------
 *AuthApi* | [**create_session**](docs/AuthApi.md#create_session) | **POST** /v1/auth/sessions | Exchange a username/password for a session
+*DeviceGroupsApi* | [**create_my_device_group**](docs/DeviceGroupsApi.md#create_my_device_group) | **POST** /v1/me/device-groups | Create a private address-book group
+*DeviceGroupsApi* | [**delete_my_device_group**](docs/DeviceGroupsApi.md#delete_my_device_group) | **DELETE** /v1/me/device-groups/{group_id} | Delete one of the caller&#39;s address-book groups
+*DeviceGroupsApi* | [**list_my_device_groups**](docs/DeviceGroupsApi.md#list_my_device_groups) | **GET** /v1/me/device-groups | The caller&#39;s private address-book groups
+*DeviceGroupsApi* | [**replace_my_device_group_devices**](docs/DeviceGroupsApi.md#replace_my_device_group_devices) | **PUT** /v1/me/device-groups/{group_id}/devices | Replace the devices in one of the caller&#39;s groups
+*DeviceGroupsApi* | [**update_my_device_group**](docs/DeviceGroupsApi.md#update_my_device_group) | **PATCH** /v1/me/device-groups/{group_id} | Update one of the caller&#39;s address-book groups
 *DevicesApi* | [**approve_access_approval**](docs/DevicesApi.md#approve_access_approval) | **POST** /v1/me/devices/{device_id}/access-approvals/{approval_id}/approve | Approve a pending access request
 *DevicesApi* | [**ban_device_access_source**](docs/DevicesApi.md#ban_device_access_source) | **POST** /v1/me/devices/{device_id}/access-bans | Permanently deny one source address
 *DevicesApi* | [**claim_access_approval**](docs/DevicesApi.md#claim_access_approval) | **POST** /v1/devices/{device_id}/access-approvals:claim | Exchange an approved request for a signal token
@@ -207,6 +212,7 @@ Class | Method | HTTP request | Description
  - [ApproveAccessApprovalRequest](docs/ApproveAccessApprovalRequest.md)
  - [AuthSessionRequest](docs/AuthSessionRequest.md)
  - [AuthSessionResponse](docs/AuthSessionResponse.md)
+ - [DeleteMyDeviceGroup200Response](docs/DeleteMyDeviceGroup200Response.md)
  - [Device](docs/Device.md)
  - [DeviceAccessBanRequest](docs/DeviceAccessBanRequest.md)
  - [DeviceAccessPolicy](docs/DeviceAccessPolicy.md)
@@ -238,6 +244,11 @@ Class | Method | HTTP request | Description
  - [UpdateCheckResult](docs/UpdateCheckResult.md)
  - [UpdateRelease](docs/UpdateRelease.md)
  - [User](docs/User.md)
+ - [UserDeviceGroup](docs/UserDeviceGroup.md)
+ - [UserDeviceGroupDevicesInput](docs/UserDeviceGroupDevicesInput.md)
+ - [UserDeviceGroupInput](docs/UserDeviceGroupInput.md)
+ - [UserDeviceGroupList](docs/UserDeviceGroupList.md)
+ - [UserDeviceGroupPatch](docs/UserDeviceGroupPatch.md)
 
 
 <a id="documentation-for-authorization"></a>

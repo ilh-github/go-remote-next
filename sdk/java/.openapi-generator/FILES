@@ -24,10 +24,12 @@ docs/ApproveAccessApprovalRequest.md
 docs/AuthApi.md
 docs/AuthSessionRequest.md
 docs/AuthSessionResponse.md
+docs/DeleteMyDeviceGroup200Response.md
 docs/Device.md
 docs/DeviceAccessBanRequest.md
 docs/DeviceAccessPolicy.md
 docs/DeviceAccessPolicyInput.md
+docs/DeviceGroupsApi.md
 docs/DevicesApi.md
 docs/ListAccessApprovals200Response.md
 docs/ListAccessGrants200Response.md
@@ -61,6 +63,11 @@ docs/UpdateApi.md
 docs/UpdateCheckResult.md
 docs/UpdateRelease.md
 docs/User.md
+docs/UserDeviceGroup.md
+docs/UserDeviceGroupDevicesInput.md
+docs/UserDeviceGroupInput.md
+docs/UserDeviceGroupList.md
+docs/UserDeviceGroupPatch.md
 git_push.sh
 gradle.properties
 gradle/wrapper/gradle-wrapper.jar
@@ -84,6 +91,7 @@ src/main/java/org/openapitools/client/ServerConfiguration.java
 src/main/java/org/openapitools/client/ServerVariable.java
 src/main/java/org/openapitools/client/StringUtil.java
 src/main/java/org/openapitools/client/api/AuthApi.java
+src/main/java/org/openapitools/client/api/DeviceGroupsApi.java
 src/main/java/org/openapitools/client/api/DevicesApi.java
 src/main/java/org/openapitools/client/api/MeApi.java
 src/main/java/org/openapitools/client/api/NotificationsApi.java
@@ -113,6 +121,7 @@ src/main/java/org/openapitools/client/model/ApprovalSummaryDeniedSourcesInner.ja
 src/main/java/org/openapitools/client/model/ApproveAccessApprovalRequest.java
 src/main/java/org/openapitools/client/model/AuthSessionRequest.java
 src/main/java/org/openapitools/client/model/AuthSessionResponse.java
+src/main/java/org/openapitools/client/model/DeleteMyDeviceGroup200Response.java
 src/main/java/org/openapitools/client/model/Device.java
 src/main/java/org/openapitools/client/model/DeviceAccessBanRequest.java
 src/main/java/org/openapitools/client/model/DeviceAccessPolicy.java
@@ -144,7 +153,13 @@ src/main/java/org/openapitools/client/model/SessionRecordingPatch.java
 src/main/java/org/openapitools/client/model/UpdateCheckResult.java
 src/main/java/org/openapitools/client/model/UpdateRelease.java
 src/main/java/org/openapitools/client/model/User.java
+src/main/java/org/openapitools/client/model/UserDeviceGroup.java
+src/main/java/org/openapitools/client/model/UserDeviceGroupDevicesInput.java
+src/main/java/org/openapitools/client/model/UserDeviceGroupInput.java
+src/main/java/org/openapitools/client/model/UserDeviceGroupList.java
+src/main/java/org/openapitools/client/model/UserDeviceGroupPatch.java
 src/test/java/org/openapitools/client/api/AuthApiTest.java
+src/test/java/org/openapitools/client/api/DeviceGroupsApiTest.java
 src/test/java/org/openapitools/client/api/DevicesApiTest.java
 src/test/java/org/openapitools/client/api/MeApiTest.java
 src/test/java/org/openapitools/client/api/NotificationsApiTest.java
@@ -169,6 +184,7 @@ src/test/java/org/openapitools/client/model/ApprovalSummaryTest.java
 src/test/java/org/openapitools/client/model/ApproveAccessApprovalRequestTest.java
 src/test/java/org/openapitools/client/model/AuthSessionRequestTest.java
 src/test/java/org/openapitools/client/model/AuthSessionResponseTest.java
+src/test/java/org/openapitools/client/model/DeleteMyDeviceGroup200ResponseTest.java
 src/test/java/org/openapitools/client/model/DeviceAccessBanRequestTest.java
 src/test/java/org/openapitools/client/model/DeviceAccessPolicyInputTest.java
 src/test/java/org/openapitools/client/model/DeviceAccessPolicyTest.java
@@ -199,4 +215,9 @@ src/test/java/org/openapitools/client/model/SessionRecordingPatchTest.java
 src/test/java/org/openapitools/client/model/SessionRecordingTest.java
 src/test/java/org/openapitools/client/model/UpdateCheckResultTest.java
 src/test/java/org/openapitools/client/model/UpdateReleaseTest.java
+src/test/java/org/openapitools/client/model/UserDeviceGroupDevicesInputTest.java
+src/test/java/org/openapitools/client/model/UserDeviceGroupInputTest.java
+src/test/java/org/openapitools/client/model/UserDeviceGroupListTest.java
+src/test/java/org/openapitools/client/model/UserDeviceGroupPatchTest.java
+src/test/java/org/openapitools/client/model/UserDeviceGroupTest.java
 src/test/java/org/openapitools/client/model/UserTest.java

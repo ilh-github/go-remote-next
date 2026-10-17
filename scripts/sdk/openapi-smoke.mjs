@@ -208,6 +208,63 @@ if (Array.isArray(deviceItems) && deviceItems.length > 0) {
 
 const deviceId = smokeDevice || (Array.isArray(deviceItems) && deviceItems[0]?.device_id) || '';
 
+// 4. Owner-scoped address-book groups.
+const groupsBefore = await call('GET', '/v1/me/device-groups', { token, expect: 200 });
+const groupItems = field(groupsBefore.json, 'items', 'object', 'GET /v1/me/device-groups');
+check(Array.isArray(groupItems), 'GET /v1/me/device-groups: items is not an array');
+if (Array.isArray(groupItems) && groupItems.length > 0) {
+  const group = groupItems[0];
+  for (const name of ['id', 'user_id', 'name', 'description', 'color', 'device_ids', 'device_count', 'created_at', 'updated_at']) {
+    field(group, name, undefined, 'UserDeviceGroup');
+  }
+  check(Array.isArray(group.device_ids), 'UserDeviceGroup.device_ids is not an array');
+  check(Number.isInteger(group.device_count), 'UserDeviceGroup.device_count is not an integer');
+}
+
+if (deviceId) {
+  let smokeGroupID = 0;
+  try {
+    const groupName = `openapi-smoke-${Date.now()}`;
+    const createdGroup = await call('POST', '/v1/me/device-groups', {
+      token,
+      body: { name: groupName, description: 'openapi smoke', color: '#1f6feb' },
+      expect: 201,
+    });
+    smokeGroupID = createdGroup.json.id;
+    for (const name of ['id', 'user_id', 'name', 'device_ids', 'device_count', 'created_at', 'updated_at']) {
+      field(createdGroup.json, name, undefined, 'POST /v1/me/device-groups');
+    }
+    check(Array.isArray(createdGroup.json.device_ids),
+      'POST /v1/me/device-groups: device_ids is not an array');
+
+    const patchedGroup = await call('PATCH', `/v1/me/device-groups/${smokeGroupID}`, {
+      token,
+      body: { name: `${groupName}-renamed`, description: 'openapi smoke updated' },
+      expect: 200,
+    });
+    check(patchedGroup.json.name === `${groupName}-renamed`,
+      `PATCH device-group name = "${patchedGroup.json.name}"`);
+
+    const replacedGroup = await call('PUT', `/v1/me/device-groups/${smokeGroupID}/devices`, {
+      token,
+      body: { device_ids: [deviceId] },
+      expect: 200,
+    });
+    check(Array.isArray(replacedGroup.json.device_ids) && replacedGroup.json.device_ids.includes(deviceId),
+      'PUT device-group devices did not return the requested member');
+    check(replacedGroup.json.device_count === replacedGroup.json.device_ids.length,
+      'PUT device-group devices returned a mismatched device_count');
+  } finally {
+    if (smokeGroupID) {
+      const deletedGroup = await call('DELETE', `/v1/me/device-groups/${smokeGroupID}`, {
+        token,
+        expect: 200,
+      });
+      check(deletedGroup.json.status === 'ok', 'DELETE device-group did not return status ok');
+    }
+  }
+}
+
 // 4. GET /v1/me/devices/{device_id}/offline-alert
 const alertBefore = await call('GET', `/v1/me/devices/${deviceId}/offline-alert`, { token, expect: 200 });
 for (const name of ['device_id', 'enabled', 'after_minutes', 'repeat_minutes', 'maintenance_windows', 'in_maintenance_window']) {

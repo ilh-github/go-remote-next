@@ -91,6 +91,8 @@ func main() {
 			&models.Settings{},
 			&models.DeviceGroup{},
 			&models.DeviceGroupMember{},
+			&models.UserDeviceGroup{},
+			&models.UserDeviceGroupMember{},
 			&models.DeviceAccessLog{},
 			&models.DeviceAccessPolicy{},
 			&models.DeviceAccessGrant{},
@@ -383,6 +385,7 @@ func main() {
 	}
 	webhookService := service.NewWebhookService(db)
 	groupService := service.NewDeviceGroupService(groupRepo)
+	userDeviceGroupService := service.NewUserDeviceGroupService(db)
 
 	// Owner-scheduled control-plane actions. Only kinds whose whole effect
 	// lives in the control plane are registered: a task that needed a client to
@@ -459,6 +462,7 @@ func main() {
 	authHandler := handler.NewAuthHandler(userService, tokenService, smsService, bus)
 	meHandler := handler.NewMeHandler(userService, tokenService, smsService, bus)
 	deviceHandler := handler.NewDeviceHandler(deviceService, favoriteService, connectionService, presenceService, deviceAccessService, bus, db)
+	userDeviceGroupsHandler := handler.NewUserDeviceGroupsHandler(userDeviceGroupService)
 	notificationChannelHandler := handler.NewNotificationChannelHandler(notificationChannelService, notificationDeliveryService)
 	notificationQuietHoursHandler := handler.NewNotificationQuietHoursHandler(
 		notificationQuietHoursService, notificationDeliveryService)
@@ -723,6 +727,14 @@ func main() {
 			me.POST("/favorites", deviceHandler.AddFavorite)
 			me.PATCH("/favorites/:device_id", deviceHandler.UpdateFavorite)
 			me.DELETE("/favorites/:device_id", deviceHandler.DeleteFavorite)
+
+			// Owner-private address-book groups. The administrator-wide
+			// /v1/admin/groups surface remains a separate inventory model.
+			me.GET("/device-groups", userDeviceGroupsHandler.List)
+			me.POST("/device-groups", userDeviceGroupsHandler.Create)
+			me.PATCH("/device-groups/:group_id", userDeviceGroupsHandler.Update)
+			me.DELETE("/device-groups/:group_id", userDeviceGroupsHandler.Delete)
+			me.PUT("/device-groups/:group_id/devices", userDeviceGroupsHandler.ReplaceDevices)
 		}
 
 		// -----------------------------------------------------------------

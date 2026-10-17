@@ -51,6 +51,8 @@ type APIClient struct {
 
 	AuthAPI *AuthAPIService
 
+	DeviceGroupsAPI *DeviceGroupsAPIService
+
 	DevicesAPI *DevicesAPIService
 
 	MeAPI *MeAPIService
@@ -81,6 +83,7 @@ func NewAPIClient(cfg *Configuration) *APIClient {
 
 	// API Services
 	c.AuthAPI = (*AuthAPIService)(&c.common)
+	c.DeviceGroupsAPI = (*DeviceGroupsAPIService)(&c.common)
 	c.DevicesAPI = (*DevicesAPIService)(&c.common)
 	c.MeAPI = (*MeAPIService)(&c.common)
 	c.NotificationsAPI = (*NotificationsAPIService)(&c.common)

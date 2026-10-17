@@ -61,6 +61,7 @@ tags:
   - name: auth
   - name: me
   - name: devices
+  - name: deviceGroups
   - name: notifications
 security:
   - ApiKeyAuth: []
@@ -127,6 +128,137 @@ paths:
                       $ref: '#/components/schemas/Device'
         '401':
           $ref: '#/components/responses/Unauthorized'
+  /v1/me/device-groups:
+    get:
+      tags: [deviceGroups]
+      summary: The caller's private address-book groups
+      operationId: listMyDeviceGroups
+      description: |
+        Owner-scoped groups are separate from the administrator-wide device
+        inventory under `/v1/admin/groups`. Each returned group carries its
+        current `device_ids`, so a client can render filters and membership
+        without issuing one request per group.
+      responses:
+        '200':
+          description: The caller's groups.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserDeviceGroupList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [deviceGroups]
+      summary: Create a private address-book group
+      operationId: createMyDeviceGroup
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserDeviceGroupInput'
+      responses:
+        '201':
+          description: The created group.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserDeviceGroup'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: The caller already has a group with that name.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /v1/me/device-groups/{group_id}:
+    parameters:
+      - $ref: '#/components/parameters/DeviceGroupId'
+    patch:
+      tags: [deviceGroups]
+      summary: Update one of the caller's address-book groups
+      operationId: updateMyDeviceGroup
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserDeviceGroupPatch'
+      responses:
+        '200':
+          description: The updated group.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserDeviceGroup'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: The caller already has a group with that name.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+    delete:
+      tags: [deviceGroups]
+      summary: Delete one of the caller's address-book groups
+      operationId: deleteMyDeviceGroup
+      responses:
+        '200':
+          description: The group was deleted.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    const: ok
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/me/device-groups/{group_id}/devices:
+    parameters:
+      - $ref: '#/components/parameters/DeviceGroupId'
+    put:
+      tags: [deviceGroups]
+      summary: Replace the devices in one of the caller's groups
+      operationId: replaceMyDeviceGroupDevices
+      description: |
+        Replaces the whole membership atomically. Every device must currently
+        belong to the caller; an unknown or foreign device is rejected with
+        `403 DEVICE_NOT_OWNED`. Sending an empty `device_ids` array clears the
+        group.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserDeviceGroupDevicesInput'
+      responses:
+        '200':
+          description: The updated group.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserDeviceGroup'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /v1/me/devices/{device_id}/offline-alert:
     parameters:
       - $ref: '#/components/parameters/DeviceId'
@@ -1538,6 +1670,15 @@ components:
       schema:
         type: string
         maxLength: 20
+    DeviceGroupId:
+      name: group_id
+      in: path
+      required: true
+      description: The numeric id of one of the caller's private device groups.
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
     ApprovalId:
       name: approval_id
       in: path
@@ -1675,6 +1816,80 @@ components:
         last_seen_at:
           type: string
           description: RFC3339 UTC, omitted when the device has never been seen.
+    UserDeviceGroupInput:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        description:
+          type: string
+          maxLength: 500
+        color:
+          type: string
+          maxLength: 20
+          description: Optional display color, such as `#1f6feb`.
+    UserDeviceGroupPatch:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        description:
+          type: string
+          maxLength: 500
+        color:
+          type: string
+          maxLength: 20
+    UserDeviceGroupDevicesInput:
+      type: object
+      required: [device_ids]
+      properties:
+        device_ids:
+          type: array
+          maxItems: 500
+          items:
+            type: string
+            maxLength: 20
+    UserDeviceGroup:
+      type: object
+      required: [id, user_id, name, description, color, device_ids, device_count, created_at, updated_at]
+      properties:
+        id:
+          type: integer
+          format: int64
+        user_id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        description:
+          type: string
+        color:
+          type: string
+        device_ids:
+          type: array
+          items:
+            type: string
+        device_count:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    UserDeviceGroupList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/UserDeviceGroup'
     OfflineAlertInput:
       type: object
       required: [enabled]

@@ -42,6 +42,9 @@ const (
 	CodeDeviceSecretBad    = "DEVICE_SECRET_INVALID"
 	CodeProvisionFailed    = "PROVISION_FAILED"
 	CodePeerDisconnected   = "PEER_DISCONNECTED"
+	CodeDeviceNotOwned     = "DEVICE_NOT_OWNED"
+	CodeDeviceGroupMissing = "DEVICE_GROUP_NOT_FOUND"
+	CodeDeviceGroupExists  = "DEVICE_GROUP_NAME_EXISTS"
 	// Proof of possession for a key-bound access grant.
 	CodeControllerProofRequired = "CONTROLLER_PROOF_REQUIRED"
 	CodeControllerProofInvalid  = "CONTROLLER_PROOF_INVALID"

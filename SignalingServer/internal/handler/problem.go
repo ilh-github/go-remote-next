@@ -35,6 +35,9 @@ const (
 	ProblemCodeDeviceSecretBad    = httpx.CodeDeviceSecretBad
 	ProblemCodeProvisionFailed    = httpx.CodeProvisionFailed
 	ProblemCodePeerDisconnected   = httpx.CodePeerDisconnected
+	ProblemCodeDeviceNotOwned     = httpx.CodeDeviceNotOwned
+	ProblemCodeDeviceGroupMissing = httpx.CodeDeviceGroupMissing
+	ProblemCodeDeviceGroupExists  = httpx.CodeDeviceGroupExists
 
 	ProblemCodeControllerProofRequired = httpx.CodeControllerProofRequired
 	ProblemCodeControllerProofInvalid  = httpx.CodeControllerProofInvalid

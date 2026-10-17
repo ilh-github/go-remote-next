@@ -3,6 +3,7 @@
 README.md
 api/openapi.yaml
 api_auth.go
+api_device_groups.go
 api_devices.go
 api_me.go
 api_notifications.go
@@ -30,10 +31,12 @@ docs/ApproveAccessApprovalRequest.md
 docs/AuthAPI.md
 docs/AuthSessionRequest.md
 docs/AuthSessionResponse.md
+docs/DeleteMyDeviceGroup200Response.md
 docs/Device.md
 docs/DeviceAccessBanRequest.md
 docs/DeviceAccessPolicy.md
 docs/DeviceAccessPolicyInput.md
+docs/DeviceGroupsAPI.md
 docs/DevicesAPI.md
 docs/ListAccessApprovals200Response.md
 docs/ListAccessGrants200Response.md
@@ -67,6 +70,11 @@ docs/UpdateAPI.md
 docs/UpdateCheckResult.md
 docs/UpdateRelease.md
 docs/User.md
+docs/UserDeviceGroup.md
+docs/UserDeviceGroupDevicesInput.md
+docs/UserDeviceGroupInput.md
+docs/UserDeviceGroupList.md
+docs/UserDeviceGroupPatch.md
 git_push.sh
 go.mod
 go.sum
@@ -88,6 +96,7 @@ model_approval_summary_denied_sources_inner.go
 model_approve_access_approval_request.go
 model_auth_session_request.go
 model_auth_session_response.go
+model_delete_my_device_group_200_response.go
 model_device.go
 model_device_access_ban_request.go
 model_device_access_policy.go
@@ -119,8 +128,14 @@ model_session_recording_patch.go
 model_update_check_result.go
 model_update_release.go
 model_user.go
+model_user_device_group.go
+model_user_device_group_devices_input.go
+model_user_device_group_input.go
+model_user_device_group_list.go
+model_user_device_group_patch.go
 response.go
 test/api_auth_test.go
+test/api_device_groups_test.go
 test/api_devices_test.go
 test/api_me_test.go
 test/api_notifications_test.go

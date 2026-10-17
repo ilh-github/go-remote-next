@@ -1406,7 +1406,28 @@ cannot be reaped.
 
 `FavoriteItem` shape: `{device_id, device_name, access_password, created_at}`.
 
-### 5.6 Scheduled tasks (owner-scheduled control-plane actions)
+### 5.6 Address-book device groups
+
+These are private, per-user groups. They are separate from the administrator
+inventory under `/v1/admin/groups`: a name only has to be unique inside one
+account, and every member must currently belong to the caller.
+
+| Method | Path | Body |
+|---|---|---|
+| `GET` | `/v1/me/device-groups` | — |
+| `POST` | `/v1/me/device-groups` | `{name, description?, color?}` |
+| `PATCH` | `/v1/me/device-groups/:group_id` | `{name?, description?, color?}` |
+| `DELETE` | `/v1/me/device-groups/:group_id` | — |
+| `PUT` | `/v1/me/device-groups/:group_id/devices` | `{device_ids: []}` |
+
+`UserDeviceGroup` is
+`{id, user_id, name, description, color, device_ids, device_count, created_at, updated_at}`.
+The `PUT` replaces the whole membership atomically; an empty array clears the
+group. A device not currently owned by the caller is rejected with
+`403 DEVICE_NOT_OWNED`. Updating or deleting a group owned by somebody else
+returns `404`, so group ids do not disclose another account's address book.
+
+### 5.7 Scheduled tasks (owner-scheduled control-plane actions)
 
 | Method | Path | Body |
 |---|---|---|
