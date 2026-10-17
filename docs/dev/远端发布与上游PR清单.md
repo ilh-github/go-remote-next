@@ -157,6 +157,7 @@ git log --oneline --left-right origin/feat/signaling-control-plane...codex/upstr
 - `codex/upstream-qd-212-local-device` 必须包含 `f1ce096`；
 - `codex/upstream-qd-213-access-code-refresh` 必须包含 `6928d24`；
 - `codex/upstream-qd-214-file-transfer-errors` 必须包含 `94d3ec3`；
+- `codex/upstream-qd-215-win-runtime-check` 必须指向 `f449b87`；
 - 如果远端出现新提交，先合并或 rebase，再重跑受影响测试，不能强推覆盖他人工作。
 
 ## 2. 推送 fork 分支
@@ -170,6 +171,7 @@ git push origin \
   codex/upstream-qd-212-local-device \
   codex/upstream-qd-213-access-code-refresh \
   codex/upstream-qd-214-file-transfer-errors \
+  codex/upstream-qd-215-win-runtime-check \
   codex/source-unban \
   codex/upstream-access-bans
 ```
@@ -293,6 +295,11 @@ PR 描述至少写明：
   `Host error:type=2`；候选分支 `codex/upstream-qd-214-file-transfer-errors` = `94d3ec3`，
   基于 `upstream/dev`，4 个文件。WebClient 测试 4/4 和生产构建通过；这是诊断改进，
   不是宿主上传根因修复。远端推送仍被策略拒绝。
+- `fix(win): reject incomplete Qt runtime releases`：对应上游 issue #7；候选分支
+  `codex/upstream-qd-215-win-runtime-check` = `f449b87`，基于 `upstream/dev`，仅含
+  3 个文件。校验 `QuickDesk.exe`/`qwindows.dll` 的 x64 架构、VC Runtime 和 Qt 直接依赖，
+  并让 publish/package 在缺依赖时失败关闭；Windows 11 正常包和缺 Runtime/平台插件/Qt
+  依赖的负向用例均通过。远端推送仍被策略拒绝。
 - `feat(scheduled): add batch remote-session revoke`：QD-607 的控制面批量清场；候选分支
   `codex/upstream-qd-607-batch-revoke` = `badf990`，基于
   `feat/signaling-control-plane@8998466`，7 个服务端/测试/API 文档文件。候选独立执行
