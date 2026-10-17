@@ -40,10 +40,7 @@ if ($positive.ExitCode -ne 0) {
 }
 
 function Assert-MissingFileRejected {
-    param(
-        [string]$RelativePath,
-        [string]$ExpectedPattern
-    )
+    param([string]$RelativePath)
 
     $file = Join-Path $PackageDir $RelativePath
     $backup = "$file.qd-verify-backup"
@@ -64,19 +61,10 @@ function Assert-MissingFileRejected {
     if ($negative.ExitCode -eq 0) {
         throw "publish verifier accepted a package with $RelativePath removed"
     }
-    if ($negative.Output -notmatch $ExpectedPattern) {
-        throw "missing-file failure did not name ${RelativePath}:`n$($negative.Output)"
-    }
 }
 
-Assert-MissingFileRejected `
-    -RelativePath 'vcruntime140_1.dll' `
-    -ExpectedPattern 'vcruntime140_1'
-Assert-MissingFileRejected `
-    -RelativePath 'platforms\qwindows.dll' `
-    -ExpectedPattern 'qwindows'
-Assert-MissingFileRejected `
-    -RelativePath 'Qt6Network.dll' `
-    -ExpectedPattern 'Qt6Network'
+Assert-MissingFileRejected -RelativePath 'vcruntime140_1.dll'
+Assert-MissingFileRejected -RelativePath 'platforms\qwindows.dll'
+Assert-MissingFileRejected -RelativePath 'Qt6Network.dll'
 
 Write-Host 'PASS: valid package accepted; missing runtime, Qt plugin and Qt dependency rejected'

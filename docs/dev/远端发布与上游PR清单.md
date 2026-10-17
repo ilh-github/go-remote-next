@@ -18,6 +18,8 @@
 - 上游 QD-212 候选：`codex/upstream-qd-212-local-device` = `f1ce096`（基于 `upstream/dev`）
 - 上游 QD-213 候选：`codex/upstream-qd-213-access-code-refresh` = `6928d24`（基于 `upstream/dev`）
 - 上游 QD-214 候选：`codex/upstream-qd-214-file-transfer-errors` = `94d3ec3`（基于 `upstream/dev`）
+- 上游 QD-215 候选：`codex/upstream-qd-215-win-runtime-check` = `f449b87`
+  （基于 `upstream/dev`，只含 Windows 发布依赖校验和打包失败关闭）
 - 上游 QD-204 API 候选：`codex/upstream-qd-204-api` = `d2321b9`（基于 PR #25 的
   `feat/signaling-control-plane` = `8998466`）
 - 上游 QD-204 客户端候选：`codex/upstream-qd-204-client` = `b259d03`（同一 PR #25
@@ -109,6 +111,9 @@
   `package_qd_win.bat` 都会在缺依赖时中止。Windows 11 上 publish、Inno Setup 打包
   和缺 Runtime/平台插件/Qt 依赖的负向测试均通过，安装包仍为 89,676,841 字节，
   SHA-256 为 `67dbc4e5f56dec06d20b0feeef7d70545f087af4b8673025adba987cfcf9eeb6`。
+- QD-215 上游候选 `f449b87` 已从 `upstream/dev` 单独切出，只含 3 个文件。候选校验器
+  已在同一 Windows 发布目录上通过“正常包接受、缺 Runtime/Qt 插件/Qt 依赖均拒绝”的
+  回归；`git push` 仍被当前执行策略拒绝，尚未创建 issue #7 PR。
 - 本轮已加入 Windows 打包/发布校验脚本和负向回归；`version=4.2.9.0` 仍保留为
   未提交的验证版本。在 Windows 升级闭环确认前，不要把 `version` 当作正式发布版本
   盲目推送。
