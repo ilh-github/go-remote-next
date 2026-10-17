@@ -1125,9 +1125,25 @@ The endpoint runs through the existing trust layer and returns the persisted
 `WorkflowRunReport`. `GET /v1/workflow-runs/{run_id}` returns the same report later.
 
 The trigger is disabled when `QUICKDESK_TRIGGER_TOKEN` is empty, allows one workflow run per
-process at a time, and still enforces `QUICKDESK_ALLOWED_DEVICES`. It is synchronous; schedules,
-control-plane event subscriptions, idempotency keys and outbound callbacks are not implemented yet.
+process at a time, and still enforces `QUICKDESK_ALLOWED_DEVICES`. Requests are synchronous;
+persistent interval triggers are executed by a background worker. Control-plane event
+subscriptions, idempotency keys and outbound callbacks are not implemented yet.
 See `docs/dev/业务工作流HTTP触发器.md` for the complete contract.
+
+Persistent triggers are managed through:
+
+```text
+GET    /v1/triggers
+POST   /v1/triggers
+DELETE /v1/triggers/{trigger_id}
+POST   /v1/triggers/{trigger_id}/run
+```
+
+A trigger stores the workflow, device, default overrides and an optional `interval_seconds`
+(60 seconds to 365 days). The HTTP transport worker claims at most one due trigger every five
+seconds, advances `next_run_at` before execution, and writes the last run ID/status back to the
+definition. Control-plane events, cron/calendar rules, idempotency and HMAC callbacks remain future
+work.
 
 ---
 

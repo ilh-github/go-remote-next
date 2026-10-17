@@ -1120,8 +1120,22 @@ trust layer，成功后同步返回并持久化 `WorkflowRunReport`；之后可�
 `GET /v1/workflow-runs/{run_id}` 补查。
 
 `QUICKDESK_TRIGGER_TOKEN` 为空时接口关闭；每个进程一次只允许一条业务工作流运行，并继续
-受 `QUICKDESK_ALLOWED_DEVICES` 限制。当前接口是同步执行，尚无定时触发、控制面事件订阅、
-幂等键和出站回调。完整契约见 `docs/dev/业务工作流HTTP触发器.md`。
+受 `QUICKDESK_ALLOWED_DEVICES` 限制。HTTP 请求本身是同步执行，持久化 interval trigger 由
+后台 worker 执行；控制面事件订阅、幂等键和出站回调尚未实现。完整契约见
+`docs/dev/业务工作流HTTP触发器.md`。
+
+持久化触发器通过以下接口管理：
+
+```text
+GET    /v1/triggers
+POST   /v1/triggers
+DELETE /v1/triggers/{trigger_id}
+POST   /v1/triggers/{trigger_id}/run
+```
+
+触发器保存工作流、设备、默认参数和可选 `interval_seconds`（60 秒到 365 天）。HTTP
+transport 的后台 worker 每 5 秒最多领取一条到期触发器，执行前推进 `next_run_at`，执行后
+回写 run ID 和 completed/failed。cron/日历规则、控制面事件、幂等键和 HMAC 回调仍未实现。
 
 ---
 
