@@ -4,6 +4,7 @@ import DevicesPage from '../views/DevicesPage.vue'
 import RecordingsPage from '../views/RecordingsPage.vue'
 import SessionsPage from '../views/SessionsPage.vue'
 import NotificationsPage from '../views/NotificationsPage.vue'
+import ScheduledTasksPage from '../views/ScheduledTasksPage.vue'
 import WallPage from '../views/WallPage.vue'
 import AccountPage from '../views/AccountPage.vue'
 import SettingsPage from '../views/SettingsPage.vue'
@@ -17,6 +18,7 @@ const routes = [
   { path: '/recordings', component: RecordingsPage },
   { path: '/sessions', component: SessionsPage },
   { path: '/notifications', component: NotificationsPage },
+  { path: '/scheduled-tasks', component: ScheduledTasksPage },
   { path: '/wall', component: WallPage },
   { path: '/account', component: AccountPage },
   { path: '/settings', component: SettingsPage },

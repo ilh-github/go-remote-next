@@ -447,6 +447,24 @@ class UserApi {
   }
 
   // ========================================================================
+  // Scheduled tasks — owner-scoped control-plane actions. The server owns
+  // schedule validation and execution; this client only creates, lists and
+  // deletes rows so the concrete next_run_at remains authoritative.
+  // ========================================================================
+
+  fetchScheduledTasks() {
+    return this._req('GET', '/v1/me/scheduled-tasks')
+  }
+
+  createScheduledTask(body) {
+    return this._req('POST', '/v1/me/scheduled-tasks', body)
+  }
+
+  deleteScheduledTask(id) {
+    return this._req('DELETE', `/v1/me/scheduled-tasks/${encodeURIComponent(id)}`)
+  }
+
+  // ========================================================================
   // Notifications — user-owned webhook channels, quiet hours, and the
   // per-device sustained-offline rule. Channel events are stored as a JSON
   // string by the server model, so callers should feed list rows through

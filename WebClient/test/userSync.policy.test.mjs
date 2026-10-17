@@ -98,3 +98,40 @@ test('remote session lifecycle events expose the changed session', () => {
     },
   ])
 })
+
+test('scheduled task failure events trigger a task list refresh', () => {
+  userSync.stop()
+  let detail = null
+  userSync.addEventListener(
+    'scheduled-task-changed',
+    (event) => { detail = event.detail },
+    { once: true },
+  )
+
+  userSync._onMessage({
+    data: JSON.stringify({
+      type: 'scheduled_task.failed',
+      server_rev: 4,
+      data: {
+        task_id: 12,
+        kind: 'sign_out_all_sessions',
+        attempts: 3,
+        error: 'redis is down',
+      },
+    }),
+  })
+
+  assert.deepEqual(detail, {
+    type: 'scheduled_task.failed',
+    task_id: 12,
+    kind: 'sign_out_all_sessions',
+    attempts: 3,
+    error: 'redis is down',
+    data: {
+      task_id: 12,
+      kind: 'sign_out_all_sessions',
+      attempts: 3,
+      error: 'redis is down',
+    },
+  })
+})

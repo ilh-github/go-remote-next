@@ -231,6 +231,21 @@ class UserSync extends EventTarget {
       }))
       return
     }
+    if (type === 'scheduled_task.failed') {
+      if (!this._shouldApplyFrame(type, msg.server_rev)) return
+      const data = msg.data || {}
+      this.dispatchEvent(new CustomEvent('scheduled-task-changed', {
+        detail: {
+          type,
+          task_id: data.task_id || 0,
+          kind: data.kind || '',
+          attempts: data.attempts || 0,
+          error: data.error || '',
+          data,
+        },
+      }))
+      return
+    }
 
     if (!this._shouldApplyFrame(type, msg.server_rev)) return
 
