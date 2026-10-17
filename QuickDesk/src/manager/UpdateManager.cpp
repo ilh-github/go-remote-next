@@ -596,8 +596,77 @@ bool UpdateManager::launchInstaller()
         {QStringLiteral("/SILENT"), QStringLiteral("/CLOSEAPPLICATIONS"),
          QStringLiteral("/LAUNCHAPP")});
 #elif defined(Q_OS_MACOS)
-    return QProcess::startDetached(QStringLiteral("open"),
-                                   {m_installerPath});
+    const QString bundlePath =
+        QFileInfo(QDir(QCoreApplication::applicationDirPath())
+                      .absoluteFilePath(QStringLiteral("../..")))
+            .canonicalFilePath();
+    if (bundlePath.isEmpty() ||
+        !bundlePath.endsWith(QStringLiteral(".app"), Qt::CaseInsensitive)) {
+        LOG_ERROR("[UpdateManager] unable to resolve the current app bundle");
+        return false;
+    }
+
+    const QString tempRoot =
+        QStandardPaths::writableLocation(QStandardPaths::TempLocation);
+    const QString workDir =
+        QDir(tempRoot).filePath(
+            QStringLiteral("QuickDesk/updates/install-%1-%2")
+                .arg(QCoreApplication::applicationPid())
+                .arg(QDateTime::currentMSecsSinceEpoch()));
+    if (!QDir().mkpath(workDir)) {
+        LOG_ERROR("[UpdateManager] unable to create macOS update work directory");
+        return false;
+    }
+
+    QFile helperResource(QStringLiteral(":/scripts/macos_update_helper.sh"));
+    if (!helperResource.open(QIODevice::ReadOnly)) {
+        LOG_ERROR("[UpdateManager] macOS update helper resource is unavailable");
+        return false;
+    }
+    const QByteArray helperContents = helperResource.readAll();
+    helperResource.close();
+
+    const QString helperPath =
+        QDir(workDir).filePath(QStringLiteral("macos_update_helper.sh"));
+    QFile helperFile(helperPath);
+    if (!helperFile.open(QIODevice::WriteOnly | QIODevice::Truncate) ||
+        helperFile.write(helperContents) != helperContents.size() ||
+        !helperFile.flush()) {
+        LOG_ERROR("[UpdateManager] unable to materialize macOS update helper");
+        return false;
+    }
+    helperFile.close();
+    if (!QFile::setPermissions(
+            helperPath,
+            QFileDevice::ReadOwner | QFileDevice::WriteOwner |
+                QFileDevice::ExeOwner)) {
+        LOG_ERROR("[UpdateManager] unable to mark macOS update helper executable");
+        return false;
+    }
+
+    const QString logPath =
+        QDir(tempRoot).filePath(QStringLiteral("QuickDesk/updates/install.log"));
+    if (!QDir().mkpath(QFileInfo(logPath).absolutePath())) {
+        LOG_ERROR("[UpdateManager] unable to create macOS update log directory");
+        return false;
+    }
+
+    return QProcess::startDetached(
+        QStringLiteral("/bin/sh"),
+        {helperPath,
+         QStringLiteral("--dmg"),
+         m_installerPath,
+         QStringLiteral("--app"),
+         bundlePath,
+         QStringLiteral("--wait-pid"),
+         QString::number(QCoreApplication::applicationPid()),
+         QStringLiteral("--expected-version"),
+         m_latestVersion,
+         QStringLiteral("--work-dir"),
+         workDir,
+         QStringLiteral("--log"),
+         logPath,
+         QStringLiteral("--remove-dmg")});
 #else
     return false;
 #endif

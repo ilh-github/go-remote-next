@@ -65,6 +65,15 @@ if [ ! -f "$dmg_path" ]; then
     exit 1
 fi
 
+if ! bash "$script_path/notarize_qd_mac.sh" "$dmg_path"; then
+    echo "[!] DMG signing or notarization failed"
+    cd "$old_cd"
+    exit 1
+fi
+
+echo "[*] dmg size: $(stat -f%z "$dmg_path") bytes"
+echo "[*] dmg sha256: $(shasum -a 256 "$dmg_path" | awk '{print $1}')"
+
 echo
 echo
 echo "---------------------------------------------------------------"

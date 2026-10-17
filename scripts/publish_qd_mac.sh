@@ -47,6 +47,8 @@ echo
 qt_mac_path="$ENV_QT_PATH/macos"
 publish_path="$script_path/../publish/$build_mode"
 release_path="$script_path/../output/$arch/$build_mode"
+sign_identity="${MACOS_SIGN_IDENTITY:-}"
+entitlements_path="${MACOS_ENTITLEMENTS:-$script_path/../QuickDesk/res/QuickDesk.entitlements}"
 if [ "$arch" = "x64" ]; then
     src_out_path="$script_path/../../src/out/$build_mode-x64"
 else
@@ -57,6 +59,23 @@ echo "[*] Qt macOS path: $qt_mac_path"
 echo "[*] publish path: $publish_path"
 echo "[*] output path: $release_path"
 echo "[*] src/out path: $src_out_path"
+if [ -n "$sign_identity" ]; then
+    echo "[*] codesigning identity: $sign_identity"
+    echo "[*] entitlements: $entitlements_path"
+    if [ ! -f "$entitlements_path" ]; then
+        echo "[!] entitlements file not found: $entitlements_path"
+        cd "$old_cd"
+        exit 1
+    fi
+    if ! security find-identity -v -p codesigning |
+        grep -F "$sign_identity" >/dev/null; then
+        echo "[!] codesigning identity not found: $sign_identity"
+        cd "$old_cd"
+        exit 1
+    fi
+else
+    echo "[*] codesigning identity: ad-hoc"
+fi
 echo
 
 export PATH="$qt_mac_path/bin:$PATH"
@@ -288,7 +307,7 @@ while IFS= read -r -d '' link; do
 done < <(find "$publish_path/QuickDesk.app" -type l -print0 2>/dev/null)
 echo "[*] removed $removed_links dangling symlink(s)"
 
-echo "[*] ad-hoc code signing (inside-out)..."
+echo "[*] code signing (inside-out)..."
 # Strict inside-out order is required so that codesign can seal the outer
 # bundle. Any unsigned Mach-O found while sealing the parent will produce
 # "code object is not signed at all" and the bundle ends up with
@@ -301,13 +320,28 @@ echo "[*] ad-hoc code signing (inside-out)..."
 #   4. Helper executables and nested .app bundles under Contents/Frameworks/
 #   5. The outer .app bundle (with --deep --strict self-verification)
 
+sign_code() {
+    local target="$1"
+    local with_entitlements="${2:-false}"
+    local args=(--force)
+    if [ -n "$sign_identity" ]; then
+        args+=(--options runtime --timestamp --sign "$sign_identity")
+        if [ "$with_entitlements" = "true" ]; then
+            args+=(--entitlements "$entitlements_path")
+        fi
+    else
+        args+=(--sign - --timestamp=none)
+    fi
+    codesign "${args[@]}" "$target"
+}
+
 sign_mach_o_tree() {
     local root="$1"
     [ -d "$root" ] || return 0
     while IFS= read -r -d '' bin; do
         case "$(file -b "$bin" 2>/dev/null)" in
             Mach-O*)
-                codesign --force --sign - --timestamp=none "$bin" || return 1
+                sign_code "$bin" || return 1
                 ;;
         esac
     done < <(find "$root" -type f -print0)
@@ -318,26 +352,28 @@ sign_mach_o_tree() {
 sign_mach_o_tree "$resources_dir/skills" || { echo "[!] sign skills failed"; cd "$old_cd"; exit 1; }
 
 # 2) Qt plugin dylibs.
-find "$plugins_dir" -name "*.dylib" -exec codesign --force --sign - --timestamp=none {} \;
+while IFS= read -r -d '' plugin; do
+    sign_code "$plugin"
+done < <(find "$plugins_dir" -name "*.dylib" -print0)
 
 # 3) Frameworks (.framework) and loose dylibs at the top level of Frameworks/.
-find "$frameworks_dir" -maxdepth 1 -name "*.dylib" -exec codesign --force --sign - --timestamp=none {} \;
-find "$frameworks_dir" -maxdepth 1 -name "*.framework" -exec codesign --force --sign - --timestamp=none {} \;
+while IFS= read -r -d '' library; do
+    sign_code "$library"
+done < <(find "$frameworks_dir" -maxdepth 1 \( -name "*.dylib" -o -name "*.framework" \) -print0)
 
 # 4) Helper executables and nested app bundles in Frameworks/.
 if [ -d "$frameworks_dir/quickdesk_host.app" ]; then
-    codesign --force --sign - --timestamp=none --deep "$frameworks_dir/quickdesk_host.app"
+    sign_code "$frameworks_dir/quickdesk_host.app" true
 fi
 for helper in quickdesk_client quickdesk-mcp quickdesk-skill-host; do
     if [ -f "$frameworks_dir/$helper" ]; then
-        codesign --force --sign - --timestamp=none "$frameworks_dir/$helper"
+        sign_code "$frameworks_dir/$helper"
     fi
 done
 
-# 5) Outer bundle. --deep here is a safety net only — every nested binary
-#    has already been signed individually above so codesign just seals
-#    Contents/_CodeSignature/CodeResources.
-codesign --force --sign - --timestamp=none --deep "$publish_path/QuickDesk.app"
+# 5) Outer bundle. Every nested binary has already been signed individually
+#    above, so this only seals Contents/_CodeSignature/CodeResources.
+sign_code "$publish_path/QuickDesk.app" true
 
 echo "[*] verifying signature (this MUST succeed or the dmg will be 'damaged')..."
 if ! codesign --verify --deep --strict --verbose=2 "$publish_path/QuickDesk.app"; then

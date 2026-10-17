@@ -339,6 +339,30 @@ bash scripts/publish_qd_mac.sh Release
 bash scripts/package_qd_mac.sh Release
 ```
 
+For a signed and notarized release, configure a Developer ID Application identity
+and one notarization credential source before packaging:
+
+```bash
+export MACOS_SIGN_IDENTITY="Developer ID Application: Example Corp (TEAMID)"
+
+# Either use a notarytool keychain profile:
+export MACOS_NOTARY_KEYCHAIN_PROFILE="quickdesk-notary"
+
+# Or use Apple ID credentials:
+export APPLE_ID="release@example.com"
+export APPLE_TEAM_ID="TEAMID"
+export APPLE_APP_PASSWORD="app-specific-password"
+
+# Fail instead of silently producing an unsigned or unnotarized release.
+export QUICKDESK_REQUIRE_MACOS_NOTARIZATION=1
+
+bash scripts/publish_qd_mac.sh Release
+bash scripts/package_qd_mac.sh Release
+```
+
+Without `MACOS_SIGN_IDENTITY`, local builds remain ad-hoc signed and skip
+notarization unless `QUICKDESK_REQUIRE_MACOS_NOTARIZATION=1` is set.
+
 ### API Key (Optional)
 
 If you deploy your own signaling server with API Key enabled, there are two ways to configure the API Key:

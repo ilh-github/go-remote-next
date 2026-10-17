@@ -74,5 +74,6 @@
         <file>qml/quickdeskcomponent/VideoStatsOverlay.qml</file>
         <file>qml/quickdeskcomponent/LoginDialog.qml</file>        
         <file>qml/quickdeskcomponent/DeviceDisplay.js</file>
+        <file alias="scripts/macos_update_helper.sh">scripts/macos_update_helper.sh</file>
     </qresource>
 </RCC>

@@ -1,6 +1,6 @@
 # QuickDesk 功能总清单
 
-> 最后对账：2026-10-17 20:22 CST。上游与 fork 状态都是动态的，实施前必须重新执行
+> 最后对账：2026-10-17 20:32 CST。上游与 fork 状态都是动态的，实施前必须重新执行
 > `git fetch --all --prune` 并核对 GitHub issue / PR。
 >
 > 本文件是 QuickDesk fork 后续产品开发的唯一功能清单。它合并三类输入：
@@ -72,7 +72,7 @@
 | QD-002 | P0 | Web 控制端完整文件管理器 | `[!]` | UP-Remoting | 目录浏览、新建、重命名、软删除、上传下载；需要先补浏览器可用的 host 文件操作通道 |
 | QD-003 | P0 | 多标签控制与音频抢占 | `[x]` | UP-Ready | 同一设备多个同源标签页只有一个控制者/音频播放者；新标签接管后旧标签立即释放 |
 | QD-004 | P0 | Host/Relay 权威自动录制 | `[ ]` | UP-Remoting | 被控端或中继自动录制，断线自动收尾并上传索引 |
-| QD-005 | P0 | 客户端自动更新消费 | `[~]` | UP-PR#25 + Upstream-Open | Windows 已通过检查、下载、SHA-256 校验、静默安装、自动重启、版本落盘和服务存活真机闭环；剩余 macOS DMG 替换、签名和公证回归 |
+| QD-005 | P0 | 客户端自动更新消费 | `[~]` | UP-PR#25 + Upstream-Open | Windows 已通过检查、下载、SHA-256 校验、静默安装、自动重启、版本落盘和服务存活真机闭环；macOS 已实现受校验的 DMG 挂载、暂存替换、失败回退和重开，并通过 ad-hoc 真实 DMG E2E；剩余 Developer ID 签名、Apple 公证和公证后替换回归 |
 | QD-006 | P1 | SQLite 轻量服务端部署 | `[ ]` | Upstream-Open | 单进程、单文件数据库、无 Redis 的最小自托管模式 |
 | QD-007 | P1 | 图片剪贴板 | `[ ]` | UP-Remoting | 双向图片格式协商、分片传输、权限和边界测试 |
 
@@ -112,6 +112,18 @@
 - QD-005 Windows 收口提交：`a982a10`。应用内更新改为传 `/LAUNCHAPP`，安装器在静默升级
   完成时显式启动新版本；新版本启动时清理不高于当前版本的下载目录，保留尚未安装的更高
   版本缓存。
+- QD-005 macOS 更新助手：`QuickDesk/scripts/macos_update_helper.sh` 通过资源打包，校验
+  bundle identifier、可执行文件、版本、TeamIdentifier、内嵌签名和 SHA-256 已下载产物；
+  先挂载只读 DMG，
+  再把新应用暂存到更新目录，使用同目录备份完成替换，打开失败时回退旧版本。无写权限时
+  通过 macOS 管理员授权执行，限制清理路径只能位于更新工作目录或目标 `.app` 备份。
+- QD-005 macOS 测试：`scripts/e2e/test-quickdesk-macos-update-helper.sh` 使用真实 UDZO
+  DMG 和两个临时 `.app` 验证正常替换、版本落盘、DMG 清理，以及 bundle identifier
+  不匹配时拒绝替换；`quickdesk_update_manager_test` 同时断言更新助手已嵌入 Qt 资源。
+- QD-005 发布门禁：`publish_qd_mac.sh` 支持 `MACOS_SIGN_IDENTITY` hardened runtime
+  签名，`notarize_qd_mac.sh` 支持 keychain profile 或 Apple ID 凭据完成 notarytool、
+  staple 和 Gatekeeper 验证；`QUICKDESK_REQUIRE_MACOS_NOTARIZATION=1` 时缺少证书或
+  公证凭据会直接失败。
 - QD-005 测试：`quickdesk_update_support_test` 与 `quickdesk_update_manager_test` 通过；
   后者使用真实本地 HTTP 服务覆盖检查、下载、摘要不匹配拒绝、残件清理和跨源凭据隔离。
 - QuickDesk 完整 Qt 6.8.3 Debug 构建通过，`QuickDesk_qmllint` 退出 0；现有旧 QML
@@ -234,7 +246,7 @@
 | 已完成 | QD-508 Qt 录像回放页 | `Legacy` / `Upstream` PR #23 | Qt 录像列表、分页、缩略图、应用内播放、外部打开和删除已完成，提交 `74c7022` | PR #23 合并后作为通用 Qt 管理面候选提交上游 |
 | 已完成 | QD-204 地址簿与设备分组用户入口 | `Legacy` / `Upstream` Roadmap | owner-scoped API、四套 SDK、WebClient 和 Qt 已完成；真实 service smoke 388 条断言通过 | 本地候选已准备：API `codex/upstream-qd-204-api@d2321b9`，客户端 `codex/upstream-qd-204-client@b259d03`；等远端写入恢复后建 PR |
 | 本地收口 | QD-607 计划任务执行动作 | `Fork` / `Legacy` | 服务端调度、Web/Qt 管理面、重试已完成；新增 `revoke_all_remote_sessions`，可按执行时设备归属批量关闭活动远控会话（最多 200 台）；纯服务端候选 `codex/upstream-qd-607-batch-revoke@badf990` 已独立验证 | “定时连接”仍需控制端到点发起连接的协议；更广义的批量 agent 指令仍需执行与回执通道；远端写入恢复后推送候选并作为 PR #25 的 stacked PR |
-| 本地收口 | QD-005 / QD-808 自动更新真机验证 | `Fork` / `Legacy` / `Upstream` PR #25 | Windows 已完成 4.2.8.0→4.2.9.0 自动下载、校验、静默安装、自动重启、版本和服务闭环，提交 `a982a10` | 继续补 macOS DMG；上游候选不能直接把 `cae77ff` cherry-pick 到 `upstream/dev`（CMake、MainController、i18n 和测试基线均冲突），应在 PR #25/更新通道基线确认后重做最小增量 |
+| 本地收口 | QD-005 / QD-808 自动更新真机验证 | `Fork` / `Legacy` / `Upstream` PR #25 | Windows 已完成 4.2.8.0→4.2.9.0 自动下载、校验、静默安装、自动重启、版本和服务闭环，提交 `a982a10`；macOS 已实现 DMG 自动替换和失败回退，并通过 ad-hoc 真实 DMG E2E | 取得 Apple Developer ID 和公证凭据，执行 hardened runtime 签名、notarytool、staple、Gatekeeper 与真实升级回归；上游候选仍应在 PR #25/更新通道基线确认后重做最小增量 |
 | 上游候选 | QD-003 多标签控制与音频抢占 | `Legacy` / `Upstream` Roadmap 补强 | 候选 `codex/upstream-cross-tab-coordination` = `6047615`，仅 WebClient 改动 | 远端写入恢复后推送并建 PR；补截图和同源双标签验证说明 |
 | 上游候选 | QD-114 自托管 WSS SPKI 兼容 | `Upstream` issue #20 / `Fork` | 候选 `codex/upstream-qd-114-spki` = `13559e6`；临时方案不替代真实证书校验 | 推送并建 issue #20 PR；补 Qt 构建、Windows 服务和真实 `wss://` |
 | 上游候选 | QD-212 设备列表本机标识 | `Upstream` issue #19 / `Legacy` | 候选 `f1ce096` 已在干净上游基线构建和测试 | 推送并建 PR；与 #19 其余问题拆开 |
@@ -260,7 +272,7 @@ Roadmap 项放到同一条实施路径中。详细追溯仍以第 16 节为准�
 
 | 顺序 | 队列 | 包含工作 | 为什么现在放这里 | 完成条件 |
 |---|---|---|---|---|
-| 1 | Fork 真机收口 | QD-005 / QD-808 macOS DMG、QD-215 Windows Qt 插件、QD-214 Windows Host 用户上下文、QD-607 定时连接边界 | Windows 自动更新已闭环；下一项先补另一个发布平台和剩余宿主边界，不能把 Windows 单边通过扩大成跨平台完成 | macOS DMG 替换/签名/公证可验收；Windows Host 上传和 Qt 插件问题有真实证据 |
+| 1 | Fork 真机收口 | QD-005 / QD-808 macOS 签名与公证、QD-215 Windows Qt 插件、QD-214 Windows Host 用户上下文、QD-607 定时连接边界 | Windows 自动更新已闭环，macOS 自动替换和回退也已通过 ad-hoc 真实 DMG E2E；当前只缺正式签名、公证链和公证包升级回归 | 使用 Developer ID 完成 hardened runtime 签名、notarytool、staple、Gatekeeper 评估和 4.2.8→4.2.9 真实替换；Windows Host 上传和 Qt 插件问题有真实证据 |
 | 2 | 可独立回贡上游 | QD-003、QD-114 第一阶段、QD-212、QD-213、QD-214 SPAKE2/诊断、QD-215 Windows 发布校验、QD-911 | 改动边界清楚，可从 `upstream/dev` 独立审查；其中 QD-114 只解决 SPKI 临时兼容 | 每个主题一个基于 `upstream/dev` 的最小分支；远端写入恢复后推送并开 PR |
 | 3 | 等 PR #25 基线 | QD-204 API/客户端、QD-607 服务端、QD-108 / QD-508 / QD-706 / QD-708 管理面、QD-005 客户端 | 这些能力依赖控制面、OpenAPI、录像或管理页基线；直接塞进 #25 会变成巨型 PR | 维护者确认 #25 合并或 stacked base；再按服务端/Web/Qt/更新拆 PR |
 | 4 | 跟踪上游已有 PR | PR #22 自动审批、#23 录像、#24 skill-host 运行库、#25 控制面 | 上游已有实现，重复开发只会制造分叉 | PR 合并后同步 `upstream/dev`，重跑受影响测试；删除重复本地实现 |
@@ -269,9 +281,9 @@ Roadmap 项放到同一条实施路径中。详细追溯仍以第 16 节为准�
 | 7 | 暂缓跟随上游 | QD-318 Linux、QD-319 iOS/Android | 上游 Roadmap 已列出，本 fork 当前不承诺实现 | 保持接口和构建兼容；上游方向明确后再排期 |
 | 8 | 不进入待办 | RDP、重写 WebRTC/Remoting、多租户/SSO/计费、通用插件市场 | 与“复用成熟远控内核 + 补业务控制面”的路线冲突或收益不足 | 只有用户重新定义产品目标才重新评估 |
 
-当前第一执行项从 Windows 自动更新切换到 `QD-005 / QD-808` 的 macOS DMG 替换、签名和
-公证回归。Windows 半边已经拿到完整真机证据；整体仍保持 `[~]`，不能把 Windows 成功
-写成跨平台完成。
+当前第一执行项是 `QD-005 / QD-808` 的 macOS Developer ID 签名、Apple 公证和公证包
+替换回归。自动替换链路已经用 ad-hoc DMG 真机验证；整体仍保持 `[~]`，不能把本地
+ad-hoc 成功写成正式跨平台发布完成。
 
 回贡上游不等到 fork 全部做完再一次性提交。每个已经独立验收、能从 `upstream/dev`
 干净切出的主题都应立即形成最小 PR；依赖 PR #25 的功能只准备 stacked 候选，不继续
@@ -411,7 +423,7 @@ Roadmap 项放到同一条实施路径中。详细追溯仍以第 16 节为准�
 | QD-805 | 日志检索和跨实例聚合 | `[x]` | 本地/聚合搜索 |
 | QD-806 | 多实例会话和租约 | `[~]` | 已有实例寻址；Redis 仍是单点 |
 | QD-807 | 安装包、升级发布服务端 | `[x]` | 上传、Range、断点续传、管理端 UI |
-| QD-808 | 客户端自动更新消费 | `[~]` | 当前迭代 QD-005；Windows 用 `/SILENT /CLOSEAPPLICATIONS /LAUNCHAPP` 启动安装器，安装器完成后自动拉起新版本，已验证 4.2.8.0→4.2.9.0 全闭环。剩余：macOS DMG 真机替换与签名/公证回归 |
+| QD-808 | 客户端自动更新消费 | `[~]` | 当前迭代 QD-005；Windows 用 `/SILENT /CLOSEAPPLICATIONS /LAUNCHAPP` 启动安装器，已验证 4.2.8.0→4.2.9.0 全闭环。macOS 更新助手完成 DMG 挂载、bundle/version/签名校验、暂存替换、失败回退、重开和临时包清理，ad-hoc 真实 DMG E2E 通过。剩余：Developer ID 签名、Apple 公证和公证包升级回归 |
 | QD-809 | SQLite 轻量服务端 | `[ ]` | 当前迭代 QD-006 |
 | QD-810 | 正式备份、恢复和容量配额 | `[ ]` | 还需完整演练和文档 |
 

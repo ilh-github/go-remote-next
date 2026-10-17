@@ -153,6 +153,17 @@ int main(int argc, char** argv) {
     QCoreApplication app(argc, argv);
     QCoreApplication::setApplicationVersion("4.2.0.0");
 
+    QFile updateHelperResource(
+        QStringLiteral(":/scripts/macos_update_helper.sh"));
+    Expect(updateHelperResource.open(QIODevice::ReadOnly),
+           QStringLiteral("macOS update helper resource is embedded"));
+    const QByteArray updateHelper = updateHelperResource.readAll();
+    updateHelperResource.close();
+    Expect(updateHelper.startsWith("#!/bin/sh"),
+           QStringLiteral("macOS update helper is a shell script"));
+    Expect(updateHelper.contains("--expected-version"),
+           QStringLiteral("macOS update helper validates the target version"));
+
     const QDir updateRoot(
         QDir(QStandardPaths::writableLocation(
                  QStandardPaths::TempLocation))

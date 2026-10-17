@@ -31,6 +31,7 @@ add_test(
 add_executable(quickdesk_update_manager_test
     updatemanager_integration_test.cpp
     authmanager_stub.cpp
+    ../qml.qrc
     ../src/core/db/appconfigdatabase.cpp
     ../src/core/localconfigcenter.cpp
     ../src/core/updatesupport.cpp

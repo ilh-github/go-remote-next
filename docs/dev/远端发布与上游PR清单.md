@@ -68,7 +68,12 @@
   附加 Chromium `--ignore-certificate-errors-spki-list`；Windows Host 服务安装器支持
   通过 `QUICKDESK_SPKI` 把同一固定值写入服务注册参数。
 - Qt 客户端已消费自有更新通道：自动/手动检查、提示、下载进度与取消、大小和
-  SHA-256 校验、可选版本推迟、强制更新、Windows 静默安装、macOS 打开 DMG。
+  SHA-256 校验、可选版本推迟、强制更新、Windows 静默安装，以及 macOS DMG
+  挂载、bundle/version/签名校验、暂存替换、失败回退、重开和临时包清理。
+- macOS 更新助手已用真实 UDZO DMG 完成 ad-hoc E2E：正常替换成功，bundle identifier
+  不匹配时拒绝替换；无写权限时会走 macOS 管理员授权。`publish_qd_mac.sh` 支持
+  Developer ID hardened runtime 签名，`notarize_qd_mac.sh` 支持 notarytool、staple 和
+  Gatekeeper 验证；`QUICKDESK_REQUIRE_MACOS_NOTARIZATION=1` 时缺少证书或公证凭据即失败。
 - 更新下载只在同一 origin 携带 API key；跨源安装包请求已验证不会泄漏凭据。
 - QD-005 真实本地 HTTP 集成测试覆盖成功下载、摘要不匹配拒绝、残件清理和跨源隔离。
 - Qt 我的设备和收藏列表已用当前 Host 设备 ID 标记“本机”，不影响备注/设备名展示；
@@ -123,6 +128,9 @@
   会主动退出，安装器没有可恢复的 Restart Manager 应用，所以升级后不会自动启动。
   `a982a10` 改为 `/LAUNCHAPP`，由安装器完成后显式启动新版本；新版本启动时清理不高于
   当前版本的更新目录，同时保留尚未安装的更高版本下载。
+- QD-005 macOS 当前边界：自动替换链路已经本地验收，但本机
+  `security find-identity -v -p codesigning` 为 0 个有效身份，也没有 Apple 公证凭据；
+  Developer ID 签名、notarytool、staple、Gatekeeper 和公证包真实升级不能宣称完成。
 - QD-005 上游候选尚未创建：实测把自托管更新提交 `cae77ff` 直接 cherry-pick 到
   `upstream/dev@f6651f0` 会在 `QuickDesk/CMakeLists.txt`、`MainController`、
   `localconfigcenter`、中英文翻译和测试 CMake 基线发生冲突，`tests/CMakeLists.txt`
