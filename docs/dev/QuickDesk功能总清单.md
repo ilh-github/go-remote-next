@@ -31,6 +31,7 @@
 - Remoting 边界：`quickdesk-remoting` 需要编译整个 Chromium，涉及 Remoting 的改动优先向上游提需求，不要求贡献者本地编译
 - 本轮起点：`c4091701add83ad5aa92e36511ad5db3f4a7e813`
 - 本轮合并：`2f61f8e`（QD-003 多标签控制与音频抢占）
+- 本轮功能：`a48d793`（QD-114 Qt/Windows 服务 SPKI 公网自托管兼容）
 - 服务端：Go SignalingServer
 - 桌面客户端：Qt 6 + QML
 - Web 客户端：Vue 3 外壳 + 原生 `remote.html`
@@ -56,6 +57,10 @@
 - WebClient `npm test`：25/25 通过。
 - WebClient `npm run build`：通过，JS 348.48 kB，gzip 112.14 kB。
 - Chrome 同源双标签实测：后开标签接管控制后，前一个标签释放控制；接管音频后，前一个标签释放音频。
+- QD-114 SPKI 纯 C++ 单测：通过；覆盖标准/URL-safe Base64、无 padding、重复项、
+  非法项和 Chromium 参数构造。
+- QD-114 上游候选：`codex/upstream-qd-114-spki` = `13559e6`，基于 `upstream/dev`，
+  17 个文件；当前机器没有 CMake/Qt 开发环境，完整 Qt 构建和 Windows 安装器编译待补。
 - `git diff --check`：通过。
 - 远端推送仍被当前执行策略拒绝，本地 `dev` 尚未同步到 GitHub。
 
@@ -76,7 +81,7 @@
 | QD-111 | 文件传输审计 | `[ ]` | 目前文件走 Remoting 数据通道，控制面没有事件 |
 | QD-112 | SSO、多租户、计费 | `[-]` | 当前不做 |
 | QD-113 | Trust 自动审批线程亲和性 | `[~]` | 上游 issue #17 / PR #22 已有修复；本 fork 未重复实现，PR 合并后同步 |
-| QD-114 | 自托管 HTTPS/WSS 证书校验 | `[!]` | 上游 issue #20；短期可在 Qt 子进程固定 SPKI，彻底修复需 Remoting 接入真实 CertVerifier |
+| QD-114 | 自托管 HTTPS/WSS 证书校验 | `[~]` | 上游 issue #20；Qt 子进程支持 SPKI 列表，Windows 服务安装支持 `QUICKDESK_SPKI`；彻底修复仍需 Remoting 接入真实 CertVerifier，Qt/Windows 实机构建待补 |
 | QD-115 | 信令服务器持有设备密钥的信任边界 | `[ ]` | 上游 issue #10；需要明确服务端是否可代替设备连接的安全模型 |
 
 ## 5. 设备与会话
@@ -224,7 +229,8 @@
 ## 14. 推荐执行顺序
 
 1. 保持上游 open PR #22 / #23 / #24 / #25 同步，不重复实现。
-2. QD-114 自托管 HTTPS/WSS 修复，优先走 Qt-only SPKI 方案；彻底修复向 Remoting 仓库提需求。
+2. 推送 QD-114 上游候选 `codex/upstream-qd-114-spki` 并创建 issue #20 PR；补齐 Qt 构建、
+   Windows 服务安装和真实 `wss://` 回归；彻底修复向 Remoting 仓库提 CertVerifier 需求。
 3. 把已完成的 QD-003 多标签控制/音频抢占整理为上游独立 PR。
 4. 把 QD-206 本地连接历史按上游 issue #18 拆成最小 Web/Qt PR。
 5. QD-002 Web 文件操作通道与完整文件管理器；若必须改 Remoting，改为上游需求。
@@ -279,7 +285,7 @@
 | 上游项 | 类型 | 涉及 QD | 判断 | 动作 |
 |---|---|---|---|---|
 | #21 维护计划与参与维护意向 | 维护策略 | QD-001、QD-609 | 上游优先 MCP、从 dev 贡献、Remoting 由维护者改 | 所有新功能按 dev 最小分支准备；涉及 Remoting 先提需求 |
-| #20 自托管 HTTPS/WSS 失败 | Bug / 自托管 | QD-114 | 证书验证器在 Remoting 内未绑定；Qt-only SPKI 可短期解 | 先实现/验证 Qt 子进程 SPKI 方案；长期向 Remoting 提 CertVerifier 修复 |
+| #20 自托管 HTTPS/WSS 失败 | Bug / 自托管 | QD-114 | 证书验证器在 Remoting 内未绑定；Qt-only SPKI 已支持子进程和服务安装参数 | 推送候选并补 Windows/Qt 回归；长期向 Remoting 提 CertVerifier 修复 |
 | #18 连接历史列表 | Feature | QD-206 | 上游 `dev` 已有 `ConnectionHistory`、历史列表、删除和重连；issue 仍开放 | 先做完整功能核对，确认无缺口后向下游说明可关闭，不再重复实现 |
 | #19 设备列表相关问题 | Bug cluster | QD-212、QD-213、QD-214 | 本机标识、访问码和上传错误码三个独立问题 | 分别复现、分别提 PR；不要混成一个“设备列表”大修 |
 | #17 自动审批被忽略 | Bug | QD-113 | 已由 PR #22 覆盖 | 跟踪 PR #22，不重复实现 |
@@ -312,7 +318,7 @@
 | 顺序 | PR 主题 | 来源 | 前置条件 |
 |---|---|---|---|
 | 1 | `feat(webclient): coordinate cross-tab control and audio` | QD-003 | 当前功能已测试；补上游 WebClient 约定和截图 |
-| 2 | `fix(self-host): allow pinned SPKI for self-hosted WSS` | QD-114 / issue #20 | 需维护者确认 Qt-only 临时方案；Windows service 启动路径也要覆盖 |
+| 2 | `fix(self-host): allow pinned SPKI for self-hosted WSS` | QD-114 / issue #20 | 候选已准备；需推送、创建 PR，并补 Qt 构建和 Windows service 实机验证 |
 | 3 | `feat(webclient): control-plane management pages` | QD-108/605/607/703 | 依赖 PR #25 合并；按页面拆成多个 PR |
 | 4 | `feat(qt): remote session and management pages` | QD-706/708 | 依赖 PR #25 合并；先做实时事件消费，再拆页面 |
 
@@ -324,6 +330,17 @@ QD-003 的上游候选已经单独准备：
 - 范围：仅 `TabCoordinator`、WebClient 接入、双语文案、Node 测试、ESM 构建兼容
 - 验证：`npm test` 6/6、`npm run build`、真实 Chrome 同源双标签接管均通过
 - 未完成：远端推送仍被策略拒绝，尚未创建 upstream PR
+
+QD-114 的上游候选已经单独准备：
+
+- 分支：`codex/upstream-qd-114-spki`
+- 基线：`upstream/dev` = `f6651f0`
+- 本地提交：`13559e6`
+- 范围：SPKI 解析/校验与单测、Qt 设置页、Host/Client 子进程参数、
+  Windows 服务安装参数、英文/中文部署文档
+- 验证：纯 C++ 单测通过、翻译 `.ts` XML 校验通过、`git diff --check` 通过
+- 未完成：Qt/CMake 构建、Inno Setup 编译、Windows 服务和真实 `wss://` 回归；
+  远端推送仍被策略拒绝，尚未创建 upstream PR
 
 ### 17.3 需要上游 Remoting 处理的 PR
 

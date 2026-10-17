@@ -10,6 +10,7 @@
 - fork 主干：`dev` 已包含 `2deb8c8`（QD-003 多标签控制/音频抢占与功能总清单）
 - 功能分支：`codex/product-backlog` = `dea02f9`
 - 上游 QD-003 候选：`codex/upstream-cross-tab-coordination` = `6047615`（基于 `upstream/dev`）
+- 上游 QD-114 候选：`codex/upstream-qd-114-spki` = `13559e6`（基于 `upstream/dev`）
 - 上游最小候选：`codex/upstream-access-bans` = `b89c24c`
 - 上游基线：`barry-ran/QuickDesk` 的 `dev` / `master` = `f6651f0`
 - fork PR #1：<https://github.com/ilh-github/go-remote-next/pull/1>
@@ -34,6 +35,9 @@
   重复拒绝来源、批准/拒绝原因和实时刷新。
 - WebClient 新增同源多标签控制/音频抢占，BroadcastChannel 不可用时降级到
   localStorage；已完成真实 Chrome 双标签验证。
+- Qt 设置页支持自托管 `wss://` 信令服务器的 SPKI 固定值，Host/Client 子进程会自动
+  附加 Chromium `--ignore-certificate-errors-spki-list`；Windows Host 服务安装器支持
+  通过 `QUICKDESK_SPKI` 把同一固定值写入服务注册参数。
 
 ## 1. 推送前检查
 
@@ -51,8 +55,10 @@ git log --oneline --left-right origin/feat/signaling-control-plane...codex/upstr
 - 除机器本地的 `.idea/` 外，工作树必须干净；
 - `dev` 必须包含 `f5d3283`；
 - `dev` 必须包含 `2deb8c8`；
+- `dev` 必须包含 `a48d793`；
 - `codex/product-backlog` 必须包含 `dea02f9`；
 - `codex/upstream-access-bans` 必须包含 `b89c24c`；
+- `codex/upstream-qd-114-spki` 必须包含 `13559e6`；
 - 如果远端出现新提交，先合并或 rebase，再重跑受影响测试，不能强推覆盖他人工作。
 
 ## 2. 推送 fork 分支
@@ -61,6 +67,7 @@ git log --oneline --left-right origin/feat/signaling-control-plane...codex/upstr
 git push origin \
   dev \
   codex/product-backlog \
+  codex/upstream-qd-114-spki \
   codex/source-unban \
   codex/upstream-access-bans
 ```
@@ -142,8 +149,11 @@ PR 描述至少写明：
 - `feat(webclient): coordinate cross-tab control and audio`：QD-003，纯 WebClient，
   无 Remoting 改动；候选分支 `codex/upstream-cross-tab-coordination` = `6047615`，
   仅 6 个文件，已通过 `npm test` 6/6、`npm run build` 和真实 Chrome 双标签验证。
-- `fix(self-host): pinned SPKI for self-hosted WSS`：对应上游 issue #20；先确认维护者
-  接受 Qt-only 临时方案，Windows service 启动路径也要覆盖。
+- `fix(self-host): pinned SPKI for self-hosted WSS`：对应上游 issue #20；候选分支
+  `codex/upstream-qd-114-spki` = `13559e6`，基于 `upstream/dev`，17 个文件。已通过
+  SPKI 纯 C++ 单测、翻译 `.ts` XML 校验和 `git diff --check`；Qt/CMake 构建、
+  Inno Setup 编译、Windows 服务安装和真实 `wss://` 回归仍待补充。该 PR 只解决
+  `quickdesk-remoting` 临时兼容，不替代真实 `CertVerifierService` 修复。
 - 控制面管理页：等 PR #25 合并后按页面拆成独立 PR，不再使用“所有 fork 页面都留在 fork”
   的旧口径。
 - 上游 issue #18 连接历史：上游 `dev` 已存在 `ConnectionHistory` 和历史列表 UI，
