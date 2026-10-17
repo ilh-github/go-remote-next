@@ -137,6 +137,7 @@
 import { computed, inject, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { userApi } from '../api/userApi'
+import { userSync } from '../api/userSync'
 
 const { t } = useI18n()
 const showLogin = inject('showLogin')
@@ -311,6 +312,16 @@ async function unbanSource(source) {
   blockedSources.value = r.data?.deny_ips ?? []
 }
 
+function onAccessPolicyChanged(event) {
+  const detail = event.detail || {}
+  if (!deviceFilter.value || detail.device_id !== deviceFilter.value) return
+  if (Array.isArray(detail.deny_ips)) {
+    blockedSources.value = detail.deny_ips.slice()
+    return
+  }
+  loadBlockedSources()
+}
+
 async function clearDevice() {
   const id = deviceFilter.value
   if (!id) return
@@ -357,11 +368,13 @@ onMounted(() => {
     loadDevices()
     load(true)
   }
+  userSync.addEventListener('access-policy-changed', onAccessPolicyChanged)
   startPolling()
 })
 
 onUnmounted(() => {
   if (pollTimer) clearInterval(pollTimer)
+  userSync.removeEventListener('access-policy-changed', onAccessPolicyChanged)
 })
 </script>
 

@@ -14,7 +14,7 @@
 //   • exponential backoff + jitter on reconnect (§2.15 / T14)
 //   • proactive HTTP refresh kick on WS TOKEN_INVALID (T11)
 
-import { userApi } from './userApi'
+import { userApi } from './userApi.js'
 
 const BASE_MS   = 1000
 const MAX_MS    = 30000
@@ -202,6 +202,20 @@ class UserSync extends EventTarget {
       this.stop()
       this.dispatchEvent(new CustomEvent('session-revoked'))
       userApi.handleServerRevoked()
+      return
+    }
+    if (type === 'device.access_policy.changed') {
+      if (!this._shouldApplyFrame(type, msg.server_rev)) return
+      const data = msg.data || {}
+      if (!data.device_id) return
+      const denyIPs = Array.isArray(data.deny_ips) ? data.deny_ips.slice() : []
+      this.dispatchEvent(new CustomEvent('access-policy-changed', {
+        detail: {
+          device_id: data.device_id,
+          deny_ips: denyIPs,
+          data,
+        },
+      }))
       return
     }
 
