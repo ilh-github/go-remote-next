@@ -4,11 +4,12 @@ use std::sync::{Arc, Mutex};
 
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{json, Value};
 use tokio::sync::{mpsc, Semaphore};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
+use crate::callback::deliver_workflow_callback;
 use crate::server::{QuickDeskMcpServer, SharedState};
 use crate::workflow::WorkflowRunReport;
 use crate::ws_client::WsClient;
@@ -169,6 +170,7 @@ struct WorkflowJobRequest {
     device_id: String,
     overrides: HashMap<String, Value>,
     stop_on_failure: bool,
+    callback_url: Option<String>,
 }
 
 #[derive(Debug)]
@@ -241,6 +243,7 @@ impl WorkflowJobManager {
         device_id: &str,
         overrides: HashMap<String, Value>,
         stop_on_failure: bool,
+        callback_url: Option<String>,
     ) -> Result<WorkflowRunJob, String> {
         let job = self.store.create(workflow_id, device_id)?;
         let token = CancellationToken::new();
@@ -254,6 +257,7 @@ impl WorkflowJobManager {
             device_id: device_id.to_string(),
             overrides,
             stop_on_failure,
+            callback_url,
         };
         if let Err(error) = self.sender.try_send(request) {
             self.active.lock().unwrap().remove(&job.run_id);
@@ -390,6 +394,19 @@ fn start_worker(
                 .await;
             match result {
                 Ok(report) => {
+                    deliver_workflow_callback(
+                        request.callback_url.as_deref(),
+                        json!({
+                            "event": "workflow.run.completed",
+                            "run_id": report.run_id.clone(),
+                            "workflow_id": report.workflow_id.clone(),
+                            "device_id": report.device_id.clone(),
+                            "success": report.success,
+                            "cancelled": report.cancelled,
+                            "report": report.clone(),
+                        }),
+                    )
+                    .await;
                     let status = if report.cancelled {
                         WorkflowJobStatus::Cancelled
                     } else if report.success {
@@ -402,6 +419,16 @@ fn start_worker(
                         .finish(&request.run_id, status, Some(report), "");
                 }
                 Err(error) => {
+                    deliver_workflow_callback(
+                        request.callback_url.as_deref(),
+                        json!({
+                            "event": "workflow.run.failed",
+                            "workflow_id": request.workflow_id,
+                            "device_id": request.device_id,
+                            "error": error.clone(),
+                        }),
+                    )
+                    .await;
                     let _ = context.store.finish(
                         &request.run_id,
                         WorkflowJobStatus::Failed,

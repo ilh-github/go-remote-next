@@ -1,4 +1,5 @@
 mod config;
+mod callback;
 mod event_bus;
 mod http_transport;
 mod idempotency;

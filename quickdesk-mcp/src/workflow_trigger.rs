@@ -17,6 +17,7 @@ pub struct WorkflowTriggerSpec {
     pub overrides: HashMap<String, Value>,
     pub stop_on_failure: bool,
     pub interval_seconds: Option<u64>,
+    pub callback_url: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -28,6 +29,8 @@ pub struct WorkflowTrigger {
     pub overrides: HashMap<String, Value>,
     pub stop_on_failure: bool,
     pub interval_seconds: Option<u64>,
+    #[serde(default)]
+    pub callback_url: Option<String>,
     pub enabled: bool,
     pub next_run_at: Option<String>,
     pub last_run_at: Option<String>,
@@ -96,6 +99,7 @@ impl WorkflowTriggerStore {
             overrides: spec.overrides,
             stop_on_failure: spec.stop_on_failure,
             interval_seconds: spec.interval_seconds,
+            callback_url: spec.callback_url,
             enabled: true,
             next_run_at: spec
                 .interval_seconds
@@ -254,6 +258,7 @@ mod tests {
                     overrides: HashMap::from([("target".to_string(), json!("daily"))]),
                     stop_on_failure: true,
                     interval_seconds: Some(3600),
+                    callback_url: None,
                 },
                 now,
             )
@@ -295,6 +300,7 @@ mod tests {
                     overrides: HashMap::new(),
                     stop_on_failure: true,
                     interval_seconds: Some(60),
+                    callback_url: None,
                 },
                 created,
             )
@@ -325,6 +331,7 @@ mod tests {
             overrides: HashMap::new(),
             stop_on_failure: true,
             interval_seconds: Some(1),
+            callback_url: None,
         };
 
         assert!(store.create(base.clone()).is_err());
