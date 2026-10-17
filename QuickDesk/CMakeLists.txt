@@ -240,6 +240,7 @@ qt_add_qml_module(QuickDesk
         qml/quickdeskcomponent/RemoteDeviceSelector.qml
         qml/quickdeskcomponent/VideoStatsOverlay.qml
         qml/quickdeskcomponent/LoginDialog.qml        
+        qml/quickdeskcomponent/DeviceDisplay.js
     RESOURCES
         res/font/SegoeFluentIcons.ttf
         qml/component/qmldir
@@ -353,3 +354,7 @@ install(TARGETS QuickDesk
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
+
+if(QUICKDESK_BUILD_TESTS)
+    add_subdirectory(tests)
+endif()

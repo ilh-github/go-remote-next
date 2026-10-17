@@ -4,6 +4,7 @@ import QtQuick.Layouts
 
 import "../component"
 import "../quickdeskcomponent"
+import "../quickdeskcomponent/DeviceDisplay.js" as DeviceDisplay
 
 Item {
     id: root
@@ -121,10 +122,11 @@ Item {
 
                             Text {
                                 Layout.fillWidth: true
-                                text: {
-                                    var name = modelData.remark || modelData.device_name || modelData.device_id|| qsTr("Device")
-                                    return name + " (" + (modelData.device_id || "") + ")"
-                                }
+                                text: DeviceDisplay.deviceLabel(
+                                          modelData,
+                                          root.mainController ? root.mainController.deviceId : "",
+                                          qsTr("Device"),
+                                          qsTr("This device"))
                                 font.pixelSize: Theme.fontSizeMedium
                                 color: Theme.text
                                 elide: Text.ElideRight
@@ -238,10 +240,11 @@ Item {
 
                             Text {
                                 Layout.fillWidth: true
-                                text: {
-                                    var name = modelData.device_name || modelData.device_id || qsTr("Device")
-                                    return name + " (" + (modelData.device_id || "") + ")"
-                                }
+                                text: DeviceDisplay.deviceLabel(
+                                          modelData,
+                                          root.mainController ? root.mainController.deviceId : "",
+                                          qsTr("Device"),
+                                          qsTr("This device"))
                                 font.pixelSize: Theme.fontSizeMedium
                                 color: Theme.text
                                 elide: Text.ElideRight
