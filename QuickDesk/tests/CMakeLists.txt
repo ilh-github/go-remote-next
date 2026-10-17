@@ -160,6 +160,36 @@ add_test(
     COMMAND quickdesk_remote_session_manager_test
 )
 
+add_executable(quickdesk_scheduled_task_manager_test
+    scheduledtaskmanager_integration_test.cpp
+    authmanager_stub.cpp
+    ../src/manager/AuthManager.h
+    ../src/manager/ScheduledTaskManager.cpp
+    ../src/manager/ScheduledTaskManager.h
+)
+
+target_include_directories(quickdesk_scheduled_task_manager_test
+    PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src
+)
+
+target_link_libraries(quickdesk_scheduled_task_manager_test
+    PRIVATE
+    base
+    infra
+    Qt6::Core
+    Qt6::Test
+)
+
+if(APPLE)
+    target_link_libraries(quickdesk_scheduled_task_manager_test PRIVATE "-framework Foundation")
+endif()
+
+add_test(
+    NAME quickdesk_scheduled_task_manager_test
+    COMMAND quickdesk_scheduled_task_manager_test
+)
+
 find_package(Qt6 QUIET COMPONENTS QuickTest)
 if(Qt6QuickTest_FOUND)
     add_executable(quickdesk_qml_test

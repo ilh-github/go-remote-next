@@ -25,6 +25,7 @@ set(MANAGER_SOURCES
     src/manager/CloudDeviceManager.cpp
     src/manager/RemoteSessionManager.cpp
     src/manager/AccessApprovalManager.cpp
+    src/manager/ScheduledTaskManager.cpp
     src/manager/UpdateManager.cpp
 )
 
@@ -43,6 +44,7 @@ set(MANAGER_HEADERS
     src/manager/CloudDeviceManager.h
     src/manager/RemoteSessionManager.h
     src/manager/AccessApprovalManager.h
+    src/manager/ScheduledTaskManager.h
     src/manager/UpdateManager.h
 )
 
@@ -196,6 +198,7 @@ qt_add_qml_module(QuickDesk
         qml/pages/DeviceListPage.qml
         qml/pages/RemoteSessionsPage.qml
         qml/pages/AccessApprovalsPage.qml
+        qml/pages/ScheduledTasksPage.qml
         qml/pages/McpConfigPopup.qml
         qml/component/Theme.qml
         qml/component/FluentIconGlyph.qml

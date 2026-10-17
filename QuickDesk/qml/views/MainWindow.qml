@@ -347,6 +347,7 @@ ApplicationWindow {
                 { icon: FluentIconGlyph.contactInfoGlyph, text: qsTr("Device List") },
                 { icon: FluentIconGlyph.historyGlyph, text: qsTr("Remote Sessions") },
                 { icon: FluentIconGlyph.shieldGlyph, text: qsTr("Access Approvals") },
+                { icon: FluentIconGlyph.calendarGlyph, text: qsTr("Scheduled Tasks") },
                 { icon: FluentIconGlyph.settingsGlyph, text: qsTr("Settings") },
                 { icon: FluentIconGlyph.infoGlyph, text: qsTr("About") }
             ]
@@ -667,6 +668,19 @@ ApplicationWindow {
 
                 // Access Approvals Page
                 AccessApprovalsPage {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    mainController: root.mainController
+
+                    onLoginRequested: loginDialog.open()
+
+                    onShowToast: function(message, toastType) {
+                        toast.show(message, toastType)
+                    }
+                }
+
+                // Scheduled Tasks Page
+                ScheduledTasksPage {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     mainController: root.mainController

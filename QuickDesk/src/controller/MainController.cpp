@@ -6,6 +6,7 @@
 #include "../manager/SkillHostManager.h"
 #include "../manager/UpdateManager.h"
 #include "../manager/AccessApprovalManager.h"
+#include "../manager/ScheduledTaskManager.h"
 #include "../api/WebSocketServer.h"
 #include "../api/TrustHandler.h"
 #include "../api/OcrEngine.h"
@@ -80,6 +81,8 @@ MainController::MainController(QObject* parent)
         std::make_unique<RemoteSessionManager>(m_authManager.get(), this);
     m_accessApprovalManager =
         std::make_unique<AccessApprovalManager>(m_authManager.get(), this);
+    m_scheduledTaskManager =
+        std::make_unique<ScheduledTaskManager>(m_authManager.get(), this);
 
     // Control-side session recorder. It reads the same decoded frames the
     // remote view renders and uploads the result through the authenticated API.
@@ -610,6 +613,11 @@ RemoteSessionManager* MainController::remoteSessionManager() const
 AccessApprovalManager* MainController::accessApprovalManager() const
 {
     return m_accessApprovalManager.get();
+}
+
+ScheduledTaskManager* MainController::scheduledTaskManager() const
+{
+    return m_scheduledTaskManager.get();
 }
 
 QString MainController::deviceId() const

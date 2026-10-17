@@ -10,6 +10,7 @@
         <file>qml/pages/DeviceListPage.qml</file>
         <file>qml/pages/RemoteSessionsPage.qml</file>
         <file>qml/pages/AccessApprovalsPage.qml</file>
+        <file>qml/pages/ScheduledTasksPage.qml</file>
         <file>qml/pages/McpConfigPopup.qml</file>
         <file>qml/component/FluentIconGlyph.qml</file>
         <file>qml/component/Theme.qml</file>
