@@ -45,7 +45,12 @@ const (
 	// `online.changed` says the heartbeat stopped, this says it has stayed
 	// stopped for longer than the owner's threshold. A device that reboots or
 	// sleeps produces the first and not the second.
-	EventDeviceOfflineSustained  = "device.offline.sustained"
+	EventDeviceOfflineSustained = "device.offline.sustained"
+	// Fired from an accepted host metric sample after one metric has stayed
+	// above the owner's threshold for the configured duration. Each metric
+	// keeps independent episode state.
+	EventDeviceMetricAlert       = "device.metric.alert"
+	EventDeviceMetricsUpdated    = "device.metrics.updated"
 	EventDeviceSessionUpdated    = "device.session.updated"
 	EventDeviceAccessCodeChanged = "device.access_code.changed"
 	EventDeviceRemarkChanged     = "device.remark.changed"

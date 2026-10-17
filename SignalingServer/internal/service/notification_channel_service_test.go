@@ -44,6 +44,12 @@ func TestIsSupportedUserNotificationEvent(t *testing.T) {
 	}
 }
 
+func TestMetricAlertCanReachUserNotificationChannels(t *testing.T) {
+	if !IsSupportedUserNotificationEvent(EventDeviceMetricAlert) {
+		t.Fatalf("%s must be subscribable by a user notification channel", EventDeviceMetricAlert)
+	}
+}
+
 func TestChannelSubscribes(t *testing.T) {
 	list := `["device.access.denied","device.online.changed"]`
 	if !channelSubscribes(list, EventDeviceAccessDenied) {

@@ -55,10 +55,16 @@ __all__ = [
     "Device",
     "DeviceAccessPolicy",
     "DeviceAccessPolicyInput",
+    "HostMetricReport",
     "ListAccessApprovals200Response",
     "ListAccessGrants200Response",
     "ListMyDevices200Response",
     "MaintenanceWindow",
+    "MetricAlertInput",
+    "MetricAlertRule",
+    "MetricAlertState",
+    "MetricAlertStates",
+    "MetricSnapshot",
     "NotificationChannel",
     "NotificationChannelList",
     "OfflineAlertInput",
@@ -74,6 +80,7 @@ __all__ = [
     "RemoteSessionDetailList",
     "RemoteSessionList",
     "RemoteSessionRevocation",
+    "ReportHostMetrics200Response",
     "RevokeAccessGrant200Response",
     "SessionRecording",
     "SessionRecordingInput",
@@ -126,10 +133,16 @@ from quickdesk_signaling.models.auth_session_response import AuthSessionResponse
 from quickdesk_signaling.models.device import Device as Device
 from quickdesk_signaling.models.device_access_policy import DeviceAccessPolicy as DeviceAccessPolicy
 from quickdesk_signaling.models.device_access_policy_input import DeviceAccessPolicyInput as DeviceAccessPolicyInput
+from quickdesk_signaling.models.host_metric_report import HostMetricReport as HostMetricReport
 from quickdesk_signaling.models.list_access_approvals200_response import ListAccessApprovals200Response as ListAccessApprovals200Response
 from quickdesk_signaling.models.list_access_grants200_response import ListAccessGrants200Response as ListAccessGrants200Response
 from quickdesk_signaling.models.list_my_devices200_response import ListMyDevices200Response as ListMyDevices200Response
 from quickdesk_signaling.models.maintenance_window import MaintenanceWindow as MaintenanceWindow
+from quickdesk_signaling.models.metric_alert_input import MetricAlertInput as MetricAlertInput
+from quickdesk_signaling.models.metric_alert_rule import MetricAlertRule as MetricAlertRule
+from quickdesk_signaling.models.metric_alert_state import MetricAlertState as MetricAlertState
+from quickdesk_signaling.models.metric_alert_states import MetricAlertStates as MetricAlertStates
+from quickdesk_signaling.models.metric_snapshot import MetricSnapshot as MetricSnapshot
 from quickdesk_signaling.models.notification_channel import NotificationChannel as NotificationChannel
 from quickdesk_signaling.models.notification_channel_list import NotificationChannelList as NotificationChannelList
 from quickdesk_signaling.models.offline_alert_input import OfflineAlertInput as OfflineAlertInput
@@ -145,6 +158,7 @@ from quickdesk_signaling.models.remote_session_detail_counts import RemoteSessio
 from quickdesk_signaling.models.remote_session_detail_list import RemoteSessionDetailList as RemoteSessionDetailList
 from quickdesk_signaling.models.remote_session_list import RemoteSessionList as RemoteSessionList
 from quickdesk_signaling.models.remote_session_revocation import RemoteSessionRevocation as RemoteSessionRevocation
+from quickdesk_signaling.models.report_host_metrics200_response import ReportHostMetrics200Response as ReportHostMetrics200Response
 from quickdesk_signaling.models.revoke_access_grant200_response import RevokeAccessGrant200Response as RevokeAccessGrant200Response
 from quickdesk_signaling.models.session_recording import SessionRecording as SessionRecording
 from quickdesk_signaling.models.session_recording_input import SessionRecordingInput as SessionRecordingInput

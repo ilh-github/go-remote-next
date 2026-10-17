@@ -14,6 +14,7 @@ All URIs are relative to *https://your-signaling-host*
 | [**listAccessGrants**](DevicesApi.md#listAccessGrants) | **GET** /v1/me/devices/{device_id}/access-grants | Guest access codes issued for a device |
 | [**listMyDevices**](DevicesApi.md#listMyDevices) | **GET** /v1/me/devices | Devices owned by the authenticated user |
 | [**putAccessPolicy**](DevicesApi.md#putAccessPolicy) | **PUT** /v1/me/devices/{device_id}/access-policy | Create or replace the device&#39;s access policy |
+| [**reportHostMetrics**](DevicesApi.md#reportHostMetrics) | **POST** /v1/devices/{device_id}/metrics | Report the host&#39;s latest resource sample |
 | [**revokeAccessGrant**](DevicesApi.md#revokeAccessGrant) | **DELETE** /v1/me/devices/{device_id}/access-grants/{grant_id} | Revoke a guest access code |
 | [**verifyAccessCode**](DevicesApi.md#verifyAccessCode) | **POST** /v1/devices/{device_id}/access-code:verify | Verify a device access code and mint a signal token |
 
@@ -793,6 +794,84 @@ public class Example {
 | **400** | The request was malformed or failed validation. |  -  |
 | **403** | Authenticated but not allowed (includes a rejected access code). |  -  |
 | **404** | The addressed resource does not exist. |  -  |
+
+<a id="reportHostMetrics"></a>
+# **reportHostMetrics**
+> ReportHostMetrics200Response reportHostMetrics(deviceId, hostMetricReport)
+
+Report the host&#39;s latest resource sample
+
+Host-only endpoint authenticated by both the deployment API key and the device secret. Values are percentages in the inclusive range 0..100. Repeating a report replaces the previous sample and advances the owner&#39;s metric-alert episode state. 
+
+### Example
+```java
+// Import classes:
+import org.openapitools.client.ApiClient;
+import org.openapitools.client.ApiException;
+import org.openapitools.client.Configuration;
+import org.openapitools.client.auth.*;
+import org.openapitools.client.models.*;
+import org.openapitools.client.api.DevicesApi;
+
+public class Example {
+  public static void main(String[] args) {
+    ApiClient defaultClient = Configuration.getDefaultApiClient();
+    defaultClient.setBasePath("https://your-signaling-host");
+    
+    // Configure API key authorization: ApiKeyAuth
+    ApiKeyAuth ApiKeyAuth = (ApiKeyAuth) defaultClient.getAuthentication("ApiKeyAuth");
+    ApiKeyAuth.setApiKey("YOUR API KEY");
+    // Uncomment the following line to set a prefix for the API key, e.g. "Token" (defaults to null)
+    //ApiKeyAuth.setApiKeyPrefix("Token");
+
+    // Configure HTTP bearer authorization: BearerAuth
+    HttpBearerAuth BearerAuth = (HttpBearerAuth) defaultClient.getAuthentication("BearerAuth");
+    BearerAuth.setBearerToken("BEARER TOKEN");
+
+    DevicesApi apiInstance = new DevicesApi(defaultClient);
+    String deviceId = "deviceId_example"; // String | The device id shown on the controlled machine.
+    HostMetricReport hostMetricReport = new HostMetricReport(); // HostMetricReport | 
+    try {
+      ReportHostMetrics200Response result = apiInstance.reportHostMetrics(deviceId, hostMetricReport);
+      System.out.println(result);
+    } catch (ApiException e) {
+      System.err.println("Exception when calling DevicesApi#reportHostMetrics");
+      System.err.println("Status code: " + e.getCode());
+      System.err.println("Reason: " + e.getResponseBody());
+      System.err.println("Response headers: " + e.getResponseHeaders());
+      e.printStackTrace();
+    }
+  }
+}
+```
+
+### Parameters
+
+| Name | Type | Description  | Notes |
+|------------- | ------------- | ------------- | -------------|
+| **deviceId** | **String**| The device id shown on the controlled machine. | |
+| **hostMetricReport** | [**HostMetricReport**](HostMetricReport.md)|  | |
+
+### Return type
+
+[**ReportHostMetrics200Response**](ReportHostMetrics200Response.md)
+
+### Authorization
+
+[ApiKeyAuth](../README.md#ApiKeyAuth), [BearerAuth](../README.md#BearerAuth)
+
+### HTTP request headers
+
+ - **Content-Type**: application/json
+ - **Accept**: application/json, application/problem+json
+
+### HTTP response details
+| Status code | Description | Response headers |
+|-------------|-------------|------------------|
+| **200** | The accepted sample identity. |  -  |
+| **400** | The request was malformed or failed validation. |  -  |
+| **401** | Missing or expired credentials. |  -  |
+| **403** | Authenticated but not allowed (includes a rejected access code). |  -  |
 
 <a id="revokeAccessGrant"></a>
 # **revokeAccessGrant**

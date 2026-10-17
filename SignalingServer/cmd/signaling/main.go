@@ -120,6 +120,8 @@ func main() {
 			&models.NotificationDelivery{},
 			&models.NotificationQuietHours{},
 			&models.DeviceOfflineAlertRule{},
+			&models.DeviceMetricSnapshot{},
+			&models.DeviceMetricAlertRule{},
 			&models.ScheduledTask{},
 			&models.InstanceLogEntry{},
 			&models.UpdateRelease{},
@@ -279,11 +281,12 @@ func main() {
 		log.Printf("Recording lifecycle: stale_after=%dm retention_days=%d sweep_interval=%dm",
 			cfg.Recording.StaleMinutes, cfg.Recording.RetentionDays, cfg.Recording.SweepIntervalMin)
 	}
-	if !minimalMode {
-		go notificationDeliveryService.Run(context.Background())
-	} else {
-		log.Println("Minimal mode: user notification delivery worker is disabled")
-	}
+	// Webhook delivery is a single-process-safe background loop: it claims
+	// durable outbox rows from the configured database and posts them over
+	// HTTP. There is no cross-instance coordination requirement, so SQLite +
+	// embedded Redis can still deliver device alerts.
+	go notificationDeliveryService.Run(context.Background())
+	log.Println("Notification delivery worker started")
 	if !minimalMode && cfg.Notification.SweepIntervalMin > 0 &&
 		(cfg.Notification.RetentionDays > 0 || cfg.Notification.ArchiveRetentionDays > 0) {
 		go notificationDeliveryService.RunRetention(
@@ -304,6 +307,7 @@ func main() {
 	rateLimitService := service.NewRateLimitService(redisClient)
 	metricsService := service.NewMetricsService()
 	bus := service.NewEventBus(redisClient)
+	deviceMetricAlertService := service.NewDeviceMetricAlertService(db, bus)
 	instanceID := uuid.NewString()
 	presenceService := service.NewPresenceService(redisClient, instanceID)
 	presenceService.Start(context.Background())
@@ -437,9 +441,7 @@ func main() {
 	// own constructor so it can receive user-scope events too).
 	bus.Subscribe(service.NewWebhookSubscriber(webhookService))
 	bus.Subscribe(service.NewAuditSubscriber(auditService))
-	if !minimalMode {
-		bus.Subscribe(service.NewUserNotificationSubscriber(notificationChannelService))
-	}
+	bus.Subscribe(service.NewUserNotificationSubscriber(notificationChannelService))
 
 	// Background worker that replays publish-failed events from the
 	// outbox retry list (§2.17). Lives for the full process lifetime.
@@ -496,6 +498,8 @@ func main() {
 		notificationQuietHoursService, notificationDeliveryService)
 	deviceAccessPolicyHandler := handler.NewDeviceAccessPolicyHandler(deviceService, deviceAccessPolicyService, bus)
 	deviceOfflineAlertHandler := handler.NewDeviceOfflineAlertHandler(deviceService, deviceOfflineAlertService)
+	deviceMetricAlertHandler := handler.NewDeviceMetricAlertHandler(deviceService, deviceMetricAlertService)
+	hostMetricHandler := handler.NewHostMetricHandler(deviceMetricAlertService)
 	updateReleaseService := service.NewUpdateReleaseService(db)
 	updateReleaseHandler := handler.NewUpdateReleaseHandler(updateReleaseService)
 	updateArtifactLifecycle := service.NewUpdateArtifactLifecycle(
@@ -689,6 +693,9 @@ func main() {
 			me.GET("/devices/:device_id/offline-alert", deviceOfflineAlertHandler.Get)
 			me.PUT("/devices/:device_id/offline-alert", deviceOfflineAlertHandler.Put)
 			me.DELETE("/devices/:device_id/offline-alert", deviceOfflineAlertHandler.Delete)
+			me.GET("/devices/:device_id/metric-alert", deviceMetricAlertHandler.Get)
+			me.PUT("/devices/:device_id/metric-alert", deviceMetricAlertHandler.Put)
+			me.DELETE("/devices/:device_id/metric-alert", deviceMetricAlertHandler.Delete)
 			me.GET("/devices/:device_id/access-grants", deviceAccessGrantHandler.List)
 			me.POST("/devices/:device_id/access-grants", deviceAccessGrantHandler.Create)
 			me.DELETE("/devices/:device_id/access-grants/:grant_id", deviceAccessGrantHandler.Delete)
@@ -770,6 +777,7 @@ func main() {
 			dev.POST("/heartbeat", hostHandler.Heartbeat)
 			dev.POST("/signal-tokens", hostHandler.IssueHostSignalToken)
 			dev.PUT("/access-code", hostHandler.SetAccessCode)
+			dev.POST("/metrics", hostMetricHandler.Report)
 		}
 
 		// verify: X-API-Key OR Origin whitelist — apikey.Required()

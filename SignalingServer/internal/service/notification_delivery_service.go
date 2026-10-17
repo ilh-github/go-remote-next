@@ -547,12 +547,19 @@ func (s *NotificationDeliveryService) claimDue(ctx context.Context, limit int) (
 				break
 			}
 			want := min(notificationPerChannelBatch, limit-len(claimed))
+			// SQLite has no row-level FOR UPDATE/SKIP LOCKED. The minimal mode
+			// pins its pool to a single connection, so the transaction already
+			// serialises claims; Postgres keeps the cross-instance lock.
+			lockClause := ""
+			if s.db.Dialector.Name() != "sqlite" {
+				lockClause = "FOR UPDATE SKIP LOCKED"
+			}
 			var rows []models.NotificationDelivery
-			if err := tx.Raw(`SELECT * FROM notification_deliveries
+			if err := tx.Raw(fmt.Sprintf(`SELECT * FROM notification_deliveries
 				WHERE status = ? AND next_attempt_at <= ? AND channel_id = ?
 				ORDER BY id
 				LIMIT ?
-				FOR UPDATE SKIP LOCKED`,
+				%s`, lockClause),
 				DeliveryStatusPending, now, ch.ChannelID, want).Scan(&rows).Error; err != nil {
 				return err
 			}

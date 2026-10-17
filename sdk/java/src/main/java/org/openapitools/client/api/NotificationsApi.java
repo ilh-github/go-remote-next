@@ -27,6 +27,8 @@ import com.google.gson.reflect.TypeToken;
 import java.io.IOException;
 
 
+import org.openapitools.client.model.MetricAlertInput;
+import org.openapitools.client.model.MetricAlertRule;
 import org.openapitools.client.model.NotificationChannelList;
 import org.openapitools.client.model.OfflineAlertInput;
 import org.openapitools.client.model.OfflineAlertRule;
@@ -75,6 +77,281 @@ public class NotificationsApi {
         this.localCustomBaseUrl = customBaseUrl;
     }
 
+    /**
+     * Build call for deleteMetricAlert
+     * @param deviceId The device id shown on the controlled machine. (required)
+     * @param _callback Callback for upload/download progress
+     * @return Call to execute
+     * @throws ApiException If fail to serialize the request body object
+     * @http.response.details
+     <table border="1">
+       <caption>Response Details</caption>
+        <tr><td> Status Code </td><td> Description </td><td> Response Headers </td></tr>
+        <tr><td> 204 </td><td> The rule was deleted. </td><td>  -  </td></tr>
+        <tr><td> 401 </td><td> Missing or expired credentials. </td><td>  -  </td></tr>
+        <tr><td> 403 </td><td> Authenticated but not allowed (includes a rejected access code). </td><td>  -  </td></tr>
+        <tr><td> 404 </td><td> The addressed resource does not exist. </td><td>  -  </td></tr>
+     </table>
+     */
+    public okhttp3.Call deleteMetricAlertCall(@javax.annotation.Nonnull String deviceId, final ApiCallback _callback) throws ApiException {
+        String basePath = null;
+        // Operation Servers
+        String[] localBasePaths = new String[] {  };
+
+        // Determine Base Path to Use
+        if (localCustomBaseUrl != null){
+            basePath = localCustomBaseUrl;
+        } else if ( localBasePaths.length > 0 ) {
+            basePath = localBasePaths[localHostIndex];
+        } else {
+            basePath = null;
+        }
+
+        Object localVarPostBody = null;
+
+        // create path and map variables
+        String localVarPath = "/v1/me/devices/{device_id}/metric-alert"
+            .replace("{" + "device_id" + "}", localVarApiClient.escapeString(deviceId.toString()));
+
+        List<Pair> localVarQueryParams = new ArrayList<Pair>();
+        List<Pair> localVarCollectionQueryParams = new ArrayList<Pair>();
+        Map<String, String> localVarHeaderParams = new HashMap<String, String>();
+        Map<String, String> localVarCookieParams = new HashMap<String, String>();
+        Map<String, Object> localVarFormParams = new HashMap<String, Object>();
+
+        final String[] localVarAccepts = {
+            "application/problem+json"
+        };
+        final String localVarAccept = localVarApiClient.selectHeaderAccept(localVarAccepts);
+        if (localVarAccept != null) {
+            localVarHeaderParams.put("Accept", localVarAccept);
+        }
+
+        final String[] localVarContentTypes = {
+        };
+        final String localVarContentType = localVarApiClient.selectHeaderContentType(localVarContentTypes);
+        if (localVarContentType != null) {
+            localVarHeaderParams.put("Content-Type", localVarContentType);
+        }
+
+        String[] localVarAuthNames = new String[] { "ApiKeyAuth", "BearerAuth" };
+        return localVarApiClient.buildCall(basePath, localVarPath, "DELETE", localVarQueryParams, localVarCollectionQueryParams, localVarPostBody, localVarHeaderParams, localVarCookieParams, localVarFormParams, localVarAuthNames, _callback);
+    }
+
+    @SuppressWarnings("rawtypes")
+    private okhttp3.Call deleteMetricAlertValidateBeforeCall(@javax.annotation.Nonnull String deviceId, final ApiCallback _callback) throws ApiException {
+        // verify the required parameter 'deviceId' is set
+        if (deviceId == null) {
+            throw new ApiException("Missing the required parameter 'deviceId' when calling deleteMetricAlert(Async)");
+        }
+
+        return deleteMetricAlertCall(deviceId, _callback);
+
+    }
+
+    /**
+     * Delete the owner&#39;s metric alert rule
+     * 
+     * @param deviceId The device id shown on the controlled machine. (required)
+     * @throws ApiException If fail to call the API, e.g. server error or cannot deserialize the response body
+     * @http.response.details
+     <table border="1">
+       <caption>Response Details</caption>
+        <tr><td> Status Code </td><td> Description </td><td> Response Headers </td></tr>
+        <tr><td> 204 </td><td> The rule was deleted. </td><td>  -  </td></tr>
+        <tr><td> 401 </td><td> Missing or expired credentials. </td><td>  -  </td></tr>
+        <tr><td> 403 </td><td> Authenticated but not allowed (includes a rejected access code). </td><td>  -  </td></tr>
+        <tr><td> 404 </td><td> The addressed resource does not exist. </td><td>  -  </td></tr>
+     </table>
+     */
+    public void deleteMetricAlert(@javax.annotation.Nonnull String deviceId) throws ApiException {
+        deleteMetricAlertWithHttpInfo(deviceId);
+    }
+
+    /**
+     * Delete the owner&#39;s metric alert rule
+     * 
+     * @param deviceId The device id shown on the controlled machine. (required)
+     * @return ApiResponse&lt;Void&gt;
+     * @throws ApiException If fail to call the API, e.g. server error or cannot deserialize the response body
+     * @http.response.details
+     <table border="1">
+       <caption>Response Details</caption>
+        <tr><td> Status Code </td><td> Description </td><td> Response Headers </td></tr>
+        <tr><td> 204 </td><td> The rule was deleted. </td><td>  -  </td></tr>
+        <tr><td> 401 </td><td> Missing or expired credentials. </td><td>  -  </td></tr>
+        <tr><td> 403 </td><td> Authenticated but not allowed (includes a rejected access code). </td><td>  -  </td></tr>
+        <tr><td> 404 </td><td> The addressed resource does not exist. </td><td>  -  </td></tr>
+     </table>
+     */
+    public ApiResponse<Void> deleteMetricAlertWithHttpInfo(@javax.annotation.Nonnull String deviceId) throws ApiException {
+        okhttp3.Call localVarCall = deleteMetricAlertValidateBeforeCall(deviceId, null);
+        return localVarApiClient.execute(localVarCall);
+    }
+
+    /**
+     * Delete the owner&#39;s metric alert rule (asynchronously)
+     * 
+     * @param deviceId The device id shown on the controlled machine. (required)
+     * @param _callback The callback to be executed when the API call finishes
+     * @return The request call
+     * @throws ApiException If fail to process the API call, e.g. serializing the request body object
+     * @http.response.details
+     <table border="1">
+       <caption>Response Details</caption>
+        <tr><td> Status Code </td><td> Description </td><td> Response Headers </td></tr>
+        <tr><td> 204 </td><td> The rule was deleted. </td><td>  -  </td></tr>
+        <tr><td> 401 </td><td> Missing or expired credentials. </td><td>  -  </td></tr>
+        <tr><td> 403 </td><td> Authenticated but not allowed (includes a rejected access code). </td><td>  -  </td></tr>
+        <tr><td> 404 </td><td> The addressed resource does not exist. </td><td>  -  </td></tr>
+     </table>
+     */
+    public okhttp3.Call deleteMetricAlertAsync(@javax.annotation.Nonnull String deviceId, final ApiCallback<Void> _callback) throws ApiException {
+
+        okhttp3.Call localVarCall = deleteMetricAlertValidateBeforeCall(deviceId, _callback);
+        localVarApiClient.executeAsync(localVarCall, _callback);
+        return localVarCall;
+    }
+    /**
+     * Build call for getMetricAlert
+     * @param deviceId The device id shown on the controlled machine. (required)
+     * @param _callback Callback for upload/download progress
+     * @return Call to execute
+     * @throws ApiException If fail to serialize the request body object
+     * @http.response.details
+     <table border="1">
+       <caption>Response Details</caption>
+        <tr><td> Status Code </td><td> Description </td><td> Response Headers </td></tr>
+        <tr><td> 200 </td><td> The rule, latest sample, and metric episode state. </td><td>  -  </td></tr>
+        <tr><td> 401 </td><td> Missing or expired credentials. </td><td>  -  </td></tr>
+        <tr><td> 403 </td><td> Authenticated but not allowed (includes a rejected access code). </td><td>  -  </td></tr>
+        <tr><td> 404 </td><td> The addressed resource does not exist. </td><td>  -  </td></tr>
+     </table>
+     */
+    public okhttp3.Call getMetricAlertCall(@javax.annotation.Nonnull String deviceId, final ApiCallback _callback) throws ApiException {
+        String basePath = null;
+        // Operation Servers
+        String[] localBasePaths = new String[] {  };
+
+        // Determine Base Path to Use
+        if (localCustomBaseUrl != null){
+            basePath = localCustomBaseUrl;
+        } else if ( localBasePaths.length > 0 ) {
+            basePath = localBasePaths[localHostIndex];
+        } else {
+            basePath = null;
+        }
+
+        Object localVarPostBody = null;
+
+        // create path and map variables
+        String localVarPath = "/v1/me/devices/{device_id}/metric-alert"
+            .replace("{" + "device_id" + "}", localVarApiClient.escapeString(deviceId.toString()));
+
+        List<Pair> localVarQueryParams = new ArrayList<Pair>();
+        List<Pair> localVarCollectionQueryParams = new ArrayList<Pair>();
+        Map<String, String> localVarHeaderParams = new HashMap<String, String>();
+        Map<String, String> localVarCookieParams = new HashMap<String, String>();
+        Map<String, Object> localVarFormParams = new HashMap<String, Object>();
+
+        final String[] localVarAccepts = {
+            "application/json",
+            "application/problem+json"
+        };
+        final String localVarAccept = localVarApiClient.selectHeaderAccept(localVarAccepts);
+        if (localVarAccept != null) {
+            localVarHeaderParams.put("Accept", localVarAccept);
+        }
+
+        final String[] localVarContentTypes = {
+        };
+        final String localVarContentType = localVarApiClient.selectHeaderContentType(localVarContentTypes);
+        if (localVarContentType != null) {
+            localVarHeaderParams.put("Content-Type", localVarContentType);
+        }
+
+        String[] localVarAuthNames = new String[] { "ApiKeyAuth", "BearerAuth" };
+        return localVarApiClient.buildCall(basePath, localVarPath, "GET", localVarQueryParams, localVarCollectionQueryParams, localVarPostBody, localVarHeaderParams, localVarCookieParams, localVarFormParams, localVarAuthNames, _callback);
+    }
+
+    @SuppressWarnings("rawtypes")
+    private okhttp3.Call getMetricAlertValidateBeforeCall(@javax.annotation.Nonnull String deviceId, final ApiCallback _callback) throws ApiException {
+        // verify the required parameter 'deviceId' is set
+        if (deviceId == null) {
+            throw new ApiException("Missing the required parameter 'deviceId' when calling getMetricAlert(Async)");
+        }
+
+        return getMetricAlertCall(deviceId, _callback);
+
+    }
+
+    /**
+     * The owner&#39;s CPU, memory, and disk alert rule
+     * Returns safe defaults when the owner never configured a rule, along with the latest host sample and the independent episode state of each metric. Samples are one-per-device; this endpoint is not a time-series query. 
+     * @param deviceId The device id shown on the controlled machine. (required)
+     * @return MetricAlertRule
+     * @throws ApiException If fail to call the API, e.g. server error or cannot deserialize the response body
+     * @http.response.details
+     <table border="1">
+       <caption>Response Details</caption>
+        <tr><td> Status Code </td><td> Description </td><td> Response Headers </td></tr>
+        <tr><td> 200 </td><td> The rule, latest sample, and metric episode state. </td><td>  -  </td></tr>
+        <tr><td> 401 </td><td> Missing or expired credentials. </td><td>  -  </td></tr>
+        <tr><td> 403 </td><td> Authenticated but not allowed (includes a rejected access code). </td><td>  -  </td></tr>
+        <tr><td> 404 </td><td> The addressed resource does not exist. </td><td>  -  </td></tr>
+     </table>
+     */
+    public MetricAlertRule getMetricAlert(@javax.annotation.Nonnull String deviceId) throws ApiException {
+        ApiResponse<MetricAlertRule> localVarResp = getMetricAlertWithHttpInfo(deviceId);
+        return localVarResp.getData();
+    }
+
+    /**
+     * The owner&#39;s CPU, memory, and disk alert rule
+     * Returns safe defaults when the owner never configured a rule, along with the latest host sample and the independent episode state of each metric. Samples are one-per-device; this endpoint is not a time-series query. 
+     * @param deviceId The device id shown on the controlled machine. (required)
+     * @return ApiResponse&lt;MetricAlertRule&gt;
+     * @throws ApiException If fail to call the API, e.g. server error or cannot deserialize the response body
+     * @http.response.details
+     <table border="1">
+       <caption>Response Details</caption>
+        <tr><td> Status Code </td><td> Description </td><td> Response Headers </td></tr>
+        <tr><td> 200 </td><td> The rule, latest sample, and metric episode state. </td><td>  -  </td></tr>
+        <tr><td> 401 </td><td> Missing or expired credentials. </td><td>  -  </td></tr>
+        <tr><td> 403 </td><td> Authenticated but not allowed (includes a rejected access code). </td><td>  -  </td></tr>
+        <tr><td> 404 </td><td> The addressed resource does not exist. </td><td>  -  </td></tr>
+     </table>
+     */
+    public ApiResponse<MetricAlertRule> getMetricAlertWithHttpInfo(@javax.annotation.Nonnull String deviceId) throws ApiException {
+        okhttp3.Call localVarCall = getMetricAlertValidateBeforeCall(deviceId, null);
+        Type localVarReturnType = new TypeToken<MetricAlertRule>(){}.getType();
+        return localVarApiClient.execute(localVarCall, localVarReturnType);
+    }
+
+    /**
+     * The owner&#39;s CPU, memory, and disk alert rule (asynchronously)
+     * Returns safe defaults when the owner never configured a rule, along with the latest host sample and the independent episode state of each metric. Samples are one-per-device; this endpoint is not a time-series query. 
+     * @param deviceId The device id shown on the controlled machine. (required)
+     * @param _callback The callback to be executed when the API call finishes
+     * @return The request call
+     * @throws ApiException If fail to process the API call, e.g. serializing the request body object
+     * @http.response.details
+     <table border="1">
+       <caption>Response Details</caption>
+        <tr><td> Status Code </td><td> Description </td><td> Response Headers </td></tr>
+        <tr><td> 200 </td><td> The rule, latest sample, and metric episode state. </td><td>  -  </td></tr>
+        <tr><td> 401 </td><td> Missing or expired credentials. </td><td>  -  </td></tr>
+        <tr><td> 403 </td><td> Authenticated but not allowed (includes a rejected access code). </td><td>  -  </td></tr>
+        <tr><td> 404 </td><td> The addressed resource does not exist. </td><td>  -  </td></tr>
+     </table>
+     */
+    public okhttp3.Call getMetricAlertAsync(@javax.annotation.Nonnull String deviceId, final ApiCallback<MetricAlertRule> _callback) throws ApiException {
+
+        okhttp3.Call localVarCall = getMetricAlertValidateBeforeCall(deviceId, _callback);
+        Type localVarReturnType = new TypeToken<MetricAlertRule>(){}.getType();
+        localVarApiClient.executeAsync(localVarCall, localVarReturnType, _callback);
+        return localVarCall;
+    }
     /**
      * Build call for getOfflineAlert
      * @param deviceId The device id shown on the controlled machine. (required)
@@ -334,6 +611,160 @@ public class NotificationsApi {
 
         okhttp3.Call localVarCall = listNotificationChannelsValidateBeforeCall(_callback);
         Type localVarReturnType = new TypeToken<NotificationChannelList>(){}.getType();
+        localVarApiClient.executeAsync(localVarCall, localVarReturnType, _callback);
+        return localVarCall;
+    }
+    /**
+     * Build call for putMetricAlert
+     * @param deviceId The device id shown on the controlled machine. (required)
+     * @param metricAlertInput  (required)
+     * @param _callback Callback for upload/download progress
+     * @return Call to execute
+     * @throws ApiException If fail to serialize the request body object
+     * @http.response.details
+     <table border="1">
+       <caption>Response Details</caption>
+        <tr><td> Status Code </td><td> Description </td><td> Response Headers </td></tr>
+        <tr><td> 200 </td><td> The stored rule and latest sample. </td><td>  -  </td></tr>
+        <tr><td> 400 </td><td> The request was malformed or failed validation. </td><td>  -  </td></tr>
+        <tr><td> 401 </td><td> Missing or expired credentials. </td><td>  -  </td></tr>
+        <tr><td> 403 </td><td> Authenticated but not allowed (includes a rejected access code). </td><td>  -  </td></tr>
+        <tr><td> 404 </td><td> The addressed resource does not exist. </td><td>  -  </td></tr>
+     </table>
+     */
+    public okhttp3.Call putMetricAlertCall(@javax.annotation.Nonnull String deviceId, @javax.annotation.Nonnull MetricAlertInput metricAlertInput, final ApiCallback _callback) throws ApiException {
+        String basePath = null;
+        // Operation Servers
+        String[] localBasePaths = new String[] {  };
+
+        // Determine Base Path to Use
+        if (localCustomBaseUrl != null){
+            basePath = localCustomBaseUrl;
+        } else if ( localBasePaths.length > 0 ) {
+            basePath = localBasePaths[localHostIndex];
+        } else {
+            basePath = null;
+        }
+
+        Object localVarPostBody = metricAlertInput;
+
+        // create path and map variables
+        String localVarPath = "/v1/me/devices/{device_id}/metric-alert"
+            .replace("{" + "device_id" + "}", localVarApiClient.escapeString(deviceId.toString()));
+
+        List<Pair> localVarQueryParams = new ArrayList<Pair>();
+        List<Pair> localVarCollectionQueryParams = new ArrayList<Pair>();
+        Map<String, String> localVarHeaderParams = new HashMap<String, String>();
+        Map<String, String> localVarCookieParams = new HashMap<String, String>();
+        Map<String, Object> localVarFormParams = new HashMap<String, Object>();
+
+        final String[] localVarAccepts = {
+            "application/json",
+            "application/problem+json"
+        };
+        final String localVarAccept = localVarApiClient.selectHeaderAccept(localVarAccepts);
+        if (localVarAccept != null) {
+            localVarHeaderParams.put("Accept", localVarAccept);
+        }
+
+        final String[] localVarContentTypes = {
+            "application/json"
+        };
+        final String localVarContentType = localVarApiClient.selectHeaderContentType(localVarContentTypes);
+        if (localVarContentType != null) {
+            localVarHeaderParams.put("Content-Type", localVarContentType);
+        }
+
+        String[] localVarAuthNames = new String[] { "ApiKeyAuth", "BearerAuth" };
+        return localVarApiClient.buildCall(basePath, localVarPath, "PUT", localVarQueryParams, localVarCollectionQueryParams, localVarPostBody, localVarHeaderParams, localVarCookieParams, localVarFormParams, localVarAuthNames, _callback);
+    }
+
+    @SuppressWarnings("rawtypes")
+    private okhttp3.Call putMetricAlertValidateBeforeCall(@javax.annotation.Nonnull String deviceId, @javax.annotation.Nonnull MetricAlertInput metricAlertInput, final ApiCallback _callback) throws ApiException {
+        // verify the required parameter 'deviceId' is set
+        if (deviceId == null) {
+            throw new ApiException("Missing the required parameter 'deviceId' when calling putMetricAlert(Async)");
+        }
+
+        // verify the required parameter 'metricAlertInput' is set
+        if (metricAlertInput == null) {
+            throw new ApiException("Missing the required parameter 'metricAlertInput' when calling putMetricAlert(Async)");
+        }
+
+        return putMetricAlertCall(deviceId, metricAlertInput, _callback);
+
+    }
+
+    /**
+     * Create or replace the owner&#39;s metric alert rule
+     * 
+     * @param deviceId The device id shown on the controlled machine. (required)
+     * @param metricAlertInput  (required)
+     * @return MetricAlertRule
+     * @throws ApiException If fail to call the API, e.g. server error or cannot deserialize the response body
+     * @http.response.details
+     <table border="1">
+       <caption>Response Details</caption>
+        <tr><td> Status Code </td><td> Description </td><td> Response Headers </td></tr>
+        <tr><td> 200 </td><td> The stored rule and latest sample. </td><td>  -  </td></tr>
+        <tr><td> 400 </td><td> The request was malformed or failed validation. </td><td>  -  </td></tr>
+        <tr><td> 401 </td><td> Missing or expired credentials. </td><td>  -  </td></tr>
+        <tr><td> 403 </td><td> Authenticated but not allowed (includes a rejected access code). </td><td>  -  </td></tr>
+        <tr><td> 404 </td><td> The addressed resource does not exist. </td><td>  -  </td></tr>
+     </table>
+     */
+    public MetricAlertRule putMetricAlert(@javax.annotation.Nonnull String deviceId, @javax.annotation.Nonnull MetricAlertInput metricAlertInput) throws ApiException {
+        ApiResponse<MetricAlertRule> localVarResp = putMetricAlertWithHttpInfo(deviceId, metricAlertInput);
+        return localVarResp.getData();
+    }
+
+    /**
+     * Create or replace the owner&#39;s metric alert rule
+     * 
+     * @param deviceId The device id shown on the controlled machine. (required)
+     * @param metricAlertInput  (required)
+     * @return ApiResponse&lt;MetricAlertRule&gt;
+     * @throws ApiException If fail to call the API, e.g. server error or cannot deserialize the response body
+     * @http.response.details
+     <table border="1">
+       <caption>Response Details</caption>
+        <tr><td> Status Code </td><td> Description </td><td> Response Headers </td></tr>
+        <tr><td> 200 </td><td> The stored rule and latest sample. </td><td>  -  </td></tr>
+        <tr><td> 400 </td><td> The request was malformed or failed validation. </td><td>  -  </td></tr>
+        <tr><td> 401 </td><td> Missing or expired credentials. </td><td>  -  </td></tr>
+        <tr><td> 403 </td><td> Authenticated but not allowed (includes a rejected access code). </td><td>  -  </td></tr>
+        <tr><td> 404 </td><td> The addressed resource does not exist. </td><td>  -  </td></tr>
+     </table>
+     */
+    public ApiResponse<MetricAlertRule> putMetricAlertWithHttpInfo(@javax.annotation.Nonnull String deviceId, @javax.annotation.Nonnull MetricAlertInput metricAlertInput) throws ApiException {
+        okhttp3.Call localVarCall = putMetricAlertValidateBeforeCall(deviceId, metricAlertInput, null);
+        Type localVarReturnType = new TypeToken<MetricAlertRule>(){}.getType();
+        return localVarApiClient.execute(localVarCall, localVarReturnType);
+    }
+
+    /**
+     * Create or replace the owner&#39;s metric alert rule (asynchronously)
+     * 
+     * @param deviceId The device id shown on the controlled machine. (required)
+     * @param metricAlertInput  (required)
+     * @param _callback The callback to be executed when the API call finishes
+     * @return The request call
+     * @throws ApiException If fail to process the API call, e.g. serializing the request body object
+     * @http.response.details
+     <table border="1">
+       <caption>Response Details</caption>
+        <tr><td> Status Code </td><td> Description </td><td> Response Headers </td></tr>
+        <tr><td> 200 </td><td> The stored rule and latest sample. </td><td>  -  </td></tr>
+        <tr><td> 400 </td><td> The request was malformed or failed validation. </td><td>  -  </td></tr>
+        <tr><td> 401 </td><td> Missing or expired credentials. </td><td>  -  </td></tr>
+        <tr><td> 403 </td><td> Authenticated but not allowed (includes a rejected access code). </td><td>  -  </td></tr>
+        <tr><td> 404 </td><td> The addressed resource does not exist. </td><td>  -  </td></tr>
+     </table>
+     */
+    public okhttp3.Call putMetricAlertAsync(@javax.annotation.Nonnull String deviceId, @javax.annotation.Nonnull MetricAlertInput metricAlertInput, final ApiCallback<MetricAlertRule> _callback) throws ApiException {
+
+        okhttp3.Call localVarCall = putMetricAlertValidateBeforeCall(deviceId, metricAlertInput, _callback);
+        Type localVarReturnType = new TypeToken<MetricAlertRule>(){}.getType();
         localVarApiClient.executeAsync(localVarCall, localVarReturnType, _callback);
         return localVarCall;
     }

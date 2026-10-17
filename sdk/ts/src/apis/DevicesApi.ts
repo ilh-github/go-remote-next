@@ -29,10 +29,12 @@ import type {
   ApproveAccessApprovalRequest,
   DeviceAccessPolicy,
   DeviceAccessPolicyInput,
+  HostMetricReport,
   ListAccessApprovals200Response,
   ListAccessGrants200Response,
   ListMyDevices200Response,
   Problem,
+  ReportHostMetrics200Response,
   RevokeAccessGrant200Response,
 } from '../models/index';
 import {
@@ -64,6 +66,8 @@ import {
     DeviceAccessPolicyToJSON,
     DeviceAccessPolicyInputFromJSON,
     DeviceAccessPolicyInputToJSON,
+    HostMetricReportFromJSON,
+    HostMetricReportToJSON,
     ListAccessApprovals200ResponseFromJSON,
     ListAccessApprovals200ResponseToJSON,
     ListAccessGrants200ResponseFromJSON,
@@ -72,6 +76,8 @@ import {
     ListMyDevices200ResponseToJSON,
     ProblemFromJSON,
     ProblemToJSON,
+    ReportHostMetrics200ResponseFromJSON,
+    ReportHostMetrics200ResponseToJSON,
     RevokeAccessGrant200ResponseFromJSON,
     RevokeAccessGrant200ResponseToJSON,
 } from '../models/index';
@@ -121,6 +127,11 @@ export interface ListAccessGrantsRequest {
 export interface PutAccessPolicyRequest {
     deviceId: string;
     deviceAccessPolicyInput: DeviceAccessPolicyInput;
+}
+
+export interface ReportHostMetricsRequest {
+    deviceId: string;
+    hostMetricReport: HostMetricReport;
 }
 
 export interface RevokeAccessGrantRequest {
@@ -701,6 +712,67 @@ export class DevicesApi extends runtime.BaseAPI {
      */
     async putAccessPolicy(requestParameters: PutAccessPolicyRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<DeviceAccessPolicy> {
         const response = await this.putAccessPolicyRaw(requestParameters, initOverrides);
+        return await response.value();
+    }
+
+    /**
+     * Host-only endpoint authenticated by both the deployment API key and the device secret. Values are percentages in the inclusive range 0..100. Repeating a report replaces the previous sample and advances the owner\'s metric-alert episode state. 
+     * Report the host\'s latest resource sample
+     */
+    async reportHostMetricsRaw(requestParameters: ReportHostMetricsRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<ReportHostMetrics200Response>> {
+        if (requestParameters['deviceId'] == null) {
+            throw new runtime.RequiredError(
+                'deviceId',
+                'Required parameter "deviceId" was null or undefined when calling reportHostMetrics().'
+            );
+        }
+
+        if (requestParameters['hostMetricReport'] == null) {
+            throw new runtime.RequiredError(
+                'hostMetricReport',
+                'Required parameter "hostMetricReport" was null or undefined when calling reportHostMetrics().'
+            );
+        }
+
+        const queryParameters: any = {};
+
+        const headerParameters: runtime.HTTPHeaders = {};
+
+        headerParameters['Content-Type'] = 'application/json';
+
+        if (this.configuration && this.configuration.apiKey) {
+            headerParameters["X-API-Key"] = await this.configuration.apiKey("X-API-Key"); // ApiKeyAuth authentication
+        }
+
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("BearerAuth", []);
+
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+
+        let urlPath = `/v1/devices/{device_id}/metrics`;
+        urlPath = urlPath.replace(`{${"device_id"}}`, encodeURIComponent(String(requestParameters['deviceId'])));
+
+        const response = await this.request({
+            path: urlPath,
+            method: 'POST',
+            headers: headerParameters,
+            query: queryParameters,
+            body: HostMetricReportToJSON(requestParameters['hostMetricReport']),
+        }, initOverrides);
+
+        return new runtime.JSONApiResponse(response, (jsonValue) => ReportHostMetrics200ResponseFromJSON(jsonValue));
+    }
+
+    /**
+     * Host-only endpoint authenticated by both the deployment API key and the device secret. Values are percentages in the inclusive range 0..100. Repeating a report replaces the previous sample and advances the owner\'s metric-alert episode state. 
+     * Report the host\'s latest resource sample
+     */
+    async reportHostMetrics(requestParameters: ReportHostMetricsRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<ReportHostMetrics200Response> {
+        const response = await this.reportHostMetricsRaw(requestParameters, initOverrides);
         return await response.value();
     }
 
