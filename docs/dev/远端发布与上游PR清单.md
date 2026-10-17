@@ -7,11 +7,12 @@
 
 ## 当前本地基线
 
-- fork 主干：`dev` 已包含 `4e8ea5a`（QD-212 Qt 设备列表本机标识）
+- fork 主干：`dev` 已包含 `9a2608b`（QD-213 访问码回源）
 - 功能分支：`codex/product-backlog` = `dea02f9`
 - 上游 QD-003 候选：`codex/upstream-cross-tab-coordination` = `6047615`（基于 `upstream/dev`）
 - 上游 QD-114 候选：`codex/upstream-qd-114-spki` = `13559e6`（基于 `upstream/dev`）
 - 上游 QD-212 候选：`codex/upstream-qd-212-local-device` = `f1ce096`（基于 `upstream/dev`）
+- 上游 QD-213 候选：`codex/upstream-qd-213-access-code-refresh` = `6928d24`（基于 `upstream/dev`）
 - 上游最小候选：`codex/upstream-access-bans` = `b89c24c`
 - 上游基线：`barry-ran/QuickDesk` 的 `dev` / `master` = `f6651f0`
 - fork PR #1：<https://github.com/ilh-github/go-remote-next/pull/1>
@@ -45,6 +46,8 @@
 - QD-005 真实本地 HTTP 集成测试覆盖成功下载、摘要不匹配拒绝、残件清理和跨源隔离。
 - Qt 我的设备和收藏列表已用当前 Host 设备 ID 标记“本机”，不影响备注/设备名展示；
   QD-212 上游候选已在干净基线上构建并通过 QML 测试。
+- Qt 点击设备时如果云快照没有访问码，会按单设备 GET 回源，成功后自动继续连接；
+  并发点击合并成一次请求，QD-213 上游候选已在干净基线上构建并通过集成测试。
 
 ## 1. 推送前检查
 
@@ -65,10 +68,12 @@ git log --oneline --left-right origin/feat/signaling-control-plane...codex/upstr
 - `dev` 必须包含 `a48d793`；
 - `dev` 必须包含 `cae77ff`；
 - `dev` 必须包含 `4e8ea5a`；
+- `dev` 必须包含 `9a2608b`；
 - `codex/product-backlog` 必须包含 `dea02f9`；
 - `codex/upstream-access-bans` 必须包含 `b89c24c`；
 - `codex/upstream-qd-114-spki` 必须包含 `13559e6`；
 - `codex/upstream-qd-212-local-device` 必须包含 `f1ce096`；
+- `codex/upstream-qd-213-access-code-refresh` 必须包含 `6928d24`；
 - 如果远端出现新提交，先合并或 rebase，再重跑受影响测试，不能强推覆盖他人工作。
 
 ## 2. 推送 fork 分支
@@ -79,6 +84,7 @@ git push origin \
   codex/product-backlog \
   codex/upstream-qd-114-spki \
   codex/upstream-qd-212-local-device \
+  codex/upstream-qd-213-access-code-refresh \
   codex/source-unban \
   codex/upstream-access-bans
 ```
@@ -168,6 +174,10 @@ PR 描述至少写明：
 - `feat(qt): mark the local device in device lists`：对应上游 issue #19 的本机标识；
   候选分支 `codex/upstream-qd-212-local-device` = `f1ce096`，基于 `upstream/dev`，
   10 个文件。已在干净上游基线上完整构建、运行 QML 测试和 `QuickDesk_qmllint`；
+  远端推送仍被策略拒绝。
+- `fix(qt): refresh missing access codes before connecting`：对应上游 issue #19 的
+  “访问码不可用”；候选分支 `codex/upstream-qd-213-access-code-refresh` = `6928d24`，
+  基于 `upstream/dev`，9 个文件。已验证单设备回源、并发合并、失败路径和自动续连；
   远端推送仍被策略拒绝。
 - 控制面管理页：等 PR #25 合并后按页面拆成独立 PR，不再使用“所有 fork 页面都留在 fork”
   的旧口径。
