@@ -7,7 +7,7 @@
 
 ## 当前本地基线
 
-- fork 主干：`dev` 已包含 `4234bb1`（计划任务管理页）
+- fork 主干：`dev` 已包含 `f5d3283`（访问审批页）
 - 来源解封功能分支：`codex/source-unban` = `6230d16`
 - 上游最小候选：`codex/upstream-access-bans` = `b89c24c`
 - fork PR #1：<https://github.com/ilh-github/go-remote-next/pull/1>
@@ -44,7 +44,7 @@ git log --oneline --left-right origin/feat/signaling-control-plane...codex/upstr
 要求：
 
 - 除机器本地的 `.idea/` 外，工作树必须干净；
-- `dev` 必须包含 `4234bb1`；
+- `dev` 必须包含 `f5d3283`；
 - `codex/upstream-access-bans` 必须包含 `b89c24c`；
 - 如果远端出现新提交，先合并或 rebase，再重跑受影响测试，不能强推覆盖他人工作。
 
