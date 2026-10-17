@@ -218,6 +218,19 @@ class UserSync extends EventTarget {
       }))
       return
     }
+    if (type === 'remote_session.started' || type === 'remote_session.ended') {
+      if (!this._shouldApplyFrame(type, msg.server_rev)) return
+      const data = msg.data || {}
+      this.dispatchEvent(new CustomEvent('remote-session-changed', {
+        detail: {
+          type,
+          session_id: data.session_id || '',
+          device_id: data.device_id || '',
+          data,
+        },
+      }))
+      return
+    }
 
     if (!this._shouldApplyFrame(type, msg.server_rev)) return
 

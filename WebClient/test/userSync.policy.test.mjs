@@ -17,6 +17,7 @@ globalThis.localStorage = {
 const { userSync } = await import('../src/api/userSync.js')
 
 test('device policy events expose the updated deny list', () => {
+  userSync.stop()
   let detail = null
   userSync.addEventListener(
     'access-policy-changed',
@@ -43,4 +44,57 @@ test('device policy events expose the updated deny list', () => {
       deny_ips: ['203.0.113.7'],
     },
   })
+})
+
+test('remote session lifecycle events expose the changed session', () => {
+  userSync.stop()
+  const details = []
+  userSync.addEventListener(
+    'remote-session-changed',
+    (event) => { details.push(event.detail) },
+  )
+
+  userSync._onMessage({
+    data: JSON.stringify({
+      type: 'remote_session.started',
+      server_rev: 2,
+      data: {
+        session_id: 'sig_started',
+        device_id: '123456789',
+      },
+    }),
+  })
+  userSync._onMessage({
+    data: JSON.stringify({
+      type: 'remote_session.ended',
+      server_rev: 3,
+      data: {
+        session_id: 'sig_started',
+        device_id: '123456789',
+        end_reason: 'disconnected',
+      },
+    }),
+  })
+
+  assert.deepEqual(details, [
+    {
+      type: 'remote_session.started',
+      session_id: 'sig_started',
+      device_id: '123456789',
+      data: {
+        session_id: 'sig_started',
+        device_id: '123456789',
+      },
+    },
+    {
+      type: 'remote_session.ended',
+      session_id: 'sig_started',
+      device_id: '123456789',
+      data: {
+        session_id: 'sig_started',
+        device_id: '123456789',
+        end_reason: 'disconnected',
+      },
+    },
+  ])
 })

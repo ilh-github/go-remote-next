@@ -210,6 +210,10 @@ async function load(reset = true) {
     limit: 50,
   })
   loading.value = false
+  if (sessionRefreshPending) {
+    sessionRefreshPending = false
+    scheduleSessionRefresh()
+  }
   if (!r.ok) {
     error.value = r.error || t('sessions.loadFailed')
     return
@@ -322,6 +326,27 @@ function onAccessPolicyChanged(event) {
   loadBlockedSources()
 }
 
+let sessionRefreshTimer = null
+let sessionRefreshPending = false
+
+function scheduleSessionRefresh() {
+  if (loading.value) {
+    sessionRefreshPending = true
+    return
+  }
+  if (sessionRefreshTimer) return
+  sessionRefreshTimer = setTimeout(() => {
+    sessionRefreshTimer = null
+    load(true)
+  }, 150)
+}
+
+function onRemoteSessionChanged(event) {
+  const data = event.detail?.data || {}
+  if (deviceFilter.value && data.device_id !== deviceFilter.value) return
+  scheduleSessionRefresh()
+}
+
 async function clearDevice() {
   const id = deviceFilter.value
   if (!id) return
@@ -369,12 +394,15 @@ onMounted(() => {
     load(true)
   }
   userSync.addEventListener('access-policy-changed', onAccessPolicyChanged)
+  userSync.addEventListener('remote-session-changed', onRemoteSessionChanged)
   startPolling()
 })
 
 onUnmounted(() => {
   if (pollTimer) clearInterval(pollTimer)
+  if (sessionRefreshTimer) clearTimeout(sessionRefreshTimer)
   userSync.removeEventListener('access-policy-changed', onAccessPolicyChanged)
+  userSync.removeEventListener('remote-session-changed', onRemoteSessionChanged)
 })
 </script>
 
