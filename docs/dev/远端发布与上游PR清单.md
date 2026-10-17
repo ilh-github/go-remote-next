@@ -7,8 +7,8 @@
 
 ## 当前本地基线
 
-- fork 主干：本地 `dev` 的 Windows 自动更新代码提交为 `a982a10`；本文件更新和
-  `master` 合并紧随其后，实际 HEAD 以 `git rev-parse dev master` 为准
+- fork 主干：本地 `dev`、`master` 均在 `bec80f6`；本轮 Windows 自动更新代码提交为
+  `a982a10`，验证记录和清单更新为 `bec80f6`
 - fork 远端：`origin/dev`、`origin/master` 仍为 `f6651f0`；本地 `dev` 领先数量以
   `git rev-list --count origin/dev..dev` 为准，远端写入尚未完成
 - 功能分支：`codex/product-backlog` = `dea02f9`
@@ -123,6 +123,11 @@
   会主动退出，安装器没有可恢复的 Restart Manager 应用，所以升级后不会自动启动。
   `a982a10` 改为 `/LAUNCHAPP`，由安装器完成后显式启动新版本；新版本启动时清理不高于
   当前版本的更新目录，同时保留尚未安装的更高版本下载。
+- QD-005 上游候选尚未创建：实测把自托管更新提交 `cae77ff` 直接 cherry-pick 到
+  `upstream/dev@f6651f0` 会在 `QuickDesk/CMakeLists.txt`、`MainController`、
+  `localconfigcenter`、中英文翻译和测试 CMake 基线发生冲突，`tests/CMakeLists.txt`
+  在上游仍不存在。不能为了开 PR 把整个 fork 控制面带进去；等 PR #25/更新通道基线
+  确定后，再从该基线提取更新管理器、安装器和测试的最小增量。
 - QD-215 Windows 发布依赖校验已落地：`verify_qd_win_release.ps1` 检查 x64 PE、
   `platforms/qwindows.dll`、VC Runtime 和 Qt 直接依赖，`publish_qd_win.bat` 与
   `package_qd_win.bat` 都会在缺依赖时中止。Windows 11 上 publish、Inno Setup 打包
