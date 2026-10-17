@@ -23,6 +23,8 @@ COPY . .
 COPY --from=frontend /build/web/dist ./web/dist
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
     go build -a -ldflags="-s -w" -o /signaling ./cmd/signaling
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+    go build -a -ldflags="-s -w" -o /quickdesk-backup ./cmd/quickdesk-backup
 
 # ---- Stage 3: Runtime (all-in-one) ----
 FROM debian:bookworm-slim
@@ -38,6 +40,7 @@ ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
 
 COPY --from=builder /signaling /opt/quickdesk/signaling
+COPY --from=builder /quickdesk-backup /opt/quickdesk/quickdesk-backup
 
 RUN mkdir -p /data/postgres /data/redis /data/logs \
     && chown -R postgres:postgres /data/postgres

@@ -104,9 +104,15 @@ func (h *AdminUpdateReleaseHandler) AppendArtifact(c *gin.Context) {
 
 	// Bound the write by whichever limit is closer, so a client cannot make the
 	// server read an unbounded body just because the cap is generous.
-	allowance := int64(-1)
-	if h.store.MaxBytes > 0 {
-		allowance = h.store.MaxBytes - staged
+	allowance, err := storageWriteAllowance(
+		h.store.Dir, h.store.QuotaBytes, h.store.MaxBytes, staged)
+	if err != nil {
+		if errors.Is(err, errStorageQuotaExceeded) {
+			ProblemBadRequest(c, ProblemCodeInvalidRequest, err.Error())
+			return
+		}
+		ProblemInternal(c, err.Error())
+		return
 	}
 	if req.Length > 0 {
 		remaining := req.Length - staged

@@ -445,7 +445,13 @@ export default {
     hostedHere: '本机托管',
     pendingArtifact: '尚未上传',
     downloadUrlHint: '可留空：稍后在上传安装包里补齐',
-    uploadHint: '文件必须与上面的 SHA-256 一致，否则服务器会拒绝'
+    uploadHint: '文件必须与上面的 SHA-256 一致，否则服务器会拒绝',
+    storageUsage: '安装包存储',
+    storageUsed: '已用',
+    storageQuota: '配额',
+    storageRemaining: '剩余',
+    unlimited: '不限制',
+    overQuota: '已超出配额'
   },
   batch: {
     selected: '已选择 {count} 项',

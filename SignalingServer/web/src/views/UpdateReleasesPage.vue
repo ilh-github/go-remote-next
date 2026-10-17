@@ -8,11 +8,26 @@
           <el-option label="beta" value="beta" />
           <el-option label="nightly" value="nightly" />
         </el-select>
-        <el-button :icon="Refresh" size="small" @click="loadReleases">{{ t('common.refresh') }}</el-button>
+        <el-button :icon="Refresh" size="small" @click="refreshAll">{{ t('common.refresh') }}</el-button>
         <el-button type="primary" :icon="Plus" size="small" @click="handlePublish">
           {{ t('updateReleases.publish') }}
         </el-button>
       </div>
+    </div>
+
+    <div v-if="storage" class="storage-summary" :class="{ 'storage-over': storage.over_quota }">
+      <span class="storage-title">{{ t('updateReleases.storageUsage') }}</span>
+      <span>{{ t('updateReleases.storageUsed') }}: {{ formatSize(storage.total_bytes) }}</span>
+      <span>
+        {{ t('updateReleases.storageQuota') }}:
+        {{ storage.quota_bytes > 0 ? formatSize(storage.quota_bytes) : t('updateReleases.unlimited') }}
+      </span>
+      <span v-if="storage.quota_bytes > 0">
+        {{ t('updateReleases.storageRemaining') }}: {{ formatSize(storage.remaining_bytes) }}
+      </span>
+      <el-tag v-if="storage.over_quota" type="danger" size="small">
+        {{ t('updateReleases.overQuota') }}
+      </el-tag>
     </div>
 
     <el-card shadow="never">
@@ -139,6 +154,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Refresh } from '@element-plus/icons-vue'
 import {
   getUpdateReleases,
+  getUpdateReleaseStorage,
   publishUpdateRelease,
   deleteUpdateRelease,
   uploadUpdateReleaseArtifactResumable,
@@ -150,6 +166,7 @@ const submitting = ref(false)
 const uploadingId = ref(null)
 const dialogVisible = ref(false)
 const releases = ref([])
+const storage = ref(null)
 const channel = ref('')
 const fileInput = ref(null)
 const uploadPercent = ref(0)
@@ -201,6 +218,19 @@ async function loadReleases() {
   }
 }
 
+async function loadStorage() {
+  try {
+    storage.value = await getUpdateReleaseStorage()
+  } catch (e) {
+    ElMessage.error(t('common.loadFailed') + ': ' + e.message)
+  }
+}
+
+function refreshAll() {
+  loadReleases()
+  loadStorage()
+}
+
 function handlePublish() {
   Object.assign(form, {
     channel: 'stable',
@@ -226,7 +256,7 @@ async function handleSubmit() {
     await publishUpdateRelease({ ...form })
     ElMessage.success(t('common.success'))
     dialogVisible.value = false
-    loadReleases()
+    refreshAll()
   } catch (e) {
     ElMessage.error(e.message)
   } finally {
@@ -261,7 +291,7 @@ async function handleFilePicked(event) {
       },
     })
     ElMessage.success(t('common.success'))
-    await loadReleases()
+    refreshAll()
   } catch (e) {
     ElMessage.error(e.message)
   } finally {
@@ -275,13 +305,13 @@ async function handleDelete(row) {
     await ElMessageBox.confirm(t('updateReleases.confirmDelete'), t('common.tip'), { type: 'warning' })
     await deleteUpdateRelease(row.id)
     ElMessage.success(t('common.success'))
-    loadReleases()
+    refreshAll()
   } catch (e) {
     if (e !== 'cancel') ElMessage.error(e.message)
   }
 }
 
-onMounted(loadReleases)
+onMounted(refreshAll)
 </script>
 
 <style scoped>
@@ -289,6 +319,23 @@ onMounted(loadReleases)
 .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; gap: 12px; flex-wrap: wrap; }
 .page-header h2 { margin: 0; font-size: 24px; font-weight: 600; color: #303133; }
 .header-actions { display: flex; align-items: center; gap: 8px; }
+.storage-summary {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  border-left: 3px solid var(--el-color-primary);
+  background: var(--el-fill-color-lighter);
+  color: var(--el-text-color-regular);
+  font-size: 13px;
+}
+.storage-summary.storage-over {
+  border-left-color: var(--el-color-danger);
+  color: var(--el-color-danger);
+}
+.storage-title { color: var(--el-text-color-primary); font-weight: 600; }
 .empty-hint { padding: 24px; text-align: center; color: #909399; font-size: 13px; }
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
 .field-hint { margin-left: 10px; color: #909399; font-size: 12px; }

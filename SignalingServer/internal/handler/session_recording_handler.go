@@ -35,8 +35,9 @@ type SessionRecordingHandler struct {
 // large they may be. Files are written outside any statically served directory
 // and only ever handed back through the ownership-checked routes below.
 type SessionRecordingStore struct {
-	Dir      string
-	MaxBytes int64
+	Dir        string
+	MaxBytes   int64
+	QuotaBytes int64
 	// URLSecret signs the short-lived playback tickets. Empty means tickets are
 	// disabled and only the Bearer-authenticated routes can fetch media.
 	URLSecret string
@@ -302,8 +303,21 @@ func (h *SessionRecordingHandler) UploadArtifact(c *gin.Context) {
 		ProblemInternal(c, err.Error())
 		return
 	}
-	if h.store.MaxBytes > 0 {
-		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, h.store.MaxBytes)
+	allowance, err := storageWriteAllowance(h.store.Dir, h.store.QuotaBytes, h.store.MaxBytes, 0)
+	if err != nil {
+		if errors.Is(err, errStorageQuotaExceeded) {
+			ProblemBadRequest(c, ProblemCodeInvalidRequest, err.Error())
+			return
+		}
+		ProblemInternal(c, err.Error())
+		return
+	}
+	if allowance == 0 {
+		ProblemBadRequest(c, ProblemCodeInvalidRequest, "artifact exceeds the configured storage or upload limit")
+		return
+	}
+	if allowance > 0 {
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, allowance)
 	}
 
 	var (
@@ -313,7 +327,15 @@ func (h *SessionRecordingHandler) UploadArtifact(c *gin.Context) {
 	if strings.HasPrefix(c.GetHeader("Content-Type"), "multipart/form-data") {
 		fileHeader, err := c.FormFile("file")
 		if err != nil {
+			if isBodyTooLarge(err) {
+				ProblemBadRequest(c, ProblemCodeInvalidRequest, "artifact exceeds the configured storage quota")
+				return
+			}
 			ProblemBadRequest(c, ProblemCodeInvalidRequest, "multipart field 'file' is required")
+			return
+		}
+		if allowance > 0 && fileHeader.Size > allowance {
+			ProblemBadRequest(c, ProblemCodeInvalidRequest, "artifact exceeds the configured storage quota")
 			return
 		}
 		ext, err = service.NormalizeArtifactExtension(fileHeader.Filename)
@@ -355,8 +377,9 @@ func (h *SessionRecordingHandler) UploadArtifact(c *gin.Context) {
 	closeErr := out.Close()
 	if copyErr != nil {
 		os.Remove(tmp)
-		if h.store.MaxBytes > 0 && written >= h.store.MaxBytes {
-			ProblemBadRequest(c, ProblemCodeInvalidRequest, "artifact exceeds the configured upload limit")
+		if isBodyTooLarge(copyErr) || (allowance > 0 && written >= allowance) {
+			ProblemBadRequest(c, ProblemCodeInvalidRequest,
+				"artifact exceeds the configured storage or upload limit")
 			return
 		}
 		ProblemInternal(c, copyErr.Error())
@@ -457,6 +480,22 @@ func (h *SessionRecordingHandler) UploadThumbnail(c *gin.Context) {
 	if h.store.MaxBytes > 0 && h.store.MaxBytes < limit {
 		limit = h.store.MaxBytes
 	}
+	allowance, err := storageWriteAllowance(h.store.Dir, h.store.QuotaBytes, limit, 0)
+	if err != nil {
+		if errors.Is(err, errStorageQuotaExceeded) {
+			ProblemBadRequest(c, ProblemCodeInvalidRequest, err.Error())
+			return
+		}
+		ProblemInternal(c, err.Error())
+		return
+	}
+	if allowance == 0 {
+		ProblemBadRequest(c, ProblemCodeInvalidRequest, "thumbnail exceeds the configured storage or upload limit")
+		return
+	}
+	if allowance > 0 {
+		limit = allowance
+	}
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, limit)
 
 	var (
@@ -466,7 +505,15 @@ func (h *SessionRecordingHandler) UploadThumbnail(c *gin.Context) {
 	if strings.HasPrefix(c.GetHeader("Content-Type"), "multipart/form-data") {
 		fileHeader, err := c.FormFile("file")
 		if err != nil {
+			if isBodyTooLarge(err) {
+				ProblemBadRequest(c, ProblemCodeInvalidRequest, "thumbnail exceeds the configured storage quota")
+				return
+			}
 			ProblemBadRequest(c, ProblemCodeInvalidRequest, "multipart field 'file' is required")
+			return
+		}
+		if fileHeader.Size > limit {
+			ProblemBadRequest(c, ProblemCodeInvalidRequest, "thumbnail exceeds the configured storage limit")
 			return
 		}
 		ext, err := service.NormalizeThumbnailExtension(fileHeader.Filename)

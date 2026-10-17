@@ -704,8 +704,15 @@ docker exec -it quickdesk-postgres psql -U quickdesk -d quickdesk -c "SELECT COU
 # Backup database
 docker exec quickdesk-postgres pg_dump -U quickdesk quickdesk > /backup/quickdesk_$(date +%Y%m%d).sql
 
+# Back up recording and re-hosted update media with the database
+tar -C /data/quickdesk -czf /backup/quickdesk-media_$(date +%Y%m%d).tar.gz recordings updates
+
 # Restore database
 cat backup.sql | docker exec -i quickdesk-postgres psql -U quickdesk -d quickdesk
+
+# SQLite single-process mode: one consistent archive for DB + media
+quickdesk-backup backup -db data/quickdesk.db -recordings data/recordings -updates data/updates -output /backup/quickdesk.tar.gz
+quickdesk-backup restore -archive /backup/quickdesk.tar.gz -db data/quickdesk.db -recordings data/recordings -updates data/updates -force
 
 # View preset configuration (you need an admin access_token)
 curl http://localhost:8000/v1/admin/preset \

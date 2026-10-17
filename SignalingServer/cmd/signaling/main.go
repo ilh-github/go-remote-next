@@ -507,6 +507,7 @@ func main() {
 		handler.UpdateArtifactStore{
 			Dir:           cfg.Update.ArtifactDir,
 			MaxBytes:      int64(cfg.Update.MaxUploadMB) * 1024 * 1024,
+			QuotaBytes:    int64(cfg.Update.StorageQuotaGB) * 1024 * 1024 * 1024,
 			PublicBaseURL: cfg.Update.PublicBaseURL,
 		}).WithLifecycle(updateArtifactLifecycle)
 	scheduledTaskHandler := handler.NewScheduledTaskHandler(scheduledTaskService)
@@ -515,10 +516,11 @@ func main() {
 		deviceService, deviceAccessApprovalService, deviceAccessGrantService,
 		tokenService, presenceService, deviceAccessService, bus)
 	sessionRecordingHandler := handler.NewSessionRecordingHandler(sessionRecordingService, bus, handler.SessionRecordingStore{
-		Dir:       cfg.Recording.Dir,
-		MaxBytes:  int64(cfg.Recording.MaxUploadMB) * 1024 * 1024,
-		URLSecret: cfg.Recording.URLSecret,
-		TicketTTL: time.Duration(cfg.Recording.TicketTTLSeconds) * time.Second,
+		Dir:        cfg.Recording.Dir,
+		MaxBytes:   int64(cfg.Recording.MaxUploadMB) * 1024 * 1024,
+		QuotaBytes: int64(cfg.Recording.StorageQuotaGB) * 1024 * 1024 * 1024,
+		URLSecret:  cfg.Recording.URLSecret,
+		TicketTTL:  time.Duration(cfg.Recording.TicketTTLSeconds) * time.Second,
 	}, auditService)
 	hostHandler := handler.NewHostHandler(deviceService, tokenService, presenceService, settingsService, rateLimitService, deviceAccessService, deviceAccessPolicyService, deviceAccessGrantService, deviceAccessApprovalService, bus, cfg)
 	realtimeHandler := handler.NewRealtimeHandler(tokenService, bus, presenceService, db, deviceService, favoriteService, metricsService, deviceAccessService, deviceAccessPolicyService, remoteSessionService, redisClient)
@@ -572,7 +574,11 @@ func main() {
 		cfg.Audit.MaxRowsPerDevice, cfg.Audit.MaxRowsPerAction, cfg.Audit.ArchiveRetentionDays)
 	adminSessionRecordingHandler := handler.NewAdminSessionRecordingHandler(
 		sessionRecordingService, auditService, recordingLifecycle,
-		cfg.Recording.RetentionDays, cfg.Recording.StaleMinutes)
+		cfg.Recording.RetentionDays, cfg.Recording.StaleMinutes).
+		WithStorageSummary(
+			cfg.Recording.Dir,
+			int64(cfg.Recording.StorageQuotaGB)*1024*1024*1024,
+		)
 	adminRemoteSessionHandler := handler.NewAdminRemoteSessionHandler(
 		remoteSessionService, sessionRecordingService, deviceAccessService, deviceService,
 		realtimeHandler, auditService, deviceAccessPolicyService, bus)
@@ -968,6 +974,7 @@ func main() {
 		// Self-hosted update channel index.
 		adminGuarded.GET("/update-releases", adminUpdateReleaseHandler.List)
 		adminGuarded.POST("/update-releases", adminUpdateReleaseHandler.Publish)
+		adminGuarded.GET("/update-releases:storage", adminUpdateReleaseHandler.Storage)
 		adminGuarded.POST("/update-releases:sweep", adminUpdateReleaseHandler.Sweep)
 		adminGuarded.POST("/update-releases/:id/artifact", adminUpdateReleaseHandler.UploadArtifact)
 		adminGuarded.PATCH("/update-releases/:id/artifact", adminUpdateReleaseHandler.AppendArtifact)

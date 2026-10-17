@@ -442,7 +442,13 @@ export default {
     hostedHere: 'Hosted here',
     pendingArtifact: 'Not uploaded yet',
     downloadUrlHint: 'Optional: leave empty to upload the installer here later',
-    uploadHint: 'The file must hash to the SHA-256 above, otherwise the server refuses it'
+    uploadHint: 'The file must hash to the SHA-256 above, otherwise the server refuses it',
+    storageUsage: 'Artifact storage',
+    storageUsed: 'Used',
+    storageQuota: 'Quota',
+    storageRemaining: 'Remaining',
+    unlimited: 'Unlimited',
+    overQuota: 'Quota exceeded'
   },
   batch: {
     selected: '{count} selected',

@@ -22,6 +22,8 @@ type AdminSessionRecordingHandler struct {
 	lifecycle     *service.RecordingLifecycle
 	retentionDays int
 	staleMinutes  int
+	storeDir      string
+	quotaBytes    int64
 }
 
 func NewAdminSessionRecordingHandler(
@@ -40,16 +42,32 @@ func NewAdminSessionRecordingHandler(
 	}
 }
 
-// Storage reports how much recording media is retained.
+func (h *AdminSessionRecordingHandler) WithStorageSummary(dir string, quotaBytes int64) *AdminSessionRecordingHandler {
+	h.storeDir = dir
+	h.quotaBytes = quotaBytes
+	return h
+}
+
+// Storage reports both the index rows and the real bytes held on disk.
 func (h *AdminSessionRecordingHandler) Storage(c *gin.Context) {
 	usage, err := h.recordings.ArtifactUsage(c.Request.Context())
 	if err != nil {
 		ProblemInternal(c, err.Error())
 		return
 	}
+	disk, err := service.InspectDirectoryStorage(h.storeDir, h.quotaBytes)
+	if err != nil {
+		ProblemInternal(c, err.Error())
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"artifact_count":      usage.Count,
-		"total_bytes":         usage.TotalBytes,
+		"indexed_bytes":       usage.TotalBytes,
+		"total_bytes":         disk.UsedBytes,
+		"file_count":          disk.Files,
+		"quota_bytes":         disk.QuotaBytes,
+		"remaining_bytes":     disk.RemainingBytes,
+		"over_quota":          disk.OverQuota,
 		"retention_days":      h.retentionDays,
 		"stale_after_minutes": h.staleMinutes,
 	})

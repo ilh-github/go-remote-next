@@ -45,8 +45,9 @@ type AdminUpdateReleaseHandler struct {
 // one upload may be. Like the recording store, the directory is never mounted as
 // a static site - bytes only leave through the checked download route.
 type UpdateArtifactStore struct {
-	Dir      string
-	MaxBytes int64
+	Dir        string
+	MaxBytes   int64
+	QuotaBytes int64
 	// PublicBaseURL is the absolute prefix used to build the client-facing
 	// download_url. Empty falls back to the scheme and Host of the upload
 	// request, which is only right for a deployment reached at one name with
@@ -194,6 +195,21 @@ func (h *AdminUpdateReleaseHandler) Sweep(c *gin.Context) {
 	})
 }
 
+func (h *AdminUpdateReleaseHandler) Storage(c *gin.Context) {
+	usage, err := service.InspectDirectoryStorage(h.store.Dir, h.store.QuotaBytes)
+	if err != nil {
+		ProblemInternal(c, err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"file_count":      usage.Files,
+		"total_bytes":     usage.UsedBytes,
+		"quota_bytes":     usage.QuotaBytes,
+		"remaining_bytes": usage.RemainingBytes,
+		"over_quota":      usage.OverQuota,
+	})
+}
+
 // UploadArtifact handles POST /v1/admin/update-releases/:id/artifact.
 //
 // This is the re-hosting half of the channel: the operator hands the installer
@@ -223,8 +239,21 @@ func (h *AdminUpdateReleaseHandler) UploadArtifact(c *gin.Context) {
 		ProblemInternal(c, err.Error())
 		return
 	}
-	if h.store.MaxBytes > 0 {
-		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, h.store.MaxBytes)
+	allowance, err := storageWriteAllowance(h.store.Dir, h.store.QuotaBytes, h.store.MaxBytes, 0)
+	if err != nil {
+		if errors.Is(err, errStorageQuotaExceeded) {
+			ProblemBadRequest(c, ProblemCodeInvalidRequest, err.Error())
+			return
+		}
+		ProblemInternal(c, err.Error())
+		return
+	}
+	if allowance == 0 {
+		ProblemBadRequest(c, ProblemCodeInvalidRequest, errArtifactUploadTooLarge.Error())
+		return
+	}
+	if allowance > 0 {
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, allowance)
 	}
 
 	var (
@@ -234,7 +263,15 @@ func (h *AdminUpdateReleaseHandler) UploadArtifact(c *gin.Context) {
 	if strings.HasPrefix(c.GetHeader("Content-Type"), "multipart/form-data") {
 		fileHeader, err := c.FormFile("file")
 		if err != nil {
+			if isBodyTooLarge(err) {
+				ProblemBadRequest(c, ProblemCodeInvalidRequest, "artifact exceeds the configured storage quota")
+				return
+			}
 			ProblemBadRequest(c, ProblemCodeInvalidRequest, "multipart field 'file' is required")
+			return
+		}
+		if allowance > 0 && fileHeader.Size > allowance {
+			ProblemBadRequest(c, ProblemCodeInvalidRequest, "artifact exceeds the configured storage quota")
 			return
 		}
 		name = fileHeader.Filename
@@ -278,8 +315,9 @@ func (h *AdminUpdateReleaseHandler) UploadArtifact(c *gin.Context) {
 	closeErr := out.Close()
 	if copyErr != nil {
 		os.Remove(tmp)
-		if h.store.MaxBytes > 0 && written >= h.store.MaxBytes {
-			ProblemBadRequest(c, ProblemCodeInvalidRequest, "artifact exceeds the configured upload limit")
+		if isBodyTooLarge(copyErr) || (allowance > 0 && written >= allowance) {
+			ProblemBadRequest(c, ProblemCodeInvalidRequest,
+				"artifact exceeds the configured upload or storage limit")
 			return
 		}
 		ProblemInternal(c, copyErr.Error())

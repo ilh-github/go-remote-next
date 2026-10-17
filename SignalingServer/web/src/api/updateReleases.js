@@ -21,6 +21,10 @@ export function getUpdateReleases(params = {}) {
   return authJson(suffix ? `${BASE}?${suffix}` : BASE)
 }
 
+export function getUpdateReleaseStorage() {
+  return authJson(`${BASE}:storage`)
+}
+
 export function publishUpdateRelease(data) {
   return authJson(BASE, {
     method: 'POST',

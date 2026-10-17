@@ -48,6 +48,52 @@ go run cmd/signaling/main.go
 数据库文件默认位于 `./data/quickdesk.db`，备份时应停止服务或使用 SQLite 的一致性
 备份方式。完整 E2E 可运行 `bash ../scripts/e2e/test-quickdesk-minimal-server.sh`。
 
+### 一致性备份与恢复
+
+`quickdesk-backup` 对 SQLite 使用 `VACUUM INTO` 生成一致性快照，并把数据库、
+`RECORDING_DIR` 和 `UPDATE_ARTIFACT_DIR` 打进一个带 SHA-256 manifest 的归档：
+
+```bash
+go run ./cmd/quickdesk-backup backup \
+  -db data/quickdesk.db \
+  -recordings data/recordings \
+  -updates data/updates \
+  -output quickdesk-$(date +%Y%m%dT%H%M%S).tar.gz
+```
+
+恢复应在信令服务停止时执行。目标已存在时默认拒绝；确认要替换后使用 `-force`，
+旧目录或旧数据库会改名为 `*.pre-restore-<UTC 时间>`，不会被直接删除。数据库或任一
+媒体目录安装失败时，已经替换的目标会回滚到原路径：
+
+```bash
+go run ./cmd/quickdesk-backup restore \
+  -archive quickdesk-20261017T130000.tar.gz \
+  -db data/quickdesk.db \
+  -recordings data/recordings \
+  -updates data/updates \
+  -force
+```
+
+Docker 部署中的等价命令是
+`docker exec <container> /opt/quickdesk/quickdesk-backup ...`；归档输出路径应位于挂载的
+`/data` 卷内，或先用 `docker cp` 取出。
+
+归档恢复会验证 manifest 版本、文件集合和每个文件的 SHA-256，并拒绝绝对路径、`..`
+路径穿越、符号链接和重复文件。PostgreSQL 部署继续使用 `pg_dump` / `pg_restore`；
+媒体目录使用同一份归档或独立备份盘保存。
+
+### 存储容量配额
+
+`RECORDING_STORAGE_QUOTA_GB` 和 `UPDATE_STORAGE_QUOTA_GB` 分别限制录像与自托管安装包
+目录的保留总量，默认 `0` 表示不限制。配额统计真实的普通文件，包括可恢复上传的
+`.part` 暂存文件，因此客户端不能用未完成上传绕过上限。配额在进程内、上传写入前和
+写入过程中执行，多实例共享目录仍应使用文件系统配额或对象存储桶配额。
+
+管理员可通过以下接口查看实际磁盘字节、索引字节、配额、剩余量和超限状态：
+
+- `GET /v1/admin/recordings:storage`
+- `GET /v1/admin/update-releases:storage`
+
 ## 快速开始
 
 ### 1. 安装依赖

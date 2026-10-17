@@ -95,6 +95,7 @@ type HolidayConfig struct {
 type RecordingConfig struct {
 	Dir              string
 	MaxUploadMB      int
+	StorageQuotaGB   int
 	URLSecret        string
 	TicketTTLSeconds int
 	StaleMinutes     int
@@ -121,6 +122,9 @@ type UpdateConfig struct {
 	ArtifactDir string
 	// MaxUploadMB caps a single installer upload.
 	MaxUploadMB int
+	// StorageQuotaGB caps the retained bytes in ArtifactDir. Zero means
+	// unlimited.
+	StorageQuotaGB int
 	// PublicBaseURL is the absolute prefix used to build the client-facing
 	// download_url for a re-hosted artifact, e.g. https://updates.example.com.
 	// Empty falls back to the scheme and Host of the admin upload request, which
@@ -379,6 +383,7 @@ func Load() *Config {
 
 	viper.SetDefault("RECORDING_DIR", "data/recordings")
 	viper.SetDefault("RECORDING_MAX_UPLOAD_MB", 2048)
+	viper.SetDefault("RECORDING_STORAGE_QUOTA_GB", 0)
 	// Orphaned remote-session sweep: a minute is short enough that a killed
 	// instance's sessions stop counting as "active" quickly, and long enough
 	// that the scan is negligible.
@@ -401,6 +406,7 @@ func Load() *Config {
 	// may be, and the absolute prefix used to build their download URLs.
 	viper.SetDefault("UPDATE_ARTIFACT_DIR", "data/updates")
 	viper.SetDefault("UPDATE_MAX_UPLOAD_MB", 4096)
+	viper.SetDefault("UPDATE_STORAGE_QUOTA_GB", 0)
 	viper.SetDefault("UPDATE_PUBLIC_BASE_URL", "")
 	// Abandoned staging files: the same 6h window the recording store uses, and
 	// an hourly pass. 0 minutes of interval disables the worker.
@@ -566,6 +572,7 @@ func Load() *Config {
 	cfg.Recording = RecordingConfig{
 		Dir:              viper.GetString("RECORDING_DIR"),
 		MaxUploadMB:      viper.GetInt("RECORDING_MAX_UPLOAD_MB"),
+		StorageQuotaGB:   viper.GetInt("RECORDING_STORAGE_QUOTA_GB"),
 		URLSecret:        recordingSecret,
 		TicketTTLSeconds: viper.GetInt("RECORDING_TICKET_TTL_SECONDS"),
 		StaleMinutes:     viper.GetInt("RECORDING_STALE_MINUTES"),
@@ -575,9 +582,16 @@ func Load() *Config {
 	cfg.Update = UpdateConfig{
 		ArtifactDir:        viper.GetString("UPDATE_ARTIFACT_DIR"),
 		MaxUploadMB:        viper.GetInt("UPDATE_MAX_UPLOAD_MB"),
+		StorageQuotaGB:     viper.GetInt("UPDATE_STORAGE_QUOTA_GB"),
 		PublicBaseURL:      viper.GetString("UPDATE_PUBLIC_BASE_URL"),
 		StaleUploadMinutes: viper.GetInt("UPDATE_STALE_UPLOAD_MINUTES"),
 		SweepIntervalMin:   viper.GetInt("UPDATE_SWEEP_INTERVAL_MINUTES"),
+	}
+	if cfg.Recording.StorageQuotaGB < 0 {
+		log.Fatalf("RECORDING_STORAGE_QUOTA_GB must not be negative")
+	}
+	if cfg.Update.StorageQuotaGB < 0 {
+		log.Fatalf("UPDATE_STORAGE_QUOTA_GB must not be negative")
 	}
 	cfg.Notification = NotificationConfig{
 		RetentionDays:        viper.GetInt("NOTIFICATION_RETENTION_DAYS"),
