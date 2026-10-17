@@ -3,7 +3,10 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
+	"sort"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -37,6 +40,34 @@ func (a *countingAction) count() int {
 	return a.runs
 }
 
+type fakeDeviceSessionRevoker struct {
+	calls     []string
+	users     []uint
+	revoked   int
+	failed    int
+	truncated bool
+	err       error
+	byDevice  map[string]error
+}
+
+func (r *fakeDeviceSessionRevoker) RevokeDeviceSessions(
+	_ context.Context, userID uint, deviceID string,
+) (int, int, bool, error) {
+	r.calls = append(r.calls, deviceID)
+	r.users = append(r.users, userID)
+	if err := r.byDevice[deviceID]; err != nil {
+		return 0, 1, false, err
+	}
+	if r.err != nil {
+		return 0, 0, false, r.err
+	}
+	return r.revoked, r.failed, r.truncated, nil
+}
+
+func timePointer(value time.Time) *time.Time {
+	return &value
+}
+
 // newScheduledTaskTestDB gives the scheduler tests a real Postgres, because the
 // claim is `FOR UPDATE SKIP LOCKED`.
 func newScheduledTaskTestDB(t *testing.T) *gorm.DB {
@@ -49,13 +80,62 @@ func newScheduledTaskTestDB(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	if err := db.AutoMigrate(&models.ScheduledTask{}); err != nil {
+	if err := db.AutoMigrate(
+		&models.ScheduledTask{},
+		&models.RemoteSession{},
+		&models.Device{},
+		&models.User{},
+	); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	if err := db.Exec("TRUNCATE scheduled_tasks").Error; err != nil {
 		t.Fatalf("truncate: %v", err)
 	}
+	if err := db.Exec("TRUNCATE remote_sessions").Error; err != nil {
+		t.Fatalf("truncate remote sessions: %v", err)
+	}
 	return db
+}
+
+func seedScheduledRemoteSessionDevices(
+	t *testing.T, db *gorm.DB, owners map[string]uint,
+) {
+	t.Helper()
+	deviceIDs := make([]string, 0, len(owners))
+	for deviceID := range owners {
+		deviceIDs = append(deviceIDs, deviceID)
+	}
+	if err := db.Where("device_id IN ?", deviceIDs).
+		Delete(&models.Device{}).Error; err != nil {
+		t.Fatalf("clear devices: %v", err)
+	}
+	for deviceID, userID := range owners {
+		var user models.User
+		result := db.Where("id = ?", userID).Limit(1).Find(&user)
+		if result.Error != nil {
+			t.Fatalf("load user %d: %v", userID, result.Error)
+		}
+		if result.RowsAffected == 0 {
+			if err := db.Create(&models.User{
+				ID:       userID,
+				Username: fmt.Sprintf("scheduled-revoke-%d-%d", userID, time.Now().UnixNano()),
+				Password: "test-hash",
+			}).Error; err != nil {
+				t.Fatalf("seed user %d: %v", userID, err)
+			}
+		}
+		owner := userID
+		if err := db.Create(&models.Device{
+			DeviceID:   deviceID,
+			DeviceUUID: "scheduled-revoke-" + deviceID,
+			UserID:     &owner,
+		}).Error; err != nil {
+			t.Fatalf("seed device %s: %v", deviceID, err)
+		}
+	}
+	t.Cleanup(func() {
+		_ = db.Where("device_id IN ?", deviceIDs).Delete(&models.Device{}).Error
+	})
 }
 
 func seedScheduledTask(t *testing.T, db *gorm.DB, row models.ScheduledTask) models.ScheduledTask {
@@ -99,6 +179,68 @@ func TestScheduledTaskCreateValidation(t *testing.T) {
 	}
 	if !row.Enabled || row.RepeatSeconds != 60 || row.MaxAttempts != DefaultScheduledTaskMaxAttempts {
 		t.Fatalf("created row = %+v, want an enabled 60s repeat", row)
+	}
+}
+
+func TestRevokeAllRemoteSessionsActionRevokesOnlyTheOwnersActiveDevices(t *testing.T) {
+	db := newScheduledTaskTestDB(t)
+	ctx := context.Background()
+	seedScheduledRemoteSessionDevices(t, db, map[string]uint{
+		"700000001": 7,
+		"700000002": 7,
+		"700000003": 7,
+		"800000001": 8,
+	})
+	rows := []models.RemoteSession{
+		{SessionID: "scheduled-revoke-a-1", UserID: 7, DeviceID: "700000001", StartedAt: time.Now().UTC()},
+		{SessionID: "scheduled-revoke-a-2", UserID: 7, DeviceID: "700000001", StartedAt: time.Now().UTC()},
+		{SessionID: "scheduled-revoke-b", UserID: 7, DeviceID: "700000002", StartedAt: time.Now().UTC()},
+		{SessionID: "scheduled-revoke-ended", UserID: 7, DeviceID: "700000003", StartedAt: time.Now().UTC(), EndedAt: timePointer(time.Now().UTC())},
+		{SessionID: "scheduled-revoke-other-user", UserID: 8, DeviceID: "800000001", StartedAt: time.Now().UTC()},
+	}
+	if err := db.Create(&rows).Error; err != nil {
+		t.Fatalf("seed remote sessions: %v", err)
+	}
+	revoker := &fakeDeviceSessionRevoker{revoked: 1}
+	action := NewRevokeAllRemoteSessionsAction(db, revoker)
+	if err := action.Run(ctx, models.ScheduledTask{UserID: 7}); err != nil {
+		t.Fatalf("run action: %v", err)
+	}
+	sort.Strings(revoker.calls)
+	if got, want := strings.Join(revoker.calls, ","), "700000001,700000002"; got != want {
+		t.Fatalf("revoked devices = %q, want %q", got, want)
+	}
+	for _, userID := range revoker.users {
+		if userID != 7 {
+			t.Fatalf("revoker received user_id=%d, want 7", userID)
+		}
+	}
+}
+
+func TestRevokeAllRemoteSessionsActionReportsAStuckDevice(t *testing.T) {
+	db := newScheduledTaskTestDB(t)
+	ctx := context.Background()
+	seedScheduledRemoteSessionDevices(t, db, map[string]uint{
+		"700000011": 9,
+		"700000012": 9,
+	})
+	if err := db.Create(&[]models.RemoteSession{
+		{SessionID: "scheduled-revoke-stuck-a", UserID: 9, DeviceID: "700000011", StartedAt: time.Now().UTC()},
+		{SessionID: "scheduled-revoke-stuck-b", UserID: 9, DeviceID: "700000012", StartedAt: time.Now().UTC()},
+	}).Error; err != nil {
+		t.Fatalf("seed remote sessions: %v", err)
+	}
+	revoker := &fakeDeviceSessionRevoker{
+		byDevice: map[string]error{"700000012": errors.New("instance did not acknowledge")},
+	}
+	action := NewRevokeAllRemoteSessionsAction(db, revoker)
+	err := action.Run(ctx, models.ScheduledTask{UserID: 9})
+	if err == nil || !strings.Contains(err.Error(), "700000012") {
+		t.Fatalf("run error = %v, want the stuck device named", err)
+	}
+	sort.Strings(revoker.calls)
+	if got, want := strings.Join(revoker.calls, ","), "700000011,700000012"; got != want {
+		t.Fatalf("attempted devices = %q, want %q", got, want)
 	}
 }
 

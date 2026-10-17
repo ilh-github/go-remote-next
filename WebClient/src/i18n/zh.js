@@ -343,6 +343,7 @@ export const zh = {
       workerNote: '失败事件实时刷新，另每 30 秒兜底同步一次。',
     },
     kinds: {
+      revokeAllRemoteSessions: '清理所有远程控制会话',
       signOutAllSessions: '退出所有登录会话',
       unknown: '未知任务类型',
     },

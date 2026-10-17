@@ -300,7 +300,9 @@ const weekdays = computed(() => [
 ])
 
 const availableKinds = computed(() => (
-  supportedKinds.value.length ? supportedKinds.value : ['sign_out_all_sessions']
+  supportedKinds.value.length
+    ? supportedKinds.value
+    : ['revoke_all_remote_sessions', 'sign_out_all_sessions']
 ))
 const activeCount = computed(() => tasks.value.filter((task) => task.enabled).length)
 const recurringCount = computed(() => tasks.value.filter((task) => (
@@ -316,6 +318,7 @@ const payloadPreview = computed(() => {
 
 function kindLabel(kind) {
   if (kind === 'sign_out_all_sessions') return t('scheduled.kinds.signOutAllSessions')
+  if (kind === 'revoke_all_remote_sessions') return t('scheduled.kinds.revokeAllRemoteSessions')
   return kind || t('scheduled.kinds.unknown')
 }
 

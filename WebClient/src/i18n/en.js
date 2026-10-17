@@ -340,6 +340,7 @@ export const en = {
       workerNote: 'Failure events refresh immediately; a 30-second poll is the fallback.',
     },
     kinds: {
+      revokeAllRemoteSessions: 'Revoke all remote sessions',
       signOutAllSessions: 'Sign out all sessions',
       unknown: 'Unknown task kind',
     },

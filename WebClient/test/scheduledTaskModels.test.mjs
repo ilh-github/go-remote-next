@@ -37,13 +37,16 @@ test('scheduled task list keeps server-supported kinds and schedules', () => {
       attempts: 0,
       last_status: 'ok',
     }],
-    supported_kinds: ['sign_out_all_sessions'],
+    supported_kinds: ['revoke_all_remote_sessions', 'sign_out_all_sessions'],
     supported_schedules: ['daily@HH:MM'],
   })
 
   assert.equal(view.items[0].max_attempts, 3)
   assert.equal(view.items[0].skip_holidays, true)
-  assert.deepEqual(view.supportedKinds, ['sign_out_all_sessions'])
+  assert.deepEqual(view.supportedKinds, [
+    'revoke_all_remote_sessions',
+    'sign_out_all_sessions',
+  ])
   assert.deepEqual(view.supportedSchedules, ['daily@HH:MM'])
 })
 

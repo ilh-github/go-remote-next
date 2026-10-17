@@ -31,6 +31,8 @@ Item {
     property var calendarValues: ["daily", "weekdays", "weekly", "monthly", "every"]
 
     function kindLabel(kind) {
+        if (kind === "revoke_all_remote_sessions")
+            return qsTr("Revoke all remote sessions")
         if (kind === "sign_out_all_sessions")
             return qsTr("Sign out all sessions")
         return kind || qsTr("Unknown action")
@@ -129,7 +131,8 @@ Item {
     function rebuildKinds() {
         kindModel.clear()
         var values = root.manager && root.manager.supportedKinds.length > 0
-                     ? root.manager.supportedKinds : ["sign_out_all_sessions"]
+                     ? root.manager.supportedKinds
+                     : ["revoke_all_remote_sessions", "sign_out_all_sessions"]
         for (var i = 0; i < values.length; ++i) {
             kindModel.append({ value: values[i], text: root.kindLabel(values[i]) })
         }

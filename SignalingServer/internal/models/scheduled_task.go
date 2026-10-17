@@ -13,6 +13,11 @@ const (
 	// - no controlled machine or controller client has to cooperate - so it can
 	// be built and verified without waiting on client work.
 	ScheduledTaskSignOutAllSessions = "sign_out_all_sessions"
+	// ScheduledTaskRevokeAllRemoteSessions closes every live remote-control
+	// session on every device the owner still owns. It is a batch security
+	// action: unlike sign_out_all_sessions it leaves the account's login
+	// families alone and only empties active remote-desktop sessions.
+	ScheduledTaskRevokeAllRemoteSessions = "revoke_all_remote_sessions"
 )
 
 // ScheduledTask is one owner-scheduled control-plane action.

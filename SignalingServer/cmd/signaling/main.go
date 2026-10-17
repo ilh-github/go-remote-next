@@ -397,14 +397,6 @@ func main() {
 		models.ScheduledTaskSignOutAllSessions,
 		service.NewSignOutAllSessionsAction(tokenService, bus),
 	)
-	if cfg.ScheduledTask.IntervalSeconds > 0 {
-		go scheduledTaskService.Run(
-			context.Background(),
-			time.Duration(cfg.ScheduledTask.IntervalSeconds)*time.Second,
-		)
-		log.Printf("Scheduled tasks: interval=%ds kinds=%v",
-			cfg.ScheduledTask.IntervalSeconds, scheduledTaskService.SupportedKinds())
-	}
 
 	// Subscribe system-scope event fanouts (realtime subscribes inside its
 	// own constructor so it can receive user-scope events too).
@@ -515,6 +507,26 @@ func main() {
 	// realtimeHandler is built first because the session surfaces use it to close
 	// a live socket: a revoke has to reach the connection, not just the row.
 	remoteSessionHandler := handler.NewRemoteSessionHandler(remoteSessionService, sessionRecordingService, deviceAccessService, deviceService, realtimeHandler, auditService)
+	// The batch remote-session revoke needs the realtime handler's cross-instance
+	// bus, so it is registered after that handler is built. The scheduler worker
+	// starts only after the complete action registry is present: supported_kinds
+	// must not advertise work that has not been wired yet.
+	scheduledTaskService.RegisterAction(
+		models.ScheduledTaskRevokeAllRemoteSessions,
+		service.NewRevokeAllRemoteSessionsAction(
+			db,
+			handler.NewScheduledTaskRemoteSessionRevoker(
+				remoteSessionService, realtimeHandler),
+		),
+	)
+	if cfg.ScheduledTask.IntervalSeconds > 0 {
+		go scheduledTaskService.Run(
+			context.Background(),
+			time.Duration(cfg.ScheduledTask.IntervalSeconds)*time.Second,
+		)
+		log.Printf("Scheduled tasks: interval=%ds kinds=%v",
+			cfg.ScheduledTask.IntervalSeconds, scheduledTaskService.SupportedKinds())
+	}
 
 	adminAuthHandler := handler.NewAdminAuthHandler(adminUserService, tokenService, auditService)
 	adminTOTPHandler := handler.NewAdminTOTPHandler(adminUserService, db)

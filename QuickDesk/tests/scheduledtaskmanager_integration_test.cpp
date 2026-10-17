@@ -61,7 +61,7 @@ int main(int argc, char** argv) {
             if (method == "GET") {
                 callback(
                     200, "",
-                    R"({"items":[{"id":12,"kind":"sign_out_all_sessions","next_run_at":"2026-10-17T14:00:00Z","repeat_seconds":0,"enabled":false,"schedule":"daily@22:00","timezone":"Asia/Shanghai","skip_holidays":true,"max_attempts":3,"attempts":0,"last_status":"ok"}],"supported_kinds":["sign_out_all_sessions"],"supported_schedules":["daily@HH:MM","weekly@<dow>@HH:MM"]})");
+                    R"({"items":[{"id":12,"kind":"sign_out_all_sessions","next_run_at":"2026-10-17T14:00:00Z","repeat_seconds":0,"enabled":false,"schedule":"daily@22:00","timezone":"Asia/Shanghai","skip_holidays":true,"max_attempts":3,"attempts":0,"last_status":"ok"}],"supported_kinds":["revoke_all_remote_sessions","sign_out_all_sessions"],"supported_schedules":["daily@HH:MM","weekly@<dow>@HH:MM"]})");
                 return;
             }
             if (method == "POST") {
@@ -96,7 +96,8 @@ int main(int argc, char** argv) {
                .value(QStringLiteral("max_attempts")).toInt() == 3,
            QStringLiteral("task attempt budget is normalized"));
     Expect(manager.supportedKinds()
-               == QStringList{QStringLiteral("sign_out_all_sessions")},
+               == QStringList{QStringLiteral("revoke_all_remote_sessions"),
+                              QStringLiteral("sign_out_all_sessions")},
            QStringLiteral("server-supported kinds are preserved"));
     Expect(manager.supportedSchedules().size() == 2,
            QStringLiteral("server-supported schedules are preserved"));

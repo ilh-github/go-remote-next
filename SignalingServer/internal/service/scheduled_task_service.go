@@ -504,3 +504,95 @@ func (a *SignOutAllSessionsAction) Run(ctx context.Context, task models.Schedule
 	}
 	return nil
 }
+
+// RemoteSessionDeviceRevoker closes every live controller on one device. The
+// handler package supplies the implementation because a process-local socket
+// and the cross-instance revoke bus live there; the scheduler only needs the
+// stable operation.
+type RemoteSessionDeviceRevoker interface {
+	RevokeDeviceSessions(
+		ctx context.Context,
+		userID uint,
+		deviceID string,
+	) (revoked int, failed int, truncated bool, err error)
+}
+
+// maxScheduledTaskRemoteSessionDevices bounds one batch action. It is high
+// enough for a normal account but low enough that a mistaken schedule cannot
+// hold the worker for an unbounded amount of time.
+const maxScheduledTaskRemoteSessionDevices = 200
+
+// RevokeAllRemoteSessionsAction is a scheduled, account-wide batch operation:
+// every still-running controller on every currently owned device is closed.
+// Ending no sessions is a successful no-op; a device that cannot acknowledge
+// one or more closes fails the occurrence so retries and last_error remain
+// visible.
+type RevokeAllRemoteSessionsAction struct {
+	db      *gorm.DB
+	revoker RemoteSessionDeviceRevoker
+}
+
+func NewRevokeAllRemoteSessionsAction(
+	db *gorm.DB,
+	revoker RemoteSessionDeviceRevoker,
+) *RevokeAllRemoteSessionsAction {
+	return &RevokeAllRemoteSessionsAction{db: db, revoker: revoker}
+}
+
+func (a *RevokeAllRemoteSessionsAction) Run(
+	ctx context.Context,
+	task models.ScheduledTask,
+) error {
+	if a == nil || a.db == nil {
+		return errors.New("scheduled remote-session revoke is not configured")
+	}
+	if a.revoker == nil {
+		return errors.New("remote-session revoker is not configured")
+	}
+
+	var deviceIDs []string
+	err := a.db.WithContext(ctx).
+		Table("remote_sessions").
+		Select("DISTINCT remote_sessions.device_id").
+		Joins("JOIN devices ON devices.device_id = remote_sessions.device_id").
+		Where("remote_sessions.user_id = ? AND remote_sessions.ended_at IS NULL", task.UserID).
+		Where("devices.user_id = ?", task.UserID).
+		Order("remote_sessions.device_id").
+		Limit(maxScheduledTaskRemoteSessionDevices + 1).
+		Pluck("remote_sessions.device_id", &deviceIDs).Error
+	if err != nil {
+		return fmt.Errorf("list devices with live remote sessions: %w", err)
+	}
+	if len(deviceIDs) == 0 {
+		return nil
+	}
+	if len(deviceIDs) > maxScheduledTaskRemoteSessionDevices {
+		return fmt.Errorf(
+			"refusing to revoke more than %d devices in one scheduled task",
+			maxScheduledTaskRemoteSessionDevices)
+	}
+
+	failures := make([]string, 0)
+	for _, deviceID := range deviceIDs {
+		_, failed, truncated, revokeErr := a.revoker.RevokeDeviceSessions(
+			ctx, task.UserID, deviceID)
+		switch {
+		case revokeErr != nil:
+			failures = append(failures,
+				fmt.Sprintf("%s: %v", deviceID, revokeErr))
+		case truncated:
+			failures = append(failures,
+				fmt.Sprintf("%s: more live sessions remain than one pass can close",
+					deviceID))
+		case failed > 0:
+			failures = append(failures,
+				fmt.Sprintf("%s: %d session(s) were not closed",
+					deviceID, failed))
+		}
+	}
+	if len(failures) > 0 {
+		return fmt.Errorf("revoke remote sessions: %s",
+			truncateScheduledTaskError(strings.Join(failures, "; ")))
+	}
+	return nil
+}

@@ -1493,13 +1493,25 @@ confirm that "05:30 Shanghai" was understood as 05:30 Shanghai and not 05:30
 UTC.
 
 Only kinds whose whole effect lives in the control plane are registered, so a
-task never silently depends on a client that is not there. Today that is one
-kind:
+task never silently depends on a client that is not there. Today there are two
+kinds:
 
 - **`sign_out_all_sessions`** — revokes every active session family of the
   owner, i.e. "log out everywhere at 22:00". It is the same action
   `PUT /v1/me/password` performs, just scheduled, and it works because both the
   session records and the revocation live in the control plane.
+- **`revoke_all_remote_sessions`** — closes every live remote-control session on
+  every device the owner still owns when the task runs. It is a security
+  maintenance action, not an account logout: ordinary login sessions are left
+  alone. The scheduler resolves the device set at execution time, so a device
+  unbound before the run is not touched, and a newly bound device with a live
+  session is. Ending no sessions is a successful no-op. A controller socket that
+  does not acknowledge the close makes that occurrence fail and appears in
+  `last_error`, so the existing retry/visibility rules still apply.
+
+`revoke_all_remote_sessions` is bounded to 200 devices in one run. This keeps a
+misconfigured schedule from holding the worker indefinitely; a larger account
+fails the occurrence rather than silently sweeping only part of it.
 
 Each row carries its outcome: `last_run_at`, `last_status` (`ok` / `failed`) and
 `last_error`, so a caller can see that a task fired and what happened without

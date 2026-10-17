@@ -2895,11 +2895,16 @@ Frame rate: %3 fps</source>
     <name>ScheduledTasksPage</name>
     <message>
         <location filename="../../qml/pages/ScheduledTasksPage.qml" line="35"/>
+        <source>Revoke all remote sessions</source>
+        <translation>清理所有远程控制会话</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/ScheduledTasksPage.qml" line="37"/>
         <source>Sign out all sessions</source>
         <translation>退出所有会话</translation>
     </message>
     <message>
-        <location filename="../../qml/pages/ScheduledTasksPage.qml" line="36"/>
+        <location filename="../../qml/pages/ScheduledTasksPage.qml" line="38"/>
         <source>Unknown action</source>
         <translation>未知操作</translation>
     </message>
