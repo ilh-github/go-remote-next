@@ -104,9 +104,14 @@
   QuickDeskHost 服务 RUNNING；4.2.9.0 发布后客户端真实发现更新、下载完成并显示
   “下载已通过校验”，下载器的 SHA-256 与服务端安装包一致。尚未点击“安装并重启”，
   所以升级落盘、进程自动重启和服务重建仍不能标记完成。
-- 当前还有三项本轮验证产生的未提交工作树改动：`scripts/package_qd_win.bat`、
-  `scripts/publish_qd_win.bat` 和 `version=4.2.9.0`。在 Windows 升级闭环确认前，
-  不要把 `version` 当作正式发布版本盲目推送。
+- QD-215 Windows 发布依赖校验已落地：`verify_qd_win_release.ps1` 检查 x64 PE、
+  `platforms/qwindows.dll`、VC Runtime 和 Qt 直接依赖，`publish_qd_win.bat` 与
+  `package_qd_win.bat` 都会在缺依赖时中止。Windows 11 上 publish、Inno Setup 打包
+  和缺 Runtime/平台插件/Qt 依赖的负向测试均通过，安装包仍为 89,676,841 字节，
+  SHA-256 为 `67dbc4e5f56dec06d20b0feeef7d70545f087af4b8673025adba987cfcf9eeb6`。
+- 本轮已加入 Windows 打包/发布校验脚本和负向回归；`version=4.2.9.0` 仍保留为
+  未提交的验证版本。在 Windows 升级闭环确认前，不要把 `version` 当作正式发布版本
+  盲目推送。
 
 ## 1. 推送前检查
 

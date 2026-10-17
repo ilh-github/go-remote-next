@@ -33,6 +33,7 @@
 | `guest-uia-setedit.ps1` | 按顺序设置某个顶层窗口里的第 N 个输入框（QML 输入框没有可访问名字） |
 | `guest-list-windows.ps1` | 按进程列出顶层窗口（句柄、可见性、矩形、标题），确认"窗口到底开没开" |
 | `guest-close-hard-error.ps1` | 关掉 `csrss` 持有的 `xxx.exe - 系统错误` 僵尸弹窗（会吞掉合成鼠标点击），按标题片段匹配 |
+| `guest-verify-qd-win-release.ps1` | 验证 Windows 发布目录完整通过检查，并确认缺 VC Runtime、`qwindows.dll` 或 Qt 直接依赖时会被拒绝 |
 
 ## 依赖
 

@@ -54,6 +54,14 @@ if not exist "%publish_path%" (
     goto return
 )
 
+echo [*] verifying Windows publish dependencies...
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%script_path%verify_qd_win_release.ps1" -PackageDir "%publish_path%"
+if not %errorlevel%==0 (
+    echo [!] error: Windows publish dependency verification failed
+    goto return
+)
+echo [*] Windows publish dependency verification passed
+
 echo=
 echo=
 echo ---------------------------------------------------------------
@@ -66,6 +74,8 @@ if exist "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" (
     set "iscc_path=C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
 ) else if exist "C:\Program Files\Inno Setup 6\ISCC.exe" (
     set "iscc_path=C:\Program Files\Inno Setup 6\ISCC.exe"
+) else if exist "%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe" (
+    set "iscc_path=%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe"
 ) else (
     where iscc >nul 2>nul
     if !errorlevel!==0 (

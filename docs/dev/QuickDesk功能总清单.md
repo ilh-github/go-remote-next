@@ -79,7 +79,7 @@
   `dev` 切分支贡献、Remoting 改动由维护者处理”；不能再把“暂缓”理解成停止维护。
 - 上游 PR：#22、#23、#24、#25 均为 OPEN / MERGEABLE，但 GitHub 返回的
   `mergeStateStatus=UNSTABLE` 且没有 reported checks；不能把 MERGEABLE 写成 CI 已通过。
-- 清单统计：116 个唯一 QD ID；70 个 `[x]`、21 个 `[~]`、20 个 `[ ]`、
+- 清单统计：116 个唯一 QD ID；70 个 `[x]`、22 个 `[~]`、19 个 `[ ]`、
   2 个 `[!]`、2 个 `[>]`、1 个 `[-]`。
 - 上游待办已全部映射到本清单：10 个 open issue、4 个 open PR、3 个未完成 Roadmap
   项均有对应 QD、处理边界和上游贡献方式；上游已完成的 Roadmap 项只作为继承基线，
@@ -175,6 +175,14 @@
   `67dbc4e5f56dec06d20b0feeef7d70545f087af4b8673025adba987cfcf9eeb6`），
   客户端已真实发现更新、下载并通过摘要校验。尚未点击“安装并重启”，因此安装器启动、
   进程退出/重启、版本落盘和服务重建仍待确认，QD-005 / QD-808 继续维持 `[~]`。
+- QD-215 Windows 发布依赖回归：新增 release 校验器，检查 `QuickDesk.exe` 与
+  `platforms/qwindows.dll` 的 PE 架构、VC Runtime、Qt 平台插件及直接导入依赖；
+  `publish_qd_win.bat` 和 `package_qd_win.bat` 都会在继续前失败关闭。Windows 11 中
+  `dumpbin` 确认两个二进制均为 x64（`0x8664`），`qwindows.dll` 直接依赖
+  `Qt6Gui.dll`、`Qt6Core.dll`、`MSVCP140.dll`、`VCRUNTIME140.dll` 和
+  `VCRUNTIME140_1.dll`。完整 publish 和 Inno Setup 打包均以退出码 0 通过；负向测试
+  证明缺 `vcruntime140_1.dll`、`platforms/qwindows.dll` 或 `Qt6Network.dll` 时会被拒绝。
+  issue #7 的原始坏安装包尚未取得，因此还不能声称直接复现了用户环境。
 - WebClient 当前 34/34 测试通过；生产构建 JS 362.03 kB、gzip 116.68 kB。
 - `git diff --check`：通过。
 - 远端推送仍被当前执行策略拒绝，本地 `dev` 尚未同步到 GitHub。
@@ -204,7 +212,7 @@
 | Remoting 需求 | QD-004 / QD-505 Host 权威录制与断线收尾 | `Legacy` / `Fork` | PR #23 只录控制端已解码画面；Host/Relay 没有权威媒体落盘 | 提 Remoting/宿主生命周期需求；fork 不另造第二套媒体链路 |
 | Remoting 需求 | QD-007 图片剪贴板 | `Legacy` / `Fork` | Remoting `ClipboardEvent` 只承载 UTF-8 文本 | 提图片格式、分片和权限边界需求；等协议方案后再实现 |
 | Remoting 需求 | QD-114 真实 CertVerifier | `Upstream` issue #20 | SPKI 只是临时放行；根因是 `quickdesk_network_service.cc` 未绑定真实证书校验器 | 向 Remoting 维护者提正式修复需求和回归用例 |
-| 验证/排障 | QD-215 Windows Qt platform plugin | `Upstream` issue #7 | 属安装包/Qt 运行库问题，不是媒体链路问题 | 在 Windows 实机复现，补安装包依赖检查和回归 |
+| 验证/排障 | QD-215 Windows Qt platform plugin | `Upstream` issue #7 | 已补发布依赖校验和缺 DLL/Qt 插件负向回归，Windows publish/package 均通过；原始坏包未复现 | 取得 issue #7 对应安装包做直接验证，再把最小校验补丁提交上游 |
 | 验证/排障 | QD-216 主机连接失败 | `Upstream` issue #9 | 缺真实 host/signaling/TLS 日志，不能直接猜实现 | 先做支持 triage；能拆出确定 bug 后再进入实现 |
 | 安全设计 | QD-115 服务端设备密钥信任边界 | `Upstream` issue #10 / `Fork` | 信令服务端是否能冒充设备仍缺威胁模型 | 先写安全边界和攻击面；需要协议改动时与维护者协作 |
 | 上游流程 | QD-911 私密安全披露入口 | `Upstream` issue #6 | 上游没有 `SECURITY.md`，issue 要求私密漏洞报告渠道 | 在 fork 准备最小文档候选，并建议上游启用 GitHub Private Vulnerability Reporting |
@@ -275,7 +283,7 @@ Roadmap 项放到同一条实施路径中。详细追溯仍以第 16 节为准�
 | QD-212 | 设备列表标识本机 | `[x]` | 上游 issue #19；Qt 我的设备/收藏已标记“本机”，候选 `f1ce096` 已独立验证 |
 | QD-213 | 访问码不可用回归 | `[x]` | 上游 issue #19；Qt 缺失/过期访问码会按单设备回源并自动继续连接，候选 `6928d24` 已独立验证 |
 | QD-214 | 文件上传 Host error type=2 | `[~]` | 上游 issue #19；错误码已解释为宿主保存失败并给出排查方向，上传取消码已修正；真实 Windows 宿主日志和失败路径仍未定位 |
-| QD-215 | Windows 启动 Qt platform plugin 错误 | `[ ]` | 上游 issue #7；属安装包/运行时打包问题 |
+| QD-215 | Windows 启动 Qt platform plugin 错误 | `[~]` | 上游 issue #7；发布链新增 x64、VC Runtime、`qwindows.dll` 和 Qt 直接依赖校验，Windows 正负向测试通过；原始坏安装包未复现，上游 PR 未提交 |
 | QD-216 | 主机连接与设备 ID/访问码加载失败 | `[~]` | 上游 issue #9；作为支持 triage 跟踪，不直接等同产品需求 |
 
 ## 6. 远程控制核心
@@ -411,7 +419,7 @@ Roadmap 项放到同一条实施路径中。详细追溯仍以第 16 节为准�
    服务端、OpenAPI 和 SDK 候选，再推送 Web/Qt 客户端候选；不把 fork 文档带入 PR。
 3. **补任务和更新真机链路**：QD-607 的批量远控清场已完成；继续定义定时连接和广义
    批量 agent 指令/回执，补 QD-005 / QD-808 Windows 与 macOS 安装、重启、签名和
-   公证验证，以及 QD-215 Windows Qt 插件问题。
+   公证验证。QD-215 已补发布依赖校验和正负向回归，剩余原始坏包复现与上游 PR。
 4. **准备 Remoting 需求单**：QD-002 Web 文件操作通道、QD-004 / QD-505 Host 权威录制、
    QD-007 图片剪贴板、QD-114 真实 CertVerifier。每项写清协议、宿主生命周期、权限、
    兼容性和验收用例，先交上游维护者评估。
@@ -463,7 +471,7 @@ Remoting 或协议改造；`不重复` 表示上游已经具备，只需验证�
 | #13 Linux 支持 | QD-318 | 暂缓 | `Upstream-Open` | 保留跨平台接口，不承诺当前迭代实现 |
 | #10 信令服务设备密钥信任 | QD-115 | 先设计 | `Upstream-Open` | 写威胁模型和安全边界，再决定是否改协议 |
 | #9 主机连接失败 | QD-216 | 先排障 | `Upstream-Open` | 收集 host/signaling/TLS 日志，确认可复现 bug 后再提单 |
-| #7 Windows Qt 插件启动失败 | QD-215 | 立即排障 | `UP-Ready` | Windows 实机复现安装包依赖，补回归和打包检查 |
+| #7 Windows Qt 插件启动失败 | QD-215 | 本地回归完成 | `UP-Ready` | 已补 x64/VC Runtime/Qt 插件/直接依赖校验和负向测试；取得原始坏包后直接复现并提交最小上游 PR |
 | #6 私密安全披露入口 | QD-911 | 流程改进 | `Upstream-Open` | 推动 `SECURITY.md` 或私密披露渠道，不在公开 issue 贴利用细节 |
 | PR #22 自动审批线程亲和性 | QD-113 | 等待同步 | `UP-PR#22` | 合并后 cherry-pick，确认 base 是 `master` 时的回灌顺序 |
 | PR #23 会话录像与回放 | QD-501~509 | 等待同步 | `UP-PR#23` | 不重复提交；合并后回灌，Host 权威录制另走 Remoting |
@@ -520,7 +528,7 @@ Remoting 或协议改造；`不重复` 表示上游已经具备，只需验证�
 | #13 Linux 支持 | Roadmap | QD-318 | 上游 Roadmap 已列出，本 fork 暂缓 | 保持跨平台接口，不在当前迭代投入 Linux 被控端 |
 | #10 信令服务器设备密钥信任 | Security | QD-115 | 服务端是否可冒充设备需要明确威胁模型 | 与上游安全维护者讨论；先写安全边界，不改协议 |
 | #9 主机连接失败 | Support / Bug | QD-216 | 需要真实环境日志，不宜直接猜实现 | 收集 host/signaling/TLS 日志后再拆 bug |
-| #7 Windows 启动 Qt platform plugin 错误 | Packaging | QD-215 | Qt 插件/运行库打包问题 | 在 Windows 实机复现并补安装包回归 |
+| #7 Windows 启动 Qt platform plugin 错误 | Packaging | QD-215 | Qt 插件/运行库打包问题；Windows publish/package 与缺 DLL 负向测试已通过 | 验证 issue #7 原始安装包，准备只含发布校验和打包失败关闭的最小上游 PR |
 | #6 私密安全披露入口 | Process | QD-911 | 不是产品功能，但影响上游贡献可信度 | 推动 SECURITY.md 或私密披露渠道，不在公开 issue 贴利用细节 |
 
 ### 16.7 上游 Roadmap 映射
