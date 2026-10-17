@@ -1,8 +1,9 @@
 # QuickDesk 业务工作流 HTTP 触发器
 
-> 状态（2026-10-17）：QD-610 第二阶段。业务系统可以保存 manual/interval trigger，
+> 状态（2026-10-17）：QD-610 第三阶段。业务系统可以保存 manual/interval trigger，
 > 通过独立 Bearer token 立即运行，并由 HTTP transport 的后台 worker 每 5 秒领取一次
-> 到期触发器。控制面事件订阅、出站回调、幂等键、委托权限细分和异步任务队列仍未完成。
+> 到期触发器。`Idempotency-Key` 已支持持久化重放；控制面事件订阅、出站回调、
+> 委托权限细分、cron/日历和异步任务队列仍未完成。
 
 ## 1. 边界
 
@@ -55,6 +56,7 @@ quickdesk-mcp
 ```http
 POST /v1/workflows/{workflow_id}/run
 Authorization: Bearer <QUICKDESK_TRIGGER_TOKEN>
+Idempotency-Key: <unique-request-id>
 Content-Type: application/json
 ```
 
@@ -79,6 +81,12 @@ Content-Type: application/json
 成功时返回 `200` 和完整的 `WorkflowRunReport`，报告同时写入
 `~/.quickdesk/workflow-runs/{run_id}.json`。
 
+`Idempotency-Key` 可选，长度为 1 到 128 个字符。相同 key、工作流、设备和请求参数再次
+到达时，直接返回第一次持久化的 `WorkflowRunReport`，不会再次执行工作流；同一 key 被
+不同请求复用时返回 `409`，第一次请求仍在运行也返回 `409`。映射写入
+`~/.quickdesk/workflow-idempotency.json`，进程重启后仍可重放。第一次执行失败时，
+后续相同 key 返回相同失败状态，不会把失败伪装成成功。
+
 错误：
 
 | HTTP | 含义 |
@@ -87,6 +95,7 @@ Content-Type: application/json
 | `401` | Bearer token 缺失或错误 |
 | `403` | 设备不在 `QUICKDESK_ALLOWED_DEVICES` |
 | `404` | 触发器未启用、工作流不存在 |
+| `409` | `Idempotency-Key` 正在执行或被不同请求复用 |
 | `429` | 已有另一条业务工作流正在运行 |
 | `500` | QuickDesk 执行失败或报告持久化失败 |
 
@@ -151,13 +160,14 @@ completed/failed 和错误写回 trigger 定义。
 - 设备白名单在进入工作流前检查。
 -  replay 仍经过 trust policy、人工确认和 emergency stop。
 - 工作流 ID 和 run ID 都经过 UUID 与路径逃逸校验。
+- `Idempotency-Key` 只做请求去重，不是认证凭证；仍需保护 trigger token。
 - 同步请求会占用一个执行槽；业务系统应设置足够超时并处理 429。
 
 ## 7. 尚未完成
 
 - 控制面事件订阅和 event-to-workflow 映射；
 - cron/日历定时规则；当前只有固定 interval；
-- 异步队列、取消、幂等键和跨进程 worker；
+- 异步队列、取消和跨进程 worker；当前只支持单进程执行槽；
 - 运行完成后的 HMAC 出站回调；
 - Owner 委托 grant、最小权限范围和审计回传控制面。
 
