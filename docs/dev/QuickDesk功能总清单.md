@@ -145,9 +145,21 @@
   `-p 1 -count=1` 通过；四套 SDK freshness 和编译检查通过；真实 SignalingServer
   `openapi-smoke.mjs` 输出 `PASS: 388 documented assertions`；WebClient 34/34 与生产构建
   通过；Qt 完整构建、11/11 CTest、新弹窗 lint、双语 764/764 和离屏启动通过。
+- QD-607 控制面批量动作：新增 `revoke_all_remote_sessions`，按执行时的设备归属关闭
+  owner 所有设备上的活动远控会话，最多一次处理 200 台；不注销账号登录会话，也不会把
+  “没有活动会话”当失败。服务端调度 worker 在完整动作注册后启动，`supported_kinds`
+  由服务端注册表返回，WebClient 和 Qt 直接消费，不在客户端硬编码能力表。
+- QD-607 验证：服务层真实 PostgreSQL 覆盖 owner 过滤、已结束会话排除、单台失败不拖死其余
+  设备；handler 适配器复用现有跨实例 `revokeDeviceSessions` 路径；空测试库按 CI 口径执行
+  `go test -p 1 -count=1 ./...` 和 `go vet ./...` 通过；本地服务启动日志确认
+  `kinds=[revoke_all_remote_sessions sign_out_all_sessions]`。
+- 上游对账：本次重新 fetch 后 `upstream/dev` / `upstream/master` 仍为 `f6651f0`，open
+  issue 仍为 10 个，open PR 仍为 #22、#23、#24、#25；没有新增上游项需要插队。QD-607
+  属于 `Fork` / `Legacy` 的控制面补强，不是复制上游已有 PR；等 PR #25 基线确认后作为
+  管理面增量准备，不把它包装成上游已经提出的需求。
 - QuickDesk 当前 11/11 CTest 通过（SPKI、更新解析、更新 HTTP 集成、设备显示 QML、
   访问码回源集成、访问审批管理集成、远程会话实时事件、计划任务管理、通知规则管理、
-  录像回放管理、设备分组管理）；双语 `.ts` 各 764 条完成、0 unfinished。
+  录像回放管理、设备分组管理）；双语 `.ts` 各 765 条完成、0 unfinished。
 - WebClient 当前 34/34 测试通过；生产构建 JS 362.03 kB、gzip 116.68 kB。
 - `git diff --check`：通过。
 - 远端推送仍被当前执行策略拒绝，本地 `dev` 尚未同步到 GitHub。
@@ -166,7 +178,7 @@
 | 已完成 | QD-708 Qt 通知规则页 | `Fork` / `Upstream` 通用能力 | 通知通道、静默时段、设备离线告警、投递重试/确认和实时刷新已完成，提交 `dbd828f` | PR #25 合并后拆成通用 Qt 管理面候选并提交上游 |
 | 已完成 | QD-508 Qt 录像回放页 | `Legacy` / `Upstream` PR #23 | Qt 录像列表、分页、缩略图、应用内播放、外部打开和删除已完成，提交 `74c7022` | PR #23 合并后作为通用 Qt 管理面候选提交上游 |
 | 已完成 | QD-204 地址簿与设备分组用户入口 | `Legacy` / `Upstream` Roadmap | owner-scoped API、四套 SDK、WebClient 和 Qt 已完成；真实 service smoke 388 条断言通过 | 本地候选已准备：API `codex/upstream-qd-204-api@d2321b9`，客户端 `codex/upstream-qd-204-client@b259d03`；等远端写入恢复后建 PR |
-| 本地收口 | QD-607 计划任务执行动作 | `Fork` / `Legacy` | 服务端调度、Web/Qt 管理面、重试已完成；只有 `sign_out_all_sessions` | 先定义“定时连接”和“批量运维”协议及回执；kind 仍以服务端注册表为权威 |
+| 本地收口 | QD-607 计划任务执行动作 | `Fork` / `Legacy` | 服务端调度、Web/Qt 管理面、重试已完成；新增 `revoke_all_remote_sessions`，可按执行时设备归属批量关闭活动远控会话（最多 200 台） | “定时连接”仍需控制端到点发起连接的协议；更广义的批量 agent 指令仍需执行与回执通道；kind 始终以服务端注册表为权威 |
 | 本地收口 | QD-005 / QD-808 自动更新真机验证 | `Fork` / `Legacy` / `Upstream` PR #25 | 检查、下载、SHA-256、安装入口已完成 | 补 Windows 安装包升级/重启、macOS DMG 替换、签名和公证回归；PR #25 合并后再拆上游 |
 | 上游候选 | QD-003 多标签控制与音频抢占 | `Legacy` / `Upstream` Roadmap 补强 | 候选 `codex/upstream-cross-tab-coordination` = `6047615`，仅 WebClient 改动 | 远端写入恢复后推送并建 PR；补截图和同源双标签验证说明 |
 | 上游候选 | QD-114 自托管 WSS SPKI 兼容 | `Upstream` issue #20 / `Fork` | 候选 `codex/upstream-qd-114-spki` = `13559e6`；临时方案不替代真实证书校验 | 推送并建 issue #20 PR；补 Qt 构建、Windows 服务和真实 `wss://` |
@@ -288,7 +300,7 @@
 | QD-604 | 指标型告警 | `[ ]` | CPU/内存等依赖被控端上报 |
 | QD-605 | WebClient 通知管理页 | `[x]` | `/notifications` |
 | QD-606 | Qt 通知规则管理页 | `[x]` | `dbd828f` 已覆盖通道 CRUD/test/启停、静默时段、离线告警和投递运维 |
-| QD-607 | 计划任务 | `[~]` | 服务端、WebClient、Qt 管理页和重试已完成；定时连接/批量运维等客户端动作待补 |
+| QD-607 | 计划任务 | `[~]` | 服务端、WebClient、Qt 管理页和重试已完成；`revoke_all_remote_sessions` 已补齐控制面批量清场（最多 200 台）。定时连接、广义批量 agent 指令及回执仍未做 |
 | QD-608 | OpenAPI 与生成 SDK | `[~]` | Go/TS/Python/Java；C#/PHP/Kotlin 未提供 |
 | QD-609 | MCP / AI 自动化 | `[x]` | QuickDesk 原生能力；也是上游维护者当前最优先方向 |
 | QD-610 | 业务系统集成与自定义工作流 | `[~]` | 设计和工作流方向已有，完整产品未收口 |
@@ -356,8 +368,9 @@
    远端写入恢复后，先推送已准备好的 QD-003、QD-114、QD-212、QD-213、QD-214 最小候选。
 2. **把 QD-204 回馈上游**：PR #25 的控制面/ API 基线确认后，先推送 owner-scoped
    服务端、OpenAPI 和 SDK 候选，再推送 Web/Qt 客户端候选；不把 fork 文档带入 PR。
-3. **补任务和更新真机链路**：QD-607 定时连接/批量运维动作，QD-005 / QD-808
-   Windows 与 macOS 安装、重启、签名和公证验证，QD-215 Windows Qt 插件问题。
+3. **补任务和更新真机链路**：QD-607 的批量远控清场已完成；继续定义定时连接和广义
+   批量 agent 指令/回执，补 QD-005 / QD-808 Windows 与 macOS 安装、重启、签名和
+   公证验证，以及 QD-215 Windows Qt 插件问题。
 4. **准备 Remoting 需求单**：QD-002 Web 文件操作通道、QD-004 / QD-505 Host 权威录制、
    QD-007 图片剪贴板、QD-114 真实 CertVerifier。每项写清协议、宿主生命周期、权限、
    兼容性和验收用例，先交上游维护者评估。
