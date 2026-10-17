@@ -45,8 +45,9 @@
 - 本地主分支：`dev`、`master`
 - 本地代码基线：`50bec36`（QD-610 控制面事件触发器与上游候选记录）；QD-002 的
   file-ops、WebClient、Qt 收口和本轮验证记录作为后续提交落在同一 `dev` 主线
-- 远端 fork：`origin/dev` 仍为 `f6651f0`，本地 `dev` 尚未推送；领先数量以
-  `git rev-list --count origin/dev..dev` 的实时值为准。远端写入恢复前不能把本地验收当成已发布
+- 远端 fork：`origin/dev` 与 `origin/master` 已同步到本地 `dev` / `master`；本地代码基线
+  为 `73c5ec3`（QD-002/QD-403 的 file-ops、WebClient、Qt 收口），领先数量以
+  `git rev-list --count origin/dev..dev` 的实时值为准
 - 上游基线：`barry-ran/QuickDesk` 的 `dev` 和 `master` 当前均为 `f6651f0`
 - 上游维护口径：持续维护但暂缓更新，下一阶段重点偏 MCP；外部贡献从 `dev` 切分支，完成后合入 `dev`，维护者定期合入 `master`
 - Remoting 边界：`quickdesk-remoting` 需要编译整个 Chromium，涉及 Remoting 的改动优先向上游提需求，不要求贡献者本地编译
@@ -95,9 +96,11 @@
   `64ab93a`（备份恢复与存储配额）、`37dd8aa`（Host 指标告警）、`3021ca9`
   （私密安全披露策略）、`3474203`（信令信任边界）；
   `dev` / `master` 在其后同步本轮验证；
-  当前领先数量以 `git rev-list --count origin/dev..dev` 为准；
-  QD-215 主线和上游最小候选均已提交，远端写入仍被策略拒绝。
-- 上游核对：`upstream/dev` 与 `upstream/master` 均为 `f6651f0`；当前上游 open issues 10 个、open PR 4 个。
+-  当前领先数量以 `git rev-list --count origin/dev..dev` 为准；
+  QD-215 主线和上游最小候选均已提交并推送。
+- 上游核对：`upstream/dev` 与 `upstream/master` 均为 `f6651f0`；当前上游 open issues 10 个、
+  open PR 6 个（新增本轮的 #26 file-ops 分块与版本保留软删除、#27 WebClient 文件管理器，
+  两者为 stacked 关系）。
 - 上游维护：issue #21 已由维护者回复“持续维护、暂缓更新、重点偏 MCP、欢迎从
   `dev` 切分支贡献、Remoting 改动由维护者处理”；不能再把“暂缓”理解成停止维护。
 - 上游 PR：#22、#23、#24、#25 均为 OPEN / MERGEABLE，但 GitHub 返回的
@@ -856,14 +859,18 @@ Remoting 或协议改造；`不重复` 表示上游已经具备，只需验证�
 | 15 | `docs: add private security disclosure policy` | QD-911 / issue #6 | 候选 `codex/upstream-qd-911-security@9862717` 直接基于 `upstream/dev@f6651f0`，只新增根目录 `SECURITY.md`；上游 Private Vulnerability Reporting 仍 disabled | 推送后创建 issue #6 PR；请维护者同时启用 GitHub Private Vulnerability Reporting |
 | 16 | `docs(security): define signaling trust boundary` | QD-115 / issue #10 | 候选 `codex/upstream-qd-115-trust-model@1ca2543` 直接基于 `upstream/dev@f6651f0`，只新增 `docs/security/signaling-trust-model.md` | 推送并关联 issue #10；文档批准后再按 Host 身份密钥与 Owner 签名授权拆协议 PR |
 
-QD-002 / QD-403 的上游候选拆分已经确定：
+QD-002 / QD-403 的上游候选已经推送并开 PR：
 
-- `codex/upstream-qd-002-file-ops`：基于 `upstream/dev@f6651f0`，只含 host
-  `file-ops` 的分块读写、默认目录、版本保留软删除、SKILL.md 和 Rust 测试。
-- `codex/upstream-qd-403-webclient`：stacked 在 file-ops 分支上，只含浏览器
-  `qd-skill-bridge` 客户端、Web 文件管理器 UI、remote-main 接线、样式、双语和 Node 测试。
-- 验证基线：file-ops 4/4、WebClient 62/62、生产构建、桌面与移动 Chrome 烟测。
-- 未完成：候选分支尚未从本轮工作树冻结，远端推送仍被策略拒绝。
+- `codex/upstream-qd-002-file-ops` = `e106be4`：基于 `upstream/dev@f6651f0`，只含 host
+  `file-ops` 的分块读写、默认目录、版本保留软删除、SKILL.md 和 Rust 测试；
+  上游 PR <https://github.com/barry-ran/QuickDesk/pull/26>，OPEN / MERGEABLE / CLEAN。
+- `codex/upstream-qd-403-webclient` = `9ff00af`：stacked 在 file-ops 分支上，只含浏览器
+  `qd-skill-bridge` 客户端、Web 文件管理器 UI、remote-main 接线、样式、双语和 Node 测试；
+  上游 PR <https://github.com/barry-ran/QuickDesk/pull/27>，base 为 PR #26 的 head。
+- 验证基线：候选分支上 file-ops 4/4、Clippy `-D warnings`、WebClient 12/12、生产构建、
+  接线检查（完整能力集打开菜单入口）和 diff check 全部通过；fork 主线另跑 62/62 与
+  桌面/移动 Chrome 烟测。
+- 上游 `#22`~`#25` 的既有候选分支已全部推送到 fork，等维护者审查。
 
 QD-003 的上游候选已经单独准备：
 

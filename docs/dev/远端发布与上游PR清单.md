@@ -1,17 +1,14 @@
 # 远端发布与上游 PR 清单
 
-**更新时间**: 2026-10-18 00:22 CST
+**更新时间**: 2026-10-18 00:52 CST
 
-这份清单只记录本地验证完成后仍需远端写入的动作。当前机器上的 `git push`
-会被执行策略拒绝，因此以下步骤应在允许远端写入的环境中执行。
+这份清单记录本地验证完成后的远端写入与 PR 状态。远端写入策略已恢复，fork 主线与
+各上游候选分支均已推送；后续新增功能仍需按同一流程推送并建 PR。
 
 ## 当前本地基线
 
-- fork 主干：本轮启动基线为 `50bec36`（QD-610 控制面事件触发器记录）；
-  QD-002/QD-403 的 file-ops、WebClient、Qt 收口提交位于其后，推送前仍以
-  `git rev-parse` 为准
-- fork 远端：`origin/dev`、`origin/master` 仍为 `f6651f0`；本地 `dev` 领先数量以
-  `git rev-list --count origin/dev..dev` 为准，远端写入尚未完成
+- fork 主干：`73c5ec3`（QD-002/QD-403 的 file-ops、WebClient、Qt 收口）
+- fork 远端：`origin/dev` 与 `origin/master` 均已同步到 `73c5ec3`
 - 功能分支：`codex/product-backlog` = `dea02f9`
 - 上游 QD-003 候选：`codex/upstream-cross-tab-coordination` = `6047615`（基于 `upstream/dev`）
 - 上游 QD-114 候选：`codex/upstream-qd-114-spki` = `13559e6`（基于 `upstream/dev`）
@@ -23,10 +20,12 @@
   （基于 `upstream/dev`）
 - 上游 QD-215 候选：`codex/upstream-qd-215-win-runtime-check` = `f449b87`
   （基于 `upstream/dev`，只含 Windows 发布依赖校验和打包失败关闭）
-- 上游 QD-002 file-ops 候选：待从本轮工作树冻结，基于 `upstream/dev@f6651f0`；
-  只含分块读写、默认目录、版本保留软删除、SKILL.md 和 Rust 测试
-- 上游 QD-403 WebClient 候选：待基于 QD-002 候选创建 stacked 分支；只含
-  `SkillBridgeClient`、Web 文件管理器、remote-main 接线、样式、双语和 Node 测试
+- 上游 QD-002 file-ops 候选：`codex/upstream-qd-002-file-ops` = `e106be4`（基于
+  `upstream/dev@f6651f0`），只含分块读写、默认目录、版本保留软删除、SKILL.md 和
+  Rust 测试；已推送并创建上游 PR #26（OPEN / MERGEABLE / CLEAN）
+- 上游 QD-403 WebClient 候选：`codex/upstream-qd-403-webclient` = `9ff00af`（stacked 在
+  file-ops 候选上），只含 `SkillBridgeClient`、Web 文件管理器、remote-main 接线、样式、
+  双语和 Node 测试；已推送并创建上游 PR #27（base 为 PR #26 的 head）
 - 上游 QD-204 API 候选：`codex/upstream-qd-204-api` = `d2321b9`（基于 PR #25 的
   `feat/signaling-control-plane` = `8998466`）
 - 上游 QD-204 客户端候选：`codex/upstream-qd-204-client` = `b259d03`（同一 PR #25
@@ -53,11 +52,16 @@
 - 上游 QD-810 候选：尚未创建；fork 功能提交为 `64ab93a`。它依赖 PR #25 和 QD-006
   SQLite 候选，应在两者落地后再拆 `quickdesk-backup`、配额与两个存储视图的最小增量
 - 上游最小候选：`codex/upstream-access-bans` = `b89c24c`
+- 上游 QD-002 file-ops 候选：`codex/upstream-qd-002-file-ops` = `e106be4`（基于
+  `upstream/dev@f6651f0`），已推送并创建上游 PR #26（OPEN / MERGEABLE / CLEAN）
+- 上游 QD-403 WebClient 候选：`codex/upstream-qd-403-webclient` = `9ff00af`（stacked 在
+  file-ops 候选上），已推送并创建上游 PR #27（base 为 PR #26 的 head）
 - 上游基线：`barry-ran/QuickDesk` 的 `dev` / `master` = `f6651f0`
 - 上游维护口径：issue #21 已确认“持续维护、暂缓更新、重点偏 MCP”；贡献从
   `upstream/dev` 切分支，完成后 PR 合入 `dev`；Remoting 改动由维护者处理
-- 上游待办快照：10 个 open issue、4 个 open PR（#22、#23、#24、#25）；
-  四个 PR 均为 MERGEABLE / UNSTABLE，且没有 reported checks
+- 上游待办快照：10 个 open issue、6 个 open PR（#22、#23、#24、#25 与本轮新增的
+  #26、#27）；#26 / #27 为 MERGEABLE / CLEAN，#22~#25 为 MERGEABLE / UNSTABLE
+  且没有 reported checks
 - 上游待办融合口径：fork 自有缺口、旧 Go-Remote 差距、上游 open issue/PR/Roadmap
   已统一落入 `docs/dev/QuickDesk功能总清单.md`；开发和上游 PR 顺序以其 3.1、3.2、
   3.3 和第 16、17 节为准
@@ -109,7 +113,11 @@
   localStorage；已完成真实 Chrome 双标签验证。
 - WebClient 新增“远程文件”侧栏：经预编译 Remoting 的 `qd-skill-bridge` 调用 host
   `file-ops`，支持目录、新建、重命名、版本保留软删除、文本预览和 64 KiB 分块上传下载；
-  file-ops 4/4、WebClient 62/62、生产构建和桌面/移动 Chrome 烟测通过。
+  file-ops 4/4、WebClient 62/62、生产构建和桌面/移动 Chrome 烟测通过；
+  已推送 `origin/dev` / `origin/master`，并拆成上游 PR #26（file-ops）与 #27（WebClient）。
+- 远端推送已完成：`dev`、`master` 和 15 个上游候选分支（QD-002/QD-003/QD-114/QD-204/
+  QD-212/QD-213/QD-214/QD-215/QD-506/QD-510/QD-604/QD-608/QD-610/QD-911/QD-115）均已
+  推送到 fork；上游 PR #26 与 #27 已创建。
 - Qt 设置页支持自托管 `wss://` 信令服务器的 SPKI 固定值，Host/Client 子进程会自动
   附加 Chromium `--ignore-certificate-errors-spki-list`；Windows Host 服务安装器支持
   通过 `QUICKDESK_SPKI` 把同一固定值写入服务注册参数。
