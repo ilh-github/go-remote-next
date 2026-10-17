@@ -67,7 +67,13 @@
 - QD-005 测试：`quickdesk_update_support_test` 与 `quickdesk_update_manager_test` 通过；
   后者使用真实本地 HTTP 服务覆盖检查、下载、摘要不匹配拒绝、残件清理和跨源凭据隔离。
 - QuickDesk 完整 Qt 6.8.3 Debug 构建通过，`QuickDesk_qmllint` 退出 0；现有旧 QML
-  未解析类型和布局告警仍在，本轮新增更新对话框没有阻断告警。三个 CTest 目标全部通过。
+  未解析类型和布局告警仍在，本轮新增更新对话框没有阻断告警。
+- QD-212 功能提交：`4e8ea5a`。Qt 我的设备与收藏列表会用当前 Host 设备 ID 标记
+  “本机”，同时保留备注/设备名；空设备 ID 或不匹配时不会误标。
+- QD-212 上游候选：`codex/upstream-qd-212-local-device` = `f1ce096`，基于
+  `upstream/dev`；在干净上游基线上完整构建通过，QML 测试 1/1 通过。
+- QuickDesk 当前 4/4 CTest 通过（SPKI、更新解析、更新 HTTP 集成、设备显示 QML）；
+  双语 `.ts` 各 422 条完成、0 unfinished。
 - `git diff --check`：通过。
 - 远端推送仍被当前执行策略拒绝，本地 `dev` 尚未同步到 GitHub。
 
@@ -106,7 +112,7 @@
 | QD-209 | 单会话踢人、按设备批量清场 | `[~]` | 服务端和 Web 已完成；Qt 真机回归待补 |
 | QD-210 | 跨实例会话撤销 | `[~]` | 已按实例寻址；Redis pub/sub 不是可靠队列 |
 | QD-211 | 撤销冷却期 | `[x]` | 支持窗口和递增冷却 |
-| QD-212 | 设备列表标识本机 | `[ ]` | 上游 issue #19；当前设备需要明确的 “本机” 身份 |
+| QD-212 | 设备列表标识本机 | `[x]` | 上游 issue #19；Qt 我的设备/收藏已标记“本机”，候选 `f1ce096` 已独立验证 |
 | QD-213 | 访问码不可用回归 | `[ ]` | 上游 issue #19；远程其他设备提示访问码不可用，需要复现宿主与权限链路 |
 | QD-214 | 文件上传 Host error type=2 | `[ ]` | 上游 issue #19；需要定位 Remoting 文件传输错误码和宿主机端失败路径 |
 | QD-215 | Windows 启动 Qt platform plugin 错误 | `[ ]` | 上游 issue #7；属安装包/运行时打包问题 |
@@ -295,7 +301,7 @@
 | #21 维护计划与参与维护意向 | 维护策略 | QD-001、QD-609 | 上游优先 MCP、从 dev 贡献、Remoting 由维护者改 | 所有新功能按 dev 最小分支准备；涉及 Remoting 先提需求 |
 | #20 自托管 HTTPS/WSS 失败 | Bug / 自托管 | QD-114 | 证书验证器在 Remoting 内未绑定；Qt-only SPKI 已支持子进程和服务安装参数 | 推送候选并补 Windows/Qt 回归；长期向 Remoting 提 CertVerifier 修复 |
 | #18 连接历史列表 | Feature | QD-206 | 上游 `dev` 已有 `ConnectionHistory`、历史列表、删除和重连；issue 仍开放 | 先做完整功能核对，确认无缺口后向下游说明可关闭，不再重复实现 |
-| #19 设备列表相关问题 | Bug cluster | QD-212、QD-213、QD-214 | 本机标识、访问码和上传错误码三个独立问题 | 分别复现、分别提 PR；不要混成一个“设备列表”大修 |
+| #19 设备列表相关问题 | Bug cluster | QD-212、QD-213、QD-214 | 本机标识已由候选 `f1ce096` 完成；访问码和上传错误码仍是独立问题 | 推送 QD-212 PR；分别复现 QD-213/QD-214，不混成一个“设备列表”大修 |
 | #17 自动审批被忽略 | Bug | QD-113 | 已由 PR #22 覆盖 | 跟踪 PR #22，不重复实现 |
 | #13 Linux 支持 | Roadmap | QD-318 | 上游 Roadmap 已列出，本 fork 暂缓 | 保持跨平台接口，不在当前迭代投入 Linux 被控端 |
 | #10 信令服务器设备密钥信任 | Security | QD-115 | 服务端是否可冒充设备需要明确威胁模型 | 与上游安全维护者讨论；先写安全边界，不改协议 |
@@ -327,9 +333,10 @@
 |---|---|---|---|
 | 1 | `feat(webclient): coordinate cross-tab control and audio` | QD-003 | 当前功能已测试；补上游 WebClient 约定和截图 |
 | 2 | `fix(self-host): allow pinned SPKI for self-hosted WSS` | QD-114 / issue #20 | 候选已准备；需推送、创建 PR，并补 Qt 构建和 Windows service 实机验证 |
-| 3 | `feat(webclient): control-plane management pages` | QD-108/605/607/703 | 依赖 PR #25 合并；按页面拆成多个 PR |
-| 4 | `feat(qt): remote session and management pages` | QD-706/708 | 依赖 PR #25 合并；先做实时事件消费，再拆页面 |
-| 5 | `feat(qt): consume self-hosted update channel` | QD-005 / QD-808 | 依赖 PR #25 合并；保留检查、下载、摘要校验、凭据隔离和测试，不携带 fork 私有文档 |
+| 3 | `feat(qt): mark the local device in device lists` | QD-212 / issue #19 | 候选已准备并通过上游基线构建；等远端写入后直接创建 PR |
+| 4 | `feat(webclient): control-plane management pages` | QD-108/605/607/703 | 依赖 PR #25 合并；按页面拆成多个 PR |
+| 5 | `feat(qt): remote session and management pages` | QD-706/708 | 依赖 PR #25 合并；先做实时事件消费，再拆页面 |
+| 6 | `feat(qt): consume self-hosted update channel` | QD-005 / QD-808 | 依赖 PR #25 合并；保留检查、下载、摘要校验、凭据隔离和测试，不携带 fork 私有文档 |
 
 QD-003 的上游候选已经单独准备：
 
@@ -350,6 +357,16 @@ QD-114 的上游候选已经单独准备：
 - 验证：纯 C++ 单测通过、翻译 `.ts` XML 校验通过、`git diff --check` 通过
 - 未完成：Qt/CMake 构建、Inno Setup 编译、Windows 服务和真实 `wss://` 回归；
   远端推送仍被策略拒绝，尚未创建 upstream PR
+
+QD-212 的上游候选已经单独准备：
+
+- 分支：`codex/upstream-qd-212-local-device`
+- 基线：`upstream/dev` = `f6651f0`
+- 本地提交：`f1ce096`
+- 范围：设备显示 JS、我的设备/收藏接线、中英文、QML QuickTest 与最小 CMake 测试入口
+- 验证：干净上游基线完整 Qt 构建通过、QML 测试 1/1、`QuickDesk_qmllint` 退出 0、
+  `git diff --check upstream/dev...HEAD` 通过
+- 未完成：远端推送仍被策略拒绝，尚未创建 upstream PR
 
 ### 17.3 需要上游 Remoting 处理的 PR
 
@@ -374,6 +391,7 @@ QD-114 的上游候选已经单独准备：
 
 - 继续使用上游 Chromium Remoting 作为核心，不在 fork 里重写媒体栈；
 - 把 QD-003、连接历史、TLS 临时修复先做成上游可审查的小 PR；
+- 把 QD-212 本机标识作为 issue #19 的第一个独立增量，先合这个再做访问码/上传问题；
 - 把 QD-005 的 Qt 更新消费作为 PR #25 的后续增量，先保证跨平台安装行为和签名链；
 - 把 Web 文件管理器、Host 自动录制、图片剪贴板整理成 Remoting 需求，由维护者评估；
 - 把 PR #25 的控制面能力先等上游审查，避免重复提交；

@@ -7,10 +7,11 @@
 
 ## 当前本地基线
 
-- fork 主干：`dev` 已包含 `cae77ff`（QD-005 Qt 客户端自动更新消费）
+- fork 主干：`dev` 已包含 `4e8ea5a`（QD-212 Qt 设备列表本机标识）
 - 功能分支：`codex/product-backlog` = `dea02f9`
 - 上游 QD-003 候选：`codex/upstream-cross-tab-coordination` = `6047615`（基于 `upstream/dev`）
 - 上游 QD-114 候选：`codex/upstream-qd-114-spki` = `13559e6`（基于 `upstream/dev`）
+- 上游 QD-212 候选：`codex/upstream-qd-212-local-device` = `f1ce096`（基于 `upstream/dev`）
 - 上游最小候选：`codex/upstream-access-bans` = `b89c24c`
 - 上游基线：`barry-ran/QuickDesk` 的 `dev` / `master` = `f6651f0`
 - fork PR #1：<https://github.com/ilh-github/go-remote-next/pull/1>
@@ -42,6 +43,8 @@
   SHA-256 校验、可选版本推迟、强制更新、Windows 静默安装、macOS 打开 DMG。
 - 更新下载只在同一 origin 携带 API key；跨源安装包请求已验证不会泄漏凭据。
 - QD-005 真实本地 HTTP 集成测试覆盖成功下载、摘要不匹配拒绝、残件清理和跨源隔离。
+- Qt 我的设备和收藏列表已用当前 Host 设备 ID 标记“本机”，不影响备注/设备名展示；
+  QD-212 上游候选已在干净基线上构建并通过 QML 测试。
 
 ## 1. 推送前检查
 
@@ -61,9 +64,11 @@ git log --oneline --left-right origin/feat/signaling-control-plane...codex/upstr
 - `dev` 必须包含 `2deb8c8`；
 - `dev` 必须包含 `a48d793`；
 - `dev` 必须包含 `cae77ff`；
+- `dev` 必须包含 `4e8ea5a`；
 - `codex/product-backlog` 必须包含 `dea02f9`；
 - `codex/upstream-access-bans` 必须包含 `b89c24c`；
 - `codex/upstream-qd-114-spki` 必须包含 `13559e6`；
+- `codex/upstream-qd-212-local-device` 必须包含 `f1ce096`；
 - 如果远端出现新提交，先合并或 rebase，再重跑受影响测试，不能强推覆盖他人工作。
 
 ## 2. 推送 fork 分支
@@ -73,6 +78,7 @@ git push origin \
   dev \
   codex/product-backlog \
   codex/upstream-qd-114-spki \
+  codex/upstream-qd-212-local-device \
   codex/source-unban \
   codex/upstream-access-bans
 ```
@@ -159,6 +165,10 @@ PR 描述至少写明：
   SPKI 纯 C++ 单测、翻译 `.ts` XML 校验和 `git diff --check`；Qt/CMake 构建、
   Inno Setup 编译、Windows 服务安装和真实 `wss://` 回归仍待补充。该 PR 只解决
   `quickdesk-remoting` 临时兼容，不替代真实 `CertVerifierService` 修复。
+- `feat(qt): mark the local device in device lists`：对应上游 issue #19 的本机标识；
+  候选分支 `codex/upstream-qd-212-local-device` = `f1ce096`，基于 `upstream/dev`，
+  10 个文件。已在干净上游基线上完整构建、运行 QML 测试和 `QuickDesk_qmllint`；
+  远端推送仍被策略拒绝。
 - 控制面管理页：等 PR #25 合并后按页面拆成独立 PR，不再使用“所有 fork 页面都留在 fork”
   的旧口径。
 - 上游 issue #18 连接历史：上游 `dev` 已存在 `ConnectionHistory` 和历史列表 UI，
