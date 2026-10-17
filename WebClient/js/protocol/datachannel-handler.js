@@ -11,6 +11,10 @@ import {
     encodeEventMessage, encodeControlMessage,
     decodeControlMessage, decodeEventMessage
 } from './protobuf-messages.js';
+import {
+    FILE_TRANSFER_ERROR_CANCELED,
+    formatFileTransferError
+} from './file-transfer-errors.js';
 
 export class DataChannelHandler extends EventTarget {
     constructor() {
@@ -375,7 +379,7 @@ export class DataChannelHandler extends EventTarget {
                 }));
                 this._activeUploads.delete(transferId);
             } else if (msg.error) {
-                const errMsg = `Host error type=${msg.error.type}`;
+                const errMsg = formatFileTransferError(msg.error.type);
                 console.error(`[DataChannel] File transfer error: ${errMsg}`);
                 this.dispatchEvent(new CustomEvent('fileTransferError', {
                     detail: { transferId, errorMessage: errMsg }
@@ -413,7 +417,7 @@ export class DataChannelHandler extends EventTarget {
         if (state.channel && state.channel.readyState === 'open') {
             try {
                 const errMsg = this._encodeFileTransfer({
-                    error: { type: 3 }  // CANCELED
+                    error: { type: FILE_TRANSFER_ERROR_CANCELED }
                 });
                 state.channel.send(errMsg);
             } catch (e) { /* ignore */ }
@@ -541,7 +545,7 @@ export class DataChannelHandler extends EventTarget {
                     this._activeDownloads.delete(transferId);
                 }
             } else if (msg.error) {
-                const errMsg = `Host error type=${msg.error.type}`;
+                const errMsg = formatFileTransferError(msg.error.type);
                 console.error(`[DataChannel] Download error: ${errMsg}`);
                 this._failDownload(state, errMsg);
             }
@@ -590,7 +594,9 @@ export class DataChannelHandler extends EventTarget {
         }
         if (state.channel && state.channel.readyState === 'open') {
             try {
-                const errMsg = this._encodeFileTransfer({ error: { type: 1 } });  // CANCELED
+                const errMsg = this._encodeFileTransfer({
+                    error: { type: FILE_TRANSFER_ERROR_CANCELED }
+                });
                 state.channel.send(errMsg);
             } catch (e) { /* ignore */ }
             state.channel.close();
