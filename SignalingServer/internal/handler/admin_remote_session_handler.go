@@ -33,7 +33,6 @@ type AdminRemoteSessionHandler struct {
 	revoker    SessionRevoker
 	audit      *service.AuditService
 	policies   *service.DeviceAccessPolicyService
-	bus        *service.EventBus
 }
 
 func NewAdminRemoteSessionHandler(
@@ -44,11 +43,10 @@ func NewAdminRemoteSessionHandler(
 	revoker SessionRevoker,
 	audit *service.AuditService,
 	policies *service.DeviceAccessPolicyService,
-	bus *service.EventBus,
 ) *AdminRemoteSessionHandler {
 	return &AdminRemoteSessionHandler{
 		sessions: sessions, recordings: recordings, access: access, devices: devices,
-		revoker: revoker, audit: audit, policies: policies, bus: bus,
+		revoker: revoker, audit: audit, policies: policies,
 	}
 }
 
@@ -255,7 +253,25 @@ func (h *AdminRemoteSessionHandler) BanIP(c *gin.Context) {
 	if device.UserID != nil {
 		ownerID = *device.UserID
 	}
-	policy, err := h.policies.BanIP(c.Request.Context(), deviceID, ownerID, req.Source)
+	policy, err := h.policies.BanIPWithEvent(
+		c.Request.Context(), deviceID, ownerID, req.Source,
+		func(policy *models.DeviceAccessPolicy) service.Event {
+			denyIPs := []string{}
+			if policy != nil {
+				denyIPs = decodeAllowIPsForEvent(policy.DenyIPs)
+			}
+			return service.Event{
+				Type:     service.EventDevicePolicyChanged,
+				UserID:   ownerID,
+				DeviceID: deviceID,
+				Data: map[string]interface{}{
+					"device_id": deviceID,
+					"deny_ips":  denyIPs,
+					"ip":        c.ClientIP(),
+					"reason":    "administrator banned access source",
+				},
+			}
+		})
 	if err != nil {
 		if errors.Is(err, service.ErrInvalidDenyIP) {
 			ProblemBadRequest(c, ProblemCodeInvalidRequest, err.Error())
@@ -267,19 +283,6 @@ func (h *AdminRemoteSessionHandler) BanIP(c *gin.Context) {
 	if h.audit != nil {
 		h.audit.Log(c.Request.Context(), middleware.MustAdminID(c), "", "device.access_ban",
 			"device", deviceID, "source="+strings.TrimSpace(req.Source), c.ClientIP())
-	}
-	if h.bus != nil && ownerID > 0 {
-		h.bus.Publish(c.Request.Context(), service.Event{
-			Type:     service.EventDevicePolicyChanged,
-			UserID:   ownerID,
-			DeviceID: deviceID,
-			Data: map[string]interface{}{
-				"device_id": deviceID,
-				"deny_ips":  decodeAllowIPsForEvent(policy.DenyIPs),
-				"ip":        c.ClientIP(),
-				"reason":    "administrator banned access source",
-			},
-		})
 	}
 	c.JSON(http.StatusOK, policyView(deviceID, policy))
 }
@@ -309,7 +312,25 @@ func (h *AdminRemoteSessionHandler) UnbanIP(c *gin.Context) {
 	if device.UserID != nil {
 		ownerID = *device.UserID
 	}
-	policy, err := h.policies.UnbanIP(c.Request.Context(), deviceID, ownerID, req.Source)
+	policy, err := h.policies.UnbanIPWithEvent(
+		c.Request.Context(), deviceID, ownerID, req.Source,
+		func(policy *models.DeviceAccessPolicy) service.Event {
+			denyIPs := []string{}
+			if policy != nil {
+				denyIPs = decodeAllowIPsForEvent(policy.DenyIPs)
+			}
+			return service.Event{
+				Type:     service.EventDevicePolicyChanged,
+				UserID:   ownerID,
+				DeviceID: deviceID,
+				Data: map[string]interface{}{
+					"device_id": deviceID,
+					"deny_ips":  denyIPs,
+					"ip":        c.ClientIP(),
+					"reason":    "administrator unbanned access source",
+				},
+			}
+		})
 	if err != nil {
 		if errors.Is(err, service.ErrInvalidDenyIP) {
 			ProblemBadRequest(c, ProblemCodeInvalidRequest, err.Error())
@@ -321,23 +342,6 @@ func (h *AdminRemoteSessionHandler) UnbanIP(c *gin.Context) {
 	if h.audit != nil {
 		h.audit.Log(c.Request.Context(), middleware.MustAdminID(c), "", "device.access_unban",
 			"device", deviceID, "source="+strings.TrimSpace(req.Source), c.ClientIP())
-	}
-	if h.bus != nil && ownerID > 0 {
-		denyIPs := []string{}
-		if policy != nil {
-			denyIPs = decodeAllowIPsForEvent(policy.DenyIPs)
-		}
-		h.bus.Publish(c.Request.Context(), service.Event{
-			Type:     service.EventDevicePolicyChanged,
-			UserID:   ownerID,
-			DeviceID: deviceID,
-			Data: map[string]interface{}{
-				"device_id": deviceID,
-				"deny_ips":  denyIPs,
-				"ip":        c.ClientIP(),
-				"reason":    "administrator unbanned access source",
-			},
-		})
 	}
 	c.JSON(http.StatusOK, policyView(deviceID, policy))
 }

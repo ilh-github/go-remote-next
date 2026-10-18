@@ -608,7 +608,7 @@ func main() {
 		)
 	adminRemoteSessionHandler := handler.NewAdminRemoteSessionHandler(
 		remoteSessionService, sessionRecordingService, deviceAccessService, deviceService,
-		realtimeHandler, auditService, deviceAccessPolicyService, bus)
+		realtimeHandler, auditService, deviceAccessPolicyService)
 	adminNotificationDeliveryHandler := handler.NewAdminNotificationDeliveryHandler(
 		notificationDeliveryService, auditService,
 		cfg.Notification.RetentionDays, cfg.Notification.ArchiveRetentionDays)

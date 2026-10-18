@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"quickdesk/signaling/internal/models"
@@ -14,6 +15,7 @@ import (
 	"quickdesk/signaling/internal/service"
 
 	"github.com/gin-gonic/gin"
+	"github.com/glebarez/sqlite"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
@@ -29,6 +31,25 @@ func newPolicyHandlerTestDB(t *testing.T) *gorm.DB {
 		t.Fatalf("open db: %v", err)
 	}
 	if err := db.AutoMigrate(&models.User{}, &models.Device{}, &models.DeviceAccessPolicy{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	return db
+}
+
+func newPolicyHandlerSQLiteTestDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	db, err := gorm.Open(sqlite.Open(
+		"file:"+filepath.ToSlash(filepath.Join(t.TempDir(), "policy-handler.db"))+"?cache=shared",
+	), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open SQLite: %v", err)
+	}
+	if err := db.AutoMigrate(
+		&models.User{},
+		&models.Device{},
+		&models.DeviceAccessPolicy{},
+		&models.EventOutbox{},
+	); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	return db
@@ -163,7 +184,6 @@ func TestAdminBanIPHandlerPersistsAcrossAccounts(t *testing.T) {
 		nil,
 		nil,
 		policies,
-		nil,
 	)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
@@ -212,7 +232,6 @@ func TestAdminUnbanIPHandlerRemovesAcrossAccounts(t *testing.T) {
 		nil,
 		nil,
 		policies,
-		nil,
 	)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
@@ -236,5 +255,75 @@ func TestAdminUnbanIPHandlerRemovesAcrossAccounts(t *testing.T) {
 	}
 	if len(response.DenyIPs) != 0 {
 		t.Fatalf("deny_ips = %v, want empty", response.DenyIPs)
+	}
+}
+
+func TestAdminAccessBanAndUnbanCommitPolicyEvents(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := newPolicyHandlerSQLiteTestDB(t)
+	const (
+		deviceID = "880000009"
+		userID   = uint(990309)
+		adminID  = uint(79)
+	)
+	seedPolicyHandlerDevice(t, db, deviceID, userID, "admin-policy-events")
+	devices := service.NewDeviceService(repository.NewDeviceRepository(db), service.NewDeviceSecretService())
+	policies := service.NewDeviceAccessPolicyService(db).
+		WithOutbox(service.NewEventOutbox(db, nil))
+	h := NewAdminRemoteSessionHandler(
+		service.NewRemoteSessionService(db),
+		service.NewSessionRecordingService(db),
+		service.NewDeviceAccessService(db),
+		devices,
+		nil,
+		nil,
+		policies,
+	)
+
+	call := func(path, source string) {
+		t.Helper()
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		c.Params = gin.Params{{Key: "device_id", Value: deviceID}}
+		c.Set("auth.admin_id", adminID)
+		body, _ := json.Marshal(map[string]string{"source": source})
+		c.Request = httptest.NewRequest(http.MethodPost,
+			"/v1/admin/devices/"+deviceID+path, bytes.NewReader(body))
+		c.Request.Header.Set("Content-Type", "application/json")
+		if path == "/access-bans" {
+			h.BanIP(c)
+		} else {
+			h.UnbanIP(c)
+		}
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s status = %d, body = %s", path, rec.Code, rec.Body.String())
+		}
+	}
+
+	call("/access-bans", "198.51.100.19")
+	call("/access-bans:remove", "198.51.100.19")
+
+	var rows []models.EventOutbox
+	if err := db.Find(&rows).Error; err != nil {
+		t.Fatalf("load outbox: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("outbox rows = %d, want 2", len(rows))
+	}
+	reasons := map[string]bool{}
+	for _, row := range rows {
+		var event service.Event
+		if err := json.Unmarshal([]byte(row.Payload), &event); err != nil {
+			t.Fatalf("decode event: %v", err)
+		}
+		if event.Type != service.EventDevicePolicyChanged ||
+			event.UserID != userID || event.DeviceID != deviceID {
+			t.Fatalf("event routing = %+v", event)
+		}
+		reasons[event.Data["reason"].(string)] = true
+	}
+	if !reasons["administrator banned access source"] ||
+		!reasons["administrator unbanned access source"] {
+		t.Fatalf("event reasons = %+v", reasons)
 	}
 }
