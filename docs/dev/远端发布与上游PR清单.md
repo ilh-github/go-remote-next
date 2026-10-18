@@ -82,9 +82,10 @@
   `3f94911`、`e518194`、`e8ce807` 和 `9f7be0f` 已分别作为持久化 trigger、
   Idempotency-Key、异步任务队列/取消和 HMAC 回调增量叠加，候选代码 `55b2d8d`；
   `1d44842` 再叠加 Qt 白名单事件桥和 MCP event trigger，候选自身 39/39、Clippy、
-  release 构建和 diff check 通过。fork 主线现已补持久回调 outbox、同一 delivery id
-  重试、重启恢复和死信状态；上游候选尚未叠加这一阶段。cron/日历、事件停机补发、
-  跨进程恢复和死信查询/重放仍留在后续阶段
+  release 构建和 diff check 通过。`1176a92` 再叠加 fork 主线的持久回调 outbox、同一
+  delivery id 重试、重启恢复和死信状态；候选自身现为 41/41、Clippy、release 构建和
+  diff check 通过，但分支 push 仍被当前策略拒绝。cron/日历、事件停机补发、跨进程恢复
+  和死信查询/重放仍留在后续阶段
 - fork PR #1：<https://github.com/ilh-github/go-remote-next/pull/1>，
   OPEN / MERGEABLE / CLEAN，7 项检查全部成功
 - upstream PR #25：<https://github.com/barry-ran/QuickDesk/pull/25>

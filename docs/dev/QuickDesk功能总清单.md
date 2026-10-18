@@ -633,7 +633,7 @@ fork 是否能继续开发，也不能因为 fork 自己有实现就再次向 up
 | QD-607 | 计划任务 | `[~]` | 服务端、WebClient、Qt 管理页和重试已完成；`revoke_all_remote_sessions` 已补齐控制面批量清场（最多 200 台）。定时连接、广义批量 agent 指令及回执仍未做 |
 | QD-608 | OpenAPI 与生成 SDK | `[x]` | TypeScript/Go/Python/Java/C#/PHP/Kotlin 七套客户端已提交，生成器、freshness 门禁和 CI 编译覆盖全部语言；C# `dotnet build`、PHP Composer/lint、Kotlin Gradle build 通过 |
 | QD-609 | MCP / AI 自动化 | `[x]` | QuickDesk 原生能力；也是上游维护者当前最优先方向 |
-| QD-610 | 业务系统集成与自定义工作流 | `[~]` | `bca8149` + `3f94911` + `e518194` + `e8ce807` + `9f7be0f` + `2e09d5b` 已提供同步/异步 HTTP trigger、持久化 trigger CRUD、60 秒~365 天 interval worker、next_run_at at-most-once、运行结果回写、Idempotency-Key 持久化重放、异步 job 状态/取消、HMAC 结果回调、白名单控制面事件订阅、事件过滤/幂等 claim、设备白名单、trust/emergency、单并发和 429；当前新增持久回调 outbox、同一 delivery id 重试、重启恢复和死信状态；cron/日历、事件停机补发、跨进程队列恢复、死信查询/重放 API 和委托权限仍未完成 |
+| QD-610 | 业务系统集成与自定义工作流 | `[~]` | `bca8149` + `3f94911` + `e518194` + `e8ce807` + `9f7be0f` + `2e09d5b` 已提供同步/异步 HTTP trigger、持久化 trigger CRUD、60 秒~365 天 interval worker、next_run_at at-most-once、运行结果回写、Idempotency-Key 持久化重放、异步 job 状态/取消、HMAC 结果回调、白名单控制面事件订阅、事件过滤/幂等 claim、设备白名单、trust/emergency、单并发和 429；当前新增持久回调 outbox、同一 delivery id 重试、重启恢复和死信状态，上游候选已追加到 `1176a92`；cron/日历、事件停机补发、跨进程队列恢复、死信查询/重放 API 和委托权限仍未完成 |
 
 ## 10. Web、Qt 与管理端
 
