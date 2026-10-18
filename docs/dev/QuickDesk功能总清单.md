@@ -1,6 +1,6 @@
 # QuickDesk 功能总清单
 
-> 最后对账：2026-10-18 18:46 CST。上游与 fork 状态都是动态的，实施前必须重新执行
+> 最后对账：2026-10-18 18:52 CST。上游与 fork 状态都是动态的，实施前必须重新执行
 > `git fetch --all --prune` 并核对 GitHub issue / PR。
 >
 > 本文件是 QuickDesk fork 后续产品开发的唯一功能清单。它合并三类输入：
@@ -43,7 +43,7 @@
 
 - 仓库：`go-remote-next`
 - 本地主分支：`dev`、`master`
-- 本地代码基线：`8de8af0`（QD-610 管理端设备、来源封禁与 TURN 配置事务 outbox；QD-907 WebClient 有界重连与 Playwright E2E）；`origin/dev` 与
+- 本地代码基线：`5f4546d`（QD-610 管理端设备、来源封禁与 TURN 配置事务 outbox；QD-907 重连 Playwright E2E；QD-904 文件管理器浏览器 E2E）；`origin/dev` 与
   `origin/master` 仍在 `9837194`，本地领先数量以 `git rev-list --count origin/dev..dev`
   的实时值为准
 - 上游基线：`barry-ran/QuickDesk` 的 `dev` = `5db316c`，`master` = `f6651f0`
@@ -63,6 +63,9 @@
 - QD-002 / QD-403 Web 文件管理器已补齐：利用现有 `qd-skill-bridge` 浏览目录、新建、
   重命名、版本保留软删除、文本预览及 64 KiB 分块上传下载；host `file-ops` 新增
   `read_file_chunk`、`write_file_chunk`、`trash_path` 和 `get_default_directory`
+- QD-904 Web 文件管理器浏览器 E2E 已补：真实 Chrome 加载 `RemoteFileManager` 和
+  `FileManagerPanel`，用假 Host 覆盖目录导航、新建、重命名、截断文本预览、下载、
+  4 字节分块上传和软删除；同一测试已追加到 QD-403 WebClient 上游候选
 - QD-610 已补控制面事件订阅：Qt `CloudDeviceManager` 只向本机 MCP 广播白名单事件，
   MCP 支持 `event_type` / `event_device_id` / `event_filter`、设备 ID 归一化、
   claim-before-run 和事件 ID 幂等；SQLite 模式重启后不依赖会重置的 `server_rev`
@@ -715,7 +718,8 @@ Private Vulnerability Reporting，后者等协议实现。当前继续做不依�
    通用部分在 QD-510 候选合并后回贡。
 3. **QD-907 异常路径**：按“协议错误、权限拒绝、重连耗尽、上传失败、设备离线”补
    可重复的自动化或真机证据，避免把 Windows 上传根因误判成 WebClient 协议错误。
-4. **QD-904 / QD-908**：补 Web E2E、2 小时桌面长稳和几百路观看基线，作为发布门禁。
+4. **QD-904 / QD-908**：重连与文件管理器浏览器 E2E 已补；继续补屏幕墙/多标签真实
+   浏览器流程、2 小时桌面长稳和几百路观看基线，作为发布门禁。
 5. **Remoting 需求单**：QD-004（已形成 `docs/dev/Host权威录制Remoting需求.md`）、QD-007、QD-114 根因和 QD-214 用户上下文
    分别写清协议、权限、兼容性和验收标准，交给上游维护者评估。QD-002 已由现有
    `qd-skill-bridge` 解除阻塞，不再列入 Remoting 需求。
@@ -881,7 +885,7 @@ rotation 的事件写入同一数据库事务，`6386a48` 又把 TURN/STUN setti
 | QD-901 | Go 全包测试 | `[x]` | 已有 `go test ./...` |
 | QD-902 | WebClient 单测 | `[x]` | Node test |
 | QD-903 | WebClient 生产构建 | `[x]` | Vite build |
-| QD-904 | Web End-to-End / Playwright | `[~]` | 已有部分 smoke，覆盖面待扩 |
+| QD-904 | Web End-to-End / Playwright | `[~]` | 已补 QD-907 信令重连 7 场景和 QD-002 文件管理器完整浏览器流程；设备页、屏幕墙、多标签抢占、真实本地 SignalingServer 与长稳仍待扩 |
 | QD-905 | 信令、TURN 并发压测 | `[x]` | 已有负载和 soak 脚本 |
 | QD-906 | Windows/macOS 真机矩阵 | `[~]` | Windows 主链已验证；输入、音频、剪贴板边界待补 |
 | QD-907 | 协议异常、权限异常、重连耗尽 | `[~]` | 已补信令 auth_ok 超时、认证前 payload/send 门禁、访问策略/错误访问码/排队/签名失败分类、上传 transport/503 重试耗尽，以及 WebSocket 断线后重新签发 token 的有界 `0/1/3/7s` 重连与耗尽状态。Playwright E2E 已覆盖第 1~3 次恢复、四次耗尽、不可重试策略拒绝、上传中断与信令重连并行、旧 Session 迟到事件隔离；真实弱网/代理切换、进程级断网和长时间抖动仍未验证 |
@@ -1083,7 +1087,7 @@ QD-002 / QD-403 的上游候选已经推送并开 PR：
 - `codex/upstream-qd-002-file-ops` = `e106be4`：基于 `upstream/dev@f6651f0`，只含 host
   `file-ops` 的分块读写、默认目录、版本保留软删除、SKILL.md 和 Rust 测试；
   上游 PR <https://github.com/barry-ran/QuickDesk/pull/26>，OPEN / MERGEABLE / CLEAN。
-- `codex/upstream-qd-403-webclient` = `9ff00af`：stacked 在 file-ops 分支上，只含浏览器
+- `codex/upstream-qd-403-webclient` = `796e4cb`：stacked 在 file-ops 分支上，只含浏览器
   `qd-skill-bridge` 客户端、Web 文件管理器 UI、remote-main 接线、样式、双语和 Node 测试；
   上游 PR <https://github.com/barry-ran/QuickDesk/pull/27>，当前 base 为 `dev`。
 - 验证基线：候选分支上 file-ops 4/4、Clippy `-D warnings`、WebClient 12/12、生产构建、

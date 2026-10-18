@@ -1,6 +1,6 @@
 # 远端发布与上游 PR 清单
 
-**更新时间**: 2026-10-18 18:46 CST
+**更新时间**: 2026-10-18 18:52 CST
 
 这份清单记录本地验证完成后的远端写入与 PR 状态。远端状态必须以实际
 `origin/*` ref、push 结果和 GitHub PR 为准，不能把本地候选写成已共享。
@@ -36,9 +36,10 @@
 - 上游 QD-002 file-ops 候选：`codex/upstream-qd-002-file-ops` = `e106be4`（基于
   `upstream/dev@f6651f0`），只含分块读写、默认目录、版本保留软删除、SKILL.md 和
   Rust 测试；已推送并创建上游 PR #26（OPEN / MERGEABLE / CLEAN）
-- 上游 QD-403 WebClient 候选：`codex/upstream-qd-403-webclient` = `9ff00af`（stacked 在
+- 上游 QD-403 WebClient 候选：`codex/upstream-qd-403-webclient` = `796e4cb`（stacked 在
   file-ops 候选上），只含 `SkillBridgeClient`、Web 文件管理器、remote-main 接线、样式、
-  双语和 Node 测试；已推送并创建上游 PR #27（当前 base 为 `dev`）
+  双语、Node 测试和 Chrome 文件管理器 E2E；上游 PR #27 已存在（当前 base 为 `dev`），
+  但远端分支仍是旧 `9ff00af`，`796e4cb` 尚未推送
 - 上游 QD-204 API 候选：`codex/upstream-qd-204-api` = `d2321b9`（基于 PR #25 的
   `feat/signaling-control-plane` = `8998466`）
 - 上游 QD-204 客户端候选：`codex/upstream-qd-204-client` = `b259d03`（同一 PR #25
@@ -81,8 +82,8 @@
 - 上游最小候选：`codex/upstream-access-bans` = `b89c24c`
 - 上游 QD-002 file-ops 候选：`codex/upstream-qd-002-file-ops` = `e106be4`（基于
   `upstream/dev@f6651f0`），已推送并创建上游 PR #26（OPEN / MERGEABLE / CLEAN）
-- 上游 QD-403 WebClient 候选：`codex/upstream-qd-403-webclient` = `9ff00af`（stacked 在
-  file-ops 候选上），已推送并创建上游 PR #27（当前 base 为 `dev`）
+- 上游 QD-403 WebClient 候选：`codex/upstream-qd-403-webclient` = `796e4cb`（stacked 在
+  file-ops 候选上）；PR #27 当前仍指向远端旧 head `9ff00af`
 - 上游基线：`barry-ran/QuickDesk` 的 `dev` = `5db316c`，`master` = `f6651f0`
 - 上游维护口径：issue #21 已确认“持续维护、暂缓更新、重点偏 MCP”；贡献从
   `upstream/dev` 切分支，完成后 PR 合入 `dev`；Remoting 改动由维护者处理
