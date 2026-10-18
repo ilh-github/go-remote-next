@@ -308,7 +308,10 @@ func main() {
 	tokenService := service.NewTokenService(redisClient)
 	rateLimitService := service.NewRateLimitService(redisClient)
 	metricsService := service.NewMetricsService()
-	bus := service.NewEventBus(redisClient)
+	bus := service.NewEventBusWithRetention(redisClient, service.EventBusRetention{
+		MaxLen: cfg.EventBus.ReplayMaxLen,
+		TTL:    time.Duration(cfg.EventBus.ReplayTTLSeconds) * time.Second,
+	})
 	deviceMetricAlertService := service.NewDeviceMetricAlertService(db, bus)
 	instanceID := uuid.NewString()
 	presenceService := service.NewPresenceService(redisClient, instanceID)

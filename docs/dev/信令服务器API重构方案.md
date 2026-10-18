@@ -577,7 +577,8 @@ QuickDesk 的行为是：**Qt 登录账号后立即自动调 `POST /v1/me/device
 1. **连接建立后首帧 snapshot**：client 通过首帧 auth → 服务端先发 `{type:"snapshot", data:{devices:[...], favorites:[...], server_rev: N}}`，再进入增量推送
 2. **事件自带 server_rev**：服务端每 publish 一个事件 rev++。客户端本地存上一次收到的 rev。
 3. **断开重连的 resume**：client 重连 send `{type:"resume", since_rev: N}`；服务端从 Redis stream `qd:events:user:{uid}` 拿 N+1..now 的事件补发；若差距过大（stream 被裁剪），回 `{type:"snapshot_required"}` → 客户端自动重发 auth 重取 snapshot
-4. Redis stream `qd:events:user:{uid}` 用 `XADD MAXLEN ~ 1000` 保留最近 1000 条，TTL 5 分钟
+4. Redis stream `qd:events:user:{uid}` 使用 `EVENT_REPLAY_MAX_LEN`（默认 1000）条精确上限和
+   `EVENT_REPLAY_TTL_SECONDS`（默认 3600 秒）TTL；超过保留窗口时仍返回 `snapshot_required`
 
 **客户端责任**（Qt/WebClient）：
 - 任何 `device.*` 事件到达后，直接 patch 本地设备列表，**不回拉** `fetchMyDevices`（防止雪崩）
@@ -1185,7 +1186,8 @@ qd:sms:rate:{phone}                            TTL=24h   多窗口限速 INCR
 qd:ratelimit:verify:{device_id}:{ip}           TTL=60s   INCR
 qd:ratelimit:verify:{device_id}                TTL=60s   INCR (全局 per-device)
 qd:ratelimit:ip:{ip}                           TTL=60s   INCR (per-ip 全局)
-qd:events:user:{user_id}                       stream, MAXLEN ~ 1000, TTL 自然淘汰
+qd:events:user:{user_id}                       stream, MAXLEN=EVENT_REPLAY_MAX_LEN,
+                                              TTL=EVENT_REPLAY_TTL_SECONDS
 ```
 
 **Redis 部署要求**：启用 keyspace notification（`notify-keyspace-events Ex`）让 `qd:presence:device:*:hb` 过期时能触发 `device.online.changed` 事件。

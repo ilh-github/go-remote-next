@@ -144,6 +144,7 @@ type Config struct {
 	Server        ServerConfig   `mapstructure:"server"`
 	Database      DatabaseConfig `mapstructure:"database"`
 	Redis         RedisConfig    `mapstructure:"redis"`
+	EventBus      EventBusConfig
 	Ice           IceConfig
 	Admin         AdminConfig
 	Security      SecurityConfig
@@ -328,6 +329,11 @@ type RedisConfig struct {
 	Password string `mapstructure:"password"`
 }
 
+type EventBusConfig struct {
+	ReplayMaxLen     int64 `mapstructure:"replay_max_len"`
+	ReplayTTLSeconds int   `mapstructure:"replay_ttl_seconds"`
+}
+
 func Load() *Config {
 	if !flag.Parsed() {
 		flag.Parse()
@@ -360,6 +366,8 @@ func Load() *Config {
 	viper.SetDefault("REDIS_HOST", "localhost")
 	viper.SetDefault("REDIS_PORT", 6379)
 	viper.SetDefault("REDIS_PASSWORD", "")
+	viper.SetDefault("EVENT_REPLAY_MAX_LEN", 1000)
+	viper.SetDefault("EVENT_REPLAY_TTL_SECONDS", 3600)
 
 	viper.SetDefault("TURN_URLS", "")
 	viper.SetDefault("TURN_AUTH_SECRET", "")
@@ -543,6 +551,16 @@ func Load() *Config {
 			Port:     viper.GetInt("REDIS_PORT"),
 			Password: viper.GetString("REDIS_PASSWORD"),
 		},
+		EventBus: EventBusConfig{
+			ReplayMaxLen:     int64(viper.GetInt("EVENT_REPLAY_MAX_LEN")),
+			ReplayTTLSeconds: viper.GetInt("EVENT_REPLAY_TTL_SECONDS"),
+		},
+	}
+	if cfg.EventBus.ReplayMaxLen <= 0 {
+		log.Fatalf("EVENT_REPLAY_MAX_LEN must be greater than zero")
+	}
+	if cfg.EventBus.ReplayTTLSeconds <= 0 {
+		log.Fatalf("EVENT_REPLAY_TTL_SECONDS must be greater than zero")
 	}
 
 	cfg.Ice = parseIceConfig()

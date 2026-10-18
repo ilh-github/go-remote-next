@@ -31,6 +31,8 @@ Configuration reference:
 | `REDIS_HOST` | localhost | Redis host |
 | `REDIS_PORT` | 6379 | Redis port |
 | `REDIS_PASSWORD` | (empty) | Redis password |
+| `EVENT_REPLAY_MAX_LEN` | 1000 | Maximum per-user realtime events retained in Redis; must be positive |
+| `EVENT_REPLAY_TTL_SECONDS` | 3600 | Per-user realtime replay stream TTL; must be positive |
 | `ADMIN_USER` | admin | Initial admin username (first deploy only) |
 | `ADMIN_PASSWORD` | admin | Initial admin password (first deploy only) |
 | `RUN_AUTO_MIGRATE` | false | Run GORM AutoMigrate at startup (temporarily enable for first initialization/schema upgrades; keep false for stable production runs) |

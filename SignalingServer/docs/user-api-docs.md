@@ -1789,6 +1789,12 @@ Handshake:
 5. Server sends:  {"type":"bootstrap_done", "server_rev":4218}
 ```
 
+The replay stream keeps the newest `EVENT_REPLAY_MAX_LEN` entries for each user
+and expires after `EVENT_REPLAY_TTL_SECONDS`. Both settings are positive and
+default to 1000 entries / 3600 seconds. If the requested `since_rev` is older
+than the retained window, the server requires a snapshot instead of returning
+a partial replay.
+
 Snapshot frame:
 
 ```json

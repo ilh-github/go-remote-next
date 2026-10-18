@@ -111,23 +111,53 @@ type EventSubscriber interface {
 // events) appends them to the per-user Redis stream used by realtime WS
 // `resume` 鈥?see 搂2.8.
 type EventBus struct {
-	rdb       *redis.Client
-	mu        sync.RWMutex
-	publishMu sync.Mutex
-	subs      []EventSubscriber
-	stream    time.Duration // stream retention (TTL hint; actual MAXLEN handles size)
-	workQueue chan subscriberWork
+	rdb          *redis.Client
+	mu           sync.RWMutex
+	publishMu    sync.Mutex
+	subs         []EventSubscriber
+	streamMaxLen int64
+	streamTTL    time.Duration
+	workQueue    chan subscriberWork
 }
+
+type EventBusRetention struct {
+	MaxLen int64
+	TTL    time.Duration
+}
+
+const (
+	defaultEventStreamMaxLen int64 = 1000
+	defaultEventStreamTTL          = time.Hour
+)
 
 type subscriberWork struct {
 	sub EventSubscriber
 	evt Event
 }
 
-// NewEventBus wires a bus to Redis. The stream TTL is a rough hint; retention
-// is primarily capped by XADD MAXLEN.
+// NewEventBus wires a bus to Redis using the conservative replay defaults.
+// Multi-instance deployments that need a larger reconnect window use
+// NewEventBusWithRetention with explicit operator settings.
 func NewEventBus(rdb *redis.Client) *EventBus {
-	b := &EventBus{rdb: rdb, stream: 5 * time.Minute, workQueue: make(chan subscriberWork, 1024)}
+	return NewEventBusWithRetention(rdb, EventBusRetention{
+		MaxLen: defaultEventStreamMaxLen,
+		TTL:    defaultEventStreamTTL,
+	})
+}
+
+func NewEventBusWithRetention(rdb *redis.Client, retention EventBusRetention) *EventBus {
+	if retention.MaxLen <= 0 {
+		retention.MaxLen = defaultEventStreamMaxLen
+	}
+	if retention.TTL <= 0 {
+		retention.TTL = defaultEventStreamTTL
+	}
+	b := &EventBus{
+		rdb:          rdb,
+		streamMaxLen: retention.MaxLen,
+		streamTTL:    retention.TTL,
+		workQueue:    make(chan subscriberWork, 1024),
+	}
 	go b.subscriberWorker()
 	return b
 }
@@ -198,18 +228,19 @@ func (b *EventBus) Publish(ctx context.Context, evt Event) {
 			streamKey := fmt.Sprintf("qd:events:user:%d", evt.UserID)
 			args := &redis.XAddArgs{
 				Stream: streamKey,
-				MaxLen: 1000,
-				Approx: true,
+				MaxLen: b.streamMaxLen,
+				Approx: false,
 				Values: map[string]interface{}{"e": string(payload)},
 			}
 			if cmd := b.rdb.XAdd(ctx, args); cmd.Err() != nil {
 				log.Printf("[EventBus] XADD %s failed: %v", streamKey, cmd.Err())
 				streamOK = false
 			} else {
-				// Use a generous TTL (1 hour) so idle users still have
-				// replay data after brief disconnects. MAXLEN~1000 handles
-				// active-user trimming; TTL handles abandoned streams.
-				b.rdb.Expire(ctx, streamKey, 1*time.Hour)
+				// The configured TTL keeps idle-user replay available, while
+				// exact MAXLEN bounds active streams. Both are operator knobs
+				// because the right window depends on event rate and outage
+				// tolerance, not on a single global constant.
+				b.rdb.Expire(ctx, streamKey, b.streamTTL)
 			}
 		}
 	}
@@ -299,8 +330,8 @@ func (b *EventBus) drainRetry(ctx context.Context) {
 		streamKey := fmt.Sprintf("qd:events:user:%d", evt.UserID)
 		cmd := b.rdb.XAdd(ctx, &redis.XAddArgs{
 			Stream: streamKey,
-			MaxLen: 1000,
-			Approx: true,
+			MaxLen: b.streamMaxLen,
+			Approx: false,
 			Values: map[string]interface{}{"e": val},
 		})
 		if cmd.Err() != nil {
@@ -309,7 +340,7 @@ func (b *EventBus) drainRetry(ctx context.Context) {
 			log.Printf("[EventBus] retry XADD %s failed: %v", streamKey, cmd.Err())
 			return
 		}
-		b.rdb.Expire(ctx, streamKey, b.stream)
+		b.rdb.Expire(ctx, streamKey, b.streamTTL)
 	}
 }
 
@@ -342,7 +373,7 @@ func (b *EventBus) EventsSinceRev(ctx context.Context, userID uint, sinceRev int
 		return ResumeResult{}, nil
 	}
 	key := fmt.Sprintf("qd:events:user:%d", userID)
-	res, err := b.rdb.XRevRangeN(ctx, key, "+", "-", 1000).Result()
+	res, err := b.rdb.XRevRangeN(ctx, key, "+", "-", b.streamMaxLen).Result()
 	if err != nil {
 		return ResumeResult{}, err
 	}
