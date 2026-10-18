@@ -86,9 +86,10 @@
   delivery id 重试、重启恢复和死信状态；`9f75331` 再补受保护的死信查询和人工重放；
   `a94bba1` 补 delivered/dead 的幂等 ack；`d3dc4cf` 补 queued job 单进程重启恢复和
   running fail-closed；`7940248` 补 UTC cron、`interval_seconds`/`cron_expression`
-  互斥校验和错过槽位不补跑的 at-most-once 行为。候选自身现为 46/46、Clippy、release
-  构建和 diff check 通过，但分支 push 仍被当前策略拒绝。IANA 时区/DST、事件停机补发、
-  多进程共享 worker、确认操作者归属和批量确认仍留在后续阶段
+  互斥校验和错过槽位不补跑的 at-most-once 行为；`1be154c` 补 IANA `timezone` 和真实
+  DST 偏移。候选自身现为 47/47、Clippy、release 构建和 diff check 通过，但分支 push
+  仍被当前策略拒绝。法定节假日、事件停机补发、多进程共享 worker、确认操作者归属和
+  批量确认仍留在后续阶段
 - fork PR #1：<https://github.com/ilh-github/go-remote-next/pull/1>，
   OPEN / MERGEABLE / CLEAN，7 项检查全部成功
 - upstream PR #25：<https://github.com/barry-ran/QuickDesk/pull/25>
