@@ -43,7 +43,7 @@
 
 - 仓库：`go-remote-next`
 - 本地主分支：`dev`、`master`
-- 本地代码基线：`5f4546d`（QD-610 管理端设备、来源封禁与 TURN 配置事务 outbox；QD-907 重连 Playwright E2E；QD-904 文件管理器浏览器 E2E）；`origin/dev` 与
+- 本地代码基线：`28b1972`（QD-610 管理端设备、来源封禁与 TURN 配置事务 outbox；QD-907 重连 Playwright E2E；QD-904 文件管理器与真实多标签浏览器 E2E）；`origin/dev` 与
   `origin/master` 仍在 `9837194`，本地领先数量以 `git rev-list --count origin/dev..dev`
   的实时值为准
 - 上游基线：`barry-ran/QuickDesk` 的 `dev` = `5db316c`，`master` = `f6651f0`
@@ -66,6 +66,9 @@
 - QD-904 Web 文件管理器浏览器 E2E 已补：真实 Chrome 加载 `RemoteFileManager` 和
   `FileManagerPanel`，用假 Host 覆盖目录导航、新建、重命名、截断文本预览、下载、
   4 字节分块上传和软删除；同一测试已追加到 QD-403 WebClient 上游候选
+- QD-904 多标签浏览器 E2E 已补：真实 Chrome 打开三个同源标签，验证新标签抢占 control
+  会撤销旧标签、抢占 audio 只撤销音频、释放后可重新 claim、不同 device 消息隔离；
+  同一测试已追加到 QD-003 上游候选
 - QD-610 已补控制面事件订阅：Qt `CloudDeviceManager` 只向本机 MCP 广播白名单事件，
   MCP 支持 `event_type` / `event_device_id` / `event_filter`、设备 ID 归一化、
   claim-before-run 和事件 ID 幂等；SQLite 模式重启后不依赖会重置的 `server_rev`
@@ -161,7 +164,7 @@
 |---|---|---|---|---|---|
 | QD-001 | P0 | 建立独立功能总清单 | `[x]` | Fork-only | 文件覆盖全部范围、状态、优先级和验收口径 |
 | QD-002 | P0 | Web 控制端完整文件管理器 | `[x]` | UP-Ready | 经 `qd-skill-bridge` 完成目录浏览、新建、重命名、版本保留软删除、文本预览、分块上传下载；62 项 WebClient 测试、生产构建和桌面/移动浏览器烟测通过 |
-| QD-003 | P0 | 多标签控制与音频抢占 | `[x]` | UP-Ready | 同一设备多个同源标签页只有一个控制者/音频播放者；新标签接管后旧标签立即释放 |
+| QD-003 | P0 | 多标签控制与音频抢占 | `[x]` | UP-Ready | 同一设备多个同源标签页只有一个控制者/音频播放者；新标签接管后旧标签立即释放；真实 Chrome 三标签 E2E 覆盖抢占、释放、音频独立撤销和设备隔离 |
 | QD-004 | P0 | Host/Relay 权威自动录制 | `[ ]` | UP-Remoting | 被控端或中继自动录制，断线自动收尾并上传索引；断线收尾的控制端半边已由 QD-505 补齐；正式 Remoting 需求见 `docs/dev/Host权威录制Remoting需求.md` |
 | QD-005 | P0 | 客户端自动更新消费 | `[~]` | UP-PR#25 + Upstream-Open | Windows 已通过检查、下载、SHA-256 校验、静默安装、自动重启、版本落盘和服务存活真机闭环；macOS 已实现受校验的 DMG 挂载、暂存替换、失败回退和重开，并通过 ad-hoc 真实 DMG E2E；剩余 Developer ID 签名、Apple 公证和公证后替换回归 |
 | QD-006 | P1 | SQLite 轻量服务端部署 | `[x]` | UP-PR#25 | 单进程、单文件 SQLite、默认进程内 Redis；`/health` 区分 sqlite，空目录启动和重启持久化 E2E 通过 |
@@ -169,7 +172,7 @@
 
 最近验证：
 
-- 本轮代码提交：`2d211c1`（QD-610 event retry claim 崩溃恢复）、`c39443c`（QD-610 服务端 replay retention 可配置）、`cd730d1`（QD-610 回调操作者归属）、`5f24ff7`（QD-610 同目录多进程回调与 job 协调）、`9ae401a`（QD-610 cron 漏跑补跑）、`cac2afa`（QD-610 replay 容量可配置）、`3c50004`（MCP 节假日日历随包分发）、`e30662d`（QD-610 cron 法定节假日跳过）、`b9f414c`（QD-111 / QD-408 文件传输审计）、`71b899e`（QD-316 会话内文字聊天）、`2e09d5b`（QD-610 控制面事件触发器）、`9f7be0f`（QD-610 HMAC 结果回调）、`e8ce807`（QD-610 异步任务队列/取消）、`e518194`（QD-610 Idempotency-Key）、`3f94911`（QD-610 持久化/定时触发器）、`bca8149`（QD-610 HTTP trigger）、`de88f07`（QD-506 Web 录像分块续传）、`001a76c`（QD-510 工作流核心）、`e688869`（访问码同步重试）、`5be14da`（SPAKE2 与传输错误码）、
+- 本轮代码提交：`28b1972`（QD-904 真实多标签浏览器 E2E）、`2d211c1`（QD-610 event retry claim 崩溃恢复）、`c39443c`（QD-610 服务端 replay retention 可配置）、`cd730d1`（QD-610 回调操作者归属）、`5f24ff7`（QD-610 同目录多进程回调与 job 协调）、`9ae401a`（QD-610 cron 漏跑补跑）、`cac2afa`（QD-610 replay 容量可配置）、`3c50004`（MCP 节假日日历随包分发）、`e30662d`（QD-610 cron 法定节假日跳过）、`b9f414c`（QD-111 / QD-408 文件传输审计）、`71b899e`（QD-316 会话内文字聊天）、`2e09d5b`（QD-610 控制面事件触发器）、`9f7be0f`（QD-610 HMAC 结果回调）、`e8ce807`（QD-610 异步任务队列/取消）、`e518194`（QD-610 Idempotency-Key）、`3f94911`（QD-610 持久化/定时触发器）、`bca8149`（QD-610 HTTP trigger）、`de88f07`（QD-506 Web 录像分块续传）、`001a76c`（QD-510 工作流核心）、`e688869`（访问码同步重试）、`5be14da`（SPAKE2 与传输错误码）、
   `a982a10`（Windows 自动更新重启与缓存清理）、`c77dcae`（SQLite 轻量模式）、
   `64ab93a`（备份恢复与存储配额）、`37dd8aa`（Host 指标告警）、`3021ca9`
   （私密安全披露策略）、`3474203`（信令信任边界）；
@@ -639,7 +642,7 @@
 | 本地收口 | QD-005 / QD-808 自动更新真机验证 | `Fork` / `Legacy` / `Upstream` PR #25 | Windows 已完成 4.2.8.0→4.2.9.0 自动下载、校验、静默安装、自动重启、版本和服务闭环，提交 `a982a10`；macOS 已实现 DMG 自动替换和失败回退，并通过 ad-hoc 真实 DMG E2E | 取得 Apple Developer ID 和公证凭据，执行 hardened runtime 签名、notarytool、staple、Gatekeeper 与真实升级回归；上游候选仍应在 PR #25/更新通道基线确认后重做最小增量 |
 | 已完成 | QD-006 / QD-809 SQLite 轻量服务端 | `Fork` / `Upstream-Open` | fork 提交 `c77dcae`；候选 `codex/upstream-qd-006-sqlite@7758456` 已在 PR #25 基线上通过完整测试、race、vet、构建和 E2E | PR #25 合并后 rebase 到 `upstream/dev` 并创建正式 PR；明确单实例和易失 Redis 边界，不和多实例生产配置混在同一 PR |
 | 已完成 | QD-810 备份恢复与存储配额 | `Fork` / `Upstream-Open` | 提交 `64ab93a`；SQLite 一致性归档、恢复校验/回滚、PostgreSQL 运维文档、录像与安装包总量配额、两个管理存储接口和升级通道页状态均完成 | PR #25 合并后作为自托管运维增量拆最小候选；备份 CLI 与配额边界应独立于控制面功能 PR |
-| 上游候选 | QD-003 多标签控制与音频抢占 | `Legacy` / `Upstream` Roadmap 补强 | 候选 `codex/upstream-cross-tab-coordination` = `6047615`，仅 WebClient 改动 | 远端写入恢复后推送并建 PR；补截图和同源双标签验证说明 |
+| 上游候选 | QD-003 多标签控制与音频抢占 | `Legacy` / `Upstream` Roadmap 补强 | 候选 `codex/upstream-cross-tab-coordination` = `93eee37`，仅 WebClient 改动；真实 Chrome 三标签 E2E 已通过 | 远端写入恢复后推送并建 PR |
 | 上游候选 | QD-114 自托管 WSS SPKI 兼容 | `Upstream` issue #20 / `Fork` | 候选 `codex/upstream-qd-114-spki` = `13559e6`；临时方案不替代真实证书校验 | 推送并建 issue #20 PR；补 Qt 构建、Windows 服务和真实 `wss://` |
 | 上游候选 | QD-212 设备列表本机标识 | `Upstream` issue #19 / `Legacy` | 候选 `f1ce096` 已在干净上游基线构建和测试 | 推送并建 PR；与 #19 其余问题拆开 |
 | 上游候选 | QD-213 缺失访问码回源 | `Upstream` issue #19 / `Legacy` | 候选 `6928d24` 已通过集成测试 | 推送并建 PR；补两真机换码时序回归 |
@@ -718,8 +721,9 @@ Private Vulnerability Reporting，后者等协议实现。当前继续做不依�
    通用部分在 QD-510 候选合并后回贡。
 3. **QD-907 异常路径**：按“协议错误、权限拒绝、重连耗尽、上传失败、设备离线”补
    可重复的自动化或真机证据，避免把 Windows 上传根因误判成 WebClient 协议错误。
-4. **QD-904 / QD-908**：重连与文件管理器浏览器 E2E 已补；继续补屏幕墙/多标签真实
-   浏览器流程、2 小时桌面长稳和几百路观看基线，作为发布门禁。
+4. **QD-904 / QD-908**：重连、文件管理器和多标签浏览器 E2E 已补；继续补设备页、
+   屏幕墙和真实自托管 SignalingServer 流程，以及 2 小时桌面长稳和几百路观看基线，
+   作为发布门禁。
 5. **Remoting 需求单**：QD-004（已形成 `docs/dev/Host权威录制Remoting需求.md`）、QD-007、QD-114 根因和 QD-214 用户上下文
    分别写清协议、权限、兼容性和验收标准，交给上游维护者评估。QD-002 已由现有
    `qd-skill-bridge` 解除阻塞，不再列入 Remoting 需求。
@@ -885,7 +889,7 @@ rotation 的事件写入同一数据库事务，`6386a48` 又把 TURN/STUN setti
 | QD-901 | Go 全包测试 | `[x]` | 已有 `go test ./...` |
 | QD-902 | WebClient 单测 | `[x]` | Node test |
 | QD-903 | WebClient 生产构建 | `[x]` | Vite build |
-| QD-904 | Web End-to-End / Playwright | `[~]` | 已补 QD-907 信令重连 7 场景和 QD-002 文件管理器完整浏览器流程；设备页、屏幕墙、多标签抢占、真实本地 SignalingServer 与长稳仍待扩 |
+| QD-904 | Web End-to-End / Playwright | `[~]` | 已补 QD-907 信令重连 7 场景、QD-002 文件管理器完整浏览器流程和 QD-003 真实三标签抢占/释放/隔离；设备页、屏幕墙、真实本地 SignalingServer 与长稳仍待扩 |
 | QD-905 | 信令、TURN 并发压测 | `[x]` | 已有负载和 soak 脚本 |
 | QD-906 | Windows/macOS 真机矩阵 | `[~]` | Windows 主链已验证；输入、音频、剪贴板边界待补 |
 | QD-907 | 协议异常、权限异常、重连耗尽 | `[~]` | 已补信令 auth_ok 超时、认证前 payload/send 门禁、访问策略/错误访问码/排队/签名失败分类、上传 transport/503 重试耗尽，以及 WebSocket 断线后重新签发 token 的有界 `0/1/3/7s` 重连与耗尽状态。Playwright E2E 已覆盖第 1~3 次恢复、四次耗尽、不可重试策略拒绝、上传中断与信令重连并行、旧 Session 迟到事件隔离；真实弱网/代理切换、进程级断网和长时间抖动仍未验证 |
@@ -1099,9 +1103,11 @@ QD-003 的上游候选已经单独准备：
 
 - 分支：`codex/upstream-cross-tab-coordination`
 - 基线：`upstream/dev` = `f6651f0`
-- 本地提交：`6047615`
-- 范围：仅 `TabCoordinator`、WebClient 接入、双语文案、Node 测试、ESM 构建兼容
-- 验证：`npm test` 6/6、`npm run build`、真实 Chrome 同源双标签接管均通过
+- 本地提交：`93eee37`
+- 范围：仅 `TabCoordinator`、WebClient 接入、双语文案、Node 测试、真实 Chrome
+  多标签 E2E 和 ESM 构建兼容
+- 验证：`npm test` 6/6、`npm run test:e2e:tab-coordinator` 1/1、`npm run build`
+  和 `git diff --check` 均通过
 - 未完成：远端推送仍被策略拒绝，尚未创建 upstream PR
 
 QD-114 的上游候选已经单独准备：

@@ -1,6 +1,6 @@
 # 远端发布与上游 PR 清单
 
-**更新时间**: 2026-10-18 18:52 CST
+**更新时间**: 2026-10-18 18:57 CST
 
 这份清单记录本地验证完成后的远端写入与 PR 状态。远端状态必须以实际
 `origin/*` ref、push 结果和 GitHub PR 为准，不能把本地候选写成已共享。
@@ -23,7 +23,7 @@
   未绕过审批策略。`git ls-remote` 于同一时刻确认远端主分支仍为 `9837194`，
   `codex/upstream-websocket-auth-timeout` 远端 ref 仍不存在
 - 功能分支：`codex/product-backlog` = `dea02f9`
-- 上游 QD-003 候选：`codex/upstream-cross-tab-coordination` = `6047615`（基于 `upstream/dev`）
+- 上游 QD-003 候选：`codex/upstream-cross-tab-coordination` = `93eee37`（基于 `upstream/dev`）
 - 上游 QD-114 候选：`codex/upstream-qd-114-spki` = `13559e6`（基于 `upstream/dev`）
 - 上游 QD-212 候选：`codex/upstream-qd-212-local-device` = `f1ce096`（基于 `upstream/dev`）
 - 上游 QD-213 候选：`codex/upstream-qd-213-access-code-refresh` = `6928d24`（基于 `upstream/dev`）
@@ -498,8 +498,9 @@ PR 描述至少写明：
 ### 上游可直接审查的增量
 
 - `feat(webclient): coordinate cross-tab control and audio`：QD-003，纯 WebClient，
-  无 Remoting 改动；候选分支 `codex/upstream-cross-tab-coordination` = `6047615`，
-  仅 6 个文件，已通过 `npm test` 6/6、`npm run build` 和真实 Chrome 双标签验证。
+  无 Remoting 改动；候选分支 `codex/upstream-cross-tab-coordination` = `93eee37`，
+  仅 9 个文件，已通过 `npm test` 6/6、真实 Chrome 三标签 E2E 1/1、
+  `npm run build` 和 `git diff --check`。
 - `fix(self-host): pinned SPKI for self-hosted WSS`：对应上游 issue #20；候选分支
   `codex/upstream-qd-114-spki` = `13559e6`，基于 `upstream/dev`，17 个文件。已通过
   SPKI 纯 C++ 单测、翻译 `.ts` XML 校验和 `git diff --check`；Qt/CMake 构建、
