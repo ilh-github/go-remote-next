@@ -13,7 +13,9 @@ use serde_json::json;
 use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
 
-use crate::callback::{CallbackAckError, CallbackDeliveryStatus, CallbackRetryError};
+use crate::callback::{
+    CallbackAckActor, CallbackAckError, CallbackDeliveryStatus, CallbackRetryError,
+};
 use crate::idempotency::{IdempotencyClaim, WorkflowIdempotencyStore};
 use crate::server::{QuickDeskMcpServer, SharedState};
 use crate::workflow_job::{CancelJobError, WorkflowJobManager};
@@ -115,12 +117,17 @@ fn error_response(status: StatusCode, message: &str) -> Response {
 enum TriggerAuthError {
     Disabled,
     Unauthorized,
+    Misconfigured,
 }
 
 fn auth_error_response(error: TriggerAuthError) -> Response {
     match error {
         TriggerAuthError::Disabled => error_response(StatusCode::NOT_FOUND, "not found"),
         TriggerAuthError::Unauthorized => error_response(StatusCode::UNAUTHORIZED, "unauthorized"),
+        TriggerAuthError::Misconfigured => error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "operator token configuration is invalid",
+        ),
     }
 }
 
@@ -135,6 +142,88 @@ fn authorize_request(state: &TriggerState, headers: &HeaderMap) -> Result<(), Tr
         return Err(TriggerAuthError::Unauthorized);
     }
     Ok(())
+}
+
+#[derive(Clone, Debug)]
+struct OperatorCredential {
+    actor: String,
+    token: String,
+}
+
+#[derive(Clone, Debug, Default)]
+struct OperatorRegistry {
+    credentials: Vec<OperatorCredential>,
+}
+
+impl OperatorRegistry {
+    fn from_env() -> Result<Self, String> {
+        Self::from_json(&std::env::var("QUICKDESK_OPERATOR_TOKENS").unwrap_or_default())
+    }
+
+    fn from_json(value: &str) -> Result<Self, String> {
+        if value.trim().is_empty() {
+            return Ok(Self::default());
+        }
+        let values: HashMap<String, String> = serde_json::from_str(value)
+            .map_err(|error| format!("QUICKDESK_OPERATOR_TOKENS is not valid JSON: {error}"))?;
+        let mut tokens = HashSet::new();
+        let mut credentials = Vec::with_capacity(values.len());
+        for (actor, token) in values {
+            let actor = actor.trim();
+            let token = token.trim();
+            if actor.is_empty() || actor.len() > 128 {
+                return Err("QUICKDESK_OPERATOR_TOKENS actor must be 1..128 characters".to_string());
+            }
+            if token.is_empty() || token.len() > 512 {
+                return Err("QUICKDESK_OPERATOR_TOKENS token must be 1..512 characters".to_string());
+            }
+            if !tokens.insert(token.to_string()) {
+                return Err("QUICKDESK_OPERATOR_TOKENS tokens must be unique".to_string());
+            }
+            credentials.push(OperatorCredential {
+                actor: actor.to_string(),
+                token: token.to_string(),
+            });
+        }
+        Ok(Self { credentials })
+    }
+
+    fn actor_for_authorization(&self, authorization: Option<&str>) -> Option<String> {
+        let provided = authorization?.strip_prefix("Bearer ")?;
+        self.credentials
+            .iter()
+            .find(|credential| constant_time_eq(&credential.token, provided))
+            .map(|credential| credential.actor.clone())
+    }
+}
+
+fn authorize_ack_request(
+    state: &TriggerState,
+    headers: &HeaderMap,
+) -> Result<CallbackAckActor, TriggerAuthError> {
+    if state.token.as_deref().is_none_or(str::is_empty) {
+        return Err(TriggerAuthError::Disabled);
+    }
+    let authorization = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok());
+    if authorize_bearer(state.token.as_deref(), authorization) {
+        return Ok(CallbackAckActor {
+            id: "trigger-token".to_string(),
+            via: "trigger_token".to_string(),
+        });
+    }
+    let registry = OperatorRegistry::from_env().map_err(|error| {
+        tracing::error!("cannot load operator tokens: {error}");
+        TriggerAuthError::Misconfigured
+    })?;
+    if let Some(actor) = registry.actor_for_authorization(authorization) {
+        return Ok(CallbackAckActor {
+            id: actor,
+            via: "operator_token".to_string(),
+        });
+    }
+    Err(TriggerAuthError::Unauthorized)
 }
 
 async fn run_workflow(
@@ -391,10 +480,14 @@ async fn acknowledge_callback_delivery(
     Path(delivery_id): Path<String>,
     headers: HeaderMap,
 ) -> Response {
-    if let Err(error) = authorize_request(&state, &headers) {
-        return auth_error_response(error);
-    }
-    match state.jobs.acknowledge_callback_delivery(&delivery_id) {
+    let actor = match authorize_ack_request(&state, &headers) {
+        Ok(actor) => actor,
+        Err(error) => return auth_error_response(error),
+    };
+    match state
+        .jobs
+        .acknowledge_callback_delivery(&delivery_id, &actor)
+    {
         Ok(delivery) => Json(delivery).into_response(),
         Err(CallbackAckError::NotFound) => {
             error_response(StatusCode::NOT_FOUND, "callback delivery not found")
@@ -414,9 +507,10 @@ async fn acknowledge_callback_deliveries(
     headers: HeaderMap,
     Json(request): Json<AcknowledgeCallbackDeliveriesRequest>,
 ) -> Response {
-    if let Err(error) = authorize_request(&state, &headers) {
-        return auth_error_response(error);
-    }
+    let actor = match authorize_ack_request(&state, &headers) {
+        Ok(actor) => actor,
+        Err(error) => return auth_error_response(error),
+    };
     let mut seen = HashSet::new();
     let delivery_ids = request
         .delivery_ids
@@ -434,7 +528,10 @@ async fn acknowledge_callback_deliveries(
             "delivery_ids cannot contain more than 200 unique ids",
         );
     }
-    match state.jobs.acknowledge_callback_deliveries(&delivery_ids) {
+    match state
+        .jobs
+        .acknowledge_callback_deliveries(&delivery_ids, &actor)
+    {
         Ok(result) => Json(result).into_response(),
         Err(error) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &error),
     }
@@ -1775,6 +1872,10 @@ mod tests {
         let temp = std::env::temp_dir().join(format!("quickdesk-trigger-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&temp).unwrap();
         std::env::set_var("QUICKDESK_CALLBACK_SECRET", "callback-dead-letter-secret");
+        std::env::set_var(
+            "QUICKDESK_OPERATOR_TOKENS",
+            r#"{"alice":"operator-token-alice","bob":"operator-token-bob"}"#,
+        );
         let workflows = WorkflowStore::with_storage_dir(temp.join("workflows"));
         let workflow_id = workflows
             .start_recording("callback dead letter workflow", "device-1")
@@ -1932,7 +2033,7 @@ mod tests {
         let request = Request::builder()
             .method("POST")
             .uri(format!("/v1/callback-deliveries/{delivery_id}/ack"))
-            .header("Authorization", "Bearer business-secret")
+            .header("Authorization", "Bearer operator-token-alice")
             .body(Body::empty())
             .unwrap();
         let response = app.clone().oneshot(request).await.unwrap();
@@ -1943,11 +2044,13 @@ mod tests {
             .as_str()
             .expect("first ack should set a timestamp")
             .to_string();
+        assert_eq!(acknowledged["acknowledged_by"], "alice");
+        assert_eq!(acknowledged["acknowledged_via"], "operator_token");
 
         let request = Request::builder()
             .method("POST")
             .uri(format!("/v1/callback-deliveries/{delivery_id}/ack"))
-            .header("Authorization", "Bearer business-secret")
+            .header("Authorization", "Bearer operator-token-bob")
             .body(Body::empty())
             .unwrap();
         let response = app.clone().oneshot(request).await.unwrap();
@@ -1955,6 +2058,8 @@ mod tests {
         let body = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
         let acknowledged_again: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(acknowledged_again["acknowledged_at"], acknowledged_at);
+        assert_eq!(acknowledged_again["acknowledged_by"], "alice");
+        assert_eq!(acknowledged_again["acknowledged_via"], "operator_token");
 
         let missing_delivery_id = "00000000-0000-0000-0000-000000000000";
         let request = Request::builder()

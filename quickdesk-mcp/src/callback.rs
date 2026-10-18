@@ -77,8 +77,18 @@ pub struct CallbackDelivery {
     pub last_error: String,
     #[serde(default)]
     pub acknowledged_at: Option<String>,
+    #[serde(default)]
+    pub acknowledged_by: Option<String>,
+    #[serde(default)]
+    pub acknowledged_via: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct CallbackAckActor {
+    pub id: String,
+    pub via: String,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -128,6 +138,8 @@ impl CallbackStore {
             next_attempt_at: now.clone(),
             last_error: String::new(),
             acknowledged_at: None,
+            acknowledged_by: None,
+            acknowledged_via: None,
             created_at: now.clone(),
             updated_at: now,
         };
@@ -266,7 +278,11 @@ impl CallbackStore {
         Ok(delivery)
     }
 
-    fn acknowledge(&self, delivery_id: &str) -> Result<CallbackDelivery, CallbackAckError> {
+    fn acknowledge(
+        &self,
+        delivery_id: &str,
+        actor: &CallbackAckActor,
+    ) -> Result<CallbackDelivery, CallbackAckError> {
         let mut delivery = self.get(delivery_id).ok_or(CallbackAckError::NotFound)?;
         if !matches!(
             delivery.status,
@@ -279,6 +295,8 @@ impl CallbackStore {
         }
         let now = Utc::now().to_rfc3339();
         delivery.acknowledged_at = Some(now.clone());
+        delivery.acknowledged_by = Some(actor.id.clone());
+        delivery.acknowledged_via = Some(actor.via.clone());
         delivery.updated_at = now;
         self.save(&delivery).map_err(CallbackAckError::Store)?;
         Ok(delivery)
@@ -436,13 +454,18 @@ impl CallbackOutbox {
         Ok(delivery)
     }
 
-    pub fn acknowledge(&self, delivery_id: &str) -> Result<CallbackDelivery, CallbackAckError> {
-        self.store.acknowledge(delivery_id)
+    pub fn acknowledge(
+        &self,
+        delivery_id: &str,
+        actor: &CallbackAckActor,
+    ) -> Result<CallbackDelivery, CallbackAckError> {
+        self.store.acknowledge(delivery_id, actor)
     }
 
     pub fn acknowledge_many(
         &self,
         delivery_ids: &[String],
+        actor: &CallbackAckActor,
     ) -> Result<CallbackBatchAckResult, String> {
         let mut result = CallbackBatchAckResult {
             acknowledged: Vec::new(),
@@ -455,7 +478,7 @@ impl CallbackOutbox {
             if !seen.insert(delivery_id.to_string()) {
                 continue;
             }
-            match self.store.acknowledge(delivery_id) {
+            match self.store.acknowledge(delivery_id, actor) {
                 Ok(delivery) => result.acknowledged.push(delivery),
                 Err(CallbackAckError::NotTerminal) => {
                     result.skipped.push(delivery_id.to_string());
