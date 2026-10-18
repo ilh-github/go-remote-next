@@ -432,7 +432,10 @@ API 会补发 revision 更大的事件。API token 为空时，新连接直接�
 该补发窗口覆盖 MCP 短暂断开/重启、QuickDesk 自身重启，以及 MCP 尚未启动但 QuickDesk
 仍在运行的场景。服务端 Redis replay 窗口可用 `EVENT_REPLAY_MAX_LEN` 和
 `EVENT_REPLAY_TTL_SECONDS` 调整，但事件量超过配置容量、replay 窗口不足或用户切换时
-仍可能丢失；它仍不是跨实例 durable event outbox。
+仍可能丢失。用户 stream 首次写入失败时，服务端会把事件放进 Redis retry list；retry
+worker 用 `LMOVE` 原子领取到 per-worker processing list，并通过 heartbeat 让其他实例
+在 worker 崩溃后恢复遗留事件。这提供了可靠的跨实例 Redis retry claim，但仍不是数据库
+事务 outbox：首次入队时 Redis 完全不可用、Redis 数据整体丢失或所有副本丢失时仍可能丢事件。
 
 ## 8. 安全
 
@@ -461,9 +464,9 @@ API 会补发 revision 更大的事件。API token 为空时，新连接直接�
 - 自定义交易所日历、“每月最后一个工作日”等业务日历；法定节假日跳过和 IANA/DST 已支持；
 - 跨机器数据库队列、所有权心跳和公平调度；当前只协调共享同一数据目录的多进程，
   不是 PostgreSQL/Redis 分布式 worker；
-- 跨实例事件 outbox 和 Redis 不可用期间的 durable backlog；服务端每用户 replay
-  window 已可配置，QuickDesk 本机也有默认 2048 条且可配置的持久 replay buffer，
-  但两者都是有界窗口，不是事务 outbox；
+- 数据库事务 outbox 和 Redis 完全不可用/整库丢失时的 durable backlog；服务端
+  retry list 已具备跨 worker claim 与崩溃恢复，每用户 replay window 也可配置，
+  QuickDesk 本机有默认 2048 条且可配置的持久 replay buffer，但它们仍不是事务 outbox；
 - Owner 委托 grant、最小权限范围和审计回传控制面；
 
 因此 QD-610 仍保持部分完成，不能把本接口描述成完整的业务流程引擎。
