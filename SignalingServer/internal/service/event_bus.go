@@ -189,25 +189,38 @@ func (b *EventBus) Subscribe(s EventSubscriber) {
 	b.subs = append(b.subs, s)
 }
 
-// Publish enqueues the event for in-process subscribers and, when UserID is non-zero, appends it to the
-// per-user Redis stream that powers realtime resume/snapshot recovery.
+// Publish enqueues the event for in-process subscribers and, when UserID is
+// non-zero, appends it to the per-user Redis stream that powers realtime
+// resume/snapshot recovery.
 //
-// NOTE: Callers must Publish *after* the DB transaction that produced the
-// event has committed (lightweight outbox-style — see §2.17 decision note:
-// QuickDesk single-instance deployment accepts the nanosecond-wide
-// "commit ok / publish lost" window in exchange for not maintaining an
-// outbox table; the §2.8 snapshot-on-reconnect path is authoritative and
-// self-heals any lost delta).
+// Direct callers still publish after their database transaction commits. Code
+// that must not lose the event at that boundary uses EventOutbox.EnqueueTx,
+// which writes the event row inside the same transaction and lets the outbox
+// worker call the durable publish path after commit.
 func (b *EventBus) Publish(ctx context.Context, evt Event) {
-	b.publishMu.Lock()
-	defer b.publishMu.Unlock()
+	evt = prepareEvent(evt)
+	if err := b.publish(ctx, evt, false); err != nil {
+		log.Printf("[EventBus] publish %s failed: %v", evt.Type, err)
+	}
+}
 
+func prepareEvent(evt Event) Event {
 	if evt.ID == "" {
 		evt.ID = "evt_" + uuid.New().String()
 	}
 	if evt.Ts.IsZero() {
 		evt.Ts = time.Now().UTC()
 	}
+	return evt
+}
+
+// publish does the actual fanout. durable=true makes the caller observe a
+// Redis failure that could not be moved to the retry list; the outbox worker
+// uses that to keep the row pending for another attempt.
+func (b *EventBus) publish(ctx context.Context, evt Event, durable bool) error {
+	b.publishMu.Lock()
+	defer b.publishMu.Unlock()
+
 	// server_rev is stamped exactly once here so both the in-memory
 	// fanout and the stream replay see identical values. INCR on Redis
 	// guarantees global monotonicity across every process instance
@@ -228,6 +241,7 @@ func (b *EventBus) Publish(ctx context.Context, evt Event) {
 	// stream write fails, enqueue the event onto the retry list so the
 	// RetryWorker can replay it.
 	streamOK := true
+	var publishErr error
 	if evt.UserID != 0 && b.rdb != nil {
 		if payload, err := json.Marshal(evt); err == nil {
 			streamKey := fmt.Sprintf("qd:events:user:%d", evt.UserID)
@@ -240,6 +254,7 @@ func (b *EventBus) Publish(ctx context.Context, evt Event) {
 			if cmd := b.rdb.XAdd(ctx, args); cmd.Err() != nil {
 				log.Printf("[EventBus] XADD %s failed: %v", streamKey, cmd.Err())
 				streamOK = false
+				publishErr = cmd.Err()
 			} else {
 				// The configured TTL keeps idle-user replay available, while
 				// exact MAXLEN bounds active streams. Both are operator knobs
@@ -247,6 +262,9 @@ func (b *EventBus) Publish(ctx context.Context, evt Event) {
 				// tolerance, not on a single global constant.
 				b.rdb.Expire(ctx, streamKey, b.streamTTL)
 			}
+		} else {
+			streamOK = false
+			publishErr = fmt.Errorf("marshal event: %w", err)
 		}
 	}
 
@@ -270,11 +288,19 @@ func (b *EventBus) Publish(ctx context.Context, evt Event) {
 		if payload, err := json.Marshal(evt); err == nil {
 			if lerr := b.rdb.LPush(ctx, eventRetryKey, string(payload)).Err(); lerr != nil {
 				log.Printf("[EventBus] retry enqueue failed: %v", lerr)
+				publishErr = fmt.Errorf("enqueue retry: %w", lerr)
 			} else {
 				b.rdb.Expire(ctx, eventRetryKey, 24*time.Hour)
+				publishErr = nil
 			}
+		} else if publishErr == nil {
+			publishErr = fmt.Errorf("marshal retry event: %w", err)
 		}
 	}
+	if durable {
+		return publishErr
+	}
+	return nil
 }
 
 func stringField(fields map[string]interface{}, key string) string {

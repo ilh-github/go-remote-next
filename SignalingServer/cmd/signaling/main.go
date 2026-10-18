@@ -121,6 +121,7 @@ func main() {
 			&models.UserNotificationChannel{},
 			&models.NotificationDelivery{},
 			&models.NotificationQuietHours{},
+			&models.EventOutbox{},
 			&models.DeviceOfflineAlertRule{},
 			&models.DeviceMetricSnapshot{},
 			&models.DeviceMetricAlertRule{},
@@ -312,6 +313,7 @@ func main() {
 		MaxLen: cfg.EventBus.ReplayMaxLen,
 		TTL:    time.Duration(cfg.EventBus.ReplayTTLSeconds) * time.Second,
 	})
+	eventOutbox := service.NewEventOutbox(db, bus)
 	deviceMetricAlertService := service.NewDeviceMetricAlertService(db, bus)
 	instanceID := uuid.NewString()
 	presenceService := service.NewPresenceService(redisClient, instanceID)
@@ -427,7 +429,8 @@ func main() {
 	// cooperate could be scheduled but never actually run.
 	scheduledTaskService := service.NewScheduledTaskService(db).
 		WithAudit(auditService).
-		WithNotifier(bus)
+		WithNotifier(bus).
+		WithOutbox(eventOutbox)
 	scheduledTaskService.RegisterAction(
 		models.ScheduledTaskSignOutAllSessions,
 		service.NewSignOutAllSessionsAction(tokenService, bus),
@@ -438,6 +441,11 @@ func main() {
 	bus.Subscribe(service.NewWebhookSubscriber(webhookService))
 	bus.Subscribe(service.NewAuditSubscriber(auditService))
 	bus.Subscribe(service.NewUserNotificationSubscriber(notificationChannelService))
+
+	// Publish transactional rows only after every subscriber is wired, so a
+	// backlog present at startup is not fanned out to a partial set.
+	go eventOutbox.Run(context.Background())
+	log.Println("Transactional event outbox worker started")
 
 	// Background worker that replays publish-failed events from the
 	// outbox retry list (§2.17). Lives for the full process lifetime.

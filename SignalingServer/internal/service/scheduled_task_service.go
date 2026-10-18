@@ -83,6 +83,12 @@ type ScheduledTaskNotifier interface {
 	Publish(ctx context.Context, evt Event)
 }
 
+// ScheduledTaskOutbox is the transactional alternative to ScheduledTaskNotifier.
+// When configured, the terminal failure row and the event row commit together.
+type ScheduledTaskOutbox interface {
+	EnqueueTx(ctx context.Context, tx *gorm.DB, evt Event) (Event, error)
+}
+
 // ScheduledTaskService owns owner-scheduled control-plane actions: the row,
 // the due-claim, and the execution. It deliberately starts with kinds whose
 // whole effect lives in the control plane, so a task cannot silently depend on
@@ -92,6 +98,7 @@ type ScheduledTaskService struct {
 	actions  map[string]ScheduledTaskAction
 	audit    *AuditService
 	notifier ScheduledTaskNotifier
+	outbox   ScheduledTaskOutbox
 }
 
 func NewScheduledTaskService(db *gorm.DB) *ScheduledTaskService {
@@ -111,6 +118,14 @@ func (s *ScheduledTaskService) WithAudit(a *AuditService) *ScheduledTaskService 
 // and in the audit trail.
 func (s *ScheduledTaskService) WithNotifier(n ScheduledTaskNotifier) *ScheduledTaskService {
 	s.notifier = n
+	return s
+}
+
+// WithOutbox switches terminal-failure events from immediate best-effort
+// publish to the transactional outbox. Main uses this path; tests that only
+// need to capture events can keep using WithNotifier.
+func (s *ScheduledTaskService) WithOutbox(o ScheduledTaskOutbox) *ScheduledTaskService {
+	s.outbox = o
 	return s
 }
 
@@ -392,10 +407,37 @@ func (s *ScheduledTaskService) runOne(ctx context.Context, task models.Scheduled
 	// The message may have been extended above by a skipped retry.
 	updates["last_error"] = message
 
-	if err := s.db.WithContext(ctx).Model(&models.ScheduledTask{}).
-		Where("id = ?", task.ID).
-		Updates(updates).Error; err != nil {
+	terminalEvent := Event{}
+	hasTerminalEvent := giveUp
+	if hasTerminalEvent {
+		terminalEvent = Event{
+			Type:   EventScheduledTaskFailed,
+			UserID: task.UserID,
+			Data: map[string]interface{}{
+				"task_id":  task.ID,
+				"kind":     task.Kind,
+				"status":   status,
+				"attempts": attempted,
+				"error":    message,
+			},
+		}
+	}
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&models.ScheduledTask{}).
+			Where("id = ?", task.ID).
+			Updates(updates).Error; err != nil {
+			return err
+		}
+		if hasTerminalEvent && s.outbox != nil {
+			if _, err := s.outbox.EnqueueTx(ctx, tx, terminalEvent); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
 		log.Printf("[scheduled-task] record outcome for task %d failed: %v", task.ID, err)
+		return
 	}
 	if s.audit != nil {
 		s.audit.LogActor(ctx, task.UserID, "scheduled_task.run", "scheduled_task",
@@ -406,18 +448,8 @@ func (s *ScheduledTaskService) runOne(ctx context.Context, task models.Scheduled
 	}
 	// Only the terminal failure is an event: the retries are visible on the row
 	// and in the audit trail, and alerting on each one would bury the signal.
-	if giveUp && s.notifier != nil {
-		s.notifier.Publish(ctx, Event{
-			Type:   EventScheduledTaskFailed,
-			UserID: task.UserID,
-			Data: map[string]interface{}{
-				"task_id":  task.ID,
-				"kind":     task.Kind,
-				"status":   status,
-				"attempts": attempted,
-				"error":    message,
-			},
-		})
+	if hasTerminalEvent && s.outbox == nil && s.notifier != nil {
+		s.notifier.Publish(ctx, terminalEvent)
 	}
 }
 
@@ -558,7 +590,7 @@ func (a *RevokeAllRemoteSessionsAction) Run(
 		Where("remote_sessions.user_id = ? AND remote_sessions.ended_at IS NULL", task.UserID).
 		Where("devices.user_id = ?", task.UserID).
 		Order("remote_sessions.device_id").
-		Limit(maxScheduledTaskRemoteSessionDevices + 1).
+		Limit(maxScheduledTaskRemoteSessionDevices+1).
 		Pluck("remote_sessions.device_id", &deviceIDs).Error
 	if err != nil {
 		return fmt.Errorf("list devices with live remote sessions: %w", err)

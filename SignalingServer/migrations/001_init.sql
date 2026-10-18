@@ -517,6 +517,41 @@ ALTER TABLE notification_deliveries
 CREATE INDEX IF NOT EXISTS idx_notification_deliveries_device_id
     ON notification_deliveries (device_id);
 
+-- ---------------------------------------------------------------
+-- Transactional event outbox
+-- Business transactions that must not lose a realtime event insert one row
+-- alongside their state change. A worker claims due rows with a conditional
+-- update, publishes the stored Event envelope, and marks it delivered.
+-- claim_expires_at makes a crashed worker recoverable without blocking the
+-- row forever. Delivery is at-least-once; Event.ID is the downstream dedupe
+-- key.
+-- ---------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS event_outbox (
+    id               VARCHAR(64)  PRIMARY KEY,
+    event_type       VARCHAR(64)  NOT NULL,
+    user_id          BIGINT       NOT NULL DEFAULT 0,
+    device_id        VARCHAR(20)  NOT NULL DEFAULT '',
+    payload          TEXT         NOT NULL,
+    status           VARCHAR(16)  NOT NULL DEFAULT 'pending',
+    attempts         INTEGER      NOT NULL DEFAULT 0,
+    next_attempt_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    claim_id         VARCHAR(64)  NOT NULL DEFAULT '',
+    claim_expires_at TIMESTAMPTZ,
+    last_error       VARCHAR(255) NOT NULL DEFAULT '',
+    delivered_at     TIMESTAMPTZ,
+    created_at       TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    updated_at       TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_event_outbox_due
+    ON event_outbox (status, next_attempt_at);
+
+CREATE INDEX IF NOT EXISTS idx_event_outbox_claim_expiry
+    ON event_outbox (claim_expires_at);
+
+CREATE INDEX IF NOT EXISTS idx_event_outbox_user_id
+    ON event_outbox (user_id);
+
 -- Notification aggregation: one row can stand for several occurrences of the
 -- same (channel, event type, device) when NOTIFICATION_AGGREGATE_SECONDS is
 -- set. Rows written before this column existed are single occurrences.
