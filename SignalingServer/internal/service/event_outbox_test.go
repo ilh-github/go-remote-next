@@ -32,6 +32,7 @@ func newEventOutboxTestDB(t *testing.T) *gorm.DB {
 		&models.DeviceAccessPolicy{},
 		&models.DeviceAccessApproval{},
 		&models.DeviceAccessGrant{},
+		&models.DeviceOfflineAlertRule{},
 		&models.Device{},
 		&models.RemoteSession{},
 		&models.SessionRecording{},
@@ -812,6 +813,101 @@ func TestDeviceAccessGrantOutboxFailureRollsBackCreateConsumeAndRevoke(t *testin
 	}
 	if afterRevoke.RevokedAt != nil {
 		t.Fatalf("revoke was not rolled back: %+v", afterRevoke)
+	}
+}
+
+func TestOfflineAlertEventCommitsWithEpisodeClaim(t *testing.T) {
+	db := newEventOutboxTestDB(t)
+	_, _, bus := newEventOutboxTestRedis(t)
+	outbox := NewEventOutbox(db, bus)
+	seedOutboxTestDevice(t, db, "D9000001", 7)
+	if err := db.Model(&models.Device{}).
+		Where("device_id = ?", "D9000001").
+		Update("logged_in", true).Error; err != nil {
+		t.Fatalf("mark device logged in: %v", err)
+	}
+	rule := models.DeviceOfflineAlertRule{
+		DeviceID:     "D9000001",
+		OwnerID:      7,
+		Enabled:      true,
+		AfterMinutes: 1,
+	}
+	if err := db.Create(&rule).Error; err != nil {
+		t.Fatalf("create offline alert rule: %v", err)
+	}
+	svc := NewDeviceOfflineAlertService(db, &fakePresence{
+		online: map[string]bool{"D9000001": false},
+	}, bus).WithOutbox(outbox)
+	ctx := context.Background()
+	start := time.Now().UTC().Truncate(time.Microsecond)
+
+	if fired, err := svc.EvaluateOnce(ctx, start); err != nil || fired != 0 {
+		t.Fatalf("first EvaluateOnce fired=%d err=%v, want 0/nil", fired, err)
+	}
+	if fired, err := svc.EvaluateOnce(ctx, start.Add(2*time.Minute)); err != nil || fired != 1 {
+		t.Fatalf("second EvaluateOnce fired=%d err=%v, want 1/nil", fired, err)
+	}
+	var stored models.DeviceOfflineAlertRule
+	if err := db.First(&stored, rule.ID).Error; err != nil {
+		t.Fatalf("load offline alert rule: %v", err)
+	}
+	if stored.AlertedAt == nil || stored.OfflineSince == nil {
+		t.Fatalf("alert episode was not persisted: %+v", stored)
+	}
+	var outboxRows []models.EventOutbox
+	if err := db.Find(&outboxRows).Error; err != nil {
+		t.Fatalf("load offline alert outbox: %v", err)
+	}
+	if len(outboxRows) != 1 {
+		t.Fatalf("offline alert outbox rows = %d, want 1", len(outboxRows))
+	}
+	var event Event
+	if err := json.Unmarshal([]byte(outboxRows[0].Payload), &event); err != nil {
+		t.Fatalf("decode offline alert event: %v", err)
+	}
+	if event.Type != EventDeviceOfflineSustained || event.UserID != 7 ||
+		event.DeviceID != "D9000001" || event.Data["reminder"] != false {
+		t.Fatalf("offline alert event = %+v", event)
+	}
+}
+
+func TestOfflineAlertOutboxFailureRollsBackClaim(t *testing.T) {
+	db := newEventOutboxTestDB(t)
+	seedOutboxTestDevice(t, db, "D9000002", 7)
+	if err := db.Model(&models.Device{}).
+		Where("device_id = ?", "D9000002").
+		Update("logged_in", true).Error; err != nil {
+		t.Fatalf("mark device logged in: %v", err)
+	}
+	rule := models.DeviceOfflineAlertRule{
+		DeviceID:     "D9000002",
+		OwnerID:      7,
+		Enabled:      true,
+		AfterMinutes: 1,
+	}
+	if err := db.Create(&rule).Error; err != nil {
+		t.Fatalf("create offline alert rule: %v", err)
+	}
+	bus := NewEventBus(nil)
+	svc := NewDeviceOfflineAlertService(db, &fakePresence{
+		online: map[string]bool{"D9000002": false},
+	}, bus).WithOutbox(
+		&failingScheduledTaskOutbox{err: errors.New("outbox unavailable")},
+	)
+	ctx := context.Background()
+	start := time.Now().UTC().Truncate(time.Microsecond)
+	if fired, err := svc.EvaluateOnce(ctx, start); err != nil || fired != 0 {
+		t.Fatalf("first EvaluateOnce fired=%d err=%v, want 0/nil", fired, err)
+	}
+	if fired, err := svc.EvaluateOnce(ctx, start.Add(2*time.Minute)); err == nil || fired != 0 {
+		t.Fatalf("second EvaluateOnce fired=%d err=%v, want 0/error", fired, err)
+	}
+	var stored models.DeviceOfflineAlertRule
+	if err := db.First(&stored, rule.ID).Error; err != nil {
+		t.Fatalf("load offline alert rule: %v", err)
+	}
+	if stored.AlertedAt != nil {
+		t.Fatalf("offline alert claim was not rolled back: %+v", stored)
 	}
 }
 

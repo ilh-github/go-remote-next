@@ -91,10 +91,18 @@ type DeviceOfflineAlertService struct {
 	db       *gorm.DB
 	presence OfflinePresence
 	bus      *EventBus
+	outbox   EventOutboxWriter
 }
 
 func NewDeviceOfflineAlertService(db *gorm.DB, presence OfflinePresence, bus *EventBus) *DeviceOfflineAlertService {
 	return &DeviceOfflineAlertService{db: db, presence: presence, bus: bus}
+}
+
+// WithOutbox makes the alert episode claim and its event atomic. Without an
+// outbox the service keeps the historical best-effort publish after commit.
+func (s *DeviceOfflineAlertService) WithOutbox(outbox EventOutboxWriter) *DeviceOfflineAlertService {
+	s.outbox = outbox
+	return s
 }
 
 // Get returns the rule for a device, or (nil, nil) when the owner never
@@ -320,23 +328,42 @@ func (s *DeviceOfflineAlertService) evaluateRule(
 	// offline_since so a claim can never cross into a different episode.
 	// Exactly one caller can win either way, so a second instance (or a second
 	// tick racing this one) cannot send the same alert twice.
-	claim := s.db.WithContext(ctx).
-		Model(&models.DeviceOfflineAlertRule{}).
-		Where("id = ? AND offline_since = ?", rule.ID, *since)
-	if rule.AlertedAt == nil {
-		claim = claim.Where("alerted_at IS NULL")
-	} else {
-		claim = claim.Where("alerted_at = ?", *rule.AlertedAt)
+	evt := s.offlineAlertEvent(rule, device, *since, now)
+	publishDirect := false
+	claimedAlert := false
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		claim := tx.Model(&models.DeviceOfflineAlertRule{}).
+			Where("id = ? AND offline_since = ?", rule.ID, *since)
+		if rule.AlertedAt == nil {
+			claim = claim.Where("alerted_at IS NULL")
+		} else {
+			claim = claim.Where("alerted_at = ?", *rule.AlertedAt)
+		}
+		claimed := claim.Updates(map[string]interface{}{"alerted_at": now, "updated_at": now})
+		if claimed.Error != nil {
+			return claimed.Error
+		}
+		if claimed.RowsAffected == 0 {
+			return nil
+		}
+		claimedAlert = true
+		if s.outbox != nil {
+			_, err := s.outbox.EnqueueTx(ctx, tx, evt)
+			return err
+		}
+		publishDirect = s.bus != nil
+		return nil
+	})
+	if err != nil {
+		return 0, err
 	}
-	claimed := claim.Updates(map[string]interface{}{"alerted_at": now, "updated_at": now})
-	if claimed.Error != nil {
-		return 0, claimed.Error
-	}
-	if claimed.RowsAffected == 0 {
+	if !claimedAlert {
 		return 0, nil
 	}
-
-	s.publishOfflineAlert(ctx, rule, device, *since, now)
+	if !publishDirect {
+		return 1, nil
+	}
+	s.bus.Publish(ctx, evt)
 	return 1, nil
 }
 
@@ -360,19 +387,15 @@ func (s *DeviceOfflineAlertService) clearEpisode(
 		}).Error
 }
 
-// publishOfflineAlert emits the user-scoped event. It carries no secret and no
+// offlineAlertEvent builds the user-scoped event. It carries no secret and no
 // access code, only why the owner is being told.
-func (s *DeviceOfflineAlertService) publishOfflineAlert(
-	ctx context.Context,
+func (s *DeviceOfflineAlertService) offlineAlertEvent(
 	rule models.DeviceOfflineAlertRule,
 	device offlineAlertDevice,
 	since time.Time,
 	now time.Time,
-) {
-	if s.bus == nil {
-		return
-	}
-	s.bus.Publish(ctx, Event{
+) Event {
+	return Event{
 		Type:     EventDeviceOfflineSustained,
 		UserID:   rule.OwnerID,
 		DeviceID: rule.DeviceID,
@@ -387,7 +410,7 @@ func (s *DeviceOfflineAlertService) publishOfflineAlert(
 			"reminder":       rule.AlertedAt != nil,
 			"repeat_minutes": rule.RepeatMinutes,
 		},
-	})
+	}
 }
 
 // encodeOfflineAlertMaintenance marshals the windows for storage. An empty

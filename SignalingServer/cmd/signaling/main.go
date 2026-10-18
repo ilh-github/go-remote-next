@@ -467,7 +467,8 @@ func main() {
 	// evaluator adds the part an owner actually asked for - how long - and
 	// publishes through the user notification outbox, so the alert inherits
 	// durable delivery, retry and dead-letter replay.
-	deviceOfflineAlertService := service.NewDeviceOfflineAlertService(db, presenceService, bus)
+	deviceOfflineAlertService := service.NewDeviceOfflineAlertService(db, presenceService, bus).
+		WithOutbox(eventOutbox)
 	if cfg.OfflineAlert.IntervalSeconds > 0 {
 		go deviceOfflineAlertService.Run(
 			context.Background(),
