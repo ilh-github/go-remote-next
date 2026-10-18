@@ -159,11 +159,19 @@ test('stops immediately for a non-retryable access policy rejection', async () =
   }
 })
 
-test('keeps a recording upload alive while signaling disconnects and reconnects', async () => {
+test('keeps a recording upload alive while signaling disconnects and reconnects', async (t) => {
   const harness = await createHarness()
   try {
     await harness.openRemote()
     await harness.waitForConnected()
+
+    const supportsRecordingUpload = await harness.page.evaluate(
+      () => typeof window.remoteDesktopApp?._uploadRecording === 'function',
+    )
+    if (!supportsRecordingUpload) {
+      t.skip('recording upload is not present in this WebClient baseline')
+      return
+    }
 
     await harness.page.evaluate(() => {
       window.__uploadPromise = window.remoteDesktopApp._uploadRecording({

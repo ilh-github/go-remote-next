@@ -16,7 +16,8 @@ The suite covers:
 - recovery on reconnect attempts 1, 2, and 3;
 - exhaustion after all four attempts fail;
 - immediate stop after a non-retryable access-policy rejection;
-- recording upload retry continuing while signaling reconnects;
+- recording upload retry continuing while signaling reconnects, when that
+  fork-specific upload module is present;
 - stale Session events being ignored after the replacement Session connects.
 
 Set `QD_BROWSER_CHANNEL` to use a channel other than the locally installed
