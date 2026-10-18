@@ -1187,7 +1187,8 @@ POST   /v1/triggers/{trigger_id}/run
 触发器保存工作流、设备、默认参数，以及至少一个 `interval_seconds`（60 秒到 365 天）、
 `cron_expression` 或 `event_type`。cron 可选 IANA `timezone`，省略时为 UTC。
 `interval_seconds` 和 `cron_expression` 互斥，时间规则可以与事件规则同时使用。cron
-还可设置 `skip_holidays` 跳过法定放假日；事件
+还可设置 `skip_holidays` 跳过法定放假日、`backfill_missed` 在进程恢复后从最早漏跑槽位
+逐条补跑；两者都只能与 cron 一起使用。事件
 触发器支持 `event_device_id` 和顶层
 `event_filter`；省略
 `event_device_id` 时，设备类事件默认绑定执行目标设备，用户级的计划任务失败事件则不按
@@ -1204,7 +1205,7 @@ claim 再执行。事件 `id` 是跨重启幂等键；没有 ID 的旧事件才�
 MCP 重连 auth 会发送
 `since_server_rev` 并接收更大的 revision，从而覆盖 MCP 或 QuickDesk 短暂重启。触发
 仍按事件 `id` 幂等。超过配置容量或服务端 retention 不足时仍可能丢失。IANA 时区、DST
-和法定节假日跳过已支持，但漏过槽位补跑仍未实现；跨进程共享 worker 和回调确认操作者归属
+、法定节假日跳过和可选漏跑槽位补跑已支持；跨进程共享 worker 和回调确认操作者归属
 也仍未实现。单进程重启会恢复 queued workflow job，running job
 失败关闭；HMAC 回调使用持久 outbox，并以同一 delivery id 自动重试、跨进程重启恢复，
 支持死信查询、人工重放和幂等 ack。

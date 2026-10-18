@@ -45,6 +45,7 @@ pub struct WorkflowTriggerSpec {
     pub event_filter: Option<Value>,
     pub callback_url: Option<String>,
     pub skip_holidays: bool,
+    pub backfill_missed: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -70,6 +71,8 @@ pub struct WorkflowTrigger {
     pub callback_url: Option<String>,
     #[serde(default)]
     pub skip_holidays: bool,
+    #[serde(default)]
+    pub backfill_missed: bool,
     pub enabled: bool,
     pub next_run_at: Option<String>,
     pub last_run_at: Option<String>,
@@ -251,6 +254,11 @@ impl WorkflowTriggerStore {
         if spec.skip_holidays && cron_expression.is_none() {
             return Err("trigger skip_holidays is only supported with cron_expression".to_string());
         }
+        if spec.backfill_missed && cron_expression.is_none() {
+            return Err(
+                "trigger backfill_missed is only supported with cron_expression".to_string(),
+            );
+        }
         let event_type = spec
             .event_type
             .as_deref()
@@ -318,6 +326,7 @@ impl WorkflowTriggerStore {
             event_filter: spec.event_filter,
             callback_url: spec.callback_url,
             skip_holidays: spec.skip_holidays,
+            backfill_missed: spec.backfill_missed,
             enabled: true,
             next_run_at,
             last_run_at: None,
@@ -394,10 +403,15 @@ impl WorkflowTriggerStore {
                 let Some(expression) = trigger.cron_expression.as_deref() else {
                     continue;
                 };
+                let after = if trigger.backfill_missed {
+                    next_run_at.with_timezone(&Utc)
+                } else {
+                    now
+                };
                 match next_cron_after(
                     expression,
                     trigger.timezone.as_deref(),
-                    now,
+                    after,
                     trigger.skip_holidays,
                     &self.holiday_calendar,
                 ) {
@@ -621,6 +635,7 @@ mod tests {
                     event_filter: None,
                     callback_url: None,
                     skip_holidays: false,
+                    backfill_missed: false,
                 },
                 now,
             )
@@ -669,6 +684,7 @@ mod tests {
                     event_filter: None,
                     callback_url: None,
                     skip_holidays: false,
+                    backfill_missed: false,
                 },
                 created,
             )
@@ -709,6 +725,7 @@ mod tests {
                     event_filter: None,
                     callback_url: None,
                     skip_holidays: false,
+                    backfill_missed: false,
                 },
                 created,
             )
@@ -762,6 +779,7 @@ mod tests {
                     event_filter: None,
                     callback_url: None,
                     skip_holidays: false,
+                    backfill_missed: false,
                 },
                 created,
             )
@@ -792,6 +810,7 @@ mod tests {
                     event_filter: None,
                     callback_url: None,
                     skip_holidays: false,
+                    backfill_missed: false,
                 },
                 Utc.with_ymd_and_hms(2026, 3, 7, 15, 0, 0).unwrap(),
             )
@@ -821,6 +840,7 @@ mod tests {
                     event_filter: None,
                     callback_url: None,
                     skip_holidays: false,
+                    backfill_missed: false,
                 },
                 Utc.with_ymd_and_hms(2026, 11, 1, 5, 0, 0).unwrap(),
             )
@@ -860,6 +880,7 @@ mod tests {
                     event_filter: None,
                     callback_url: None,
                     skip_holidays: false,
+                    backfill_missed: false,
                 },
                 created,
             )
@@ -890,6 +911,7 @@ mod tests {
                     event_filter: None,
                     callback_url: None,
                     skip_holidays: true,
+                    backfill_missed: false,
                 },
                 created,
             )
@@ -942,6 +964,7 @@ mod tests {
                     event_filter: None,
                     callback_url: None,
                     skip_holidays: true,
+                    backfill_missed: false,
                 },
                 created,
             )
@@ -979,11 +1002,43 @@ mod tests {
             event_filter: None,
             callback_url: None,
             skip_holidays: true,
+            backfill_missed: false,
         });
 
         assert_eq!(
             result.unwrap_err(),
             "trigger skip_holidays is only supported with cron_expression"
+        );
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn backfill_missed_is_rejected_without_a_cron_schedule() {
+        let dir = std::env::temp_dir().join(format!("quickdesk-trigger-store-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = WorkflowTriggerStore::with_storage_dir(dir.clone());
+
+        let result = store.create(WorkflowTriggerSpec {
+            name: "interval with backlog flag".to_string(),
+            workflow_id: Uuid::new_v4().to_string(),
+            device_id: "device-1".to_string(),
+            overrides: HashMap::new(),
+            stop_on_failure: true,
+            interval_seconds: Some(60),
+            cron_expression: None,
+            timezone: None,
+            event_type: None,
+            event_device_id: None,
+            event_filter: None,
+            callback_url: None,
+            skip_holidays: false,
+            backfill_missed: true,
+        });
+
+        assert_eq!(
+            result.unwrap_err(),
+            "trigger backfill_missed is only supported with cron_expression"
         );
 
         let _ = std::fs::remove_dir_all(dir);
@@ -1014,6 +1069,60 @@ mod tests {
     }
 
     #[test]
+    fn cron_backfills_missed_slots_after_downtime() {
+        let dir = std::env::temp_dir().join(format!("quickdesk-trigger-store-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = WorkflowTriggerStore::with_storage_dir(dir.clone());
+        let created = Utc.with_ymd_and_hms(2026, 10, 17, 15, 7, 0).unwrap();
+        let trigger = store
+            .create_at(
+                WorkflowTriggerSpec {
+                    name: "catch up every fifteen minutes".to_string(),
+                    workflow_id: Uuid::new_v4().to_string(),
+                    device_id: "device-1".to_string(),
+                    overrides: HashMap::new(),
+                    stop_on_failure: true,
+                    interval_seconds: None,
+                    cron_expression: Some("0 */15 * * * *".to_string()),
+                    timezone: None,
+                    event_type: None,
+                    event_device_id: None,
+                    event_filter: None,
+                    callback_url: None,
+                    skip_holidays: false,
+                    backfill_missed: true,
+                },
+                created,
+            )
+            .unwrap();
+        let recovery = Utc.with_ymd_and_hms(2026, 10, 17, 16, 2, 0).unwrap();
+
+        let first = store.claim_due(recovery);
+        assert_eq!(first.len(), 1);
+        assert_eq!(
+            store.get(&trigger.id).unwrap().next_run_at,
+            Some(
+                Utc.with_ymd_and_hms(2026, 10, 17, 15, 30, 0)
+                    .unwrap()
+                    .to_rfc3339()
+            )
+        );
+
+        let second = store.claim_due(recovery);
+        assert_eq!(second.len(), 1);
+        assert_eq!(
+            store.get(&trigger.id).unwrap().next_run_at,
+            Some(
+                Utc.with_ymd_and_hms(2026, 10, 17, 15, 45, 0)
+                    .unwrap()
+                    .to_rfc3339()
+            )
+        );
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn rejects_invalid_trigger_ids_and_interval_bounds() {
         let dir = std::env::temp_dir().join(format!("quickdesk-trigger-store-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -1032,6 +1141,7 @@ mod tests {
             event_filter: None,
             callback_url: None,
             skip_holidays: false,
+            backfill_missed: false,
         };
 
         assert!(store.create(base.clone()).is_err());
@@ -1062,6 +1172,7 @@ mod tests {
                     event_filter: Some(json!({"reason": "policy"})),
                     callback_url: None,
                     skip_holidays: false,
+                    backfill_missed: false,
                 },
                 now,
             )
@@ -1110,6 +1221,7 @@ mod tests {
                     event_filter: Some(json!({"kind": "sign_out_all_sessions"})),
                     callback_url: None,
                     skip_holidays: false,
+                    backfill_missed: false,
                 },
                 now,
             )
@@ -1138,6 +1250,7 @@ mod tests {
             event_filter: Some(json!({"reason": "policy"})),
             callback_url: None,
             skip_holidays: false,
+            backfill_missed: false,
         };
 
         assert!(store.create(base.clone()).is_ok());

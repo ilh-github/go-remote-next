@@ -244,6 +244,7 @@ Authorization: Bearer <QUICKDESK_TRIGGER_TOKEN>
 - 可选 `interval_seconds` 或 `cron_expression`，两者互斥；
 - cron 可选 IANA `timezone`，省略时默认 `UTC`；
 - cron 可选 `skip_holidays`，默认 `false`；启用后按触发器的本地日期跳过中国法定放假日；
+- cron 可选 `backfill_missed`，默认 `false`；启用后进程恢复时从最早的漏跑槽位逐条补齐；
 - 可选 `event_type`、`event_device_id` 和 `event_filter`；
 - `next_run_at`、上次运行 ID/状态/错误。
 
@@ -287,7 +288,8 @@ cron trigger：
   "device_id": "device-1",
   "cron_expression": "0 0 9 * * Mon-Fri",
   "timezone": "Asia/Shanghai",
-  "skip_holidays": true
+  "skip_holidays": true,
+  "backfill_missed": true
 }
 ```
 
@@ -309,9 +311,14 @@ IANA 时区遵循真实 DST 偏移：春季不存在的本地时间会跳到下�
 `YYYY.json` 格式追加后续年份，文件在 MCP 进程启动时加载。`skip_holidays` 只能和
 `cron_expression` 一起使用，配 interval 或 event-only trigger 返回 `400`。
 
-进程停机期间错过的 cron 槽位不会补跑；恢复后从当前时刻计算下一次未来槽位，继续保证
-at-most-once，而不是一次性回放多个历史槽位。连续超过 366 天都无法找到非节假日槽位时
-会拒绝创建或停止推进并返回错误，避免损坏的日历文件让触发器永久空转。
+`backfill_missed=true` 只允许和 cron 一起使用。默认 `false` 时，进程停机期间错过的槽位
+不会补跑，恢复后从当前时刻计算下一次未来槽位；启用后，worker 从最早的漏跑槽位开始，
+每次 claim 前进到该槽位之后的下一 cron 时刻，因此会在后续 worker 周期逐条补齐而不是
+一次跳到现在。补跑仍保持每个槽位 at-most-once；`skip_holidays=true` 时法定放假日槽位
+不会补跑。长时间停机可能产生较多待补槽位，业务方应结合工作流副作用谨慎启用。
+
+连续超过 366 天都无法找到非节假日槽位时会拒绝创建或停止推进并返回错误，避免损坏的
+日历文件让触发器永久空转。
 
 `POST /v1/triggers/{trigger_id}/run` 返回本次 `WorkflowRunReport`，同时把 run_id、
 completed/failed 和错误写回 trigger 定义。

@@ -58,6 +58,8 @@ struct CreateTriggerRequest {
     callback_url: Option<String>,
     #[serde(default)]
     skip_holidays: bool,
+    #[serde(default)]
+    backfill_missed: bool,
 }
 
 #[derive(Deserialize)]
@@ -475,6 +477,7 @@ async fn create_trigger(
         event_filter: request.event_filter,
         callback_url: request.callback_url,
         skip_holidays: request.skip_holidays,
+        backfill_missed: request.backfill_missed,
     }) {
         Ok(trigger) => trigger,
         Err(error) => return error_response(StatusCode::BAD_REQUEST, &error),
@@ -2293,7 +2296,8 @@ mod tests {
                     "device_id": "device-1",
                     "cron_expression": "0 */15 * * * *",
                     "timezone": "Asia/Shanghai",
-                    "skip_holidays": true
+                    "skip_holidays": true,
+                    "backfill_missed": true
                 })
                 .to_string(),
             ))
@@ -2305,6 +2309,7 @@ mod tests {
         assert_eq!(trigger["cron_expression"], "0 */15 * * * *");
         assert_eq!(trigger["timezone"], "Asia/Shanghai");
         assert_eq!(trigger["skip_holidays"], true);
+        assert_eq!(trigger["backfill_missed"], true);
         let next_run_at =
             chrono::DateTime::parse_from_rfc3339(trigger["next_run_at"].as_str().unwrap())
                 .unwrap()
@@ -2323,6 +2328,25 @@ mod tests {
                     "workflow_id": workflow_id,
                     "device_id": "device-1",
                     "cron_expression": "not a cron"
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        let response = app.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        let request = Request::builder()
+            .method("POST")
+            .uri("/v1/triggers")
+            .header("Authorization", "Bearer business-secret")
+            .header("Content-Type", "application/json")
+            .body(Body::from(
+                json!({
+                    "name": "backfill flag without cron",
+                    "workflow_id": workflow_id,
+                    "device_id": "device-1",
+                    "interval_seconds": 60,
+                    "backfill_missed": true
                 })
                 .to_string(),
             ))
@@ -2441,6 +2465,7 @@ mod tests {
                     event_filter: None,
                     callback_url: Some(format!("http://{callback_address}/scheduled-callback")),
                     skip_holidays: false,
+                    backfill_missed: false,
                 },
                 created_at,
             )
@@ -2536,6 +2561,7 @@ mod tests {
                 event_filter: Some(json!({"reason": "policy"})),
                 callback_url: None,
                 skip_holidays: false,
+                backfill_missed: false,
             })
             .unwrap();
         let task_trigger = trigger_store
@@ -2553,6 +2579,7 @@ mod tests {
                 event_filter: Some(json!({"kind": "sign_out_all_sessions"})),
                 callback_url: None,
                 skip_holidays: false,
+                backfill_missed: false,
             })
             .unwrap();
         let shared = Arc::new(SharedState {
