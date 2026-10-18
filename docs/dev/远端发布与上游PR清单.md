@@ -1,6 +1,6 @@
 # 远端发布与上游 PR 清单
 
-**更新时间**: 2026-10-18 18:28 CST
+**更新时间**: 2026-10-18 18:31 CST
 
 这份清单记录本地验证完成后的远端写入与 PR 状态。远端状态必须以实际
 `origin/*` ref、push 结果和 GitHub PR 为准，不能把本地候选写成已共享。
@@ -13,14 +13,15 @@
   录像生命周期迁移为 `cd08a0f`，访问审批生命周期迁移为 `c650d3d`。文档收口后
   共享访问码生命周期迁移为 `5e2542c`，离线告警迁移为 `b6855cc`。文档收口后
   指标阈值告警迁移为 `c4a28ee`，设备控制面变更迁移为 `0c621ef`。文档收口后
-  收藏设备生命周期迁移为 `0b746b9`，WebClient 有界重连为 `565f643`。文档收口后
-  本地领先 `origin/dev` 78 个提交
+  收藏设备生命周期迁移为 `0b746b9`，WebClient 有界重连为 `565f643`。QD-907
+  Playwright E2E 为 `830a469`、`2ab09d5`，文档收口到 `76628c0`；本地领先
+  `origin/dev` 82 个提交
 - fork 远端：`origin/dev` 与 `origin/master` 当前仍为 `9837194`
-- 本地领先：`dev` / `master` 均比各自远端多 78 个提交
+- 本地领先：`dev` / `master` 均比各自远端多 82 个提交
 - 推送 blocker：2026-10-18 执行 `git push origin dev master` 和候选分支 push 均被
   执行策略拒绝，错误为 `approval required by policy, but AskForApproval is set to Never`；
-  未绕过审批策略。`git ls-remote` 于同一时刻确认远端主分支仍为 `9837194`，QD-111
-  候选分支尚不存在
+  未绕过审批策略。`git ls-remote` 于同一时刻确认远端主分支仍为 `9837194`，
+  `codex/upstream-websocket-auth-timeout` 远端 ref 仍不存在
 - 功能分支：`codex/product-backlog` = `dea02f9`
 - 上游 QD-003 候选：`codex/upstream-cross-tab-coordination` = `6047615`（基于 `upstream/dev`）
 - 上游 QD-114 候选：`codex/upstream-qd-114-spki` = `13559e6`（基于 `upstream/dev`）
@@ -51,8 +52,9 @@
   完成但尚未推送到 `origin`
 - QD-907 上游候选已准备：`codex/upstream-websocket-auth-timeout` = `729d9fe`，基于
   PR #25 的 `feat/signaling-control-plane@8998466`；只改 WebClient 信令 transport、
-  有界重连、访问码错误分类、remote 入口和 Node test。候选自身 10/10、生产构建和
-  单提交 diff check 通过；修复 auth_ok 超时、认证前 payload/send 门禁、
+  有界重连、访问码错误分类、remote 入口、Node test 和 Playwright E2E。候选自身
+  单测 10/10、浏览器 E2E 6/6 + fork-only 上传用例跳过 1 项、生产构建和 diff check
+  通过；修复 auth_ok 超时、认证前 payload/send 门禁、
   访问策略/错误访问码/排队/签名失败分类，以及断线后重新签发 token 的 0/1/3/7 秒
   有界重连与耗尽状态。fork 已增加真实 Chrome + Playwright 的 QD-907 E2E，
   `2ab09d5` 的 7/7 测试覆盖第 1~3 次恢复、四次耗尽、策略拒绝、上传并发和旧 Session 隔离；
