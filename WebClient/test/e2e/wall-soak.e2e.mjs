@@ -136,8 +136,7 @@ test(
         requestAnimationFrame(tick)
       })
 
-      await page.getByRole('button', { name: 'Start rotation', exact: true }, { timeout: 120000 })
-        .evaluate((button) => button.click())
+      await clickByName(page, 'Start rotation')
       const baseline = await performanceMetrics(cdp)
       const startedAt = Date.now()
       const startedFrames = await page.evaluate(() => window.__wallSoakMainFrames)
@@ -172,8 +171,7 @@ test(
         if (remaining > 0) await new Promise((resolve) => setTimeout(resolve, remaining))
       }
 
-      await page.getByRole('button', { name: 'Stop rotation', exact: true }, { timeout: 120000 })
-        .evaluate((button) => button.click())
+      await clickByName(page, 'Stop rotation')
       const elapsedMs = Date.now() - startedAt
       const endedFrames = await page.evaluate(() => window.__wallSoakMainFrames)
       const finalMetrics = await performanceMetrics(cdp)
@@ -230,6 +228,13 @@ test(
 async function performanceMetrics(cdp) {
   const result = await cdp.send('Performance.getMetrics')
   return Object.fromEntries(result.metrics.map((metric) => [metric.name, metric.value]))
+}
+
+// A wall with hundreds of iframes makes Playwright's actionability checks slow
+// and flaky, so the click goes straight to the button element.
+async function clickByName(page, name) {
+  return page.getByRole('button', { name, exact: true }, { timeout: 120000 })
+    .evaluate((button) => button.click())
 }
 
 function uniqueIndexes(count, wanted) {
