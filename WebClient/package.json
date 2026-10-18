@@ -13,7 +13,8 @@
     "test:e2e:tab-coordinator": "node --test test/e2e/tab-coordinator.e2e.mjs",
     "test:e2e:wall": "node --test test/e2e/wall.e2e.mjs",
     "test:e2e:devices": "node --test test/e2e/devices.e2e.mjs",
-    "test:e2e:selfhost": "npm run build && node --test test/e2e/selfhost.e2e.mjs"
+    "test:e2e:selfhost": "npm run build && node --test test/e2e/selfhost.e2e.mjs",
+    "test:e2e:wall-soak": "node --test test/e2e/wall-soak.e2e.mjs"
   },
   "dependencies": {
     "vue": "^3.4.0",

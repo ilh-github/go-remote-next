@@ -81,5 +81,18 @@ cd WebClient
 npm run test:e2e:selfhost
 ```
 
+## Screen Wall Soak
+
+`wall-soak.e2e.mjs` loads the real screen wall with many synthetic animated
+session iframes. It samples live-tile count, iframe frame progress, main-thread
+animation progress, JS heap growth, audio exclusivity, and page errors. The
+default is a short smoke run; the release gate uses 200 viewers for 7200 seconds.
+
+```bash
+cd WebClient
+npm run test:e2e:wall-soak
+QD_WALL_DEVICES=200 QD_WALL_SOAK_SECONDS=7200 npm run test:e2e:wall-soak
+```
+
 Set `QD_BROWSER_CHANNEL` to use a channel other than the locally installed
 Google Chrome.
