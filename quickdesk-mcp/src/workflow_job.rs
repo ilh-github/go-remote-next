@@ -48,6 +48,30 @@ pub struct WorkflowRunJob {
     pub callback_error: String,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct WorkflowJobRequestSpec {
+    #[serde(default)]
+    overrides: HashMap<String, Value>,
+    #[serde(default = "default_stop_on_failure")]
+    stop_on_failure: bool,
+    #[serde(default)]
+    callback_url: Option<String>,
+}
+
+impl Default for WorkflowJobRequestSpec {
+    fn default() -> Self {
+        Self {
+            overrides: HashMap::new(),
+            stop_on_failure: true,
+            callback_url: None,
+        }
+    }
+}
+
+fn default_stop_on_failure() -> bool {
+    true
+}
+
 #[derive(Clone)]
 pub struct WorkflowJobStore {
     storage_dir: PathBuf,
@@ -70,7 +94,12 @@ impl WorkflowJobStore {
         Self::from_storage_dir(storage_dir).expect("test workflow job store")
     }
 
-    pub fn create(&self, workflow_id: &str, device_id: &str) -> Result<WorkflowRunJob, String> {
+    fn create(
+        &self,
+        workflow_id: &str,
+        device_id: &str,
+        request: &WorkflowJobRequestSpec,
+    ) -> Result<WorkflowRunJob, String> {
         let now = Utc::now().to_rfc3339();
         let job = WorkflowRunJob {
             run_id: Uuid::new_v4().to_string(),
@@ -86,6 +115,7 @@ impl WorkflowJobStore {
             callback_status: String::new(),
             callback_error: String::new(),
         };
+        self.save_request(&job.run_id, request)?;
         self.save(&job)?;
         Ok(job)
     }
@@ -94,6 +124,45 @@ impl WorkflowJobStore {
         let path = self.job_path(run_id)?;
         let data = std::fs::read_to_string(path).ok()?;
         serde_json::from_str(&data).ok()
+    }
+
+    fn get_request(&self, run_id: &str) -> Option<WorkflowJobRequestSpec> {
+        let path = self.request_path(run_id)?;
+        let data = std::fs::read_to_string(path).ok()?;
+        serde_json::from_str(&data).ok()
+    }
+
+    fn list(&self) -> Result<Vec<WorkflowRunJob>, String> {
+        let entries = std::fs::read_dir(&self.storage_dir)
+            .map_err(|error| format!("read workflow job dir: {error}"))?;
+        let mut jobs: Vec<WorkflowRunJob> = Vec::new();
+        for entry in entries {
+            let entry = entry.map_err(|error| format!("read workflow job entry: {error}"))?;
+            let path = entry.path();
+            if path.extension().and_then(|value| value.to_str()) != Some("json")
+                || path
+                    .file_name()
+                    .and_then(|value| value.to_str())
+                    .is_some_and(|name| name.ends_with(".request.json"))
+            {
+                continue;
+            }
+            let data = match std::fs::read_to_string(&path) {
+                Ok(data) => data,
+                Err(error) => {
+                    tracing::warn!("cannot read workflow job {}: {error}", path.display());
+                    continue;
+                }
+            };
+            match serde_json::from_str(&data) {
+                Ok(job) => jobs.push(job),
+                Err(error) => {
+                    tracing::warn!("cannot parse workflow job {}: {error}", path.display());
+                }
+            }
+        }
+        jobs.sort_by(|left, right| left.created_at.cmp(&right.created_at));
+        Ok(jobs)
     }
 
     pub fn mark_running(&self, run_id: &str) -> Result<(), String> {
@@ -171,9 +240,23 @@ impl WorkflowJobStore {
         std::fs::write(path, data).map_err(|error| format!("write workflow job: {error}"))
     }
 
+    fn save_request(&self, run_id: &str, request: &WorkflowJobRequestSpec) -> Result<(), String> {
+        let path = self
+            .request_path(run_id)
+            .ok_or_else(|| "invalid workflow job id".to_string())?;
+        let data = serde_json::to_string_pretty(request)
+            .map_err(|error| format!("serialize workflow job request: {error}"))?;
+        std::fs::write(path, data).map_err(|error| format!("write workflow job request: {error}"))
+    }
+
     fn job_path(&self, run_id: &str) -> Option<PathBuf> {
         Uuid::parse_str(run_id).ok()?;
         Some(self.storage_dir.join(format!("{run_id}.json")))
+    }
+
+    fn request_path(&self, run_id: &str) -> Option<PathBuf> {
+        Uuid::parse_str(run_id).ok()?;
+        Some(self.storage_dir.join(format!("{run_id}.request.json")))
     }
 }
 
@@ -262,6 +345,7 @@ impl WorkflowJobManager {
                 run_slots,
             },
         );
+        manager.recover_persisted_jobs()?;
         Ok(manager)
     }
 
@@ -303,7 +387,12 @@ impl WorkflowJobManager {
         stop_on_failure: bool,
         callback_url: Option<String>,
     ) -> Result<WorkflowRunJob, String> {
-        let job = self.store.create(workflow_id, device_id)?;
+        let spec = WorkflowJobRequestSpec {
+            overrides,
+            stop_on_failure,
+            callback_url,
+        };
+        let job = self.store.create(workflow_id, device_id, &spec)?;
         let token = CancellationToken::new();
         self.active
             .lock()
@@ -313,9 +402,9 @@ impl WorkflowJobManager {
             run_id: job.run_id.clone(),
             workflow_id: workflow_id.to_string(),
             device_id: device_id.to_string(),
-            overrides,
-            stop_on_failure,
-            callback_url,
+            overrides: spec.overrides,
+            stop_on_failure: spec.stop_on_failure,
+            callback_url: spec.callback_url,
         };
         if let Err(error) = self.sender.try_send(request) {
             self.active.lock().unwrap().remove(&job.run_id);
@@ -326,6 +415,56 @@ impl WorkflowJobManager {
             return Err(message);
         }
         Ok(job)
+    }
+
+    fn recover_persisted_jobs(&self) -> Result<(), String> {
+        for job in self.store.list()? {
+            match job.status {
+                WorkflowJobStatus::Queued => {
+                    let spec = self.store.get_request(&job.run_id).unwrap_or_default();
+                    let token = CancellationToken::new();
+                    self.active
+                        .lock()
+                        .map_err(|_| "workflow job lock poisoned".to_string())?
+                        .insert(job.run_id.clone(), token);
+                    let request = WorkflowJobRequest {
+                        run_id: job.run_id.clone(),
+                        workflow_id: job.workflow_id,
+                        device_id: job.device_id,
+                        overrides: spec.overrides,
+                        stop_on_failure: spec.stop_on_failure,
+                        callback_url: spec.callback_url,
+                    };
+                    if let Err(error) = self.sender.try_send(request) {
+                        self.active.lock().unwrap().remove(&job.run_id);
+                        let _ = self.store.finish(
+                            &job.run_id,
+                            WorkflowJobStatus::Failed,
+                            None,
+                            &format!("workflow job recovery queue is full: {error}"),
+                        );
+                    }
+                }
+                WorkflowJobStatus::Running => {
+                    self.store.finish(
+                        &job.run_id,
+                        WorkflowJobStatus::Failed,
+                        None,
+                        "workflow job was interrupted by process restart; side effects are unknown",
+                    )?;
+                }
+                WorkflowJobStatus::Cancelling => {
+                    self.store.mark_cancelled(
+                        &job.run_id,
+                        "cancellation completed during process restart; no further steps were run",
+                    )?;
+                }
+                WorkflowJobStatus::Completed
+                | WorkflowJobStatus::Failed
+                | WorkflowJobStatus::Cancelled => {}
+            }
+        }
+        Ok(())
     }
 
     pub fn get(&self, run_id: &str) -> Option<WorkflowRunJob> {

@@ -1162,7 +1162,8 @@ delivered/dead，首次写入 `acknowledged_at`，重复确认保持幂等，不
 受 `QUICKDESK_ALLOWED_DEVICES` 限制。HTTP 请求本身是同步执行，持久化 interval trigger 由
 后台 worker 执行。可选 `Idempotency-Key` 会把相同请求的第一次 `WorkflowRunReport`
 持久化并重放；相同 key 对应不同请求或仍在执行的请求返回 409。cron/日历、回调
-确认操作者归属/批量确认和跨进程 worker 尚未实现。完整契约见
+确认操作者归属/批量确认和多进程共享 worker 尚未实现。进程重启会恢复 queued job；
+running job 会安全失败，不会自动重放未知副作用。完整契约见
 `docs/dev/业务工作流HTTP触发器.md`。
 
 持久化触发器通过以下接口管理：
@@ -1186,8 +1187,9 @@ Qt 的 `CloudDeviceManager` 先完成实时流的 snapshot/replay 与 `server_re
 发送 `controlPlaneEvent`。MCP 只订阅该事件名，按类型、设备和过滤器匹配后先持久化
 claim 再执行。事件 `id` 是跨重启幂等键；没有 ID 的旧事件才使用 `server_rev`。
 事件订阅只处理实时到达的事件，MCP 停机期间的事件不会补发。cron/日历规则、跨进程
-队列恢复、回调确认操作者归属和批量确认仍未实现；HMAC 回调本身已使用持久 outbox，
-并以同一 delivery id 自动重试、跨进程重启恢复，支持死信查询、人工重放和幂等 ack。
+共享 worker、回调确认操作者归属和批量确认仍未实现。单进程重启会恢复 queued workflow
+job，running job 失败关闭；HMAC 回调使用持久 outbox，并以同一 delivery id 自动重试、
+跨进程重启恢复，支持死信查询、人工重放和幂等 ack。
 
 ---
 

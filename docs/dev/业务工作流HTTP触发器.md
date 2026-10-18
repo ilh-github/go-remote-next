@@ -154,6 +154,16 @@ Authorization: Bearer <QUICKDESK_TRIGGER_TOKEN>
 已取消的任务返回 `409`。当前队列容量为 32，worker 与同步触发、定时触发共用同一个
 单执行槽。
 
+执行参数保存在 `~/.quickdesk/workflow-jobs/{run_id}.request.json`，状态和报告仍保存在
+`{run_id}.json`。进程重启后：
+
+- `queued` job 会重新进入进程内队列并继续执行；
+- `running` job 不会自动重放，因为退出前是否已经产生副作用无法证明；状态转为 `failed`，
+  错误明确写为 process restart 中断；
+- `cancelling` job 转为 `cancelled`，不再执行后续步骤。
+
+恢复仍只支持同一数据目录上的单进程；多个 MCP 进程同时消费同一目录没有分布式锁。
+
 ## 5. HMAC 回调
 
 同步、异步和持久化 trigger 都可在运行结束后向 `callback_url` POST JSON。回调头：
@@ -338,8 +348,8 @@ MCP 停机期间已经消费过的控制面事件。
 - 事件桥只广播白名单类型，并只保留 `id`、`type`、`device_id`、`data`、`ts` 和
   `server_rev` 这些信封字段；不会把访问码或设备密钥转给 MCP。
 - 同步请求会占用一个执行槽；业务系统应设置足够超时并处理 429。
-- 异步任务状态写入 `~/.quickdesk/workflow-jobs/{run_id}.json`，但当前 worker 不跨
-  进程恢复中断的队列；重启后应重新提交未完成任务。
+- 异步任务状态写入 `~/.quickdesk/workflow-jobs/{run_id}.json`，执行参数独立写入
+  `{run_id}.request.json`；重启会恢复 queued、失败关闭 running、收口 cancelling。
 - 回调只允许 HTTP，不允许直接在公网暴露；签名密钥必须由接收端独立保管。
 - 回调 outbox 会在重启后继续投递 `pending` / `retry` 记录，但 `dead` 记录当前只能
   从本地 JSON 查看，或通过受 Bearer token 保护的列表、人工重放和 ack 接口处理。
@@ -347,7 +357,7 @@ MCP 停机期间已经消费过的控制面事件。
 ## 9. 尚未完成
 
 - cron/日历定时规则；当前只有固定 interval；
-- 跨进程 worker、持久化队列恢复和公平调度；当前只支持单进程队列；
+- 多进程共享 worker、分布式锁和公平调度；当前只支持单进程队列和单进程重启恢复；
 - 控制面事件在 MCP 停机期间的补发/outbox；当前只处理实时到达的事件；
 - 回调确认操作者归属和批量确认；当前只记录 acknowledged_at 时间；
 - Owner 委托 grant、最小权限范围和审计回传控制面。

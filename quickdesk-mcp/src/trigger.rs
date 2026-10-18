@@ -1119,6 +1119,132 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn queued_async_job_resumes_after_manager_restart() {
+        let temp = std::env::temp_dir().join(format!("quickdesk-trigger-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(temp.join("jobs")).unwrap();
+        let workflows = WorkflowStore::with_storage_dir(temp.join("workflows"));
+        let workflow_id = workflows
+            .start_recording("recover queued workflow", "device-1")
+            .unwrap();
+        workflows.record_step(
+            "device-1",
+            "list_processes",
+            &json!({}),
+            "processes",
+            true,
+            StepExecutor::SkillHost,
+        );
+        workflows.stop_recording("device-1", "", &[]).unwrap();
+        let run_id = Uuid::new_v4().to_string();
+        std::fs::write(
+            temp.join("jobs").join(format!("{run_id}.json")),
+            serde_json::to_vec_pretty(&json!({
+                "run_id": run_id,
+                "workflow_id": workflow_id,
+                "device_id": "device-1",
+                "status": "queued",
+                "created_at": Utc::now().to_rfc3339(),
+                "started_at": null,
+                "completed_at": null,
+                "report": null,
+                "error": "",
+                "callback_delivery_id": null,
+                "callback_status": "",
+                "callback_error": "",
+                "overrides": {},
+                "stop_on_failure": true,
+                "callback_url": null
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let fake_quickdesk = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut socket = accept_async(stream).await.unwrap();
+            while let Some(Ok(Message::Text(text))) = socket.next().await {
+                let request: serde_json::Value = serde_json::from_str(&text).unwrap();
+                if let Some(id) = request.get("id").and_then(serde_json::Value::as_str) {
+                    let response = json!({"id": id, "result": {"processes": []}});
+                    socket
+                        .send(Message::Text(response.to_string().into()))
+                        .await
+                        .unwrap();
+                }
+            }
+        });
+        let ws = WsClient::connect(&format!("ws://{address}"), None, EventBus::new(100))
+            .await
+            .unwrap();
+        let shared = Arc::new(SharedState {
+            memory: MemoryStore::with_db_path(temp.join("memory.db")).unwrap(),
+            workflow: workflows,
+            trust: TrustEngine::with_db_path(temp.join("trust.db")).unwrap(),
+        });
+        let slots = Arc::new(Semaphore::new(1));
+        let jobs = test_jobs(&temp, ws, shared, slots);
+
+        let completed = tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if let Some(job) = jobs.get(&run_id) {
+                    if job.status == crate::workflow_job::WorkflowJobStatus::Completed {
+                        return job;
+                    }
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("queued job should resume after manager startup");
+        assert_eq!(completed.run_id, run_id);
+        assert!(completed.report.is_some_and(|report| report.success));
+
+        fake_quickdesk.abort();
+        let _ = std::fs::remove_dir_all(temp);
+    }
+
+    #[tokio::test]
+    async fn running_async_job_fails_closed_after_manager_restart() {
+        let temp = std::env::temp_dir().join(format!("quickdesk-trigger-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(temp.join("jobs")).unwrap();
+        let run_id = Uuid::new_v4().to_string();
+        std::fs::write(
+            temp.join("jobs").join(format!("{run_id}.json")),
+            serde_json::to_vec_pretty(&json!({
+                "run_id": run_id,
+                "workflow_id": Uuid::new_v4().to_string(),
+                "device_id": "device-1",
+                "status": "running",
+                "created_at": Utc::now().to_rfc3339(),
+                "started_at": Utc::now().to_rfc3339(),
+                "completed_at": null,
+                "report": null,
+                "error": "",
+                "callback_delivery_id": null,
+                "callback_status": "",
+                "callback_error": ""
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let shared = Arc::new(SharedState {
+            memory: MemoryStore::with_db_path(temp.join("memory.db")).unwrap(),
+            workflow: WorkflowStore::with_storage_dir(temp.join("workflows")),
+            trust: TrustEngine::with_db_path(temp.join("trust.db")).unwrap(),
+        });
+        let slots = Arc::new(Semaphore::new(1));
+        let jobs = test_jobs(&temp, WsClient::disconnected(), shared, slots);
+        let job = jobs.get(&run_id).unwrap();
+        assert_eq!(job.status, crate::workflow_job::WorkflowJobStatus::Failed);
+        assert!(job.error.contains("interrupted by process restart"));
+
+        let _ = std::fs::remove_dir_all(temp);
+    }
+
+    #[tokio::test]
     async fn cancelling_a_running_async_job_produces_a_cancelled_report() {
         let temp = std::env::temp_dir().join(format!("quickdesk-trigger-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&temp).unwrap();
