@@ -1,11 +1,12 @@
 # QuickDesk 业务工作流 HTTP 触发器
 
-> 状态（2026-10-18）：QD-610 第十九阶段。业务系统可以保存 interval、IANA 时区 cron 或控制面事件
+> 状态（2026-10-18）：QD-610 第二十阶段。业务系统可以保存 interval、IANA 时区 cron 或控制面事件
 > trigger，通过独立 Bearer token 立即运行，并由 HTTP transport 的后台 worker 领取到期
 > 触发器。`Idempotency-Key`、异步 job、HMAC 出站回调、持久回调 outbox 和受控控制面
 > 事件订阅、本机事件持久化、重连补发和 cron 法定节假日跳过已支持；跨实例事件 outbox、
 > 委托权限细分和公平调度仍未完成。同一数据目录上的多个 MCP 进程会用原子 claim
-> 协调回调投递和 queued job 执行，但这不是跨机器数据库队列。
+> 协调回调投递和 queued job 执行，但这不是跨机器数据库队列；回调确认可按 operator token
+> 记录具体操作者。
 
 ## 1. 边界
 
@@ -211,6 +212,25 @@ Authorization: Bearer <QUICKDESK_TRIGGER_TOKEN>
 `ack` 只接受 `delivered` 或 `dead` 记录，首次调用写入 `acknowledged_at`，重复调用幂等
 返回同一时间。它表示“有人处理过这条投递”，不改变 `status`，也不替代接收端对 HTTP 2xx
 的处理。pending/retry 记录返回 409。
+
+确认接口既接受 `QUICKDESK_TRIGGER_TOKEN`，也接受
+`QUICKDESK_OPERATOR_TOKENS` 中配置的 operator token：
+
+```bash
+export QUICKDESK_OPERATOR_TOKENS='{
+  "alice": "operator-token-alice",
+  "bob": "operator-token-bob"
+}'
+```
+
+值为“操作者名称 -> Bearer token”的 JSON 对象。首次确认会额外写入
+`acknowledged_by` 和 `acknowledged_via`：
+
+- operator token 确认：`acknowledged_by` 是配置中的名称，`acknowledged_via=operator_token`；
+- 主 `QUICKDESK_TRIGGER_TOKEN` 确认：`acknowledged_by=trigger-token`，
+  `acknowledged_via=trigger_token`；
+- 后续确认始终保留首次操作者和时间，不能用另一个 operator token 覆盖；
+- token 必须唯一，配置非法时非主 token 确认返回 500，避免静默降级成匿名确认。
 
 批量确认：
 
@@ -418,6 +438,7 @@ API 会补发 revision 更大的事件。API token 为空时，新连接直接�
 - 默认绑定 `127.0.0.1`。需要跨机器调用时，应放在 TLS 反向代理后面，不能直接暴露
   MCP HTTP 端口。
 - trigger token 使用常量时间比较，且与 QuickDesk WS token 分离。
+- operator token 只允许确认回调，不能创建工作流、触发器或运行任务；配置值必须按秘密管理。
 - 设备白名单在进入工作流前检查。
 -  replay 仍经过 trust policy、人工确认和 emergency stop。
 - 工作流 ID 和 run ID 都经过 UUID 与路径逃逸校验。
@@ -441,7 +462,6 @@ API 会补发 revision 更大的事件。API token 为空时，新连接直接�
   不是 PostgreSQL/Redis 分布式 worker；
 - 跨实例事件 outbox、服务端持久 replay retention 和超出配置容量的积压；当前只有
   QuickDesk 本机按用户分区、默认 2048 条且可配置的持久 replay buffer；
-- 回调确认操作者归属；批量确认已支持，但 trigger token 无法证明具体操作者身份；
-- Owner 委托 grant、最小权限范围和审计回传控制面。
+- Owner 委托 grant、最小权限范围和审计回传控制面；
 
 因此 QD-610 仍保持部分完成，不能把本接口描述成完整的业务流程引擎。

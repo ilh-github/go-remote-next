@@ -169,6 +169,7 @@ quickdesk-mcp [--ws-url ws://127.0.0.1:9600] [--token YOUR_TOKEN]
 | `--cors-origin` | （空） | `QUICKDESK_CORS_ORIGIN` | 允许的 CORS 来源（仅 HTTP 模式） |
 | `--stateless` | `false` | — | 使用无状态 HTTP 会话（仅 HTTP 模式） |
 | `--trigger-token` | （空） | `QUICKDESK_TRIGGER_TOKEN` | 本地业务工作流 HTTP 触发器的独立 Bearer Token |
+| — | `{}` | `QUICKDESK_OPERATOR_TOKENS` | 回调确认使用的 `{"操作者":"token"}` JSON；operator token 只能 ack，不能运行工作流 |
 
 ### 3. 开始使用
 
@@ -1148,7 +1149,7 @@ WebSocket 请求处中止，并写入 `cancelled=true` 的报告。
 delivery 只被一个 worker 投递，异常遗留 claim 30 秒后可回收。单次请求 10 秒超时，
 最多 8 次，失败后进入死信。回调当前只允许 HTTP，跨机器部署必须放在 TLS 反向代理后。
 
-死信可通过同一 Bearer trigger token 查询和人工重放：
+死信可通过主 trigger token 查询和人工重放：
 
 ```text
 GET  /v1/callback-deliveries?status=dead&limit=100
@@ -1158,9 +1159,11 @@ POST /v1/callback-deliveries/ack
 ```
 
 重放会把记录从 `dead` 重置为 `pending`，清空尝试次数并保留原 delivery id。ack 只接受
-delivered/dead，首次写入 `acknowledged_at`，重复确认保持幂等，不改变投递状态。批量 ack
-接受 1~200 个去重 id，返回 `acknowledged` / `skipped` / `not_found`，非终态记录不会让
-整批失败。
+delivered/dead，首次写入 `acknowledged_at`，重复确认保持幂等，不改变投递状态。确认
+接口还接受 `QUICKDESK_OPERATOR_TOKENS` 中配置的 operator token，首次写入
+`acknowledged_by` 和 `acknowledged_via`；后到的另一个 operator 不能覆盖首次确认者。
+使用主 trigger token 时记录 `trigger-token` / `trigger_token`。批量 ack 接受 1~200 个
+去重 id，返回 `acknowledged` / `skipped` / `not_found`，非终态记录不会让整批失败。
 
 `QUICKDESK_TRIGGER_TOKEN` 为空时接口关闭；每个进程一次只允许一条业务工作流运行，并继续
 受 `QUICKDESK_ALLOWED_DEVICES` 限制。HTTP 请求本身是同步执行，持久化 interval、UTC
@@ -1171,8 +1174,8 @@ cron 和事件 trigger 由后台 worker 执行。时间触发器可选 60 秒~36
 法定放假日，调休上班日仍执行；`QUICKDESK_HOLIDAY_CALENDAR_DIR` 可用 holiday-cn
 格式追加后续年份。该标志只能与 cron 一起使用。停机期间漏过的槽位仍不补跑。可选
 `Idempotency-Key` 会把相同请求的第一次 `WorkflowRunReport` 持久化并重放；相同 key
-对应不同请求或仍在执行的请求返回 409。回调确认操作者归属、跨实例事件 outbox 和
-跨机器分布式 worker 尚未实现。同一 jobs 目录上的多个进程会用 `{run_id}.claim`
+对应不同请求或仍在执行的请求返回 409。跨实例事件 outbox、Owner 委托权限和跨机器
+分布式 worker 尚未实现。同一 jobs 目录上的多个进程会用 `{run_id}.claim`
 协调 queued job，只有一个实例执行；另一个实例持有有效 claim 时不会把 running job
 误判为崩溃。进程重启会恢复 queued job；无有效 claim 的 running job 会安全失败，
 不会自动重放未知副作用。完整契约见
