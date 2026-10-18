@@ -1,46 +1,359 @@
+use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use chrono::{DateTime, Utc};
 use http_body_util::Full;
 use hyper::body::Bytes;
 use hyper::Request;
 use hyper_util::client::legacy::Client;
 use hyper_util::rt::TokioExecutor;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha1::{Digest, Sha1};
+use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 const HMAC_BLOCK_SIZE: usize = 64;
+const DEFAULT_MAX_ATTEMPTS: u32 = 8;
+const DEFAULT_RETRY_BASE: Duration = Duration::from_secs(5);
+const DEFAULT_RETRY_MAX: Duration = Duration::from_secs(60 * 60);
+const DEFAULT_POLL_INTERVAL: Duration = Duration::from_millis(250);
+const CALLBACK_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+
+#[derive(Clone, Debug)]
+pub struct CallbackRetryPolicy {
+    pub max_attempts: u32,
+    pub base_delay: Duration,
+    pub max_delay: Duration,
+    pub poll_interval: Duration,
+}
+
+impl Default for CallbackRetryPolicy {
+    fn default() -> Self {
+        Self {
+            max_attempts: DEFAULT_MAX_ATTEMPTS,
+            base_delay: DEFAULT_RETRY_BASE,
+            max_delay: DEFAULT_RETRY_MAX,
+            poll_interval: DEFAULT_POLL_INTERVAL,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CallbackDeliveryStatus {
+    Pending,
+    Retry,
+    Delivered,
+    Dead,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CallbackDelivery {
+    pub id: String,
+    pub url: String,
+    pub event: Value,
+    pub status: CallbackDeliveryStatus,
+    pub attempts: u32,
+    pub next_attempt_at: String,
+    pub last_error: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Clone)]
+struct CallbackStore {
+    storage_dir: PathBuf,
+}
+
+impl CallbackStore {
+    fn new(storage_dir: PathBuf) -> Result<Self, String> {
+        std::fs::create_dir_all(&storage_dir)
+            .map_err(|error| format!("cannot create callback outbox dir: {error}"))?;
+        Ok(Self { storage_dir })
+    }
+
+    fn create(&self, url: &str, event: Value) -> Result<CallbackDelivery, String> {
+        let now = Utc::now().to_rfc3339();
+        let delivery = CallbackDelivery {
+            id: Uuid::new_v4().to_string(),
+            url: url.to_string(),
+            event,
+            status: CallbackDeliveryStatus::Pending,
+            attempts: 0,
+            next_attempt_at: now.clone(),
+            last_error: String::new(),
+            created_at: now.clone(),
+            updated_at: now,
+        };
+        self.save(&delivery)?;
+        Ok(delivery)
+    }
+
+    fn get(&self, delivery_id: &str) -> Option<CallbackDelivery> {
+        let path = self.delivery_path(delivery_id)?;
+        let data = std::fs::read_to_string(path).ok()?;
+        serde_json::from_str(&data).ok()
+    }
+
+    fn list_due(&self, now: DateTime<Utc>) -> Result<Vec<CallbackDelivery>, String> {
+        let entries = std::fs::read_dir(&self.storage_dir)
+            .map_err(|error| format!("read callback outbox: {error}"))?;
+        let mut due = Vec::new();
+        for entry in entries {
+            let entry = entry.map_err(|error| format!("read callback outbox entry: {error}"))?;
+            let path = entry.path();
+            if path.extension().and_then(|value| value.to_str()) != Some("json") {
+                continue;
+            }
+            let data = match std::fs::read_to_string(&path) {
+                Ok(data) => data,
+                Err(error) => {
+                    tracing::warn!("cannot read callback delivery {}: {error}", path.display());
+                    continue;
+                }
+            };
+            let delivery: CallbackDelivery = match serde_json::from_str(&data) {
+                Ok(delivery) => delivery,
+                Err(error) => {
+                    tracing::warn!("cannot parse callback delivery {}: {error}", path.display());
+                    continue;
+                }
+            };
+            if !matches!(
+                delivery.status,
+                CallbackDeliveryStatus::Pending | CallbackDeliveryStatus::Retry
+            ) {
+                continue;
+            }
+            let next_attempt_at = match DateTime::parse_from_rfc3339(&delivery.next_attempt_at) {
+                Ok(value) => value.with_timezone(&Utc),
+                Err(error) => {
+                    tracing::warn!("invalid callback retry time for {}: {error}", delivery.id);
+                    continue;
+                }
+            };
+            if next_attempt_at <= now {
+                due.push(delivery);
+            }
+        }
+        due.sort_by(|left, right| left.next_attempt_at.cmp(&right.next_attempt_at));
+        Ok(due)
+    }
+
+    fn mark_delivered(&self, delivery_id: &str) -> Result<CallbackDelivery, String> {
+        self.update(delivery_id, |delivery| {
+            delivery.status = CallbackDeliveryStatus::Delivered;
+            delivery.attempts += 1;
+            delivery.last_error.clear();
+            delivery.updated_at = Utc::now().to_rfc3339();
+        })
+    }
+
+    fn mark_failed(
+        &self,
+        delivery_id: &str,
+        error: &str,
+        policy: &CallbackRetryPolicy,
+    ) -> Result<CallbackDelivery, String> {
+        self.update(delivery_id, |delivery| {
+            delivery.attempts += 1;
+            delivery.last_error = error.to_string();
+            delivery.updated_at = Utc::now().to_rfc3339();
+            if delivery.attempts >= policy.max_attempts {
+                delivery.status = CallbackDeliveryStatus::Dead;
+                return;
+            }
+            delivery.status = CallbackDeliveryStatus::Retry;
+            let exponent = delivery.attempts.saturating_sub(1).min(31);
+            let delay = policy
+                .base_delay
+                .saturating_mul(1_u32 << exponent)
+                .min(policy.max_delay);
+            delivery.next_attempt_at =
+                (Utc::now() + chrono::Duration::from_std(delay).unwrap_or_default()).to_rfc3339();
+        })
+    }
+
+    fn update<F>(&self, delivery_id: &str, apply: F) -> Result<CallbackDelivery, String>
+    where
+        F: FnOnce(&mut CallbackDelivery),
+    {
+        let mut delivery = self
+            .get(delivery_id)
+            .ok_or_else(|| "callback delivery not found".to_string())?;
+        apply(&mut delivery);
+        self.save(&delivery)?;
+        Ok(delivery)
+    }
+
+    fn save(&self, delivery: &CallbackDelivery) -> Result<(), String> {
+        let path = self
+            .delivery_path(&delivery.id)
+            .ok_or_else(|| "invalid callback delivery id".to_string())?;
+        let data = serde_json::to_string_pretty(delivery)
+            .map_err(|error| format!("serialize callback delivery: {error}"))?;
+        let temp_path = path.with_extension("json.tmp");
+        std::fs::write(&temp_path, data)
+            .map_err(|error| format!("write callback delivery: {error}"))?;
+        if path.exists() {
+            std::fs::remove_file(&path)
+                .map_err(|error| format!("replace callback delivery: {error}"))?;
+        }
+        std::fs::rename(&temp_path, &path)
+            .map_err(|error| format!("publish callback delivery: {error}"))
+    }
+
+    fn delivery_path(&self, delivery_id: &str) -> Option<PathBuf> {
+        Uuid::parse_str(delivery_id).ok()?;
+        Some(self.storage_dir.join(format!("{delivery_id}.json")))
+    }
+}
+
+#[derive(Clone)]
+pub struct CallbackOutbox {
+    store: CallbackStore,
+    wake_tx: mpsc::UnboundedSender<String>,
+}
+
+impl CallbackOutbox {
+    pub fn new(cancellation: CancellationToken) -> Result<Self, String> {
+        let base = dirs_data_dir().unwrap_or_else(|| PathBuf::from("."));
+        Self::with_storage_dir(
+            base.join(".quickdesk").join("callback-outbox"),
+            cancellation,
+            CallbackRetryPolicy::default(),
+            std::env::var("QUICKDESK_CALLBACK_SECRET")
+                .ok()
+                .filter(|value| !value.is_empty()),
+        )
+    }
+
+    fn with_storage_dir(
+        storage_dir: PathBuf,
+        cancellation: CancellationToken,
+        policy: CallbackRetryPolicy,
+        secret: Option<String>,
+    ) -> Result<Self, String> {
+        let store = CallbackStore::new(storage_dir)?;
+        let (wake_tx, wake_rx) = mpsc::unbounded_channel();
+        start_worker(
+            store.clone(),
+            wake_rx,
+            cancellation,
+            CallbackClient::with_secret(secret),
+            policy,
+        );
+        Ok(Self { store, wake_tx })
+    }
+
+    pub fn enqueue(&self, url: Option<&str>, event: Value) -> Result<Option<String>, String> {
+        let Some(url) = url.map(str::trim).filter(|value| !value.is_empty()) else {
+            return Ok(None);
+        };
+        let delivery = self.store.create(url, event)?;
+        if self.wake_tx.send(delivery.id.clone()).is_err() {
+            return Err("callback outbox worker is not running".to_string());
+        }
+        Ok(Some(delivery.id))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_storage_dir_and_secret(
+        storage_dir: PathBuf,
+        cancellation: CancellationToken,
+        policy: CallbackRetryPolicy,
+        secret: &str,
+    ) -> Result<Self, String> {
+        Self::with_storage_dir(storage_dir, cancellation, policy, Some(secret.to_string()))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn get(&self, delivery_id: &str) -> Option<CallbackDelivery> {
+        self.store.get(delivery_id)
+    }
+}
+
+fn start_worker(
+    store: CallbackStore,
+    mut wake_rx: mpsc::UnboundedReceiver<String>,
+    cancellation: CancellationToken,
+    client: CallbackClient,
+    policy: CallbackRetryPolicy,
+) {
+    tokio::spawn(async move {
+        loop {
+            if cancellation.is_cancelled() {
+                break;
+            }
+            match store.list_due(Utc::now()) {
+                Ok(deliveries) => {
+                    for delivery in deliveries {
+                        if cancellation.is_cancelled() {
+                            return;
+                        }
+                        let result = client
+                            .deliver(&delivery.url, &delivery.event, &delivery.id)
+                            .await;
+                        match result {
+                            Ok(()) => {
+                                if let Err(error) = store.mark_delivered(&delivery.id) {
+                                    tracing::warn!(
+                                        "cannot mark callback {} delivered: {error}",
+                                        delivery.id
+                                    );
+                                }
+                            }
+                            Err(error) => match store.mark_failed(&delivery.id, &error, &policy) {
+                                Ok(updated) => {
+                                    tracing::warn!(
+                                        "workflow callback {} failed on attempt {}: {}",
+                                        delivery.id,
+                                        updated.attempts,
+                                        error
+                                    );
+                                }
+                                Err(store_error) => {
+                                    tracing::warn!(
+                                        "cannot record callback {} failure: {store_error}",
+                                        delivery.id
+                                    );
+                                }
+                            },
+                        }
+                    }
+                }
+                Err(error) => tracing::warn!("scan callback outbox failed: {error}"),
+            }
+
+            tokio::select! {
+                _ = cancellation.cancelled() => break,
+                message = wake_rx.recv() => {
+                    if message.is_none() {
+                        break;
+                    }
+                }
+                _ = tokio::time::sleep(policy.poll_interval) => {}
+            }
+        }
+    });
+}
 
 pub struct CallbackClient {
     client: Client<hyper_util::client::legacy::connect::HttpConnector, Full<Bytes>>,
     secret: Option<String>,
 }
 
-pub async fn deliver_workflow_callback(url: Option<&str>, event: serde_json::Value) {
-    let Some(url) = url else {
-        return;
-    };
-    let result = match CallbackClient::new() {
-        Ok(client) => client.deliver(url, &event).await,
-        Err(error) => Err(error),
-    };
-    if let Err(error) = result {
-        tracing::warn!("workflow callback to {} failed: {}", url, error);
-    }
-}
-
 impl CallbackClient {
-    pub fn new() -> Result<Self, String> {
-        let secret = std::env::var("QUICKDESK_CALLBACK_SECRET")
-            .ok()
-            .filter(|value| !value.is_empty());
+    fn with_secret(secret: Option<String>) -> Self {
         let client = Client::builder(TokioExecutor::new())
             .pool_idle_timeout(Duration::from_secs(30))
             .build_http();
-        Ok(Self { client, secret })
+        Self { client, secret }
     }
 
-    pub async fn deliver(&self, url: &str, event: &Value) -> Result<(), String> {
+    async fn deliver(&self, url: &str, event: &Value, delivery_id: &str) -> Result<(), String> {
         let secret = self
             .secret
             .as_deref()
@@ -73,15 +386,14 @@ impl CallbackClient {
             .uri(parsed)
             .header("Content-Type", "application/json")
             .header("X-QuickDesk-Event", event_name)
-            .header("X-QuickDesk-Delivery-Id", Uuid::new_v4().to_string())
+            .header("X-QuickDesk-Delivery-Id", delivery_id)
             .header("X-QuickDesk-Timestamp", timestamp)
             .header("X-QuickDesk-Signature", format!("hmac-sha1={signature}"))
             .body(Full::new(Bytes::from(body)))
             .map_err(|error| format!("build callback request: {error}"))?;
-        let response = self
-            .client
-            .request(request)
+        let response = tokio::time::timeout(CALLBACK_REQUEST_TIMEOUT, self.client.request(request))
             .await
+            .map_err(|_| "callback request timed out".to_string())?
             .map_err(|error| format!("callback request failed: {error}"))?;
         if !response.status().is_success() {
             return Err(format!("callback returned HTTP {}", response.status()));
@@ -132,19 +444,93 @@ fn hex(bytes: &[u8]) -> String {
     output
 }
 
+fn dirs_data_dir() -> Option<PathBuf> {
+    #[cfg(target_os = "windows")]
+    {
+        std::env::var("USERPROFILE").ok().map(PathBuf::from)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        std::env::var("HOME").ok().map(PathBuf::from)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     #[test]
     fn hmac_sha1_matches_rfc_2202_case_1() {
-        let digest = hmac_sha1(
-            &[0x0b; 20],
-            b"Hi There",
-        );
-        assert_eq!(
-            hex(&digest),
-            "b617318655057264e28bc0b6fb378c8ef146be00"
-        );
+        let digest = hmac_sha1(&[0x0b; 20], b"Hi There");
+        assert_eq!(hex(&digest), "b617318655057264e28bc0b6fb378c8ef146be00");
+    }
+
+    #[tokio::test]
+    async fn callback_outbox_resumes_a_pending_delivery_after_restart() {
+        let temp = std::env::temp_dir().join(format!("quickdesk-callback-{}", Uuid::new_v4()));
+        let outbox_dir = temp.join("outbox");
+        let store = CallbackStore::new(outbox_dir.clone()).unwrap();
+        let pending = store
+            .create(
+                "http://127.0.0.1:1/resume",
+                serde_json::json!({"event": "workflow.run.completed", "run_id": "resume"}),
+            )
+            .unwrap();
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let (request_tx, request_rx) = tokio::sync::oneshot::channel();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut buffer = vec![0u8; 8192];
+            let read = stream.read(&mut buffer).await.unwrap();
+            let request = String::from_utf8_lossy(&buffer[..read]).to_string();
+            let _ = request_tx.send(request);
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                .await
+                .unwrap();
+        });
+        let pending_path = outbox_dir.join(format!("{}.json", pending.id));
+        let mut persisted: CallbackDelivery =
+            serde_json::from_str(&std::fs::read_to_string(&pending_path).unwrap()).unwrap();
+        persisted.url = format!("http://{address}/resume");
+        store.save(&persisted).unwrap();
+
+        let cancellation = CancellationToken::new();
+        let outbox = CallbackOutbox::with_storage_dir_and_secret(
+            outbox_dir,
+            cancellation.clone(),
+            CallbackRetryPolicy {
+                max_attempts: 3,
+                base_delay: Duration::from_millis(10),
+                max_delay: Duration::from_millis(50),
+                poll_interval: Duration::from_millis(10),
+            },
+            "callback-outbox-secret",
+        )
+        .unwrap();
+        let request = tokio::time::timeout(Duration::from_secs(2), request_rx)
+            .await
+            .expect("pending callback should resume after restart")
+            .unwrap();
+        assert!(request.contains(&pending.id));
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if outbox
+                    .get(&pending.id)
+                    .is_some_and(|delivery| delivery.status == CallbackDeliveryStatus::Delivered)
+                {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("callback should be marked delivered");
+        cancellation.cancel();
+        server.abort();
+        let _ = std::fs::remove_dir_all(temp);
     }
 }

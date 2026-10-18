@@ -1,9 +1,9 @@
 # QuickDesk 业务工作流 HTTP 触发器
 
-> 状态（2026-10-17）：QD-610 第六阶段。业务系统可以保存 interval trigger 或控制面事件
+> 状态（2026-10-18）：QD-610 第七阶段。业务系统可以保存 interval trigger 或控制面事件
 > trigger，通过独立 Bearer token 立即运行，并由 HTTP transport 的后台 worker 领取到期
-> 触发器。`Idempotency-Key`、异步 job、HMAC 出站回调和受控控制面事件订阅已支持；
-> 委托权限细分、cron/日历、回调重试 outbox 和跨进程 worker 仍未完成。
+> 触发器。`Idempotency-Key`、异步 job、HMAC 出站回调、持久回调 outbox 和受控控制面
+> 事件订阅已支持；委托权限细分、cron/日历和跨进程 worker 仍未完成。
 
 ## 1. 边界
 
@@ -168,7 +168,14 @@ X-QuickDesk-Signature: hmac-sha1=<hex>
 签名原文是 `timestamp + "." + raw_json_body`，算法为 HMAC-SHA1，密钥来自
 `QUICKDESK_CALLBACK_SECRET`。接收端应先校验时间窗口和签名，再处理事件；成功事件包含
 完整 `report`，失败事件包含 `error`。当前只允许 HTTP URL，跨机器部署必须把回调入口
-放在 TLS 反向代理后；当前是一次 best-effort 投递，没有持久 outbox 和自动重试。
+放在 TLS 反向代理后。
+
+回调先持久化到 `~/.quickdesk/callback-outbox/{delivery_id}.json`，再由后台 worker
+异步投递。同一个 `X-QuickDesk-Delivery-Id` 在多次重试间保持不变，接收端可以用它做
+幂等。单次请求 10 秒超时；失败后按 5 秒起步指数退避，最长 1 小时，最多 8 次，随后
+进入 `dead`。进程重启会重新扫描 `pending` / `retry` 记录继续投递；投递成功后状态转为
+`delivered`。异步 job JSON 同时记录 `callback_delivery_id`、`callback_status` 和
+`callback_error`，便于把 job 与 outbox 记录对应起来。
 
 ## 6. 查询运行报告
 
@@ -314,13 +321,15 @@ MCP 停机期间已经消费过的控制面事件。
 - 异步任务状态写入 `~/.quickdesk/workflow-jobs/{run_id}.json`，但当前 worker 不跨
   进程恢复中断的队列；重启后应重新提交未完成任务。
 - 回调只允许 HTTP，不允许直接在公网暴露；签名密钥必须由接收端独立保管。
+- 回调 outbox 会在重启后继续投递 `pending` / `retry` 记录，但 `dead` 记录当前只能
+  从本地 JSON 查看，还没有 HTTP 查询、手动重放或人工确认接口。
 
 ## 9. 尚未完成
 
 - cron/日历定时规则；当前只有固定 interval；
 - 跨进程 worker、持久化队列恢复和公平调度；当前只支持单进程队列；
 - 控制面事件在 MCP 停机期间的补发/outbox；当前只处理实时到达的事件；
-- 回调持久 outbox、重试、死信和投递确认；
+- 回调死信的查询/手动重放 API 和人工投递确认；
 - Owner 委托 grant、最小权限范围和审计回传控制面。
 
 因此 QD-610 仍保持部分完成，不能把本接口描述成完整的业务流程引擎。

@@ -13,7 +13,6 @@ use serde_json::json;
 use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
 
-use crate::callback::deliver_workflow_callback;
 use crate::idempotency::{IdempotencyClaim, WorkflowIdempotencyStore};
 use crate::server::{QuickDeskMcpServer, SharedState};
 use crate::workflow_job::{CancelJobError, WorkflowJobManager};
@@ -64,10 +63,7 @@ pub fn router(runtime: TriggerRuntime) -> Router {
             post(run_workflow_async),
         )
         .route("/v1/workflow-runs/{run_id}", get(get_workflow_run))
-        .route(
-            "/v1/workflow-runs/{run_id}/status",
-            get(get_workflow_job),
-        )
+        .route("/v1/workflow-runs/{run_id}/status", get(get_workflow_job))
         .route(
             "/v1/workflow-runs/{run_id}/cancel",
             post(cancel_workflow_job),
@@ -174,12 +170,7 @@ async fn run_workflow(
         state.shared_state.clone(),
     );
     match server
-        .execute_workflow_replay(
-            &workflow_id,
-            device_id,
-            overrides,
-            stop_on_failure,
-        )
+        .execute_workflow_replay(&workflow_id, device_id, overrides, stop_on_failure)
         .await
     {
         Ok(report) => {
@@ -188,7 +179,8 @@ async fn run_workflow(
                     return error_response(StatusCode::INTERNAL_SERVER_ERROR, &error);
                 }
             }
-            deliver_workflow_callback(
+            if let Err(response) = enqueue_workflow_callback(
+                &state,
                 callback_url.as_deref(),
                 json!({
                     "event": "workflow.run.completed",
@@ -199,20 +191,20 @@ async fn run_workflow(
                     "cancelled": report.cancelled,
                     "report": report.clone(),
                 }),
-            )
-            .await;
+            ) {
+                return *response;
+            }
             Json(report).into_response()
         }
         Err(error) => {
             let status = workflow_error_status(&error);
             if let Some(key) = idempotency_key.as_deref() {
-                if let Err(store_error) =
-                    state.idempotency.fail(key, status.as_u16(), &error)
-                {
+                if let Err(store_error) = state.idempotency.fail(key, status.as_u16(), &error) {
                     return error_response(StatusCode::INTERNAL_SERVER_ERROR, &store_error);
                 }
             }
-            deliver_workflow_callback(
+            if let Err(response) = enqueue_workflow_callback(
+                &state,
                 callback_url.as_deref(),
                 json!({
                     "event": "workflow.run.failed",
@@ -221,8 +213,9 @@ async fn run_workflow(
                     "status_code": status.as_u16(),
                     "error": error.clone(),
                 }),
-            )
-            .await;
+            ) {
+                return *response;
+            }
             error_response(status, &error)
         }
     }
@@ -241,7 +234,12 @@ async fn run_workflow_async(
     if device_id.is_empty() {
         return error_response(StatusCode::BAD_REQUEST, "device_id is required");
     }
-    if state.shared_state.workflow.get_workflow(&workflow_id).is_none() {
+    if state
+        .shared_state
+        .workflow
+        .get_workflow(&workflow_id)
+        .is_none()
+    {
         return error_response(StatusCode::NOT_FOUND, "workflow not found");
     }
     match state.jobs.enqueue(
@@ -410,7 +408,8 @@ async fn run_trigger_once(state: &TriggerState, trigger: &WorkflowTrigger) -> Re
             ) {
                 return error_response(StatusCode::INTERNAL_SERVER_ERROR, &error);
             }
-            deliver_workflow_callback(
+            if let Err(response) = enqueue_workflow_callback(
+                state,
                 trigger.callback_url.as_deref(),
                 json!({
                     "event": "workflow.run.completed",
@@ -421,15 +420,17 @@ async fn run_trigger_once(state: &TriggerState, trigger: &WorkflowTrigger) -> Re
                     "cancelled": report.cancelled,
                     "report": report.clone(),
                 }),
-            )
-            .await;
+            ) {
+                return *response;
+            }
             Json(report).into_response()
         }
         Err(error) => {
             let _ = state
                 .triggers
                 .record_run(&trigger.id, "", false, &error, Utc::now());
-            deliver_workflow_callback(
+            if let Err(response) = enqueue_workflow_callback(
+                state,
                 trigger.callback_url.as_deref(),
                 json!({
                     "event": "workflow.run.failed",
@@ -437,11 +438,29 @@ async fn run_trigger_once(state: &TriggerState, trigger: &WorkflowTrigger) -> Re
                     "device_id": trigger.device_id,
                     "error": error.clone(),
                 }),
-            )
-            .await;
+            ) {
+                return *response;
+            }
             workflow_error_response(error)
         }
     }
+}
+
+fn enqueue_workflow_callback(
+    state: &TriggerState,
+    url: Option<&str>,
+    event: serde_json::Value,
+) -> Result<(), Box<Response>> {
+    state
+        .jobs
+        .enqueue_callback(url, event)
+        .map(|_| ())
+        .map_err(|error| {
+            Box::new(error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("workflow callback could not be queued: {error}"),
+            ))
+        })
 }
 
 fn workflow_error_response(error: String) -> Response {
@@ -502,10 +521,7 @@ fn replay_idempotent_response(
     )
 }
 
-pub fn start_scheduler(
-    cancellation: CancellationToken,
-    runtime: TriggerRuntime,
-) {
+pub fn start_scheduler(cancellation: CancellationToken, runtime: TriggerRuntime) {
     start_event_worker(cancellation.clone(), runtime.clone());
     tokio::spawn(async move {
         let mut ticker = tokio::time::interval(Duration::from_secs(5));
@@ -678,6 +694,7 @@ fn authorize_bearer(configured_token: Option<&str>, authorization: Option<&str>)
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::callback::{CallbackOutbox, CallbackRetryPolicy};
     use crate::event_bus::EventBus;
     use crate::memory::MemoryStore;
     use crate::server::SharedState;
@@ -704,13 +721,27 @@ mod tests {
         shared: Arc<SharedState>,
         slots: Arc<Semaphore>,
     ) -> WorkflowJobManager {
-        WorkflowJobManager::with_store(
+        let cancellation = CancellationToken::new();
+        let callbacks = CallbackOutbox::with_storage_dir_and_secret(
+            temp.join("callback-outbox"),
+            cancellation.child_token(),
+            CallbackRetryPolicy {
+                max_attempts: 3,
+                base_delay: Duration::from_millis(20),
+                max_delay: Duration::from_millis(100),
+                poll_interval: Duration::from_millis(10),
+            },
+            "test-callback-secret",
+        )
+        .unwrap();
+        WorkflowJobManager::with_store_and_callbacks(
             WorkflowJobStore::with_storage_dir(temp.join("jobs")),
-            CancellationToken::new(),
+            cancellation,
             ws,
             shared,
             Vec::new(),
             slots,
+            callbacks,
         )
         .unwrap()
     }
@@ -785,9 +816,7 @@ mod tests {
             allowed_devices: Vec::new(),
             run_slots: slots,
             triggers: WorkflowTriggerStore::with_storage_dir(temp.join("triggers")),
-            idempotency: WorkflowIdempotencyStore::with_storage_path(
-                temp.join("idempotency.json"),
-            ),
+            idempotency: WorkflowIdempotencyStore::with_storage_path(temp.join("idempotency.json")),
             jobs,
         });
 
@@ -811,7 +840,7 @@ mod tests {
             .header("Authorization", "Bearer business-secret")
             .body(Body::empty())
             .unwrap();
-        let response = app.oneshot(request).await.unwrap();
+        let response = app.clone().oneshot(request).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
         let body = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
         let persisted: WorkflowRunReport = serde_json::from_slice(&body).unwrap();
@@ -858,9 +887,7 @@ mod tests {
             allowed_devices: Vec::new(),
             run_slots: slots,
             triggers: WorkflowTriggerStore::with_storage_dir(temp.join("triggers")),
-            idempotency: WorkflowIdempotencyStore::with_storage_path(
-                temp.join("idempotency.json"),
-            ),
+            idempotency: WorkflowIdempotencyStore::with_storage_path(temp.join("idempotency.json")),
             jobs,
         });
 
@@ -947,9 +974,7 @@ mod tests {
             allowed_devices: Vec::new(),
             run_slots: slots,
             triggers: WorkflowTriggerStore::with_storage_dir(temp.join("triggers")),
-            idempotency: WorkflowIdempotencyStore::with_storage_path(
-                temp.join("idempotency.json"),
-            ),
+            idempotency: WorkflowIdempotencyStore::with_storage_path(temp.join("idempotency.json")),
             jobs,
         });
 
@@ -1052,9 +1077,7 @@ mod tests {
             allowed_devices: Vec::new(),
             run_slots: slots,
             triggers: WorkflowTriggerStore::with_storage_dir(temp.join("triggers")),
-            idempotency: WorkflowIdempotencyStore::with_storage_path(
-                temp.join("idempotency.json"),
-            ),
+            idempotency: WorkflowIdempotencyStore::with_storage_path(temp.join("idempotency.json")),
             jobs,
         });
 
@@ -1149,9 +1172,13 @@ mod tests {
                 }
             }
         });
-        let ws = WsClient::connect(&format!("ws://{quickdesk_address}"), None, EventBus::new(100))
-            .await
-            .unwrap();
+        let ws = WsClient::connect(
+            &format!("ws://{quickdesk_address}"),
+            None,
+            EventBus::new(100),
+        )
+        .await
+        .unwrap();
 
         let callback_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let callback_address = callback_listener.local_addr().unwrap();
@@ -1182,9 +1209,7 @@ mod tests {
             allowed_devices: Vec::new(),
             run_slots: slots,
             triggers: WorkflowTriggerStore::with_storage_dir(temp.join("triggers")),
-            idempotency: WorkflowIdempotencyStore::with_storage_path(
-                temp.join("idempotency.json"),
-            ),
+            idempotency: WorkflowIdempotencyStore::with_storage_path(temp.join("idempotency.json")),
             jobs,
         });
 
@@ -1213,6 +1238,135 @@ mod tests {
             .to_lowercase()
             .contains("x-quickdesk-signature: hmac-sha1="));
         assert!(callback.contains("\"event\":\"workflow.run.completed\""));
+        callback_server.abort();
+        fake_quickdesk.abort();
+        let _ = std::fs::remove_dir_all(temp);
+    }
+
+    #[tokio::test]
+    async fn failed_callback_is_retried_with_the_same_delivery_id() {
+        let temp = std::env::temp_dir().join(format!("quickdesk-trigger-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&temp).unwrap();
+        std::env::set_var("QUICKDESK_CALLBACK_SECRET", "callback-retry-secret");
+        let workflows = WorkflowStore::with_storage_dir(temp.join("workflows"));
+        let workflow_id = workflows
+            .start_recording("callback retry workflow", "device-1")
+            .unwrap();
+        workflows.record_step(
+            "device-1",
+            "list_processes",
+            &json!({}),
+            "processes",
+            true,
+            StepExecutor::SkillHost,
+        );
+        workflows.stop_recording("device-1", "", &[]).unwrap();
+
+        let quickdesk_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let quickdesk_address = quickdesk_listener.local_addr().unwrap();
+        let fake_quickdesk = tokio::spawn(async move {
+            let (stream, _) = quickdesk_listener.accept().await.unwrap();
+            let mut socket = accept_async(stream).await.unwrap();
+            while let Some(Ok(Message::Text(text))) = socket.next().await {
+                let request: serde_json::Value = serde_json::from_str(&text).unwrap();
+                if let Some(id) = request.get("id").and_then(serde_json::Value::as_str) {
+                    let response = json!({"id": id, "result": {"processes": []}});
+                    socket
+                        .send(Message::Text(response.to_string().into()))
+                        .await
+                        .unwrap();
+                }
+            }
+        });
+        let ws = WsClient::connect(
+            &format!("ws://{quickdesk_address}"),
+            None,
+            EventBus::new(100),
+        )
+        .await
+        .unwrap();
+
+        let callback_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let callback_address = callback_listener.local_addr().unwrap();
+        let (first_tx, first_rx) = tokio::sync::oneshot::channel();
+        let (second_tx, second_rx) = tokio::sync::oneshot::channel();
+        let callback_server = tokio::spawn(async move {
+            for (attempt, (sender, status)) in [
+                (first_tx, "500 Internal Server Error"),
+                (second_tx, "200 OK"),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                let (mut stream, _) = callback_listener.accept().await.unwrap();
+                let mut buffer = vec![0u8; 8192];
+                let read = stream.read(&mut buffer).await.unwrap();
+                let request = String::from_utf8_lossy(&buffer[..read]).to_string();
+                let _ = sender.send(request);
+                let response =
+                    format!("HTTP/1.1 {status}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+                stream.write_all(response.as_bytes()).await.unwrap();
+                if attempt == 0 {
+                    continue;
+                }
+            }
+        });
+
+        let shared = Arc::new(SharedState {
+            memory: MemoryStore::with_db_path(temp.join("memory.db")).unwrap(),
+            workflow: workflows,
+            trust: TrustEngine::with_db_path(temp.join("trust.db")).unwrap(),
+        });
+        let slots = Arc::new(Semaphore::new(1));
+        let jobs = test_jobs(&temp, ws.clone(), shared.clone(), slots.clone());
+        let app = router(TriggerRuntime {
+            token: Some("business-secret".to_string()),
+            ws,
+            shared_state: shared,
+            allowed_devices: Vec::new(),
+            run_slots: slots,
+            triggers: WorkflowTriggerStore::with_storage_dir(temp.join("triggers")),
+            idempotency: WorkflowIdempotencyStore::with_storage_path(temp.join("idempotency.json")),
+            jobs,
+        });
+
+        let request = Request::builder()
+            .method("POST")
+            .uri(format!("/v1/workflows/{workflow_id}/run"))
+            .header("Authorization", "Bearer business-secret")
+            .header("Content-Type", "application/json")
+            .body(Body::from(
+                json!({
+                    "device_id": "device-1",
+                    "callback_url": format!("http://{callback_address}/retry-callback")
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        let response = app.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let first = tokio::time::timeout(Duration::from_secs(2), first_rx)
+            .await
+            .expect("first callback should be attempted")
+            .unwrap();
+        let second = tokio::time::timeout(Duration::from_secs(2), second_rx)
+            .await
+            .expect("failed callback should be retried")
+            .unwrap();
+        let delivery_id = |request: &str| {
+            let request = request.to_lowercase();
+            request
+                .lines()
+                .find_map(|line| {
+                    line.strip_prefix("x-quickdesk-delivery-id: ")
+                        .map(str::trim)
+                        .map(str::to_string)
+                })
+                .expect("callback delivery id")
+        };
+        assert_eq!(delivery_id(&first), delivery_id(&second));
+        drop(app);
         callback_server.abort();
         fake_quickdesk.abort();
         let _ = std::fs::remove_dir_all(temp);
@@ -1274,9 +1428,7 @@ mod tests {
             allowed_devices: Vec::new(),
             run_slots: slots,
             triggers: WorkflowTriggerStore::with_storage_dir(temp.join("triggers")),
-            idempotency: WorkflowIdempotencyStore::with_storage_path(
-                temp.join("idempotency.json"),
-            ),
+            idempotency: WorkflowIdempotencyStore::with_storage_path(temp.join("idempotency.json")),
             jobs,
         });
 
@@ -1336,9 +1488,7 @@ mod tests {
             allowed_devices: vec!["allowed-device".to_string()],
             run_slots: slots,
             triggers: WorkflowTriggerStore::with_storage_dir(temp.join("triggers")),
-            idempotency: WorkflowIdempotencyStore::with_storage_path(
-                temp.join("idempotency.json"),
-            ),
+            idempotency: WorkflowIdempotencyStore::with_storage_path(temp.join("idempotency.json")),
             jobs,
         });
         let workflow_id = Uuid::new_v4();
@@ -1394,9 +1544,7 @@ mod tests {
             allowed_devices: Vec::new(),
             run_slots: slots,
             triggers: WorkflowTriggerStore::with_storage_dir(temp.join("triggers")),
-            idempotency: WorkflowIdempotencyStore::with_storage_path(
-                temp.join("idempotency.json"),
-            ),
+            idempotency: WorkflowIdempotencyStore::with_storage_path(temp.join("idempotency.json")),
             jobs,
         });
 
@@ -1449,9 +1597,7 @@ mod tests {
             allowed_devices: Vec::new(),
             run_slots: slots,
             triggers: WorkflowTriggerStore::with_storage_dir(temp.join("triggers")),
-            idempotency: WorkflowIdempotencyStore::with_storage_path(
-                temp.join("idempotency.json"),
-            ),
+            idempotency: WorkflowIdempotencyStore::with_storage_path(temp.join("idempotency.json")),
             jobs,
         });
 
@@ -1501,10 +1647,7 @@ mod tests {
             event_trigger.event_type.as_deref(),
             Some("device.access.denied")
         );
-        assert_eq!(
-            event_trigger.event_device_id.as_deref(),
-            Some("device-1")
-        );
+        assert_eq!(event_trigger.event_device_id.as_deref(), Some("device-1"));
         assert!(event_trigger.next_run_at.is_none());
 
         let request = Request::builder()
@@ -1641,9 +1784,7 @@ mod tests {
             allowed_devices: Vec::new(),
             run_slots: slots,
             triggers: trigger_store.clone(),
-            idempotency: WorkflowIdempotencyStore::with_storage_path(
-                temp.join("idempotency.json"),
-            ),
+            idempotency: WorkflowIdempotencyStore::with_storage_path(temp.join("idempotency.json")),
             jobs,
         };
 
@@ -1701,45 +1842,37 @@ mod tests {
                 }
             }
         });
-        let ws = WsClient::connect(
-            &format!("ws://{address}"),
-            None,
-            EventBus::new(100),
-        )
-        .await
-        .unwrap();
+        let ws = WsClient::connect(&format!("ws://{address}"), None, EventBus::new(100))
+            .await
+            .unwrap();
         let trigger_store = WorkflowTriggerStore::with_storage_dir(temp.join("triggers"));
         let trigger = trigger_store
-            .create(
-                WorkflowTriggerSpec {
-                    name: "denied event".to_string(),
-                    workflow_id,
-                    device_id: "device-1".to_string(),
-                    overrides: HashMap::new(),
-                    stop_on_failure: true,
-                    interval_seconds: None,
-                    event_type: Some("device.access.denied".to_string()),
-                    event_device_id: Some("device-1".to_string()),
-                    event_filter: Some(json!({"reason": "policy"})),
-                    callback_url: None,
-                },
-            )
+            .create(WorkflowTriggerSpec {
+                name: "denied event".to_string(),
+                workflow_id,
+                device_id: "device-1".to_string(),
+                overrides: HashMap::new(),
+                stop_on_failure: true,
+                interval_seconds: None,
+                event_type: Some("device.access.denied".to_string()),
+                event_device_id: Some("device-1".to_string()),
+                event_filter: Some(json!({"reason": "policy"})),
+                callback_url: None,
+            })
             .unwrap();
         let task_trigger = trigger_store
-            .create(
-                WorkflowTriggerSpec {
-                    name: "scheduled task failure".to_string(),
-                    workflow_id: trigger.workflow_id.clone(),
-                    device_id: "device-1".to_string(),
-                    overrides: HashMap::new(),
-                    stop_on_failure: true,
-                    interval_seconds: None,
-                    event_type: Some("scheduled_task.failed".to_string()),
-                    event_device_id: None,
-                    event_filter: Some(json!({"kind": "sign_out_all_sessions"})),
-                    callback_url: None,
-                },
-            )
+            .create(WorkflowTriggerSpec {
+                name: "scheduled task failure".to_string(),
+                workflow_id: trigger.workflow_id.clone(),
+                device_id: "device-1".to_string(),
+                overrides: HashMap::new(),
+                stop_on_failure: true,
+                interval_seconds: None,
+                event_type: Some("scheduled_task.failed".to_string()),
+                event_device_id: None,
+                event_filter: Some(json!({"kind": "sign_out_all_sessions"})),
+                callback_url: None,
+            })
             .unwrap();
         let shared = Arc::new(SharedState {
             memory: MemoryStore::with_db_path(temp.join("memory.db")).unwrap(),
@@ -1755,9 +1888,7 @@ mod tests {
             allowed_devices: Vec::new(),
             run_slots: slots,
             triggers: trigger_store.clone(),
-            idempotency: WorkflowIdempotencyStore::with_storage_path(
-                temp.join("idempotency.json"),
-            ),
+            idempotency: WorkflowIdempotencyStore::with_storage_path(temp.join("idempotency.json")),
             jobs,
         };
         let cancellation = CancellationToken::new();

@@ -9,7 +9,7 @@ use tokio::sync::{mpsc, Semaphore};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
-use crate::callback::deliver_workflow_callback;
+use crate::callback::CallbackOutbox;
 use crate::server::{QuickDeskMcpServer, SharedState};
 use crate::workflow::WorkflowRunReport;
 use crate::ws_client::WsClient;
@@ -38,6 +38,12 @@ pub struct WorkflowRunJob {
     pub completed_at: Option<String>,
     pub report: Option<WorkflowRunReport>,
     pub error: String,
+    #[serde(default)]
+    pub callback_delivery_id: Option<String>,
+    #[serde(default)]
+    pub callback_status: String,
+    #[serde(default)]
+    pub callback_error: String,
 }
 
 #[derive(Clone)]
@@ -62,11 +68,7 @@ impl WorkflowJobStore {
         Self::from_storage_dir(storage_dir).expect("test workflow job store")
     }
 
-    pub fn create(
-        &self,
-        workflow_id: &str,
-        device_id: &str,
-    ) -> Result<WorkflowRunJob, String> {
+    pub fn create(&self, workflow_id: &str, device_id: &str) -> Result<WorkflowRunJob, String> {
         let now = Utc::now().to_rfc3339();
         let job = WorkflowRunJob {
             run_id: Uuid::new_v4().to_string(),
@@ -78,6 +80,9 @@ impl WorkflowJobStore {
             completed_at: None,
             report: None,
             error: String::new(),
+            callback_delivery_id: None,
+            callback_status: String::new(),
+            callback_error: String::new(),
         };
         self.save(&job)?;
         Ok(job)
@@ -130,6 +135,20 @@ impl WorkflowJobStore {
         })
     }
 
+    fn set_callback(
+        &self,
+        run_id: &str,
+        delivery_id: Option<String>,
+        status: &str,
+        error: &str,
+    ) -> Result<(), String> {
+        self.update(run_id, |job| {
+            job.callback_delivery_id = delivery_id;
+            job.callback_status = status.to_string();
+            job.callback_error = error.to_string();
+        })
+    }
+
     fn update<F>(&self, run_id: &str, apply: F) -> Result<(), String>
     where
         F: FnOnce(&mut WorkflowRunJob),
@@ -161,6 +180,7 @@ pub struct WorkflowJobManager {
     store: WorkflowJobStore,
     sender: mpsc::Sender<WorkflowJobRequest>,
     active: Arc<Mutex<HashMap<String, CancellationToken>>>,
+    callbacks: CallbackOutbox,
 }
 
 #[derive(Clone)]
@@ -184,6 +204,7 @@ pub enum CancelJobError {
 struct WorkerContext {
     store: WorkflowJobStore,
     active: Arc<Mutex<HashMap<String, CancellationToken>>>,
+    callbacks: CallbackOutbox,
     ws: WsClient,
     shared_state: Arc<SharedState>,
     allowed_devices: Vec<String>,
@@ -198,29 +219,33 @@ impl WorkflowJobManager {
         allowed_devices: Vec<String>,
         run_slots: Arc<Semaphore>,
     ) -> Result<Self, String> {
-        Self::with_store(
+        let callbacks = CallbackOutbox::new(cancellation.child_token())?;
+        Self::with_store_and_callbacks(
             WorkflowJobStore::new()?,
             cancellation,
             ws,
             shared_state,
             allowed_devices,
             run_slots,
+            callbacks,
         )
     }
 
-    pub(crate) fn with_store(
+    pub(crate) fn with_store_and_callbacks(
         store: WorkflowJobStore,
         cancellation: CancellationToken,
         ws: WsClient,
         shared_state: Arc<SharedState>,
         allowed_devices: Vec<String>,
         run_slots: Arc<Semaphore>,
+        callbacks: CallbackOutbox,
     ) -> Result<Self, String> {
         let (sender, receiver) = mpsc::channel(QUEUE_CAPACITY);
         let manager = Self {
             store,
             sender,
             active: Arc::new(Mutex::new(HashMap::new())),
+            callbacks: callbacks.clone(),
         };
         start_worker(
             receiver,
@@ -228,6 +253,7 @@ impl WorkflowJobManager {
             WorkerContext {
                 store: manager.store.clone(),
                 active: manager.active.clone(),
+                callbacks,
                 ws,
                 shared_state,
                 allowed_devices,
@@ -235,6 +261,14 @@ impl WorkflowJobManager {
             },
         );
         Ok(manager)
+    }
+
+    pub fn enqueue_callback(
+        &self,
+        url: Option<&str>,
+        event: Value,
+    ) -> Result<Option<String>, String> {
+        self.callbacks.enqueue(url, event)
     }
 
     pub fn enqueue(
@@ -394,7 +428,7 @@ fn start_worker(
                 .await;
             match result {
                 Ok(report) => {
-                    deliver_workflow_callback(
+                    let callback_result = context.callbacks.enqueue(
                         request.callback_url.as_deref(),
                         json!({
                             "event": "workflow.run.completed",
@@ -405,8 +439,7 @@ fn start_worker(
                             "cancelled": report.cancelled,
                             "report": report.clone(),
                         }),
-                    )
-                    .await;
+                    );
                     let status = if report.cancelled {
                         WorkflowJobStatus::Cancelled
                     } else if report.success {
@@ -417,24 +450,25 @@ fn start_worker(
                     let _ = context
                         .store
                         .finish(&request.run_id, status, Some(report), "");
+                    record_callback_result(&context.store, &request.run_id, callback_result);
                 }
                 Err(error) => {
-                    deliver_workflow_callback(
+                    let callback_result = context.callbacks.enqueue(
                         request.callback_url.as_deref(),
                         json!({
                             "event": "workflow.run.failed",
-                            "workflow_id": request.workflow_id,
-                            "device_id": request.device_id,
+                            "workflow_id": request.workflow_id.clone(),
+                            "device_id": request.device_id.clone(),
                             "error": error.clone(),
                         }),
-                    )
-                    .await;
+                    );
                     let _ = context.store.finish(
                         &request.run_id,
                         WorkflowJobStatus::Failed,
                         None,
                         &error,
                     );
+                    record_callback_result(&context.store, &request.run_id, callback_result);
                 }
             }
             context
@@ -445,6 +479,25 @@ fn start_worker(
             drop(permit);
         }
     });
+}
+
+fn record_callback_result(
+    store: &WorkflowJobStore,
+    run_id: &str,
+    result: Result<Option<String>, String>,
+) {
+    match result {
+        Ok(Some(delivery_id)) => {
+            let _ = store.set_callback(run_id, Some(delivery_id), "queued", "");
+        }
+        Ok(None) => {
+            let _ = store.set_callback(run_id, None, "not_requested", "");
+        }
+        Err(error) => {
+            tracing::warn!("cannot enqueue workflow callback for {}: {error}", run_id);
+            let _ = store.set_callback(run_id, None, "failed", &error);
+        }
+    }
 }
 
 fn dirs_data_dir() -> Option<PathBuf> {

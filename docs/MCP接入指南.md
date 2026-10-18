@@ -1174,7 +1174,8 @@ Qt 的 `CloudDeviceManager` 先完成实时流的 snapshot/replay 与 `server_re
 发送 `controlPlaneEvent`。MCP 只订阅该事件名，按类型、设备和过滤器匹配后先持久化
 claim 再执行。事件 `id` 是跨重启幂等键；没有 ID 的旧事件才使用 `server_rev`。
 事件订阅只处理实时到达的事件，MCP 停机期间的事件不会补发。cron/日历规则、跨进程
-队列恢复和回调 outbox/重试仍未实现。
+队列恢复和回调死信查询/重放 API 仍未实现；HMAC 回调本身已使用持久 outbox，并以同一
+delivery id 自动重试和跨进程重启恢复。
 
 ---
 
