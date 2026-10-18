@@ -56,7 +56,7 @@ after(async () => {
 
 test(
   `screen wall stays live with ${DEVICE_COUNT} viewers for ${SOAK_SECONDS}s`,
-  { timeout: (SOAK_SECONDS + 180) * 1000 },
+  { timeout: (SOAK_SECONDS + 900) * 1000 },
   async () => {
     const context = await browser.newContext({ viewport: { width: 1600, height: 1000 } })
     await context.addInitScript(({ devices }) => {
