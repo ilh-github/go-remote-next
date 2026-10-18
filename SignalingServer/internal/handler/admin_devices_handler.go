@@ -17,7 +17,6 @@ import (
 type AdminDevicesHandler struct {
 	devices  *service.DeviceService
 	presence *service.PresenceService
-	bus      *service.EventBus
 	audit    *service.AuditService
 	db       *gorm.DB
 }
@@ -25,14 +24,12 @@ type AdminDevicesHandler struct {
 func NewAdminDevicesHandler(
 	devices *service.DeviceService,
 	presence *service.PresenceService,
-	bus *service.EventBus,
 	audit *service.AuditService,
 	db *gorm.DB,
 ) *AdminDevicesHandler {
 	return &AdminDevicesHandler{
 		devices:  devices,
 		presence: presence,
-		bus:      bus,
 		audit:    audit,
 		db:       db,
 	}
@@ -143,27 +140,26 @@ func (h *AdminDevicesHandler) Get(c *gin.Context) {
 
 func (h *AdminDevicesHandler) Delete(c *gin.Context) {
 	deviceID := c.Param("device_id")
-	d, err := h.devices.GetByDeviceID(c.Request.Context(), deviceID)
-	if err != nil {
+	if err := h.devices.DeleteWithEvents(
+		c.Request.Context(), deviceID,
+		func(_ *gorm.DB, device *models.Device) ([]service.Event, error) {
+			if device.UserID == nil {
+				return nil, nil
+			}
+			return []service.Event{{
+				Type:     service.EventDeviceUnbound,
+				UserID:   *device.UserID,
+				DeviceID: deviceID,
+				Data:     map[string]interface{}{"device_id": deviceID, "reason": "admin_delete"},
+			}}, nil
+		},
+	); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			ProblemNotFound(c, ProblemCodeDeviceNotFound, "Device not found")
 			return
 		}
 		ProblemInternal(c, err.Error())
 		return
-	}
-	owner := d.UserID
-	if err := h.devices.Delete(c.Request.Context(), deviceID); err != nil {
-		ProblemInternal(c, err.Error())
-		return
-	}
-	if owner != nil {
-		h.bus.Publish(c.Request.Context(), service.Event{
-			Type:     service.EventDeviceUnbound,
-			UserID:   *owner,
-			DeviceID: deviceID,
-			Data:     map[string]interface{}{"device_id": deviceID, "reason": "admin_delete"},
-		})
 	}
 	h.audit.Log(c.Request.Context(), middleware.MustAdminID(c), "", "device.delete", "device", deviceID, "", c.ClientIP())
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
@@ -172,7 +168,17 @@ func (h *AdminDevicesHandler) Delete(c *gin.Context) {
 // ForceUnbind handles POST /v1/admin/devices/:device_id/unbind.
 func (h *AdminDevicesHandler) ForceUnbind(c *gin.Context) {
 	deviceID := c.Param("device_id")
-	prev, err := h.devices.AdminForceUnbind(c.Request.Context(), deviceID)
+	_, err := h.devices.AdminForceUnbindWithEvents(
+		c.Request.Context(), deviceID,
+		func(_ *gorm.DB, previousOwner uint, device *models.Device) ([]service.Event, error) {
+			return []service.Event{{
+				Type:     service.EventDeviceOwnershipLost,
+				UserID:   previousOwner,
+				DeviceID: device.DeviceID,
+				Data:     map[string]interface{}{"device_id": device.DeviceID, "reason": "admin_unbind"},
+			}}, nil
+		},
+	)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			ProblemNotFound(c, ProblemCodeDeviceNotFound, "Device not found")
@@ -181,14 +187,6 @@ func (h *AdminDevicesHandler) ForceUnbind(c *gin.Context) {
 		ProblemInternal(c, err.Error())
 		return
 	}
-	if prev != nil {
-		h.bus.Publish(c.Request.Context(), service.Event{
-			Type:     service.EventDeviceOwnershipLost,
-			UserID:   *prev,
-			DeviceID: deviceID,
-			Data:     map[string]interface{}{"device_id": deviceID, "reason": "admin_unbind"},
-		})
-	}
 	h.audit.Log(c.Request.Context(), middleware.MustAdminID(c), "", "device.unbind", "device", deviceID, "", c.ClientIP())
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
@@ -196,20 +194,24 @@ func (h *AdminDevicesHandler) ForceUnbind(c *gin.Context) {
 // RotateSecret handles POST /v1/admin/devices/:device_id/secret:rotate.
 func (h *AdminDevicesHandler) RotateSecret(c *gin.Context) {
 	deviceID := c.Param("device_id")
-	plaintext, err := h.devices.RotateSecret(c.Request.Context(), deviceID)
+	plaintext, err := h.devices.RotateSecretWithEvents(
+		c.Request.Context(), deviceID,
+		func(_ *gorm.DB, device *models.Device) ([]service.Event, error) {
+			return []service.Event{{
+				Type:     service.EventDeviceSecretRotated,
+				DeviceID: device.DeviceID,
+				Data:     map[string]interface{}{"device_id": device.DeviceID},
+			}}, nil
+		},
+	)
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			ProblemNotFound(c, ProblemCodeDeviceNotFound, "Device not found")
+			return
+		}
 		ProblemInternal(c, err.Error())
 		return
 	}
-	// Publish the system-scope event so audit + webhook subscribers see
-	// it; user-scope routing is intentionally absent (the host is
-	// expected to discover the rotation via the next 401 from a
-	// device-secret-protected endpoint and re-provision).
-	h.bus.Publish(c.Request.Context(), service.Event{
-		Type:     service.EventDeviceSecretRotated,
-		DeviceID: deviceID,
-		Data:     map[string]interface{}{"device_id": deviceID},
-	})
 	h.audit.Log(c.Request.Context(), middleware.MustAdminID(c), "", "device.secret.rotate", "device", deviceID, "", c.ClientIP())
 	c.JSON(http.StatusOK, gin.H{
 		"device_id":     deviceID,
@@ -237,7 +239,20 @@ func (h *AdminDevicesHandler) Batch(c *gin.Context, groups *service.DeviceGroupS
 	switch req.Op {
 	case "delete":
 		for _, id := range req.IDs {
-			_ = h.devices.Delete(c.Request.Context(), id)
+			_ = h.devices.DeleteWithEvents(
+				c.Request.Context(), id,
+				func(_ *gorm.DB, device *models.Device) ([]service.Event, error) {
+					if device.UserID == nil {
+						return nil, nil
+					}
+					return []service.Event{{
+						Type:     service.EventDeviceUnbound,
+						UserID:   *device.UserID,
+						DeviceID: device.DeviceID,
+						Data:     map[string]interface{}{"device_id": device.DeviceID, "reason": "admin_batch_delete"},
+					}}, nil
+				},
+			)
 		}
 	case "assign_group":
 		if req.GroupID == 0 {

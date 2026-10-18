@@ -1213,6 +1213,260 @@ func TestDeviceMutationOutboxFailureRollsBackBindAndUnbind(t *testing.T) {
 	}
 }
 
+func TestAdminDeviceMutationsCommitEventsWithStateChanges(t *testing.T) {
+	db := newEventOutboxTestDB(t)
+	_, _, bus := newEventOutboxTestRedis(t)
+	outbox := NewEventOutbox(db, bus)
+	devices := NewDeviceService(repository.NewDeviceRepository(db), NewDeviceSecretService()).
+		WithOutbox(outbox)
+	ctx := context.Background()
+	owner := uint(7)
+
+	unbindDevice := models.Device{
+		DeviceID:   "D9210001",
+		DeviceUUID: "uuid-D9210001",
+		UserID:     &owner,
+		LoggedIn:   true,
+	}
+	if err := db.Create(&unbindDevice).Error; err != nil {
+		t.Fatalf("create unbind device: %v", err)
+	}
+	if err := db.Create(&models.UserDevice{
+		UserID: owner, DeviceID: unbindDevice.DeviceID, Status: true,
+	}).Error; err != nil {
+		t.Fatalf("create unbind binding: %v", err)
+	}
+	previous, err := devices.AdminForceUnbindWithEvents(
+		ctx, unbindDevice.DeviceID,
+		func(_ *gorm.DB, previousOwner uint, device *models.Device) ([]Event, error) {
+			return []Event{{
+				Type:     EventDeviceOwnershipLost,
+				UserID:   previousOwner,
+				DeviceID: device.DeviceID,
+				Data:     map[string]interface{}{"reason": "admin_unbind"},
+			}}, nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("AdminForceUnbindWithEvents: %v", err)
+	}
+	if previous == nil || *previous != owner {
+		t.Fatalf("previous owner = %v, want %d", previous, owner)
+	}
+	var unbound models.Device
+	if err := db.Where("device_id = ?", unbindDevice.DeviceID).First(&unbound).Error; err != nil {
+		t.Fatalf("load unbound device: %v", err)
+	}
+	if unbound.UserID != nil || unbound.LoggedIn {
+		t.Fatalf("force-unbound device = %+v", unbound)
+	}
+
+	deleteDevice := models.Device{
+		DeviceID:   "D9210002",
+		DeviceUUID: "uuid-D9210002",
+		UserID:     &owner,
+		LoggedIn:   true,
+	}
+	if err := db.Create(&deleteDevice).Error; err != nil {
+		t.Fatalf("create delete device: %v", err)
+	}
+	if err := db.Create(&models.DeviceAccessPolicy{
+		DeviceID: deleteDevice.DeviceID,
+		DenyIPs:  "203.0.113.7",
+	}).Error; err != nil {
+		t.Fatalf("create delete policy: %v", err)
+	}
+	if err := devices.DeleteWithEvents(
+		ctx, deleteDevice.DeviceID,
+		func(_ *gorm.DB, device *models.Device) ([]Event, error) {
+			return []Event{{
+				Type:     EventDeviceUnbound,
+				UserID:   *device.UserID,
+				DeviceID: device.DeviceID,
+				Data:     map[string]interface{}{"reason": "admin_delete"},
+			}}, nil
+		},
+	); err != nil {
+		t.Fatalf("DeleteWithEvents: %v", err)
+	}
+	var deletedCount int64
+	if err := db.Model(&models.Device{}).
+		Where("device_id = ?", deleteDevice.DeviceID).
+		Count(&deletedCount).Error; err != nil {
+		t.Fatalf("count deleted device: %v", err)
+	}
+	if deletedCount != 0 {
+		t.Fatalf("deleted device rows = %d, want 0", deletedCount)
+	}
+	var policyCount int64
+	if err := db.Model(&models.DeviceAccessPolicy{}).
+		Where("device_id = ?", deleteDevice.DeviceID).
+		Count(&policyCount).Error; err != nil {
+		t.Fatalf("count deleted policy: %v", err)
+	}
+	if policyCount != 0 {
+		t.Fatalf("deleted policy rows = %d, want 0", policyCount)
+	}
+
+	rotateDevice := models.Device{
+		DeviceID:         "D9210003",
+		DeviceUUID:       "uuid-D9210003",
+		DeviceSecretHash: "old-hash",
+	}
+	if err := db.Create(&rotateDevice).Error; err != nil {
+		t.Fatalf("create rotate device: %v", err)
+	}
+	plaintext, err := devices.RotateSecretWithEvents(
+		ctx, rotateDevice.DeviceID,
+		func(_ *gorm.DB, device *models.Device) ([]Event, error) {
+			return []Event{{
+				Type:     EventDeviceSecretRotated,
+				DeviceID: device.DeviceID,
+				Data:     map[string]interface{}{"device_id": device.DeviceID},
+			}}, nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("RotateSecretWithEvents: %v", err)
+	}
+	if plaintext == "" {
+		t.Fatal("RotateSecretWithEvents returned an empty secret")
+	}
+	var rotated models.Device
+	if err := db.Where("device_id = ?", rotateDevice.DeviceID).First(&rotated).Error; err != nil {
+		t.Fatalf("load rotated device: %v", err)
+	}
+	if rotated.DeviceSecretHash == "" || rotated.DeviceSecretHash == "old-hash" {
+		t.Fatalf("rotated secret hash = %q", rotated.DeviceSecretHash)
+	}
+
+	var outboxRows []models.EventOutbox
+	if err := db.Find(&outboxRows).Error; err != nil {
+		t.Fatalf("load admin device outbox: %v", err)
+	}
+	if len(outboxRows) != 3 {
+		t.Fatalf("admin device outbox rows = %d, want 3", len(outboxRows))
+	}
+	types := map[string]int{}
+	for _, outboxRow := range outboxRows {
+		var event Event
+		if err := json.Unmarshal([]byte(outboxRow.Payload), &event); err != nil {
+			t.Fatalf("decode admin device event: %v", err)
+		}
+		types[event.Type]++
+	}
+	if types[EventDeviceOwnershipLost] != 1 ||
+		types[EventDeviceUnbound] != 1 ||
+		types[EventDeviceSecretRotated] != 1 {
+		t.Fatalf("admin device event types = %+v", types)
+	}
+}
+
+func TestAdminDeviceOutboxFailureRollsBackMutations(t *testing.T) {
+	db := newEventOutboxTestDB(t)
+	devices := NewDeviceService(repository.NewDeviceRepository(db), NewDeviceSecretService()).
+		WithOutbox(&failingScheduledTaskOutbox{err: errors.New("outbox unavailable")})
+	ctx := context.Background()
+	owner := uint(9)
+
+	unbindDevice := models.Device{
+		DeviceID:   "D9210101",
+		DeviceUUID: "uuid-D9210101",
+		UserID:     &owner,
+		LoggedIn:   true,
+	}
+	if err := db.Create(&unbindDevice).Error; err != nil {
+		t.Fatalf("create unbind device: %v", err)
+	}
+	if _, err := devices.AdminForceUnbindWithEvents(
+		ctx, unbindDevice.DeviceID,
+		func(_ *gorm.DB, previousOwner uint, device *models.Device) ([]Event, error) {
+			return []Event{{
+				Type:     EventDeviceOwnershipLost,
+				UserID:   previousOwner,
+				DeviceID: device.DeviceID,
+			}}, nil
+		},
+	); err == nil {
+		t.Fatal("AdminForceUnbindWithEvents succeeded despite outbox failure")
+	}
+	var afterUnbind models.Device
+	if err := db.Where("device_id = ?", unbindDevice.DeviceID).First(&afterUnbind).Error; err != nil {
+		t.Fatalf("load device after unbind rollback: %v", err)
+	}
+	if afterUnbind.UserID == nil || *afterUnbind.UserID != owner || !afterUnbind.LoggedIn {
+		t.Fatalf("force unbind was not rolled back: %+v", afterUnbind)
+	}
+
+	deleteDevice := models.Device{
+		DeviceID:   "D9210102",
+		DeviceUUID: "uuid-D9210102",
+		UserID:     &owner,
+		LoggedIn:   true,
+	}
+	if err := db.Create(&deleteDevice).Error; err != nil {
+		t.Fatalf("create delete device: %v", err)
+	}
+	if err := db.Create(&models.DeviceAccessPolicy{
+		DeviceID: deleteDevice.DeviceID,
+		DenyIPs:  "198.51.100.9",
+	}).Error; err != nil {
+		t.Fatalf("create delete policy: %v", err)
+	}
+	if err := devices.DeleteWithEvents(
+		ctx, deleteDevice.DeviceID,
+		func(_ *gorm.DB, device *models.Device) ([]Event, error) {
+			return []Event{{
+				Type:     EventDeviceUnbound,
+				UserID:   *device.UserID,
+				DeviceID: device.DeviceID,
+			}}, nil
+		},
+	); err == nil {
+		t.Fatal("DeleteWithEvents succeeded despite outbox failure")
+	}
+	var afterDelete models.Device
+	if err := db.Where("device_id = ?", deleteDevice.DeviceID).First(&afterDelete).Error; err != nil {
+		t.Fatalf("load device after delete rollback: %v", err)
+	}
+	var policyCount int64
+	if err := db.Model(&models.DeviceAccessPolicy{}).
+		Where("device_id = ?", deleteDevice.DeviceID).
+		Count(&policyCount).Error; err != nil {
+		t.Fatalf("count policy after delete rollback: %v", err)
+	}
+	if policyCount != 1 {
+		t.Fatalf("policy rows after delete rollback = %d, want 1", policyCount)
+	}
+
+	rotateDevice := models.Device{
+		DeviceID:         "D9210103",
+		DeviceUUID:       "uuid-D9210103",
+		DeviceSecretHash: "old-hash",
+	}
+	if err := db.Create(&rotateDevice).Error; err != nil {
+		t.Fatalf("create rotate device: %v", err)
+	}
+	if _, err := devices.RotateSecretWithEvents(
+		ctx, rotateDevice.DeviceID,
+		func(_ *gorm.DB, device *models.Device) ([]Event, error) {
+			return []Event{{
+				Type:     EventDeviceSecretRotated,
+				DeviceID: device.DeviceID,
+			}}, nil
+		},
+	); err == nil {
+		t.Fatal("RotateSecretWithEvents succeeded despite outbox failure")
+	}
+	var afterRotate models.Device
+	if err := db.Where("device_id = ?", rotateDevice.DeviceID).First(&afterRotate).Error; err != nil {
+		t.Fatalf("load device after rotate rollback: %v", err)
+	}
+	if afterRotate.DeviceSecretHash != "old-hash" {
+		t.Fatalf("secret rotation was not rolled back: %+v", afterRotate)
+	}
+}
+
 func TestFavoriteEventsCommitWithFavoriteRows(t *testing.T) {
 	db := newEventOutboxTestDB(t)
 	_, _, bus := newEventOutboxTestRedis(t)

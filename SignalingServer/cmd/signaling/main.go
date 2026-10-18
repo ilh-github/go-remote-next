@@ -592,7 +592,7 @@ func main() {
 	adminTOTPHandler := handler.NewAdminTOTPHandler(adminUserService, db)
 	adminAdminsHandler := handler.NewAdminAdminsHandler(adminUserService, tokenService, auditService)
 	adminUsersHandler := handler.NewAdminUsersHandler(userService, tokenService, bus, auditService, presenceService, db)
-	adminDevicesHandler := handler.NewAdminDevicesHandler(deviceService, presenceService, bus, auditService, db)
+	adminDevicesHandler := handler.NewAdminDevicesHandler(deviceService, presenceService, auditService, db)
 	adminSettingsHandler := handler.NewAdminSettingsHandler(settingsService, bus, auditService)
 	adminPresetHandler := handler.NewAdminPresetHandler(presetService, auditService)
 	adminAuditHandler := handler.NewAdminAuditHandler(

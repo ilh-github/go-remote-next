@@ -48,6 +48,10 @@ func (s *DeviceService) WithOutbox(outbox EventOutboxWriter) *DeviceService {
 // row. It runs inside the caller's transaction.
 type DeviceMutationEventFactory func(tx *gorm.DB, device *models.Device) ([]Event, error)
 
+// DeviceAdminUnbindEventFactory runs after a forced unbind. The final device
+// row no longer carries the previous owner, so both values are passed in.
+type DeviceAdminUnbindEventFactory func(tx *gorm.DB, previousOwner uint, device *models.Device) ([]Event, error)
+
 // DeviceBindEventFactory additionally sees what the bind changed: the previous
 // owner and the idempotent already-owned case.
 type DeviceBindEventFactory func(tx *gorm.DB, result BindResult) ([]Event, error)
@@ -65,7 +69,7 @@ func (s *DeviceService) enqueueDeviceEvents(
 		return nil
 	}
 	for _, evt := range events {
-		if evt.Type == "" || evt.UserID == 0 {
+		if evt.Type == "" {
 			continue
 		}
 		if _, err := s.outbox.EnqueueTx(ctx, tx, evt); err != nil {
@@ -191,6 +195,14 @@ func needsDeviceSecretRehash(stored string) bool {
 // RotateSecret generates a new plaintext secret (used by admin
 // `POST /v1/admin/devices/:id/secret:rotate`). Returns the plaintext once.
 func (s *DeviceService) RotateSecret(ctx context.Context, deviceID string) (string, error) {
+	return s.RotateSecretWithEvents(ctx, deviceID, nil)
+}
+
+func (s *DeviceService) RotateSecretWithEvents(
+	ctx context.Context,
+	deviceID string,
+	eventFactory DeviceMutationEventFactory,
+) (string, error) {
 	plaintext, err := s.secrets.Generate()
 	if err != nil {
 		return "", err
@@ -199,7 +211,24 @@ func (s *DeviceService) RotateSecret(ctx context.Context, deviceID string) (stri
 	if err != nil {
 		return "", err
 	}
-	if err := s.repo.SetDeviceSecretHash(ctx, deviceID, hash); err != nil {
+	err = s.repo.DB(ctx).Transaction(func(tx *gorm.DB) error {
+		var d models.Device
+		if err := tx.Clauses(lockForUpdate()).Where("device_id = ?", deviceID).First(&d).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&models.Device{}).
+			Where("device_id = ?", deviceID).
+			Update("device_secret_hash", hash).Error; err != nil {
+			return err
+		}
+		d.DeviceSecretHash = hash
+		if s.outbox == nil || eventFactory == nil {
+			return nil
+		}
+		events, err := eventFactory(tx, &d)
+		return s.enqueueDeviceEvents(ctx, tx, events, err)
+	})
+	if err != nil {
 		return "", err
 	}
 	return plaintext, nil
@@ -515,6 +544,14 @@ var ErrDeviceNotOwned = errors.New("device not owned by caller")
 // AdminForceUnbind clears user_id + logged_in, used by
 // POST /v1/admin/devices/:id/unbind.
 func (s *DeviceService) AdminForceUnbind(ctx context.Context, deviceID string) (*uint, error) {
+	return s.AdminForceUnbindWithEvents(ctx, deviceID, nil)
+}
+
+func (s *DeviceService) AdminForceUnbindWithEvents(
+	ctx context.Context,
+	deviceID string,
+	eventFactory DeviceAdminUnbindEventFactory,
+) (*uint, error) {
 	var previousOwner *uint
 	err := s.repo.DB(ctx).Transaction(func(tx *gorm.DB) error {
 		var d models.Device
@@ -532,7 +569,14 @@ func (s *DeviceService) AdminForceUnbind(ctx context.Context, deviceID string) (
 		}
 		d.UserID = nil
 		d.LoggedIn = false
-		return tx.Save(&d).Error
+		if err := tx.Save(&d).Error; err != nil {
+			return err
+		}
+		if s.outbox == nil || eventFactory == nil || previousOwner == nil {
+			return nil
+		}
+		events, err := eventFactory(tx, *previousOwner, &d)
+		return s.enqueueDeviceEvents(ctx, tx, events, err)
 	})
 	return previousOwner, err
 }
@@ -562,7 +606,19 @@ func (s *DeviceService) CountSince(ctx context.Context, since time.Time) (int64,
 }
 
 func (s *DeviceService) Delete(ctx context.Context, deviceID string) error {
+	return s.DeleteWithEvents(ctx, deviceID, nil)
+}
+
+func (s *DeviceService) DeleteWithEvents(
+	ctx context.Context,
+	deviceID string,
+	eventFactory DeviceMutationEventFactory,
+) error {
 	return s.repo.DB(ctx).Transaction(func(tx *gorm.DB) error {
+		var d models.Device
+		if err := tx.Clauses(lockForUpdate()).Where("device_id = ?", deviceID).First(&d).Error; err != nil {
+			return err
+		}
 		// Access policy is keyed by device_id without a database-level foreign
 		// key. Delete it in the same transaction so a later random device-id
 		// allocation can never inherit an old deny list.
@@ -570,8 +626,15 @@ func (s *DeviceService) Delete(ctx context.Context, deviceID string) error {
 			Delete(&models.DeviceAccessPolicy{}).Error; err != nil {
 			return err
 		}
-		return tx.Where("device_id = ?", deviceID).
-			Delete(&models.Device{}).Error
+		if err := tx.Where("device_id = ?", deviceID).
+			Delete(&models.Device{}).Error; err != nil {
+			return err
+		}
+		if s.outbox == nil || eventFactory == nil {
+			return nil
+		}
+		events, err := eventFactory(tx, &d)
+		return s.enqueueDeviceEvents(ctx, tx, events, err)
 	})
 }
 
