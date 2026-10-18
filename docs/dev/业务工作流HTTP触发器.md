@@ -184,6 +184,7 @@ X-QuickDesk-Signature: hmac-sha1=<hex>
 ```http
 GET  /v1/callback-deliveries?status=dead&limit=100
 POST /v1/callback-deliveries/{delivery_id}/retry
+POST /v1/callback-deliveries/{delivery_id}/ack
 Authorization: Bearer <QUICKDESK_TRIGGER_TOKEN>
 ```
 
@@ -191,6 +192,10 @@ Authorization: Bearer <QUICKDESK_TRIGGER_TOKEN>
 `limit` 默认 100，范围 1~500。人工重放只接受 `dead` 记录，会清空失败状态和尝试次数，
 把记录改回 `pending` 并立即唤醒 worker；原 `X-QuickDesk-Delivery-Id` 不变，因此接收端
 仍可按同一键幂等。不存在返回 404，非 `dead` 记录返回 409。
+
+`ack` 只接受 `delivered` 或 `dead` 记录，首次调用写入 `acknowledged_at`，重复调用幂等
+返回同一时间。它表示“有人处理过这条投递”，不改变 `status`，也不替代接收端对 HTTP 2xx
+的处理。pending/retry 记录返回 409。
 
 ## 6. 查询运行报告
 
@@ -337,15 +342,14 @@ MCP 停机期间已经消费过的控制面事件。
   进程恢复中断的队列；重启后应重新提交未完成任务。
 - 回调只允许 HTTP，不允许直接在公网暴露；签名密钥必须由接收端独立保管。
 - 回调 outbox 会在重启后继续投递 `pending` / `retry` 记录，但 `dead` 记录当前只能
-  从本地 JSON 查看，或通过受 Bearer token 保护的列表/人工重放接口处理；尚无人工作为
-  “已确认处理”的独立 ack 状态。
+  从本地 JSON 查看，或通过受 Bearer token 保护的列表、人工重放和 ack 接口处理。
 
 ## 9. 尚未完成
 
 - cron/日历定时规则；当前只有固定 interval；
 - 跨进程 worker、持久化队列恢复和公平调度；当前只支持单进程队列；
 - 控制面事件在 MCP 停机期间的补发/outbox；当前只处理实时到达的事件；
-- 回调人工投递确认；
+- 回调确认操作者归属和批量确认；当前只记录 acknowledged_at 时间；
 - Owner 委托 grant、最小权限范围和审计回传控制面。
 
 因此 QD-610 仍保持部分完成，不能把本接口描述成完整的业务流程引擎。

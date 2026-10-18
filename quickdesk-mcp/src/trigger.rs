@@ -13,7 +13,7 @@ use serde_json::json;
 use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
 
-use crate::callback::{CallbackDeliveryStatus, CallbackRetryError};
+use crate::callback::{CallbackAckError, CallbackDeliveryStatus, CallbackRetryError};
 use crate::idempotency::{IdempotencyClaim, WorkflowIdempotencyStore};
 use crate::server::{QuickDeskMcpServer, SharedState};
 use crate::workflow_job::{CancelJobError, WorkflowJobManager};
@@ -79,6 +79,10 @@ pub fn router(runtime: TriggerRuntime) -> Router {
         .route(
             "/v1/callback-deliveries/{delivery_id}/retry",
             post(retry_callback_delivery),
+        )
+        .route(
+            "/v1/callback-deliveries/{delivery_id}/ack",
+            post(acknowledge_callback_delivery),
         )
         .route("/v1/triggers", get(list_triggers).post(create_trigger))
         .route(
@@ -362,6 +366,29 @@ async fn retry_callback_delivery(
             "only a dead callback delivery can be retried",
         ),
         Err(CallbackRetryError::Store(error)) => {
+            error_response(StatusCode::INTERNAL_SERVER_ERROR, &error)
+        }
+    }
+}
+
+async fn acknowledge_callback_delivery(
+    State(state): State<TriggerState>,
+    Path(delivery_id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    if let Err(error) = authorize_request(&state, &headers) {
+        return auth_error_response(error);
+    }
+    match state.jobs.acknowledge_callback_delivery(&delivery_id) {
+        Ok(delivery) => Json(delivery).into_response(),
+        Err(CallbackAckError::NotFound) => {
+            error_response(StatusCode::NOT_FOUND, "callback delivery not found")
+        }
+        Err(CallbackAckError::NotTerminal) => error_response(
+            StatusCode::CONFLICT,
+            "only a delivered or dead callback delivery can be acknowledged",
+        ),
+        Err(CallbackAckError::Store(error)) => {
             error_response(StatusCode::INTERNAL_SERVER_ERROR, &error)
         }
     }
@@ -1570,6 +1597,33 @@ mod tests {
             .as_str()
             .is_some_and(|error| error.contains("500")));
         let delivery_id = dead_delivery["id"].as_str().unwrap().to_string();
+
+        let request = Request::builder()
+            .method("POST")
+            .uri(format!("/v1/callback-deliveries/{delivery_id}/ack"))
+            .header("Authorization", "Bearer business-secret")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+        let acknowledged: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let acknowledged_at = acknowledged["acknowledged_at"]
+            .as_str()
+            .expect("first ack should set a timestamp")
+            .to_string();
+
+        let request = Request::builder()
+            .method("POST")
+            .uri(format!("/v1/callback-deliveries/{delivery_id}/ack"))
+            .header("Authorization", "Bearer business-secret")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+        let acknowledged_again: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(acknowledged_again["acknowledged_at"], acknowledged_at);
 
         let request = Request::builder()
             .method("POST")

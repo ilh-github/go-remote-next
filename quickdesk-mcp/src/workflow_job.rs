@@ -10,7 +10,7 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use crate::callback::{
-    CallbackDelivery, CallbackDeliveryStatus, CallbackOutbox, CallbackRetryError,
+    CallbackAckError, CallbackDelivery, CallbackDeliveryStatus, CallbackOutbox, CallbackRetryError,
 };
 use crate::server::{QuickDeskMcpServer, SharedState};
 use crate::workflow::WorkflowRunReport;
@@ -286,6 +286,13 @@ impl WorkflowJobManager {
         delivery_id: &str,
     ) -> Result<CallbackDelivery, CallbackRetryError> {
         self.callbacks.retry_dead(delivery_id)
+    }
+
+    pub fn acknowledge_callback_delivery(
+        &self,
+        delivery_id: &str,
+    ) -> Result<CallbackDelivery, CallbackAckError> {
+        self.callbacks.acknowledge(delivery_id)
     }
 
     pub fn enqueue(

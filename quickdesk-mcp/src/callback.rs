@@ -72,6 +72,8 @@ pub struct CallbackDelivery {
     pub attempts: u32,
     pub next_attempt_at: String,
     pub last_error: String,
+    #[serde(default)]
+    pub acknowledged_at: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -98,6 +100,7 @@ impl CallbackStore {
             attempts: 0,
             next_attempt_at: now.clone(),
             last_error: String::new(),
+            acknowledged_at: None,
             created_at: now.clone(),
             updated_at: now,
         };
@@ -187,6 +190,24 @@ impl CallbackStore {
         Ok(delivery)
     }
 
+    fn acknowledge(&self, delivery_id: &str) -> Result<CallbackDelivery, CallbackAckError> {
+        let mut delivery = self.get(delivery_id).ok_or(CallbackAckError::NotFound)?;
+        if !matches!(
+            delivery.status,
+            CallbackDeliveryStatus::Delivered | CallbackDeliveryStatus::Dead
+        ) {
+            return Err(CallbackAckError::NotTerminal);
+        }
+        if delivery.acknowledged_at.is_some() {
+            return Ok(delivery);
+        }
+        let now = Utc::now().to_rfc3339();
+        delivery.acknowledged_at = Some(now.clone());
+        delivery.updated_at = now;
+        self.save(&delivery).map_err(CallbackAckError::Store)?;
+        Ok(delivery)
+    }
+
     fn mark_delivered(&self, delivery_id: &str) -> Result<CallbackDelivery, String> {
         self.update(delivery_id, |delivery| {
             delivery.status = CallbackDeliveryStatus::Delivered;
@@ -269,6 +290,13 @@ pub enum CallbackRetryError {
     Store(String),
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum CallbackAckError {
+    NotFound,
+    NotTerminal,
+    Store(String),
+}
+
 impl CallbackOutbox {
     pub fn new(cancellation: CancellationToken) -> Result<Self, String> {
         let base = dirs_data_dir().unwrap_or_else(|| PathBuf::from("."));
@@ -325,6 +353,10 @@ impl CallbackOutbox {
             CallbackRetryError::Store("callback outbox worker is not running".to_string())
         })?;
         Ok(delivery)
+    }
+
+    pub fn acknowledge(&self, delivery_id: &str) -> Result<CallbackDelivery, CallbackAckError> {
+        self.store.acknowledge(delivery_id)
     }
 
     #[cfg(test)]
