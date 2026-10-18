@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -13,6 +13,7 @@ use serde_json::json;
 use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
 
+use crate::callback::{CallbackDeliveryStatus, CallbackRetryError};
 use crate::idempotency::{IdempotencyClaim, WorkflowIdempotencyStore};
 use crate::server::{QuickDeskMcpServer, SharedState};
 use crate::workflow_job::{CancelJobError, WorkflowJobManager};
@@ -55,6 +56,12 @@ struct CreateTriggerRequest {
     callback_url: Option<String>,
 }
 
+#[derive(Deserialize)]
+struct CallbackDeliveryQuery {
+    status: Option<String>,
+    limit: Option<usize>,
+}
+
 pub fn router(runtime: TriggerRuntime) -> Router {
     Router::new()
         .route("/v1/workflows/{workflow_id}/run", post(run_workflow))
@@ -67,6 +74,11 @@ pub fn router(runtime: TriggerRuntime) -> Router {
         .route(
             "/v1/workflow-runs/{run_id}/cancel",
             post(cancel_workflow_job),
+        )
+        .route("/v1/callback-deliveries", get(list_callback_deliveries))
+        .route(
+            "/v1/callback-deliveries/{delivery_id}/retry",
+            post(retry_callback_delivery),
         )
         .route("/v1/triggers", get(list_triggers).post(create_trigger))
         .route(
@@ -302,6 +314,54 @@ async fn cancel_workflow_job(
             error_response(StatusCode::CONFLICT, "workflow job is not cancellable")
         }
         Err(CancelJobError::Store(error)) => {
+            error_response(StatusCode::INTERNAL_SERVER_ERROR, &error)
+        }
+    }
+}
+
+async fn list_callback_deliveries(
+    State(state): State<TriggerState>,
+    headers: HeaderMap,
+    Query(query): Query<CallbackDeliveryQuery>,
+) -> Response {
+    if let Err(error) = authorize_request(&state, &headers) {
+        return auth_error_response(error);
+    }
+    let status = match query.status.as_deref() {
+        Some(value) => match value.parse::<CallbackDeliveryStatus>() {
+            Ok(status) => Some(status),
+            Err(error) => return error_response(StatusCode::BAD_REQUEST, &error),
+        },
+        None => None,
+    };
+    let limit = query.limit.unwrap_or(100);
+    if !(1..=500).contains(&limit) {
+        return error_response(StatusCode::BAD_REQUEST, "limit must be between 1 and 500");
+    }
+    match state.jobs.list_callback_deliveries(status, limit) {
+        Ok(deliveries) => Json(json!({ "deliveries": deliveries })).into_response(),
+        Err(error) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &error),
+    }
+}
+
+async fn retry_callback_delivery(
+    State(state): State<TriggerState>,
+    Path(delivery_id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    if let Err(error) = authorize_request(&state, &headers) {
+        return auth_error_response(error);
+    }
+    match state.jobs.retry_callback_delivery(&delivery_id) {
+        Ok(delivery) => Json(delivery).into_response(),
+        Err(CallbackRetryError::NotFound) => {
+            error_response(StatusCode::NOT_FOUND, "callback delivery not found")
+        }
+        Err(CallbackRetryError::NotDead) => error_response(
+            StatusCode::CONFLICT,
+            "only a dead callback delivery can be retried",
+        ),
+        Err(CallbackRetryError::Store(error)) => {
             error_response(StatusCode::INTERNAL_SERVER_ERROR, &error)
         }
     }
@@ -1367,6 +1427,203 @@ mod tests {
         };
         assert_eq!(delivery_id(&first), delivery_id(&second));
         drop(app);
+        callback_server.abort();
+        fake_quickdesk.abort();
+        let _ = std::fs::remove_dir_all(temp);
+    }
+
+    #[tokio::test]
+    async fn callback_dead_letters_can_be_listed_and_manually_retried() {
+        let temp = std::env::temp_dir().join(format!("quickdesk-trigger-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&temp).unwrap();
+        std::env::set_var("QUICKDESK_CALLBACK_SECRET", "callback-dead-letter-secret");
+        let workflows = WorkflowStore::with_storage_dir(temp.join("workflows"));
+        let workflow_id = workflows
+            .start_recording("callback dead letter workflow", "device-1")
+            .unwrap();
+        workflows.record_step(
+            "device-1",
+            "list_processes",
+            &json!({}),
+            "processes",
+            true,
+            StepExecutor::SkillHost,
+        );
+        workflows.stop_recording("device-1", "", &[]).unwrap();
+
+        let quickdesk_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let quickdesk_address = quickdesk_listener.local_addr().unwrap();
+        let fake_quickdesk = tokio::spawn(async move {
+            let (stream, _) = quickdesk_listener.accept().await.unwrap();
+            let mut socket = accept_async(stream).await.unwrap();
+            while let Some(Ok(Message::Text(text))) = socket.next().await {
+                let request: serde_json::Value = serde_json::from_str(&text).unwrap();
+                if let Some(id) = request.get("id").and_then(serde_json::Value::as_str) {
+                    let response = json!({"id": id, "result": {"processes": []}});
+                    socket
+                        .send(Message::Text(response.to_string().into()))
+                        .await
+                        .unwrap();
+                }
+            }
+        });
+        let ws = WsClient::connect(
+            &format!("ws://{quickdesk_address}"),
+            None,
+            EventBus::new(100),
+        )
+        .await
+        .unwrap();
+
+        let callback_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let callback_address = callback_listener.local_addr().unwrap();
+        let (replayed_tx, replayed_rx) = tokio::sync::oneshot::channel();
+        let callback_server = tokio::spawn(async move {
+            let mut replayed_tx = Some(replayed_tx);
+            for attempt in 0..4 {
+                let (mut stream, _) = callback_listener.accept().await.unwrap();
+                let mut buffer = vec![0u8; 8192];
+                let read = stream.read(&mut buffer).await.unwrap();
+                let request = String::from_utf8_lossy(&buffer[..read]).to_string();
+                if attempt == 3 {
+                    if let Some(sender) = replayed_tx.take() {
+                        let _ = sender.send(request);
+                    }
+                }
+                let status = if attempt < 3 {
+                    "500 Internal Server Error"
+                } else {
+                    "200 OK"
+                };
+                let response =
+                    format!("HTTP/1.1 {status}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+                stream.write_all(response.as_bytes()).await.unwrap();
+            }
+        });
+
+        let shared = Arc::new(SharedState {
+            memory: MemoryStore::with_db_path(temp.join("memory.db")).unwrap(),
+            workflow: workflows,
+            trust: TrustEngine::with_db_path(temp.join("trust.db")).unwrap(),
+        });
+        let slots = Arc::new(Semaphore::new(1));
+        let jobs = test_jobs(&temp, ws.clone(), shared.clone(), slots.clone());
+        let app = router(TriggerRuntime {
+            token: Some("business-secret".to_string()),
+            ws,
+            shared_state: shared,
+            allowed_devices: Vec::new(),
+            run_slots: slots,
+            triggers: WorkflowTriggerStore::with_storage_dir(temp.join("triggers")),
+            idempotency: WorkflowIdempotencyStore::with_storage_path(temp.join("idempotency.json")),
+            jobs,
+        });
+
+        let unauthenticated = Request::builder()
+            .uri("/v1/callback-deliveries?status=dead")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(unauthenticated).await.unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+        let request = Request::builder()
+            .method("POST")
+            .uri(format!("/v1/workflows/{workflow_id}/run"))
+            .header("Authorization", "Bearer business-secret")
+            .header("Content-Type", "application/json")
+            .body(Body::from(
+                json!({
+                    "device_id": "device-1",
+                    "callback_url": format!("http://{callback_address}/dead-letter")
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        let response = app.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let dead_delivery = tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                let request = Request::builder()
+                    .uri("/v1/callback-deliveries?status=dead")
+                    .header("Authorization", "Bearer business-secret")
+                    .body(Body::empty())
+                    .unwrap();
+                let response = app.clone().oneshot(request).await.unwrap();
+                assert_eq!(response.status(), StatusCode::OK);
+                let body = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+                let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+                if let Some(delivery) = body["deliveries"]
+                    .as_array()
+                    .and_then(|items| items.first())
+                {
+                    return delivery.clone();
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("callback should reach the dead-letter state");
+        assert_eq!(dead_delivery["status"], "dead");
+        assert_eq!(dead_delivery["attempts"], 3);
+        assert!(dead_delivery["last_error"]
+            .as_str()
+            .is_some_and(|error| error.contains("500")));
+        let delivery_id = dead_delivery["id"].as_str().unwrap().to_string();
+
+        let request = Request::builder()
+            .method("POST")
+            .uri(format!("/v1/callback-deliveries/{delivery_id}/retry"))
+            .header("Authorization", "Bearer business-secret")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+        let retried: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(retried["status"], "pending");
+        assert_eq!(retried["attempts"], 0);
+
+        let replayed = tokio::time::timeout(Duration::from_secs(2), replayed_rx)
+            .await
+            .expect("manual replay should trigger a new callback")
+            .unwrap()
+            .to_lowercase();
+        assert!(replayed.contains(&format!("x-quickdesk-delivery-id: {delivery_id}")));
+
+        let delivered = tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                let request = Request::builder()
+                    .uri("/v1/callback-deliveries?status=delivered")
+                    .header("Authorization", "Bearer business-secret")
+                    .body(Body::empty())
+                    .unwrap();
+                let response = app.clone().oneshot(request).await.unwrap();
+                assert_eq!(response.status(), StatusCode::OK);
+                let body = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+                let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+                if let Some(delivery) = body["deliveries"]
+                    .as_array()
+                    .and_then(|items| items.iter().find(|item| item["id"] == delivery_id))
+                {
+                    return delivery.clone();
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("manually replayed callback should be delivered");
+        assert_eq!(delivered["status"], "delivered");
+
+        let request = Request::builder()
+            .method("POST")
+            .uri(format!("/v1/callback-deliveries/{delivery_id}/retry"))
+            .header("Authorization", "Bearer business-secret")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+
         callback_server.abort();
         fake_quickdesk.abort();
         let _ = std::fs::remove_dir_all(temp);

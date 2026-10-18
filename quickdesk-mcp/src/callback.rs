@@ -40,13 +40,27 @@ impl Default for CallbackRetryPolicy {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum CallbackDeliveryStatus {
     Pending,
     Retry,
     Delivered,
     Dead,
+}
+
+impl std::str::FromStr for CallbackDeliveryStatus {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "pending" => Ok(Self::Pending),
+            "retry" => Ok(Self::Retry),
+            "delivered" => Ok(Self::Delivered),
+            "dead" => Ok(Self::Dead),
+            other => Err(format!("unknown callback delivery status '{other}'")),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -98,9 +112,41 @@ impl CallbackStore {
     }
 
     fn list_due(&self, now: DateTime<Utc>) -> Result<Vec<CallbackDelivery>, String> {
+        let mut due: Vec<_> = self
+            .read_all()?
+            .into_iter()
+            .filter(|delivery| {
+                matches!(
+                    delivery.status,
+                    CallbackDeliveryStatus::Pending | CallbackDeliveryStatus::Retry
+                )
+            })
+            .filter(|delivery| {
+                DateTime::parse_from_rfc3339(&delivery.next_attempt_at)
+                    .map(|value| value.with_timezone(&Utc) <= now)
+                    .unwrap_or(false)
+            })
+            .collect();
+        due.sort_by(|left, right| left.next_attempt_at.cmp(&right.next_attempt_at));
+        Ok(due)
+    }
+
+    fn list(
+        &self,
+        status: Option<CallbackDeliveryStatus>,
+        limit: usize,
+    ) -> Result<Vec<CallbackDelivery>, String> {
+        let mut deliveries = self.read_all()?;
+        deliveries.retain(|delivery| status.is_none_or(|expected| delivery.status == expected));
+        deliveries.sort_by(|left, right| right.created_at.cmp(&left.created_at));
+        deliveries.truncate(limit);
+        Ok(deliveries)
+    }
+
+    fn read_all(&self) -> Result<Vec<CallbackDelivery>, String> {
         let entries = std::fs::read_dir(&self.storage_dir)
             .map_err(|error| format!("read callback outbox: {error}"))?;
-        let mut due = Vec::new();
+        let mut deliveries = Vec::new();
         for entry in entries {
             let entry = entry.map_err(|error| format!("read callback outbox entry: {error}"))?;
             let path = entry.path();
@@ -121,25 +167,24 @@ impl CallbackStore {
                     continue;
                 }
             };
-            if !matches!(
-                delivery.status,
-                CallbackDeliveryStatus::Pending | CallbackDeliveryStatus::Retry
-            ) {
-                continue;
-            }
-            let next_attempt_at = match DateTime::parse_from_rfc3339(&delivery.next_attempt_at) {
-                Ok(value) => value.with_timezone(&Utc),
-                Err(error) => {
-                    tracing::warn!("invalid callback retry time for {}: {error}", delivery.id);
-                    continue;
-                }
-            };
-            if next_attempt_at <= now {
-                due.push(delivery);
-            }
+            deliveries.push(delivery);
         }
-        due.sort_by(|left, right| left.next_attempt_at.cmp(&right.next_attempt_at));
-        Ok(due)
+        Ok(deliveries)
+    }
+
+    fn retry_dead(&self, delivery_id: &str) -> Result<CallbackDelivery, CallbackRetryError> {
+        let mut delivery = self.get(delivery_id).ok_or(CallbackRetryError::NotFound)?;
+        if delivery.status != CallbackDeliveryStatus::Dead {
+            return Err(CallbackRetryError::NotDead);
+        }
+        let now = Utc::now().to_rfc3339();
+        delivery.status = CallbackDeliveryStatus::Pending;
+        delivery.attempts = 0;
+        delivery.next_attempt_at = now.clone();
+        delivery.last_error.clear();
+        delivery.updated_at = now;
+        self.save(&delivery).map_err(CallbackRetryError::Store)?;
+        Ok(delivery)
     }
 
     fn mark_delivered(&self, delivery_id: &str) -> Result<CallbackDelivery, String> {
@@ -217,6 +262,13 @@ pub struct CallbackOutbox {
     wake_tx: mpsc::UnboundedSender<String>,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum CallbackRetryError {
+    NotFound,
+    NotDead,
+    Store(String),
+}
+
 impl CallbackOutbox {
     pub fn new(cancellation: CancellationToken) -> Result<Self, String> {
         let base = dirs_data_dir().unwrap_or_else(|| PathBuf::from("."));
@@ -257,6 +309,22 @@ impl CallbackOutbox {
             return Err("callback outbox worker is not running".to_string());
         }
         Ok(Some(delivery.id))
+    }
+
+    pub fn list(
+        &self,
+        status: Option<CallbackDeliveryStatus>,
+        limit: usize,
+    ) -> Result<Vec<CallbackDelivery>, String> {
+        self.store.list(status, limit)
+    }
+
+    pub fn retry_dead(&self, delivery_id: &str) -> Result<CallbackDelivery, CallbackRetryError> {
+        let delivery = self.store.retry_dead(delivery_id)?;
+        self.wake_tx.send(delivery.id.clone()).map_err(|_| {
+            CallbackRetryError::Store("callback outbox worker is not running".to_string())
+        })?;
+        Ok(delivery)
     }
 
     #[cfg(test)]

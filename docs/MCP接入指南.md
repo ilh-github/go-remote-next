@@ -1143,14 +1143,24 @@ WebSocket 请求处中止，并写入 `cancelled=true` 的报告。
 会 POST `workflow.run.completed` 或 `workflow.run.failed`，并带
 `X-QuickDesk-Timestamp`、`X-QuickDesk-Delivery-Id` 和
 `X-QuickDesk-Signature: hmac-sha1=<hex>`；签名原文为
-`timestamp + "." + raw_json_body`。回调当前只允许 HTTP，且是单次 best-effort；
-跨机器部署必须放在 TLS 反向代理后。
+`timestamp + "." + raw_json_body`。回调先进入持久 outbox，并用同一 delivery id
+自动重试和跨进程重启恢复；单次请求 10 秒超时，最多 8 次，失败后进入死信。回调当前只
+允许 HTTP，跨机器部署必须放在 TLS 反向代理后。
+
+死信可通过同一 Bearer trigger token 查询和人工重放：
+
+```text
+GET  /v1/callback-deliveries?status=dead&limit=100
+POST /v1/callback-deliveries/{delivery_id}/retry
+```
+
+重放会把记录从 `dead` 重置为 `pending`，清空尝试次数并保留原 delivery id。
 
 `QUICKDESK_TRIGGER_TOKEN` 为空时接口关闭；每个进程一次只允许一条业务工作流运行，并继续
 受 `QUICKDESK_ALLOWED_DEVICES` 限制。HTTP 请求本身是同步执行，持久化 interval trigger 由
 后台 worker 执行。可选 `Idempotency-Key` 会把相同请求的第一次 `WorkflowRunReport`
 持久化并重放；相同 key 对应不同请求或仍在执行的请求返回 409。cron/日历、回调
-outbox/重试和跨进程 worker 尚未实现。完整契约见
+人工确认和跨进程 worker 尚未实现。完整契约见
 `docs/dev/业务工作流HTTP触发器.md`。
 
 持久化触发器通过以下接口管理：
@@ -1174,8 +1184,8 @@ Qt 的 `CloudDeviceManager` 先完成实时流的 snapshot/replay 与 `server_re
 发送 `controlPlaneEvent`。MCP 只订阅该事件名，按类型、设备和过滤器匹配后先持久化
 claim 再执行。事件 `id` 是跨重启幂等键；没有 ID 的旧事件才使用 `server_rev`。
 事件订阅只处理实时到达的事件，MCP 停机期间的事件不会补发。cron/日历规则、跨进程
-队列恢复和回调死信查询/重放 API 仍未实现；HMAC 回调本身已使用持久 outbox，并以同一
-delivery id 自动重试和跨进程重启恢复。
+队列恢复和回调人工确认仍未实现；HMAC 回调本身已使用持久 outbox，并以同一 delivery id
+自动重试、跨进程重启恢复，支持死信查询和人工重放。
 
 ---
 
