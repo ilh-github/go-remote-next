@@ -1,6 +1,6 @@
 # QuickDesk 功能总清单
 
-> 最后对账：2026-10-18 13:21 CST。上游与 fork 状态都是动态的，实施前必须重新执行
+> 最后对账：2026-10-18 14:55 CST。上游与 fork 状态都是动态的，实施前必须重新执行
 > `git fetch --all --prune` 并核对 GitHub issue / PR。
 >
 > 本文件是 QuickDesk fork 后续产品开发的唯一功能清单。它合并三类输入：
@@ -43,7 +43,7 @@
 
 - 仓库：`go-remote-next`
 - 本地主分支：`dev`、`master`
-- 本地代码基线：`5a4ff4a`（QD-610 persistent control-plane event replay）；`origin/dev` 与
+- 本地代码基线：`b9f414c`（QD-111 / QD-408 文件传输审计）；`origin/dev` 与
   `origin/master` 仍在 `9837194`，本地领先数量以 `git rev-list --count origin/dev..dev`
   的实时值为准
 - 上游基线：`barry-ran/QuickDesk` 的 `dev` 和 `master` 当前均为 `f6651f0`
@@ -74,6 +74,15 @@
 - QD-610 已补 MCP 事件重连和持久化：QuickDesk WebSocket API 保留最近 256 条白名单事件，
   按用户 ID 原子持久化，线程重启/QuickDesk 重启后重新载入；MCP auth 携带
   `since_server_rev`，认证后补发更大的 revision
+- QD-111 / QD-408 文件传输审计已补齐：控制端在 Remoting DataChannel 完成或失败后上报
+  `POST /v1/me/file-transfer-audits`，服务端校验设备归属并按
+  `(actor, direction, transfer_id)` 幂等写入 `file.transfer.upload|download` 审计；
+  WebClient 和 Qt 均已接线，OpenAPI 与七套 SDK 同步。该记录是控制端上报，不是 Host
+  对实际文件系统操作的加密证明
+- QD-111 / QD-408 上游候选已准备：`codex/upstream-qd-111-file-transfer-audit` =
+  `c57a2f4`，基于 PR #25 的 `feat/signaling-control-plane@8998466`。候选只带
+  SignalingServer、OpenAPI、WebClient、Qt 接线、contract smoke 和 PR #25 基线已有的
+  TypeScript/Go/Python/Java 四套 SDK，不带 fork 清单、品牌或七套 SDK 扩展
 - fork PR：<https://github.com/ilh-github/go-remote-next/pull/1>，OPEN / MERGEABLE /
   CLEAN，7 项检查全部成功；它的 head 是早期最小分支，不等于当前完整 `dev`
 - 服务端：Go SignalingServer
@@ -97,7 +106,7 @@
 
 最近验证：
 
-- 本轮代码提交：`71b899e`（QD-316 会话内文字聊天）、`2e09d5b`（QD-610 控制面事件触发器）、`9f7be0f`（QD-610 HMAC 结果回调）、`e8ce807`（QD-610 异步任务队列/取消）、`e518194`（QD-610 Idempotency-Key）、`3f94911`（QD-610 持久化/定时触发器）、`bca8149`（QD-610 HTTP trigger）、`de88f07`（QD-506 Web 录像分块续传）、`001a76c`（QD-510 工作流核心）、`e688869`（访问码同步重试）、`5be14da`（SPAKE2 与传输错误码）、
+- 本轮代码提交：`b9f414c`（QD-111 / QD-408 文件传输审计）、`71b899e`（QD-316 会话内文字聊天）、`2e09d5b`（QD-610 控制面事件触发器）、`9f7be0f`（QD-610 HMAC 结果回调）、`e8ce807`（QD-610 异步任务队列/取消）、`e518194`（QD-610 Idempotency-Key）、`3f94911`（QD-610 持久化/定时触发器）、`bca8149`（QD-610 HTTP trigger）、`de88f07`（QD-506 Web 录像分块续传）、`001a76c`（QD-510 工作流核心）、`e688869`（访问码同步重试）、`5be14da`（SPAKE2 与传输错误码）、
   `a982a10`（Windows 自动更新重启与缓存清理）、`c77dcae`（SQLite 轻量模式）、
   `64ab93a`（备份恢复与存储配额）、`37dd8aa`（Host 指标告警）、`3021ca9`
   （私密安全披露策略）、`3474203`（信令信任边界）；
@@ -112,7 +121,7 @@
   `dev` 切分支贡献、Remoting 改动由维护者处理”；不能再把“暂缓”理解成停止维护。
 - 上游 PR：#22、#23、#24、#25 均为 OPEN / MERGEABLE，但 GitHub 返回的
   `mergeStateStatus=UNSTABLE` 且没有 reported checks；不能把 MERGEABLE 写成 CI 已通过。
-- 清单统计：117 个唯一 QD ID；82 个 `[x]`、20 个 `[~]`、11 个 `[ ]`、
+- 清单统计：117 个唯一 QD ID；84 个 `[x]`、20 个 `[~]`、9 个 `[ ]`、
   1 个 `[!]`、2 个 `[>]`、1 个 `[-]`。
 - 上游待办已全部映射到本清单：10 个 open issue、6 个 open PR、3 个未完成 Roadmap
   项均有对应 QD、处理边界和上游贡献方式；上游已完成的 Roadmap 项只作为继承基线，
@@ -135,6 +144,11 @@
 - WebClient `npm test`：62/62 通过，新增 skill bridge 请求关联/错误/超时、路径模型、
   分块上传下载和重命名测试。
 - WebClient `npm run build`：通过，JS 378.74 kB，gzip 119.96 kB。
+- QD-111 / QD-408：TDD RED 覆盖 handler 缺失、重复上报和非法 direction；
+  `go test ./...`、`go vet ./...`、WebClient 66/66、生产构建、Qt CTest 15/15 均通过；
+  最小 SQLite 真服务验证同 transfer 两次 204、非法方向 400，数据库仅一行
+  `file.transfer.upload`，中文文件名和字节数完整；QuickDesk 源码编译到最终链接，
+  仍受既有 `AGL` framework 缺失限制。
 - QD-511 状态校验：`cargo test` 46/46、`cargo clippy -D warnings` 通过；新增
   `set_step_expectation` MCP 工具和屏幕断言翻译/解析测试。
 - QD-505 断线收尾：新增 `RecordingLifecycle` 判定与 `quickdesk_recording_lifecycle_test`，
@@ -360,6 +374,14 @@
   的 `type: module` / ESM copy-legacy 配置；候选自身 3/3 单测、生产构建和 diff check 通过。
   PR #23 基线早于 QD-006，没有 SQLite 驱动，因此真实分片 E2E 在 fork 主线执行，候选
   不复用 fork 后续 SQLite 代码。
+- QD-111 / QD-408 上游候选：`codex/upstream-qd-111-file-transfer-audit` = `c57a2f4`，
+  基于 PR #25 的 `feat/signaling-control-plane@8998466`，共 44 个文件。候选只含
+  文件传输审计的 SignalingServer、OpenAPI、WebClient、Qt 接线、contract smoke 和
+  PR #25 基线已有的 TypeScript/Go/Python/Java 四套 SDK；不携带 fork 清单、品牌、
+  C#/PHP/Kotlin SDK 或 device-groups 等相邻功能。候选自身 Go 测试/vet、四套 SDK
+  freshness、Go/Python/Java/TypeScript 编译、WebClient 单测和生产构建、管理端生产
+  构建均通过；QuickDesk 源码编译经过新增的 `CloudDeviceManager` 和 `MainController`，
+  最终链接仍因既有预编译 Remoting 依赖缺失 `AGL` framework 失败。
 - QD-610 第一阶段功能提交：`bca8149`。`quickdesk-mcp --transport http` 新增
   `POST /v1/workflows/{workflow_id}/run` 和 `GET /v1/workflow-runs/{run_id}`，使用独立
   `QUICKDESK_TRIGGER_TOKEN`，执行前检查设备白名单，继续经过 trust/emergency 层，并返回
@@ -496,7 +518,7 @@
 | 安全设计 | QD-115 服务端设备密钥信任边界 | `Upstream` issue #10 / `Fork` | 威胁模型已完成：device_secret 不可逆，但明文 access_code + server token/审批使当前服务器仍是设备访问信任方；候选 `codex/upstream-qd-115-trust-model@1ca2543` 已准备 | 按文档分阶段推进 Host 身份密钥、Owner 签名 grant、Host 本地验证和恶意服务器 E2E；8 条验收项完成前保持 `[~]` |
 | 上游候选 | QD-911 私密安全披露入口 | `Upstream` issue #6 | fork 与独立候选已有 `SECURITY.md`，候选 `codex/upstream-qd-911-security@9862717` 直接基于 `upstream/dev`，只含 1 个文件；上游 issue 仍开放且 Private Vulnerability Reporting 仍 disabled | 远端写入恢复后推送并开 PR；维护者合并且启用私密报告后才转为 `[x]` |
 | 后续增强 | QD-610 业务工作流 | `Legacy` / `Fork` / `Upstream-Open` | QD-510 已完成录制/回放/报告；`bca8149` 补 HTTP trigger；`3f94911` 补持久化 CRUD、固定 interval worker 与运行结果回写；`e518194` 补 Idempotency-Key；`e8ce807` 补异步队列、状态查询和取消；`9f7be0f` 补 HMAC 出站回调；`2e09d5b` 补白名单控制面事件订阅、过滤和幂等 claim；`1176a92`~`a94bba1` 补持久 outbox、死信、重放和 ack；`d3dc4cf` 补 queued job 重启恢复；`3c31d9a` 补 UTC cron；`20d02cc` 补 IANA 时区和 DST；`47d5e19` 补批量 ack；`af8653f` 补 MCP 短期事件重连；`5a4ff4a` 补按用户持久化事件 replay；跨实例事件 outbox、超过 256 条积压、法定节假日、多进程共享 worker、确认操作者归属和委托权限仍缺 | 继续做不依赖外部凭据的业务编排 |
-| 质量收口 | QD-906、QD-907、QD-908、QD-909 | `Legacy` / `Fork` | 真机矩阵、异常路径、2h+ 长稳、文件/剪贴板审计仍不完整 | 每完成一个主功能就补对应边界，不集中到最后一次性补测 |
+| 质量收口 | QD-906、QD-907、QD-908、QD-909 | `Legacy` / `Fork` | 真机矩阵、异常路径和 2h+ 长稳仍不完整；文件传输审计已完成，图片/系统级剪贴板边界仍按 QD-406/407 跟踪 | 每完成一个主功能就补对应边界，不集中到最后一次性补测 |
 | 明确暂缓 | QD-318 Linux、QD-319 原生移动端 | `Upstream` Roadmap | 上游已列计划，当前 fork 不做实现承诺 | 保持接口和构建兼容，等上游方向明确后接 |
 | 明确不做 | RDP、重写 WebRTC/Remoting、多租户/SSO/计费、通用插件市场 | `Fork` 决策 | 与当前“复用成熟远控内核 + 补业务控制面”的路线冲突或收益不足 | 不进入待办池，除非用户重新定义产品目标 |
 
@@ -541,7 +563,7 @@ Private Vulnerability Reporting，后者等协议实现。当前继续做不依�
 | U0 同步闸门 | PR #22 自动审批线程亲和性、#23 录像、#24 skill-host 运行库、#25 自托管控制面 | 先审查和同步上游已有 PR；本 fork 不重复实现 | `UP-PR#22` ~ `UP-PR#25` | 不把已有 PR 再写一遍，不抢跑 #25 控制面 |
 | U1 立即回贡 | QD-002/QD-403 Web 文件管理、QD-003、QD-114 SPKI、QD-212、QD-213、QD-214 SPAKE2/错误诊断、QD-215、QD-316 会话聊天、QD-510、QD-610 通用触发器、QD-911、QD-115 文档 | 远端写入恢复后按主题各推一个最小分支；Web 文件管理拆为 `file-ops` 工具和 WebClient 页面两个相邻 PR；QD-316 候选已在本地验证但 push 被策略拒绝 | `UP-Ready` | 不带 fork 清单、品牌、部署地址或无关业务代码 |
 | U2 等 #25 基线 | QD-204、QD-607、QD-006、QD-604、QD-810、QD-005、QD-108/QD-508/QD-706/QD-708 管理面 | 先把 fork 功能做完整，保留 stacked 候选；#25 合并或维护者确认基线后 rebase | `UP-Stacked` | 不直接 cherry-pick 整个 fork 提交；不把服务端、Web、Qt 塞进同一个 PR |
-| U3 交 Remoting | QD-004、QD-007、QD-114 真实 CertVerifier、QD-214 Windows 用户上下文、QD-111/QD-408 所需的文件事件 | 写协议草案、权限边界、兼容性和验收用例，先向上游提需求 | `UP-Remoting` | 不重写媒体/输入链路，不在 fork 造第二套 RDP 或伪协议 |
+| U3 交 Remoting | QD-004、QD-007、QD-114 真实 CertVerifier、QD-214 Windows 用户上下文 | 写协议草案、权限边界、兼容性和验收用例，先向上游提需求 | `UP-Remoting` | 不重写媒体/输入链路，不在 fork 造第二套 RDP 或伪协议；QD-111/QD-408 已走控制端事后上报，不阻塞 Remoting |
 | U4 fork 产品层 | 业务系统专属 provider、委托权限策略、运营页面、品牌和部署配置；QD-610 中依赖具体业务凭据的部分 | 在 fork 主干完成产品化，通用底层抽成 U1/U2 的 PR | `Fork-only` | 不把私有业务规则伪装成上游通用能力 |
 | U5 质量底座 | QD-904、QD-906、QD-907、QD-908、QD-909、QD-910 | 每完成一个主功能同步补测试、真机或长稳证据；上游通用测试随后回贡 | `UP-Ready` 或 `Fork-only` | 不集中到最后补测，不用单次成功代替稳定性 |
 | U6 跟随上游 | QD-318 Linux、QD-319 原生移动端 | 保持接口和构建兼容，等待上游路线明确 | `Upstream-Open` | 不提前承诺实现，不把 Web 触摸或跨平台构建冒充原生客户端 |
@@ -582,7 +604,7 @@ fork 是否能继续开发，也不能因为 fork 自己有实现就再次向 up
 | QD-108 | 二次访问审批 | `[x]` | 服务端、WebClient 和 Qt 均已完成；Qt 提交 `7c23f13` 覆盖入口、决定、汇总、冲突处理和实时消费 |
 | QD-109 | 来源封禁与解封 | `[~]` | 服务端、WebClient、Qt、管理端和 SDK 已完成；真实 Windows 踢人回归待补 |
 | QD-110 | 审计、归档、导出、保留策略 | `[x]` | 管理端和用户侧事件已覆盖 |
-| QD-111 | 文件传输审计 | `[ ]` | 目前文件走 Remoting 数据通道，控制面没有事件 |
+| QD-111 | 文件传输审计 | `[x]` | 控制端完成/失败上报；设备归属校验、按 transfer ID 幂等；Web/Qt、OpenAPI 和七套 SDK 已同步；边界是控制端可信上报而非 Host 签名证明 |
 | QD-112 | SSO、多租户、计费 | `[-]` | 当前不做 |
 | QD-113 | Trust 自动审批线程亲和性 | `[~]` | 上游 issue #17 / PR #22 已有修复；本 fork 未重复实现，PR 合并后同步 |
 | QD-114 | 自托管 HTTPS/WSS 证书校验 | `[~]` | 上游 issue #20；Qt 子进程支持 SPKI 列表，Windows 服务安装支持 `QUICKDESK_SPKI`；彻底修复仍需 Remoting 接入真实 CertVerifier，Qt/Windows 实机构建待补 |
@@ -644,7 +666,7 @@ fork 是否能继续开发，也不能因为 fork 自己有实现就再次向 up
 | QD-405 | 双向文本剪贴板 | `[x]` | UTF-8 文本 |
 | QD-406 | 双向图片剪贴板 | `[ ]` | 当前迭代 QD-007，需要 Remoting 协议扩展 |
 | QD-407 | 系统级文件剪贴板 | `[ ]` | 当前不做主链路承诺 |
-| QD-408 | 文件传输审计 | `[ ]` | 同 QD-111 |
+| QD-408 | 文件传输审计 | `[x]` | 同 QD-111 |
 
 ## 8. 录制、回放与文件生命周期
 
@@ -909,6 +931,7 @@ Remoting 或协议改造；`不重复` 表示上游已经具备，只需验证�
 | 14 | `feat(signaling): report host metrics and alert on sustained thresholds` | QD-604 | 服务端候选 `codex/upstream-qd-604-metrics@0ea9e7c` 已基于 `codex/upstream-qd-006-sqlite@7758456` 独立验证；含 SignalingServer、OpenAPI、四套 SDK、smoke 和真实 SQLite+Webhook E2E。fork 功能提交为 `37dd8aa` | 远端写入恢复后推送并作为 QD-006 的 stacked PR；Web/Qt 等 PR #25 客户端基线确认后单独拆 |
 | 15 | `docs: add private security disclosure policy` | QD-911 / issue #6 | 候选 `codex/upstream-qd-911-security@9862717` 直接基于 `upstream/dev@f6651f0`，只新增根目录 `SECURITY.md`；上游 Private Vulnerability Reporting 仍 disabled | 推送后创建 issue #6 PR；请维护者同时启用 GitHub Private Vulnerability Reporting |
 | 16 | `docs(security): define signaling trust boundary` | QD-115 / issue #10 | 候选 `codex/upstream-qd-115-trust-model@1ca2543` 直接基于 `upstream/dev@f6651f0`，只新增 `docs/security/signaling-trust-model.md` | 推送并关联 issue #10；文档批准后再按 Host 身份密钥与 Owner 签名授权拆协议 PR |
+| 17 | `feat(audit): record controller file transfers` | QD-111 / QD-408 | 候选 `codex/upstream-qd-111-file-transfer-audit@c57a2f4` 基于 PR #25 的 `8998466`，44 个文件，只含文件传输审计和四套基线 SDK；候选自身 Go/SDK/Web 构建通过，Qt 源码编译到既有 `AGL` 链接限制 | 推送后以 `feat/signaling-control-plane` 为基线创建 stacked PR；PR #25 合入后再 rebase 到 `upstream/dev` |
 
 QD-002 / QD-403 的上游候选已经推送并开 PR：
 

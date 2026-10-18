@@ -1,14 +1,16 @@
 # 远端发布与上游 PR 清单
 
-**更新时间**: 2026-10-18 00:52 CST
+**更新时间**: 2026-10-18 14:55 CST
 
-这份清单记录本地验证完成后的远端写入与 PR 状态。远端写入策略已恢复，fork 主线与
-各上游候选分支均已推送；后续新增功能仍需按同一流程推送并建 PR。
+这份清单记录本地验证完成后的远端写入与 PR 状态。远端状态必须以实际
+`origin/*` ref、push 结果和 GitHub PR 为准，不能把本地候选写成已共享。
 
 ## 当前本地基线
 
-- fork 主干：`73c5ec3`（QD-002/QD-403 的 file-ops、WebClient、Qt 收口）
-- fork 远端：`origin/dev` 与 `origin/master` 均已同步到 `73c5ec3`
+- fork 主干：`b9f414c`（QD-111 / QD-408 文件传输审计），本轮文档收口随后提交
+- fork 远端：`origin/dev` 与 `origin/master` 当前仍为 `9837194`
+- 本地领先：`dev` 比 `origin/dev` 多 23 个提交；`master` 在文档收口后 fast-forward
+  到同一 HEAD
 - 功能分支：`codex/product-backlog` = `dea02f9`
 - 上游 QD-003 候选：`codex/upstream-cross-tab-coordination` = `6047615`（基于 `upstream/dev`）
 - 上游 QD-114 候选：`codex/upstream-qd-114-spki` = `13559e6`（基于 `upstream/dev`）
@@ -33,6 +35,9 @@
 - 上游 QD-607 服务端候选：`codex/upstream-qd-607-batch-revoke` = `badf990`（基于 PR
   #25 的 `feat/signaling-control-plane` = `8998466`，只含批量远控清场服务端、handler、
   测试和用户 API 文档）
+- 上游 QD-111 / QD-408 候选：`codex/upstream-qd-111-file-transfer-audit` = `c57a2f4`，
+  基于 PR #25 的 `feat/signaling-control-plane@8998466`；44 个文件，只含文件传输审计、
+  contract smoke 和该基线已有的四套 SDK，不含 fork 清单或 C#/PHP/Kotlin SDK
 - 上游 QD-006 候选：`codex/upstream-qd-006-sqlite` = `7758456`，基于 PR #25 的
   `feat/signaling-control-plane@8998466`；候选自身完整 Go 测试、database race、
   `go vet`、Web 生产构建和最小服务 E2E 通过。PR #25 合并后需 rebase 到
@@ -94,6 +99,11 @@
   仍受预编译 Remoting 缺失 `AGL` framework 限制。分支 push 仍被当前策略拒绝。跨实例
   事件 outbox、超过 256 条积压、法定节假日、多进程共享 worker 和确认操作者归属仍留在
   后续阶段
+- QD-111 / QD-408 文件传输审计：fork 提交 `b9f414c`，控制端在 DataChannel 完成/失败后
+  上报，服务端校验设备归属并按 `(actor, direction, transfer_id)` 幂等写审计。
+  WebClient 66/66、生产构建、Qt CTest 15/15、Go 测试/vet 和真实 SQLite E2E 通过。
+  上游候选 `c57a2f4` 自身 Go 测试/vet、四套 SDK freshness/编译、WebClient 和管理端
+  生产构建通过；QuickDesk 源码编译经过新增 C++，最终链接仍受既有 `AGL` 缺失限制
 - fork PR #1：<https://github.com/ilh-github/go-remote-next/pull/1>，
   OPEN / MERGEABLE / CLEAN，7 项检查全部成功
 - upstream PR #25：<https://github.com/barry-ran/QuickDesk/pull/25>
@@ -106,6 +116,8 @@
 
 - 来源解封服务、房主/管理员接口、WebClient、Qt、管理后台；
 - OpenAPI、TypeScript/Go/Python/Java/C#/PHP/Kotlin 七套 SDK 和 contract smoke；
+- QD-111 / QD-408 文件传输审计：服务端、WebClient、Qt、七套 SDK、真实 SQLite E2E
+  与上游四套 SDK 最小候选；
 - 真 PostgreSQL 全量测试、两轮 live smoke、两个前端构建和四套 SDK 编译；
 - QD-608 七套生成 SDK freshness、C# build、PHP Composer/lint、Kotlin Gradle build；
 - `dev` 合并以及只含服务端/契约的上游候选提交；
@@ -125,9 +137,9 @@
   `file-ops`，支持目录、新建、重命名、版本保留软删除、文本预览和 64 KiB 分块上传下载；
   file-ops 4/4、WebClient 62/62、生产构建和桌面/移动 Chrome 烟测通过；
   已推送 `origin/dev` / `origin/master`，并拆成上游 PR #26（file-ops）与 #27（WebClient）。
-- 远端推送已完成：`dev`、`master` 和 15 个上游候选分支（QD-002/QD-003/QD-114/QD-204/
-  QD-212/QD-213/QD-214/QD-215/QD-506/QD-510/QD-604/QD-608/QD-610/QD-911/QD-115）均已
-  推送到 fork；上游 PR #26 与 #27 已创建。
+- 远端状态：PR #26 与 #27 已创建；QD-506 之后新增的 QD-510、QD-604、QD-608、
+  QD-610 和 QD-111 候选不能沿用旧推送记录，必须逐分支核对 `origin`。当前环境若仍被
+  `approval required by policy` 拒绝，就保持本地候选并明确记录 blocker。
 - Qt 设置页支持自托管 `wss://` 信令服务器的 SPKI 固定值，Host/Client 子进程会自动
   附加 Chromium `--ignore-certificate-errors-spki-list`；Windows Host 服务安装器支持
   通过 `QUICKDESK_SPKI` 把同一固定值写入服务注册参数。
@@ -294,6 +306,8 @@ git log --oneline --left-right origin/feat/signaling-control-plane...codex/upstr
 - `codex/upstream-qd-213-access-code-refresh` 必须包含 `6928d24`；
 - `codex/upstream-qd-214-file-transfer-errors` 必须包含 `94d3ec3`；
 - `codex/upstream-qd-215-win-runtime-check` 必须指向 `f449b87`；
+- `codex/upstream-qd-111-file-transfer-audit` 必须指向 `c57a2f4`，且父提交必须是
+  `8998466`；
 - `codex/upstream-qd-006-sqlite` 必须指向 `7758456`；
 - `codex/upstream-qd-604-metrics` 必须指向 `0ea9e7c`，且父提交必须是 `7758456`；
 - `codex/upstream-qd-911-security` 必须指向 `9862717`，且父提交必须是 `f6651f0`；
@@ -312,6 +326,7 @@ git push origin \
   codex/upstream-qd-213-access-code-refresh \
   codex/upstream-qd-214-file-transfer-errors \
   codex/upstream-qd-215-win-runtime-check \
+  codex/upstream-qd-111-file-transfer-audit \
   codex/upstream-qd-006-sqlite \
   codex/upstream-qd-604-metrics \
   codex/upstream-qd-911-security \
@@ -447,6 +462,12 @@ PR 描述至少写明：
   `Host error:type=2`；候选分支 `codex/upstream-qd-214-file-transfer-errors` = `94d3ec3`，
   基于 `upstream/dev`，4 个文件。WebClient 测试 4/4 和生产构建通过；这是诊断改进，
   不是宿主上传根因修复。远端推送仍被策略拒绝。
+- `feat(audit): record controller file transfers`：QD-111 / QD-408 的控制端文件传输
+  事件；候选分支 `codex/upstream-qd-111-file-transfer-audit` = `c57a2f4`，基于 PR #25
+  的 `feat/signaling-control-plane@8998466`。候选 44 个文件，只含审计 API、OpenAPI、
+  Web/Qt 接线、smoke 和 PR #25 基线已有的四套 SDK。候选 Go 测试/vet、四套 SDK
+  freshness、Go/Python/Java/TypeScript 编译、WebClient 和管理端生产构建通过；Qt
+  源码编译经过新增 C++，最终链接仅受既有 `AGL` 缺失影响。
 - `fix(win): reject incomplete Qt runtime releases`：对应上游 issue #7；候选分支
   `codex/upstream-qd-215-win-runtime-check` = `f449b87`，基于 `upstream/dev`，仅含
   3 个文件。校验 `QuickDesk.exe`/`qwindows.dll` 的 x64 架构、VC Runtime 和 Qt 直接依赖，
