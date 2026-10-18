@@ -101,8 +101,9 @@
   本机事件 buffer 和 MCP `since_server_rev` 重连补发；`fae947e` 按用户 ID
   原子持久化 replay buffer，覆盖 QuickDesk 重启；`b0ef926` 补 cron 法定节假日跳过，
   `340b463` 把 2026 日历作为 MCP 自带资源，修复上游候选缺少服务端 holiday 目录时的
-  编译失败；`908696f` 补默认 2048、可配置 1~10000 的控制面 replay 容量。候选自身
-  现为 52/52、Clippy、QuickDesk C++ 编译到既有 `AGL` 链接点、release
+  编译失败；`908696f` 补默认 2048、可配置 1~10000 的控制面 replay 容量；`0b4bbb9`
+  补 cron 漏跑槽位逐条补跑。候选自身现为 54/54、Clippy、QuickDesk C++ 编译到既有
+  `AGL` 链接点、release
   构建和 diff check 通过；fork 侧 Qt CTest 15/15，QuickDesk 完整源码编译到链接阶段后
   仍受预编译 Remoting 缺失 `AGL` framework 限制。分支 push 仍被当前策略拒绝。跨实例
   事件 outbox、超出配置容量的积压、多进程共享 worker 和确认操作者归属仍留在
