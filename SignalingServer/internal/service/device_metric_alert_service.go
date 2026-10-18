@@ -40,12 +40,21 @@ type IngestMetricInput struct {
 }
 
 type DeviceMetricAlertService struct {
-	db  *gorm.DB
-	bus *EventBus
+	db     *gorm.DB
+	bus    *EventBus
+	outbox EventOutboxWriter
 }
 
 func NewDeviceMetricAlertService(db *gorm.DB, bus *EventBus) *DeviceMetricAlertService {
 	return &DeviceMetricAlertService{db: db, bus: bus}
+}
+
+// WithOutbox makes threshold-alert episode claims and their events atomic.
+// Sample broadcasts remain best-effort because they are high-frequency state
+// updates; the actionable alert path needs the durable commit boundary.
+func (s *DeviceMetricAlertService) WithOutbox(outbox EventOutboxWriter) *DeviceMetricAlertService {
+	s.outbox = outbox
+	return s
 }
 
 func (s *DeviceMetricAlertService) Get(ctx context.Context, deviceID string) (*models.DeviceMetricAlertRule, error) {
@@ -314,18 +323,6 @@ func (s *DeviceMetricAlertService) evaluateMetric(
 		}
 	}
 
-	claim := s.db.WithContext(ctx).Model(&models.DeviceMetricAlertRule{}).
-		Where("device_id = ? AND "+state.sinceColumn+" = ?", rule.DeviceID, *state.since)
-	if state.alertedAt == nil {
-		claim = claim.Where(state.alertedColumn + " IS NULL")
-	} else {
-		claim = claim.Where(state.alertedColumn+" = ?", *state.alertedAt)
-	}
-	res := claim.Update(state.alertedColumn, now)
-	if res.Error != nil || res.RowsAffected == 0 {
-		return res.Error
-	}
-
 	data := map[string]interface{}{
 		"device_id":         rule.DeviceID,
 		"device_name":       device.DeviceName,
@@ -336,13 +333,42 @@ func (s *DeviceMetricAlertService) evaluateMetric(
 		"captured_at":       snapshot.CapturedAt.Format(time.RFC3339),
 		"reminder":          reminder,
 	}
-	if s.bus != nil {
-		s.bus.Publish(ctx, Event{
-			Type:     EventDeviceMetricAlert,
-			UserID:   rule.OwnerID,
-			DeviceID: rule.DeviceID,
-			Data:     data,
-		})
+	evt := Event{
+		Type:     EventDeviceMetricAlert,
+		UserID:   rule.OwnerID,
+		DeviceID: rule.DeviceID,
+		Data:     data,
+	}
+	publishDirect := false
+	claimedAlert := false
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		claim := tx.Model(&models.DeviceMetricAlertRule{}).
+			Where("device_id = ? AND "+state.sinceColumn+" = ?", rule.DeviceID, *state.since)
+		if state.alertedAt == nil {
+			claim = claim.Where(state.alertedColumn + " IS NULL")
+		} else {
+			claim = claim.Where(state.alertedColumn+" = ?", *state.alertedAt)
+		}
+		res := claim.Update(state.alertedColumn, now)
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			return nil
+		}
+		claimedAlert = true
+		if s.outbox != nil {
+			_, err := s.outbox.EnqueueTx(ctx, tx, evt)
+			return err
+		}
+		publishDirect = s.bus != nil
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	if claimedAlert && publishDirect {
+		s.bus.Publish(ctx, evt)
 	}
 	return nil
 }

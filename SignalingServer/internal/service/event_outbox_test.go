@@ -33,6 +33,8 @@ func newEventOutboxTestDB(t *testing.T) *gorm.DB {
 		&models.DeviceAccessApproval{},
 		&models.DeviceAccessGrant{},
 		&models.DeviceOfflineAlertRule{},
+		&models.DeviceMetricAlertRule{},
+		&models.DeviceMetricSnapshot{},
 		&models.Device{},
 		&models.RemoteSession{},
 		&models.SessionRecording{},
@@ -908,6 +910,99 @@ func TestOfflineAlertOutboxFailureRollsBackClaim(t *testing.T) {
 	}
 	if stored.AlertedAt != nil {
 		t.Fatalf("offline alert claim was not rolled back: %+v", stored)
+	}
+}
+
+func TestMetricAlertEventCommitsWithEpisodeClaim(t *testing.T) {
+	db := newEventOutboxTestDB(t)
+	_, _, bus := newEventOutboxTestRedis(t)
+	outbox := NewEventOutbox(db, bus)
+	seedOutboxTestDevice(t, db, "D9100001", 7)
+	if err := db.Model(&models.Device{}).
+		Where("device_id = ?", "D9100001").
+		Update("logged_in", true).Error; err != nil {
+		t.Fatalf("mark device logged in: %v", err)
+	}
+	rule := models.DeviceMetricAlertRule{
+		DeviceID:         "D9100001",
+		OwnerID:          7,
+		Enabled:          true,
+		CPUPercent:       80,
+		SustainedMinutes: 0,
+	}
+	if err := db.Create(&rule).Error; err != nil {
+		t.Fatalf("create metric alert rule: %v", err)
+	}
+	svc := NewDeviceMetricAlertService(db, bus).WithOutbox(outbox)
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	if _, err := svc.Ingest(context.Background(), "D9100001", IngestMetricInput{
+		CapturedAt:    now,
+		CPUPercent:    90,
+		MemoryPercent: 20,
+		DiskPercent:   30,
+	}); err != nil {
+		t.Fatalf("Ingest: %v", err)
+	}
+	var stored models.DeviceMetricAlertRule
+	if err := db.First(&stored, rule.ID).Error; err != nil {
+		t.Fatalf("load metric alert rule: %v", err)
+	}
+	if stored.CPUAlertedAt == nil || stored.CPUExceededSince == nil {
+		t.Fatalf("metric alert episode was not persisted: %+v", stored)
+	}
+	var outboxRows []models.EventOutbox
+	if err := db.Find(&outboxRows).Error; err != nil {
+		t.Fatalf("load metric alert outbox: %v", err)
+	}
+	if len(outboxRows) != 1 {
+		t.Fatalf("metric alert outbox rows = %d, want 1", len(outboxRows))
+	}
+	var event Event
+	if err := json.Unmarshal([]byte(outboxRows[0].Payload), &event); err != nil {
+		t.Fatalf("decode metric alert event: %v", err)
+	}
+	if event.Type != EventDeviceMetricAlert || event.UserID != 7 ||
+		event.DeviceID != "D9100001" || event.Data["metric"] != "cpu" {
+		t.Fatalf("metric alert event = %+v", event)
+	}
+}
+
+func TestMetricAlertOutboxFailureRollsBackClaim(t *testing.T) {
+	db := newEventOutboxTestDB(t)
+	seedOutboxTestDevice(t, db, "D9100002", 7)
+	if err := db.Model(&models.Device{}).
+		Where("device_id = ?", "D9100002").
+		Update("logged_in", true).Error; err != nil {
+		t.Fatalf("mark device logged in: %v", err)
+	}
+	rule := models.DeviceMetricAlertRule{
+		DeviceID:         "D9100002",
+		OwnerID:          7,
+		Enabled:          true,
+		CPUPercent:       80,
+		SustainedMinutes: 0,
+	}
+	if err := db.Create(&rule).Error; err != nil {
+		t.Fatalf("create metric alert rule: %v", err)
+	}
+	svc := NewDeviceMetricAlertService(db, NewEventBus(nil)).WithOutbox(
+		&failingScheduledTaskOutbox{err: errors.New("outbox unavailable")},
+	)
+	_, err := svc.Ingest(context.Background(), "D9100002", IngestMetricInput{
+		CapturedAt:    time.Now().UTC().Truncate(time.Microsecond),
+		CPUPercent:    90,
+		MemoryPercent: 20,
+		DiskPercent:   30,
+	})
+	if err == nil {
+		t.Fatal("Ingest succeeded despite outbox failure")
+	}
+	var stored models.DeviceMetricAlertRule
+	if err := db.First(&stored, rule.ID).Error; err != nil {
+		t.Fatalf("load metric alert rule: %v", err)
+	}
+	if stored.CPUAlertedAt != nil {
+		t.Fatalf("metric alert claim was not rolled back: %+v", stored)
 	}
 }
 

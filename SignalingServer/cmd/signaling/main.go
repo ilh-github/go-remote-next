@@ -320,7 +320,8 @@ func main() {
 	deviceAccessApprovalService = deviceAccessApprovalService.WithOutbox(eventOutbox)
 	remoteSessionService = remoteSessionService.WithOutbox(eventOutbox)
 	sessionRecordingService = sessionRecordingService.WithOutbox(eventOutbox)
-	deviceMetricAlertService := service.NewDeviceMetricAlertService(db, bus)
+	deviceMetricAlertService := service.NewDeviceMetricAlertService(db, bus).
+		WithOutbox(eventOutbox)
 	instanceID := uuid.NewString()
 	presenceService := service.NewPresenceService(redisClient, instanceID)
 	presenceService.Start(context.Background())
