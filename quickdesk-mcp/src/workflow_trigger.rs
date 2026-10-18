@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use std::str::FromStr;
 
 use chrono::{DateTime, Duration, Utc};
+use chrono_tz::Tz;
 use cron::Schedule;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -36,6 +37,7 @@ pub struct WorkflowTriggerSpec {
     pub stop_on_failure: bool,
     pub interval_seconds: Option<u64>,
     pub cron_expression: Option<String>,
+    pub timezone: Option<String>,
     pub event_type: Option<String>,
     pub event_device_id: Option<String>,
     pub event_filter: Option<Value>,
@@ -53,6 +55,8 @@ pub struct WorkflowTrigger {
     pub interval_seconds: Option<u64>,
     #[serde(default)]
     pub cron_expression: Option<String>,
+    #[serde(default)]
+    pub timezone: Option<String>,
     #[serde(default)]
     pub event_type: Option<String>,
     #[serde(default)]
@@ -137,6 +141,27 @@ impl WorkflowTriggerStore {
         if let Some(expression) = cron_expression.as_deref() {
             validate_cron_expression(expression)?;
         }
+        let timezone = spec
+            .timezone
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        if cron_expression.is_none() && timezone.is_some() {
+            return Err("trigger timezone is only supported with cron_expression".to_string());
+        }
+        let timezone = if cron_expression.is_some() {
+            Some(
+                timezone
+                    .as_deref()
+                    .map(validate_timezone)
+                    .transpose()?
+                    .unwrap_or("UTC")
+                    .to_string(),
+            )
+        } else {
+            None
+        };
         let event_type = spec
             .event_type
             .as_deref()
@@ -176,7 +201,7 @@ impl WorkflowTriggerStore {
         let next_run_at = if let Some(seconds) = spec.interval_seconds {
             Some((now + Duration::seconds(seconds as i64)).to_rfc3339())
         } else if let Some(expression) = cron_expression.as_deref() {
-            Some(next_cron_after(expression, now)?.to_rfc3339())
+            Some(next_cron_after(expression, timezone.as_deref(), now)?.to_rfc3339())
         } else {
             None
         };
@@ -189,6 +214,7 @@ impl WorkflowTriggerStore {
             stop_on_failure: spec.stop_on_failure,
             interval_seconds: spec.interval_seconds,
             cron_expression,
+            timezone,
             event_type,
             event_device_id,
             event_filter: spec.event_filter,
@@ -269,7 +295,7 @@ impl WorkflowTriggerStore {
                 let Some(expression) = trigger.cron_expression.as_deref() else {
                     continue;
                 };
-                match next_cron_after(expression, now) {
+                match next_cron_after(expression, trigger.timezone.as_deref(), now) {
                     Ok(next) => next.to_rfc3339(),
                     Err(error) => {
                         trigger.last_status = "failed".to_string();
@@ -361,12 +387,25 @@ fn validate_cron_expression(expression: &str) -> Result<(), String> {
         .map_err(|error| format!("invalid cron_expression: {error}"))
 }
 
-fn next_cron_after(expression: &str, after: DateTime<Utc>) -> Result<DateTime<Utc>, String> {
+fn validate_timezone(timezone: &str) -> Result<&str, String> {
+    Tz::from_str(timezone)
+        .map(|_| timezone)
+        .map_err(|_| format!("invalid timezone: {timezone}"))
+}
+
+fn next_cron_after(
+    expression: &str,
+    timezone: Option<&str>,
+    after: DateTime<Utc>,
+) -> Result<DateTime<Utc>, String> {
     let schedule = Schedule::from_str(expression)
         .map_err(|error| format!("invalid cron_expression: {error}"))?;
+    let timezone = Tz::from_str(timezone.unwrap_or("UTC"))
+        .map_err(|_| format!("invalid timezone: {}", timezone.unwrap_or("UTC")))?;
     schedule
-        .after(&after)
+        .after(&after.with_timezone(&timezone))
         .next()
+        .map(|next| next.with_timezone(&Utc))
         .ok_or_else(|| "cron_expression has no future run".to_string())
 }
 
@@ -450,6 +489,7 @@ mod tests {
                     stop_on_failure: true,
                     interval_seconds: Some(3600),
                     cron_expression: None,
+                    timezone: None,
                     event_type: None,
                     event_device_id: None,
                     event_filter: None,
@@ -496,6 +536,7 @@ mod tests {
                     stop_on_failure: true,
                     interval_seconds: Some(60),
                     cron_expression: None,
+                    timezone: None,
                     event_type: None,
                     event_device_id: None,
                     event_filter: None,
@@ -534,6 +575,7 @@ mod tests {
                     stop_on_failure: true,
                     interval_seconds: None,
                     cron_expression: Some("0 */15 * * * *".to_string()),
+                    timezone: None,
                     event_type: None,
                     event_device_id: None,
                     event_filter: None,
@@ -550,6 +592,7 @@ mod tests {
                     .to_rfc3339()
             )
         );
+        assert_eq!(trigger.timezone.as_deref(), Some("UTC"));
 
         let first = store.claim_due(Utc.with_ymd_and_hms(2026, 10, 17, 15, 15, 0).unwrap());
         assert_eq!(first.len(), 1);
@@ -569,6 +612,130 @@ mod tests {
     }
 
     #[test]
+    fn cron_can_use_an_iana_timezone_and_follow_dst_offsets() {
+        let dir = std::env::temp_dir().join(format!("quickdesk-trigger-store-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = WorkflowTriggerStore::with_storage_dir(dir.clone());
+        let created = Utc.with_ymd_and_hms(2026, 10, 17, 0, 7, 0).unwrap();
+        let trigger = store
+            .create_at(
+                WorkflowTriggerSpec {
+                    name: "nine in shanghai".to_string(),
+                    workflow_id: Uuid::new_v4().to_string(),
+                    device_id: "device-1".to_string(),
+                    overrides: HashMap::new(),
+                    stop_on_failure: true,
+                    interval_seconds: None,
+                    cron_expression: Some("0 0 9 * * *".to_string()),
+                    timezone: Some("Asia/Shanghai".to_string()),
+                    event_type: None,
+                    event_device_id: None,
+                    event_filter: None,
+                    callback_url: None,
+                },
+                created,
+            )
+            .unwrap();
+        assert_eq!(trigger.timezone.as_deref(), Some("Asia/Shanghai"));
+        assert_eq!(
+            trigger.next_run_at,
+            Some(
+                Utc.with_ymd_and_hms(2026, 10, 17, 1, 0, 0)
+                    .unwrap()
+                    .to_rfc3339()
+            )
+        );
+
+        let new_york = store
+            .create_at(
+                WorkflowTriggerSpec {
+                    name: "nine in new york".to_string(),
+                    workflow_id: Uuid::new_v4().to_string(),
+                    device_id: "device-1".to_string(),
+                    overrides: HashMap::new(),
+                    stop_on_failure: true,
+                    interval_seconds: None,
+                    cron_expression: Some("0 0 9 * * *".to_string()),
+                    timezone: Some("America/New_York".to_string()),
+                    event_type: None,
+                    event_device_id: None,
+                    event_filter: None,
+                    callback_url: None,
+                },
+                Utc.with_ymd_and_hms(2026, 3, 7, 15, 0, 0).unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            new_york.next_run_at,
+            Some(
+                Utc.with_ymd_and_hms(2026, 3, 8, 13, 0, 0)
+                    .unwrap()
+                    .to_rfc3339()
+            )
+        );
+
+        let fall_back = store
+            .create_at(
+                WorkflowTriggerSpec {
+                    name: "new york fall back".to_string(),
+                    workflow_id: Uuid::new_v4().to_string(),
+                    device_id: "device-1".to_string(),
+                    overrides: HashMap::new(),
+                    stop_on_failure: true,
+                    interval_seconds: None,
+                    cron_expression: Some("0 30 1 * * *".to_string()),
+                    timezone: Some("America/New_York".to_string()),
+                    event_type: None,
+                    event_device_id: None,
+                    event_filter: None,
+                    callback_url: None,
+                },
+                Utc.with_ymd_and_hms(2026, 11, 1, 5, 0, 0).unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            fall_back.next_run_at,
+            Some(
+                Utc.with_ymd_and_hms(2026, 11, 1, 5, 30, 0)
+                    .unwrap()
+                    .to_rfc3339()
+            )
+        );
+        let claimed = store.claim_due(Utc.with_ymd_and_hms(2026, 11, 1, 5, 30, 0).unwrap());
+        assert!(claimed.iter().any(|trigger| trigger.id == fall_back.id));
+        assert_eq!(
+            store.get(&fall_back.id).unwrap().next_run_at,
+            Some(
+                Utc.with_ymd_and_hms(2026, 11, 2, 6, 30, 0)
+                    .unwrap()
+                    .to_rfc3339()
+            )
+        );
+
+        assert!(store
+            .create_at(
+                WorkflowTriggerSpec {
+                    name: "invalid timezone".to_string(),
+                    workflow_id: Uuid::new_v4().to_string(),
+                    device_id: "device-1".to_string(),
+                    overrides: HashMap::new(),
+                    stop_on_failure: true,
+                    interval_seconds: None,
+                    cron_expression: Some("0 0 9 * * *".to_string()),
+                    timezone: Some("Mars/Olympus_Mons".to_string()),
+                    event_type: None,
+                    event_device_id: None,
+                    event_filter: None,
+                    callback_url: None,
+                },
+                created,
+            )
+            .is_err());
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn rejects_invalid_trigger_ids_and_interval_bounds() {
         let dir = std::env::temp_dir().join(format!("quickdesk-trigger-store-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -581,6 +748,7 @@ mod tests {
             stop_on_failure: true,
             interval_seconds: Some(1),
             cron_expression: None,
+            timezone: None,
             event_type: None,
             event_device_id: None,
             event_filter: None,
@@ -609,6 +777,7 @@ mod tests {
                     stop_on_failure: true,
                     interval_seconds: None,
                     cron_expression: None,
+                    timezone: None,
                     event_type: Some("device.access.denied".to_string()),
                     event_device_id: None,
                     event_filter: Some(json!({"reason": "policy"})),
@@ -655,6 +824,7 @@ mod tests {
                     stop_on_failure: true,
                     interval_seconds: None,
                     cron_expression: None,
+                    timezone: None,
                     event_type: Some("scheduled_task.failed".to_string()),
                     event_device_id: None,
                     event_filter: Some(json!({"kind": "sign_out_all_sessions"})),
@@ -681,6 +851,7 @@ mod tests {
             stop_on_failure: true,
             interval_seconds: None,
             cron_expression: None,
+            timezone: None,
             event_type: Some("device.access.denied".to_string()),
             event_device_id: None,
             event_filter: Some(json!({"reason": "policy"})),

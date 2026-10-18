@@ -1162,7 +1162,8 @@ delivered/dead，首次写入 `acknowledged_at`，重复确认保持幂等，不
 受 `QUICKDESK_ALLOWED_DEVICES` 限制。HTTP 请求本身是同步执行，持久化 interval、UTC
 cron 和事件 trigger 由后台 worker 执行。时间触发器可选 60 秒~365 天的
 `interval_seconds`，或六段/七段 `cron_expression`；两者互斥，但都可以与事件触发同时
-使用。cron 当前不处理 IANA 时区、DST、法定节假日或停机期间漏过的槽位补跑。可选
+使用。cron 可用 IANA `timezone`，省略时默认 UTC；DST 春季缺口会跳到下一有效槽位，
+秋季重复时间只执行第一次。法定节假日和停机期间漏过的槽位仍不处理。可选
 `Idempotency-Key` 会把相同请求的第一次 `WorkflowRunReport` 持久化并重放；相同 key
 对应不同请求或仍在执行的请求返回 409。回调确认操作者归属/批量确认、事件停机补发和
 多进程共享 worker 尚未实现。进程重启会恢复 queued job；running job 会安全失败，不会
@@ -1179,8 +1180,9 @@ POST   /v1/triggers/{trigger_id}/run
 ```
 
 触发器保存工作流、设备、默认参数，以及至少一个 `interval_seconds`（60 秒到 365 天）、
-UTC `cron_expression` 或 `event_type`。`interval_seconds` 和 `cron_expression`
-互斥，时间规则可以与事件规则同时使用。事件触发器支持 `event_device_id` 和顶层
+`cron_expression` 或 `event_type`。cron 可选 IANA `timezone`，省略时为 UTC。
+`interval_seconds` 和 `cron_expression` 互斥，时间规则可以与事件规则同时使用。事件
+触发器支持 `event_device_id` 和顶层
 `event_filter`；省略
 `event_device_id` 时，设备类事件默认绑定执行目标设备，用户级的计划任务失败事件则不按
 设备过滤。当前白名单包括设备在线/离线、指标告警、访问批准/拒绝、远控会话、录像
@@ -1190,9 +1192,9 @@ Qt 的 `CloudDeviceManager` 先完成实时流的 snapshot/replay 与 `server_re
 再从 `data.device_id` 归一化实时信封没有稳定提供的设备字段，并通过本机 WebSocket API
 发送 `controlPlaneEvent`。MCP 只订阅该事件名，按类型、设备和过滤器匹配后先持久化
 claim 再执行。事件 `id` 是跨重启幂等键；没有 ID 的旧事件才使用 `server_rev`。
-事件订阅只处理实时到达的事件，MCP 停机期间的事件不会补发。UTC cron 已支持，但
-IANA 时区、DST、法定节假日和漏过槽位补跑仍未实现；跨进程共享 worker、回调确认
-操作者归属和批量确认也仍未实现。单进程重启会恢复 queued workflow job，running job
+事件订阅只处理实时到达的事件，MCP 停机期间的事件不会补发。IANA 时区与 DST 已支持，
+但法定节假日和漏过槽位补跑仍未实现；跨进程共享 worker、回调确认操作者归属和批量
+确认也仍未实现。单进程重启会恢复 queued workflow job，running job
 失败关闭；HMAC 回调使用持久 outbox，并以同一 delivery id 自动重试、跨进程重启恢复，
 支持死信查询、人工重放和幂等 ack。
 

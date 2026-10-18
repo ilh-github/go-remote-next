@@ -1160,7 +1160,7 @@ behind a TLS reverse proxy.
 
 The trigger is disabled when `QUICKDESK_TRIGGER_TOKEN` is empty, allows one workflow run per
 process at a time, and still enforces `QUICKDESK_ALLOWED_DEVICES`. Requests are synchronous;
-persistent interval, UTC cron and control-plane event triggers are executed by a background
+persistent interval, timezone-aware cron and control-plane event triggers are executed by a background
 worker. An optional `Idempotency-Key` persists and replays the first `WorkflowRunReport`;
 reusing a key for a different request, or while the original request is still running,
 returns 409. A restarted process requeues jobs that were still `queued`; `running` jobs
@@ -1177,11 +1177,13 @@ POST   /v1/triggers/{trigger_id}/run
 ```
 
 A trigger stores the workflow, device and default overrides, plus at least one of an
-`interval_seconds` schedule (60 seconds to 365 days), a UTC `cron_expression`, or an
+`interval_seconds` schedule (60 seconds to 365 days), a `cron_expression`, or an
 `event_type`. `interval_seconds` and `cron_expression` are mutually exclusive; either time
 rule may be combined with an event rule. Cron accepts six or seven fields
 (`second minute hour day-of-month month day-of-week [year]`) or aliases such as `@hourly`.
-Missed cron slots are not backfilled. Event triggers may set `event_device_id` and a
+An optional IANA `timezone` defaults to UTC and can only be used with cron. DST gaps move to
+the next valid slot, while repeated fall-back times run only once. Missed cron slots are not
+backfilled. Event triggers may set `event_device_id` and a
 top-level `event_filter`; omitting the device defaults it to the
 workflow execution target for device-scoped events, while user-scoped scheduled-task failures
 remain unfiltered by device. The allowlist covers device online/offline, metric alerts, access
@@ -1193,9 +1195,9 @@ top-level device field, then exposes the safe subset as `controlPlaneEvent` on t
 WebSocket API. The MCP event worker matches type/device/filter and persists a claim before
 execution. The event `id` is the cross-restart idempotency key; legacy events without an ID
 fall back to `server_rev`. Event subscriptions are live-only: events consumed while the MCP
-process is down are not replayed. Cron is UTC-only; IANA time zones, DST, holiday calendars,
-and missed-slot backfill remain future work. The current job worker is single-process and
-does not coordinate multiple processes sharing one data directory.
+process is down are not replayed. Holiday calendars and missed-slot backfill remain future
+work. The current job worker is single-process and does not coordinate multiple processes
+sharing one data directory.
 
 ---
 

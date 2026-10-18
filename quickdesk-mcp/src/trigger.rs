@@ -51,6 +51,7 @@ struct CreateTriggerRequest {
     stop_on_failure: Option<bool>,
     interval_seconds: Option<u64>,
     cron_expression: Option<String>,
+    timezone: Option<String>,
     event_type: Option<String>,
     event_device_id: Option<String>,
     event_filter: Option<serde_json::Value>,
@@ -426,6 +427,7 @@ async fn create_trigger(
         stop_on_failure: request.stop_on_failure.unwrap_or(true),
         interval_seconds: request.interval_seconds,
         cron_expression: request.cron_expression,
+        timezone: request.timezone,
         event_type: request.event_type,
         event_device_id: request.event_device_id,
         event_filter: request.event_filter,
@@ -987,7 +989,7 @@ mod tests {
             .header("Content-Type", "application/json")
             .body(Body::from(json!({"device_id": "device-1"}).to_string()))
             .unwrap();
-        let response = app.oneshot(request).await.unwrap();
+        let response = app.clone().oneshot(request).await.unwrap();
         assert_eq!(response.status(), StatusCode::ACCEPTED);
         let body = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
         let job: serde_json::Value = serde_json::from_slice(&body).unwrap();
@@ -2189,7 +2191,8 @@ mod tests {
                     "name": "every fifteen minutes",
                     "workflow_id": workflow_id,
                     "device_id": "device-1",
-                    "cron_expression": "0 */15 * * * *"
+                    "cron_expression": "0 */15 * * * *",
+                    "timezone": "Asia/Shanghai"
                 })
                 .to_string(),
             ))
@@ -2199,6 +2202,7 @@ mod tests {
         let body = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
         let trigger: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(trigger["cron_expression"], "0 */15 * * * *");
+        assert_eq!(trigger["timezone"], "Asia/Shanghai");
         let next_run_at =
             chrono::DateTime::parse_from_rfc3339(trigger["next_run_at"].as_str().unwrap())
                 .unwrap()
@@ -2217,6 +2221,25 @@ mod tests {
                     "workflow_id": workflow_id,
                     "device_id": "device-1",
                     "cron_expression": "not a cron"
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        let response = app.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        let request = Request::builder()
+            .method("POST")
+            .uri("/v1/triggers")
+            .header("Authorization", "Bearer business-secret")
+            .header("Content-Type", "application/json")
+            .body(Body::from(
+                json!({
+                    "name": "bad timezone",
+                    "workflow_id": workflow_id,
+                    "device_id": "device-1",
+                    "cron_expression": "0 0 9 * * *",
+                    "timezone": "Mars/Olympus_Mons"
                 })
                 .to_string(),
             ))
@@ -2291,6 +2314,7 @@ mod tests {
                     stop_on_failure: true,
                     interval_seconds: Some(60),
                     cron_expression: None,
+                    timezone: None,
                     event_type: None,
                     event_device_id: None,
                     event_filter: None,
@@ -2384,6 +2408,7 @@ mod tests {
                 stop_on_failure: true,
                 interval_seconds: None,
                 cron_expression: None,
+                timezone: None,
                 event_type: Some("device.access.denied".to_string()),
                 event_device_id: Some("device-1".to_string()),
                 event_filter: Some(json!({"reason": "policy"})),
@@ -2399,6 +2424,7 @@ mod tests {
                 stop_on_failure: true,
                 interval_seconds: None,
                 cron_expression: None,
+                timezone: None,
                 event_type: Some("scheduled_task.failed".to_string()),
                 event_device_id: None,
                 event_filter: Some(json!({"kind": "sign_out_all_sessions"})),
