@@ -8,10 +8,10 @@
 ## 当前本地基线
 
 - fork 本地主线：`dev` / `master` 已同步；QD-907 功能提交为 `33e9851`、`fd92cdd`，
-  上传重试耗尽测试为 `f8d0a34`；QD-610 数据库事务 outbox 提交为 `6c71f97`。文档收口
-  后本地领先 `origin/dev` 55 个提交
+  上传重试耗尽测试为 `f8d0a34`；QD-610 数据库事务 outbox 提交为 `6c71f97`。候选记录
+  收口后本地领先 `origin/dev` 56 个提交
 - fork 远端：`origin/dev` 与 `origin/master` 当前仍为 `9837194`
-- 本地领先：`dev` / `master` 均比各自远端多 55 个提交
+- 本地领先：`dev` / `master` 均比各自远端多 56 个提交
 - 推送 blocker：2026-10-18 执行 `git push origin dev master` 和候选分支 push 均被
   执行策略拒绝，错误为 `approval required by policy, but AskForApproval is set to Never`；
   未绕过审批策略。`git ls-remote` 于同一时刻确认远端主分支仍为 `9837194`，QD-111
@@ -124,6 +124,12 @@
   崩溃恢复。独立上游候选 `codex/upstream-event-replay-retention` = `b5da22f`，直接
   基于 PR #25 的 `feat/signaling-control-plane@8998466`，9 个文件；候选 Go 全包测试、
   `go vet`、EventBus race 和直接基线 diff check 通过。分支 push 仍被当前策略拒绝
+- QD-610 数据库事务 outbox 上游候选：`codex/upstream-event-outbox` = `f2d7cf7`，
+  stacked 在 `codex/upstream-event-replay-retention@b5da22f`，只新增 `event_outbox`
+  表/模型、条件 claim worker、EventBus durable publish 路径、`scheduled_task.failed`
+  原子迁移和对应测试。候选 Go 全包测试、`go vet`、race 编译、生产构建和直接 stacked
+  基线 diff check 通过；数据库 outbox 行为测试在 fork 的 SQLite 套件中执行，候选本身
+  按现有上游测试约定需要 `QD_TEST_DATABASE_URL` 才运行 Postgres 用例。分支尚未推送
 - QD-111 / QD-408 文件传输审计：fork 提交 `b9f414c`，控制端在 DataChannel 完成/失败后
   上报，服务端校验设备归属并按 `(actor, direction, transfer_id)` 幂等写审计。
   WebClient 66/66、生产构建、Qt CTest 15/15、Go 测试/vet 和真实 SQLite E2E 通过。
