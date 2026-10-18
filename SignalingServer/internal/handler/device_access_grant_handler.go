@@ -25,11 +25,10 @@ import (
 type DeviceAccessGrantHandler struct {
 	devices *service.DeviceService
 	grants  *service.DeviceAccessGrantService
-	bus     *service.EventBus
 }
 
-func NewDeviceAccessGrantHandler(devices *service.DeviceService, grants *service.DeviceAccessGrantService, bus *service.EventBus) *DeviceAccessGrantHandler {
-	return &DeviceAccessGrantHandler{devices: devices, grants: grants, bus: bus}
+func NewDeviceAccessGrantHandler(devices *service.DeviceService, grants *service.DeviceAccessGrantService) *DeviceAccessGrantHandler {
+	return &DeviceAccessGrantHandler{devices: devices, grants: grants}
 }
 
 type accessGrantReq struct {
@@ -101,7 +100,8 @@ func (h *DeviceAccessGrantHandler) Create(c *gin.Context) {
 		ProblemBadRequest(c, ProblemCodeInvalidRequest, err.Error())
 		return
 	}
-	row, err := h.grants.Create(c.Request.Context(), deviceID, middleware.MustUserID(c),
+	actorIP := c.ClientIP()
+	row, err := h.grants.CreateWithEvent(c.Request.Context(), deviceID, middleware.MustUserID(c),
 		service.CreateDeviceAccessGrantInput{
 			Label:                req.Label,
 			ExpiresInMinutes:     req.ExpiresInMinutes,
@@ -110,6 +110,21 @@ func (h *DeviceAccessGrantHandler) Create(c *gin.Context) {
 			BoundClientID:        req.BoundClientID,
 			BoundClientPublicKey: req.BoundClientPublicKey,
 			BoundIPs:             req.BoundIPs,
+		}, func(row *models.DeviceAccessGrant) service.Event {
+			return service.Event{
+				Type:     service.EventDeviceAccessGrantChanged,
+				UserID:   row.OwnerID,
+				DeviceID: row.DeviceID,
+				Data: map[string]interface{}{
+					"action":     "created",
+					"grant_id":   row.ID,
+					"label":      row.Label,
+					"expires_at": row.ExpiresAt.UTC().Format(time.RFC3339),
+					"max_uses":   row.MaxUses,
+					"uses":       row.Uses,
+					"ip":         actorIP,
+				},
+			}
 		})
 	if err != nil {
 		if errors.Is(err, service.ErrInvalidAccessGrant) {
@@ -119,7 +134,6 @@ func (h *DeviceAccessGrantHandler) Create(c *gin.Context) {
 		ProblemInternal(c, err.Error())
 		return
 	}
-	h.publishGrantChange(c, deviceID, row, "created")
 	c.JSON(http.StatusCreated, grantView(*row, time.Now().UTC()))
 }
 
@@ -142,38 +156,34 @@ func (h *DeviceAccessGrantHandler) Delete(c *gin.Context) {
 		ProblemNotFound(c, ProblemCodeNotFound, "Access grant not found")
 		return
 	}
-	if err := h.grants.Revoke(c.Request.Context(), deviceID, uint(grantID)); err != nil {
+	actorIP := c.ClientIP()
+	revoked, _, err := h.grants.RevokeWithEvent(
+		c.Request.Context(), deviceID, uint(grantID),
+		func(row *models.DeviceAccessGrant) service.Event {
+			return service.Event{
+				Type:     service.EventDeviceAccessGrantChanged,
+				UserID:   row.OwnerID,
+				DeviceID: row.DeviceID,
+				Data: map[string]interface{}{
+					"action":     "revoked",
+					"grant_id":   row.ID,
+					"label":      row.Label,
+					"expires_at": row.ExpiresAt.UTC().Format(time.RFC3339),
+					"max_uses":   row.MaxUses,
+					"uses":       row.Uses,
+					"ip":         actorIP,
+				},
+			}
+		})
+	if err != nil {
 		ProblemInternal(c, err.Error())
 		return
 	}
-	h.publishGrantChange(c, deviceID, row, "revoked")
-	c.JSON(http.StatusOK, gin.H{"success": true})
-}
-
-// publishGrantChange tells the owner's realtime stream that a shared code was
-// issued or cancelled. The payload deliberately omits the code itself: the
-// owner already received it in the create response, and events must not carry
-// credentials (§2.16).
-func (h *DeviceAccessGrantHandler) publishGrantChange(c *gin.Context, deviceID string, row *models.DeviceAccessGrant, action string) {
-	if h.bus == nil {
+	if revoked == nil {
+		ProblemNotFound(c, ProblemCodeNotFound, "Access grant not found")
 		return
 	}
-	h.bus.Publish(c.Request.Context(), service.Event{
-		Type:     service.EventDeviceAccessGrantChanged,
-		UserID:   middleware.MustUserID(c),
-		DeviceID: deviceID,
-		Data: map[string]interface{}{
-			"action":     action,
-			"grant_id":   row.ID,
-			"label":      row.Label,
-			"expires_at": row.ExpiresAt.UTC().Format(time.RFC3339),
-			"max_uses":   row.MaxUses,
-			"uses":       row.Uses,
-			// The actor's observed address; the audit subscriber lifts it onto
-			// the row (the grant code itself never travels in an event).
-			"ip": c.ClientIP(),
-		},
-	})
+	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
 // ownedDeviceID resolves :device_id and enforces that the caller owns it.

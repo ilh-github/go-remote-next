@@ -315,6 +315,7 @@ func main() {
 	})
 	eventOutbox := service.NewEventOutbox(db, bus)
 	deviceAccessService = deviceAccessService.WithOutbox(eventOutbox)
+	deviceAccessGrantService = deviceAccessGrantService.WithOutbox(eventOutbox)
 	deviceAccessPolicyService = deviceAccessPolicyService.WithOutbox(eventOutbox)
 	deviceAccessApprovalService = deviceAccessApprovalService.WithOutbox(eventOutbox)
 	remoteSessionService = remoteSessionService.WithOutbox(eventOutbox)
@@ -531,10 +532,10 @@ func main() {
 			PublicBaseURL: cfg.Update.PublicBaseURL,
 		}).WithLifecycle(updateArtifactLifecycle)
 	scheduledTaskHandler := handler.NewScheduledTaskHandler(scheduledTaskService)
-	deviceAccessGrantHandler := handler.NewDeviceAccessGrantHandler(deviceService, deviceAccessGrantService, bus)
+	deviceAccessGrantHandler := handler.NewDeviceAccessGrantHandler(deviceService, deviceAccessGrantService)
 	deviceAccessApprovalHandler := handler.NewDeviceAccessApprovalHandler(
 		deviceService, deviceAccessApprovalService, deviceAccessGrantService,
-		tokenService, presenceService, deviceAccessService, bus)
+		tokenService, presenceService, deviceAccessService)
 	sessionRecordingHandler := handler.NewSessionRecordingHandler(sessionRecordingService, bus, handler.SessionRecordingStore{
 		Dir:        cfg.Recording.Dir,
 		MaxBytes:   int64(cfg.Recording.MaxUploadMB) * 1024 * 1024,

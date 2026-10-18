@@ -31,6 +31,7 @@ func newEventOutboxTestDB(t *testing.T) *gorm.DB {
 		&models.UserDevice{},
 		&models.DeviceAccessPolicy{},
 		&models.DeviceAccessApproval{},
+		&models.DeviceAccessGrant{},
 		&models.Device{},
 		&models.RemoteSession{},
 		&models.SessionRecording{},
@@ -598,6 +599,219 @@ func TestDeviceAccessApprovalOutboxFailureRollsBackCreateAndDecision(t *testing.
 	}
 	if stored.Status != models.ApprovalPending || stored.DecidedAt != nil {
 		t.Fatalf("decision was not rolled back: %+v", stored)
+	}
+}
+
+func TestDeviceAccessGrantEventsCommitWithGrantRows(t *testing.T) {
+	db := newEventOutboxTestDB(t)
+	_, _, bus := newEventOutboxTestRedis(t)
+	outbox := NewEventOutbox(db, bus)
+	grants := NewDeviceAccessGrantService(db).WithOutbox(outbox)
+	ctx := context.Background()
+
+	created, err := grants.CreateWithEvent(ctx, "device-7", 7, CreateDeviceAccessGrantInput{
+		Label:            "guest",
+		ExpiresInMinutes: 30,
+		MaxUses:          1,
+		Code:             "grant-code",
+	}, func(row *models.DeviceAccessGrant) Event {
+		return Event{
+			Type:     EventDeviceAccessGrantChanged,
+			UserID:   row.OwnerID,
+			DeviceID: row.DeviceID,
+			Data: map[string]interface{}{
+				"action":   "created",
+				"grant_id": row.ID,
+			},
+		}
+	})
+	if err != nil {
+		t.Fatalf("CreateWithEvent: %v", err)
+	}
+	if created.Uses != 0 || created.RevokedAt != nil {
+		t.Fatalf("created grant = %+v", created)
+	}
+
+	consumed, changed, err := grants.ConsumeWithEvent(
+		ctx, created.ID, "controller-1", "203.0.113.7",
+		func(row *models.DeviceAccessGrant) Event {
+			return Event{
+				Type:     EventDeviceAccessGrantUsed,
+				UserID:   row.OwnerID,
+				DeviceID: row.DeviceID,
+				Data: map[string]interface{}{
+					"grant_id":  row.ID,
+					"uses":      row.Uses,
+					"max_uses":  row.MaxUses,
+					"client_id": row.LastUsedClientID,
+				},
+			}
+		},
+	)
+	if err != nil {
+		t.Fatalf("ConsumeWithEvent: %v", err)
+	}
+	if !changed || consumed == nil || consumed.Uses != 1 ||
+		consumed.LastUsedClientID != "controller-1" {
+		t.Fatalf("consumed grant = %+v, changed=%v", consumed, changed)
+	}
+
+	revoked, changed, err := grants.RevokeWithEvent(
+		ctx, "device-7", created.ID,
+		func(row *models.DeviceAccessGrant) Event {
+			return Event{
+				Type:     EventDeviceAccessGrantChanged,
+				UserID:   row.OwnerID,
+				DeviceID: row.DeviceID,
+				Data: map[string]interface{}{
+					"action":   "revoked",
+					"grant_id": row.ID,
+				},
+			}
+		},
+	)
+	if err != nil {
+		t.Fatalf("RevokeWithEvent: %v", err)
+	}
+	if !changed || revoked == nil || revoked.RevokedAt == nil {
+		t.Fatalf("revoked grant = %+v, changed=%v", revoked, changed)
+	}
+
+	var outboxRows []models.EventOutbox
+	if err := db.Find(&outboxRows).Error; err != nil {
+		t.Fatalf("load grant outbox rows: %v", err)
+	}
+	if len(outboxRows) != 3 {
+		t.Fatalf("outbox rows = %d, want created+used+revoked", len(outboxRows))
+	}
+	actions := map[string]bool{}
+	used := false
+	for _, outboxRow := range outboxRows {
+		var event Event
+		if err := json.Unmarshal([]byte(outboxRow.Payload), &event); err != nil {
+			t.Fatalf("decode grant event: %v", err)
+		}
+		if event.UserID != 7 || event.DeviceID != "device-7" {
+			t.Fatalf("grant event routing = %+v", event)
+		}
+		if event.Type == EventDeviceAccessGrantUsed {
+			used = true
+			if event.Data["uses"] != float64(1) {
+				t.Fatalf("used event data = %+v", event.Data)
+			}
+			continue
+		}
+		if event.Type != EventDeviceAccessGrantChanged {
+			t.Fatalf("unexpected grant event = %+v", event)
+		}
+		action, _ := event.Data["action"].(string)
+		actions[action] = true
+	}
+	if !used || !actions["created"] || !actions["revoked"] {
+		t.Fatalf("grant events used=%v actions=%+v", used, actions)
+	}
+
+	_, changed, err = grants.RevokeWithEvent(
+		ctx, "device-7", created.ID,
+		func(row *models.DeviceAccessGrant) Event {
+			return Event{
+				Type:     EventDeviceAccessGrantChanged,
+				UserID:   row.OwnerID,
+				DeviceID: row.DeviceID,
+			}
+		},
+	)
+	if err != nil {
+		t.Fatalf("second RevokeWithEvent: %v", err)
+	}
+	if changed {
+		t.Fatal("revoking twice must not emit a second event")
+	}
+	var total int64
+	if err := db.Model(&models.EventOutbox{}).Count(&total).Error; err != nil {
+		t.Fatalf("count grant outbox rows: %v", err)
+	}
+	if total != 3 {
+		t.Fatalf("outbox rows after no-op revoke = %d, want 3", total)
+	}
+}
+
+func TestDeviceAccessGrantOutboxFailureRollsBackCreateConsumeAndRevoke(t *testing.T) {
+	db := newEventOutboxTestDB(t)
+	ctx := context.Background()
+	failing := NewDeviceAccessGrantService(db).WithOutbox(
+		&failingScheduledTaskOutbox{err: errors.New("outbox unavailable")},
+	)
+
+	_, err := failing.CreateWithEvent(ctx, "device-7", 7, CreateDeviceAccessGrantInput{
+		ExpiresInMinutes: 30,
+		Code:             "grant-code",
+	}, func(row *models.DeviceAccessGrant) Event {
+		return Event{
+			Type:     EventDeviceAccessGrantChanged,
+			UserID:   row.OwnerID,
+			DeviceID: row.DeviceID,
+		}
+	})
+	if err == nil {
+		t.Fatal("CreateWithEvent succeeded despite outbox failure")
+	}
+	var grantsCount int64
+	if err := db.Model(&models.DeviceAccessGrant{}).Count(&grantsCount).Error; err != nil {
+		t.Fatalf("count grants after create rollback: %v", err)
+	}
+	if grantsCount != 0 {
+		t.Fatalf("grants after create rollback = %d, want 0", grantsCount)
+	}
+
+	created, err := NewDeviceAccessGrantService(db).Create(ctx, "device-7", 7, CreateDeviceAccessGrantInput{
+		ExpiresInMinutes: 30,
+		Code:             "grant-code",
+	})
+	if err != nil {
+		t.Fatalf("seed grant: %v", err)
+	}
+	_, _, err = failing.ConsumeWithEvent(
+		ctx, created.ID, "controller-1", "203.0.113.7",
+		func(row *models.DeviceAccessGrant) Event {
+			return Event{
+				Type:     EventDeviceAccessGrantUsed,
+				UserID:   row.OwnerID,
+				DeviceID: row.DeviceID,
+			}
+		},
+	)
+	if err == nil {
+		t.Fatal("ConsumeWithEvent succeeded despite outbox failure")
+	}
+	var afterConsume models.DeviceAccessGrant
+	if err := db.First(&afterConsume, created.ID).Error; err != nil {
+		t.Fatalf("load grant after consume rollback: %v", err)
+	}
+	if afterConsume.Uses != 0 || afterConsume.LastUsedAt != nil ||
+		afterConsume.LastUsedClientID != "" {
+		t.Fatalf("consume was not rolled back: %+v", afterConsume)
+	}
+
+	_, _, err = failing.RevokeWithEvent(
+		ctx, "device-7", created.ID,
+		func(row *models.DeviceAccessGrant) Event {
+			return Event{
+				Type:     EventDeviceAccessGrantChanged,
+				UserID:   row.OwnerID,
+				DeviceID: row.DeviceID,
+			}
+		},
+	)
+	if err == nil {
+		t.Fatal("RevokeWithEvent succeeded despite outbox failure")
+	}
+	var afterRevoke models.DeviceAccessGrant
+	if err := db.First(&afterRevoke, created.ID).Error; err != nil {
+		t.Fatalf("load grant after revoke rollback: %v", err)
+	}
+	if afterRevoke.RevokedAt != nil {
+		t.Fatalf("revoke was not rolled back: %+v", afterRevoke)
 	}
 }
 

@@ -25,11 +25,38 @@ const grantCodeAlphabet = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
 
 // DeviceAccessGrantService issues and redeems time-boxed access grants.
 type DeviceAccessGrantService struct {
-	db *gorm.DB
+	db     *gorm.DB
+	outbox EventOutboxWriter
 }
 
 func NewDeviceAccessGrantService(db *gorm.DB) *DeviceAccessGrantService {
 	return &DeviceAccessGrantService{db: db}
+}
+
+func (s *DeviceAccessGrantService) WithOutbox(outbox EventOutboxWriter) *DeviceAccessGrantService {
+	s.outbox = outbox
+	return s
+}
+
+// DeviceAccessGrantEventFactory builds an owner-scoped event from the final
+// grant row. It runs inside the caller's transaction.
+type DeviceAccessGrantEventFactory func(row *models.DeviceAccessGrant) Event
+
+func (s *DeviceAccessGrantService) enqueueGrantEvent(
+	ctx context.Context,
+	tx *gorm.DB,
+	eventFactory DeviceAccessGrantEventFactory,
+	row *models.DeviceAccessGrant,
+) error {
+	if s.outbox == nil || eventFactory == nil || row == nil {
+		return nil
+	}
+	evt := eventFactory(row)
+	if evt.Type == "" || evt.UserID == 0 {
+		return nil
+	}
+	_, err := s.outbox.EnqueueTx(ctx, tx, evt)
+	return err
 }
 
 // CreateDeviceAccessGrantInput is the validated body of the create endpoint.
@@ -49,6 +76,18 @@ type CreateDeviceAccessGrantInput struct {
 
 // Create issues a grant for one device.
 func (s *DeviceAccessGrantService) Create(ctx context.Context, deviceID string, ownerID uint, in CreateDeviceAccessGrantInput) (*models.DeviceAccessGrant, error) {
+	return s.CreateWithEvent(ctx, deviceID, ownerID, in, nil)
+}
+
+// CreateWithEvent stores a grant and enqueues its change event in the same
+// transaction, so an owner cannot miss a shared code that is already live.
+func (s *DeviceAccessGrantService) CreateWithEvent(
+	ctx context.Context,
+	deviceID string,
+	ownerID uint,
+	in CreateDeviceAccessGrantInput,
+	eventFactory DeviceAccessGrantEventFactory,
+) (*models.DeviceAccessGrant, error) {
 	if in.ExpiresInMinutes <= 0 || in.MaxUses < 0 {
 		return nil, ErrInvalidAccessGrant
 	}
@@ -96,7 +135,13 @@ func (s *DeviceAccessGrantService) Create(ctx context.Context, deviceID string, 
 		BoundClientPublicKey: boundKey,
 		BoundIPs:             string(boundIPs),
 	}
-	if err := s.db.WithContext(ctx).Create(row).Error; err != nil {
+	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(row).Error; err != nil {
+			return err
+		}
+		return s.enqueueGrantEvent(ctx, tx, eventFactory, row)
+	})
+	if err != nil {
 		return nil, err
 	}
 	return row, nil
@@ -130,11 +175,48 @@ func (s *DeviceAccessGrantService) Get(ctx context.Context, deviceID string, gra
 
 // Revoke cancels a grant. Revoking an already-revoked grant is a no-op.
 func (s *DeviceAccessGrantService) Revoke(ctx context.Context, deviceID string, grantID uint) error {
+	_, _, err := s.RevokeWithEvent(ctx, deviceID, grantID, nil)
+	return err
+}
+
+// RevokeWithEvent cancels a grant and enqueues the changed event with the
+// revocation timestamp in one transaction. Re-revoking is a no-op and emits no
+// duplicate event.
+func (s *DeviceAccessGrantService) RevokeWithEvent(
+	ctx context.Context,
+	deviceID string,
+	grantID uint,
+	eventFactory DeviceAccessGrantEventFactory,
+) (*models.DeviceAccessGrant, bool, error) {
 	now := time.Now().UTC()
-	return s.db.WithContext(ctx).
-		Model(&models.DeviceAccessGrant{}).
-		Where("id = ? AND device_id = ? AND revoked_at IS NULL", grantID, deviceID).
-		Updates(map[string]interface{}{"revoked_at": now, "updated_at": now}).Error
+	var row models.DeviceAccessGrant
+	changed := false
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		result := tx.Model(&models.DeviceAccessGrant{}).
+			Where("id = ? AND device_id = ? AND revoked_at IS NULL", grantID, deviceID).
+			Updates(map[string]interface{}{"revoked_at": now, "updated_at": now})
+		if result.Error != nil {
+			return result.Error
+		}
+		if err := tx.Where("id = ? AND device_id = ?", grantID, deviceID).First(&row).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil
+			}
+			return err
+		}
+		changed = result.RowsAffected == 1
+		if !changed {
+			return nil
+		}
+		return s.enqueueGrantEvent(ctx, tx, eventFactory, &row)
+	})
+	if err != nil {
+		return nil, false, err
+	}
+	if row.ID == 0 {
+		return nil, false, nil
+	}
+	return &row, changed, nil
 }
 
 // Match returns the usable grant whose code equals the presented one *and*
@@ -196,22 +278,52 @@ func GrantBindingAllows(grant models.DeviceAccessGrant, clientID, clientIP strin
 // The redeeming client is written in the same UPDATE, so the audit value can
 // never disagree with the use count.
 func (s *DeviceAccessGrantService) Consume(ctx context.Context, grantID uint, clientID, clientIP string) (bool, error) {
+	_, changed, err := s.ConsumeWithEvent(ctx, grantID, clientID, clientIP, nil)
+	return changed, err
+}
+
+// ConsumeWithEvent records one started session and enqueues the used event in
+// the same transaction. A losing quota race emits no event.
+func (s *DeviceAccessGrantService) ConsumeWithEvent(
+	ctx context.Context,
+	grantID uint,
+	clientID string,
+	clientIP string,
+	eventFactory DeviceAccessGrantEventFactory,
+) (*models.DeviceAccessGrant, bool, error) {
 	now := time.Now().UTC()
-	result := s.db.WithContext(ctx).
-		Model(&models.DeviceAccessGrant{}).
-		Where("id = ? AND revoked_at IS NULL AND expires_at > ? AND (max_uses = 0 OR uses < max_uses)",
-			grantID, now).
-		Updates(map[string]interface{}{
-			"uses":                gorm.Expr("uses + 1"),
-			"last_used_at":        now,
-			"last_used_client_id": clipRunes(clientID, 64),
-			"last_used_ip":        clipRunes(clientIP, 50),
-			"updated_at":          now,
-		})
-	if result.Error != nil {
-		return false, result.Error
+	var row models.DeviceAccessGrant
+	changed := false
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		result := tx.Model(&models.DeviceAccessGrant{}).
+			Where("id = ? AND revoked_at IS NULL AND expires_at > ? AND (max_uses = 0 OR uses < max_uses)",
+				grantID, now).
+			Updates(map[string]interface{}{
+				"uses":                gorm.Expr("uses + 1"),
+				"last_used_at":        now,
+				"last_used_client_id": clipRunes(clientID, 64),
+				"last_used_ip":        clipRunes(clientIP, 50),
+				"updated_at":          now,
+			})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return nil
+		}
+		if err := tx.Where("id = ?", grantID).First(&row).Error; err != nil {
+			return err
+		}
+		changed = true
+		return s.enqueueGrantEvent(ctx, tx, eventFactory, &row)
+	})
+	if err != nil {
+		return nil, false, err
 	}
-	return result.RowsAffected == 1, nil
+	if row.ID == 0 {
+		return nil, false, nil
+	}
+	return &row, changed, nil
 }
 
 func generateGrantCode() (string, error) {

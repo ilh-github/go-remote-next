@@ -32,7 +32,6 @@ type DeviceAccessApprovalHandler struct {
 	tokens    *service.TokenService
 	presence  *service.PresenceService
 	access    *service.DeviceAccessService
-	bus       *service.EventBus
 }
 
 func NewDeviceAccessApprovalHandler(
@@ -42,7 +41,6 @@ func NewDeviceAccessApprovalHandler(
 	tokens *service.TokenService,
 	presence *service.PresenceService,
 	access *service.DeviceAccessService,
-	bus *service.EventBus,
 ) *DeviceAccessApprovalHandler {
 	return &DeviceAccessApprovalHandler{
 		devices:   devices,
@@ -51,7 +49,6 @@ func NewDeviceAccessApprovalHandler(
 		tokens:    tokens,
 		presence:  presence,
 		access:    access,
-		bus:       bus,
 	}
 }
 
@@ -299,7 +296,23 @@ func (h *DeviceAccessApprovalHandler) Claim(c *gin.Context) {
 	// A grant-backed approval only spends the guest code's use once the
 	// session can actually start, mirroring the non-approval path.
 	if row.GrantID != nil && h.grants != nil {
-		consumed, cerr := h.grants.Consume(c.Request.Context(), *row.GrantID, row.ClientID, row.ClientIP)
+		_, consumed, cerr := h.grants.ConsumeWithEvent(
+			c.Request.Context(), *row.GrantID, row.ClientID, row.ClientIP,
+			func(grant *models.DeviceAccessGrant) service.Event {
+				return service.Event{
+					Type:     service.EventDeviceAccessGrantUsed,
+					UserID:   grant.OwnerID,
+					DeviceID: grant.DeviceID,
+					Data: map[string]interface{}{
+						"grant_id":  grant.ID,
+						"label":     grant.Label,
+						"uses":      grant.Uses,
+						"max_uses":  grant.MaxUses,
+						"client_id": grant.LastUsedClientID,
+						"approval":  true,
+					},
+				}
+			})
 		if cerr != nil {
 			ProblemInternal(c, cerr.Error())
 			return
@@ -309,18 +322,6 @@ func (h *DeviceAccessApprovalHandler) Claim(c *gin.Context) {
 				"access grant is no longer valid")
 			ProblemForbidden(c, ProblemCodeInvalidCode, "Access code is incorrect")
 			return
-		}
-		if h.bus != nil {
-			h.bus.Publish(c.Request.Context(), service.Event{
-				Type:     service.EventDeviceAccessGrantUsed,
-				UserID:   row.OwnerID,
-				DeviceID: deviceID,
-				Data: map[string]interface{}{
-					"grant_id":  *row.GrantID,
-					"client_id": row.ClientID,
-					"approval":  true,
-				},
-			})
 		}
 	}
 

@@ -726,7 +726,22 @@ func (h *HostHandler) VerifyAccessCode(c *gin.Context) {
 	// re-checks the window and quota in its own UPDATE, so two controllers
 	// racing the last slot cannot both win.
 	if usedGrant != nil {
-		consumed, cerr := h.accessGrants.Consume(c.Request.Context(), usedGrant.ID, req.ClientID, ip)
+		consumedGrant, consumed, cerr := h.accessGrants.ConsumeWithEvent(
+			c.Request.Context(), usedGrant.ID, req.ClientID, ip,
+			func(grant *models.DeviceAccessGrant) service.Event {
+				return service.Event{
+					Type:     service.EventDeviceAccessGrantUsed,
+					UserID:   grant.OwnerID,
+					DeviceID: grant.DeviceID,
+					Data: map[string]interface{}{
+						"grant_id":  grant.ID,
+						"label":     grant.Label,
+						"uses":      grant.Uses,
+						"max_uses":  grant.MaxUses,
+						"client_id": req.ClientID,
+					},
+				}
+			})
 		if cerr != nil {
 			ProblemInternal(c, cerr.Error())
 			return
@@ -741,22 +756,7 @@ func (h *HostHandler) VerifyAccessCode(c *gin.Context) {
 			ProblemForbidden(c, ProblemCodeInvalidCode, "Access code is incorrect")
 			return
 		}
-		if h.bus != nil {
-			// Tell the owner their shared code was just used. `UsedGrant.Uses`
-			// is the value read before the increment, so +1 is the new count.
-			h.bus.Publish(c.Request.Context(), service.Event{
-				Type:     service.EventDeviceAccessGrantUsed,
-				UserID:   usedGrant.OwnerID,
-				DeviceID: deviceID,
-				Data: map[string]interface{}{
-					"grant_id":  usedGrant.ID,
-					"label":     usedGrant.Label,
-					"uses":      usedGrant.Uses + 1,
-					"max_uses":  usedGrant.MaxUses,
-					"client_id": req.ClientID,
-				},
-			})
-		}
+		usedGrant = consumedGrant
 	}
 
 	tok, exp, err := h.tokens.IssueSignalToken(c.Request.Context(), service.SignalTokenPayload{
