@@ -87,9 +87,12 @@
   `a94bba1` 补 delivered/dead 的幂等 ack；`d3dc4cf` 补 queued job 单进程重启恢复和
   running fail-closed；`7940248` 补 UTC cron、`interval_seconds`/`cron_expression`
   互斥校验和错过槽位不补跑的 at-most-once 行为；`1be154c` 补 IANA `timezone` 和真实
-  DST 偏移；`86e994f` 补最多 200 个 id 的批量回调 ack。候选自身现为 47/47、Clippy、
-  release 构建和 diff check 通过，但分支 push 仍被当前策略拒绝。法定节假日、事件停机
-  补发、多进程共享 worker 和确认操作者归属仍留在后续阶段
+  DST 偏移；`86e994f` 补最多 200 个 id 的批量回调 ack；`7f938f5` 补 QuickDesk
+  本机 256 条事件 buffer 和 MCP `since_server_rev` 重连补发。候选自身现为 48/48、
+  Clippy、release 构建和 diff check 通过；fork 侧 Qt CTest 15/15，QuickDesk 完整源码
+  编译到链接阶段后仍受预编译 Remoting 缺失 `AGL` framework 限制。分支 push 仍被当前
+  策略拒绝。法定节假日、QuickDesk 重启后的持久事件 replay、多进程共享 worker 和确认
+  操作者归属仍留在后续阶段
 - fork PR #1：<https://github.com/ilh-github/go-remote-next/pull/1>，
   OPEN / MERGEABLE / CLEAN，7 项检查全部成功
 - upstream PR #25：<https://github.com/barry-ran/QuickDesk/pull/25>
