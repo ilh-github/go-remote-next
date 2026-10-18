@@ -87,6 +87,8 @@
 - QD-610 设备访问事件已迁入事务 outbox：`device.access.granted/denied` 与
   `device_access_logs` 同事务提交；outbox 插入失败会回滚访问日志，不再出现“审计有记录、
   实时事件丢失”
+- QD-610 访问策略变更已迁入事务 outbox：策略 PUT、封禁和解封与
+  `device.access_policy.changed` 同事务提交；outbox 失败会回滚策略写入
 - QD-610 已补 MCP 事件重连和持久化：QuickDesk WebSocket API 默认保留最近 2048 条白名单
   事件，可用 `QUICKDESK_CONTROL_PLANE_REPLAY_CAPACITY` 配置为 1~10000；按用户 ID
   原子持久化，线程重启/QuickDesk 重启后重新载入；MCP auth 携带
@@ -186,6 +188,8 @@
   `go vet ./...` 和 EventBus/Outbox/ScheduledTask race 测试通过。
 - QD-610 设备访问事件 outbox：访问成功/拒绝日志与事件同事务；模拟 outbox 失败时
   `device_access_logs` 回滚为 0；SignalingServer 全量测试、vet、race 和构建通过。
+- QD-610 访问策略 outbox：策略写入和 `device.access_policy.changed` 同事务，策略
+  event/outbox 失败回滚为 0；SignalingServer 全量测试、vet、race 和构建通过。
 - QD-610 第十六至十八阶段：cron trigger 新增 `skip_holidays`，按 IANA 时区本地日期跳过
   内置中国法定放假日，调休上班日仍执行；支持 `QUICKDESK_HOLIDAY_CALENDAR_DIR`
   追加后续年份；interval/event-only 使用该标志返回 400。默认 replay buffer 提升到
@@ -626,9 +630,9 @@ Private Vulnerability Reporting，后者等协议实现。当前继续做不依�
    UTC cron、IANA 时区/DST、法定节假日跳过、cron 漏跑补跑、批量 ack、短期事件重连、按用户持久 replay
    和服务端可配置 replay retention
    已完成；同目录多进程回调/job claim、回调操作者归属、数据库事务 event outbox
-   基础设施、`scheduled_task.failed` 和设备访问 granted/denied 迁移也已落地。下一步
-   把其余关键业务事件迁移到 `EnqueueTx`，再做跨机器分布式队列和 Owner 委托权限。通用
-   触发链路能从当前的 MCP
+   基础设施、`scheduled_task.failed`、设备访问 granted/denied 和策略变更迁移也已
+   落地。下一步把其余关键业务事件迁移到 `EnqueueTx`，再做跨机器分布式队列和 Owner
+   委托权限。通用触发链路能从当前的 MCP
    trigger 候选继续 stacked 回贡，后几项若绑定 fork 业务数据库则留在 `Fork-only`。
 2. **QD-511 智能回放**：预录屏幕断言与状态不匹配暂停已完成；剩余 OCR 关键词、AI 介入和人工接管；
    通用部分在 QD-510 候选合并后回贡。
@@ -753,7 +757,7 @@ fork 是否能继续开发，也不能因为 fork 自己有实现就再次向 up
 | QD-607 | 计划任务 | `[~]` | 服务端、WebClient、Qt 管理页和重试已完成；`revoke_all_remote_sessions` 已补齐控制面批量清场（最多 200 台）。定时连接、广义批量 agent 指令及回执仍未做 |
 | QD-608 | OpenAPI 与生成 SDK | `[x]` | TypeScript/Go/Python/Java/C#/PHP/Kotlin 七套客户端已提交，生成器、freshness 门禁和 CI 编译覆盖全部语言；C# `dotnet build`、PHP Composer/lint、Kotlin Gradle build 通过 |
 | QD-609 | MCP / AI 自动化 | `[x]` | QuickDesk 原生能力；也是上游维护者当前最优先方向 |
-| QD-610 | 业务系统集成与自定义工作流 | `[~]` | `bca8149` + `3f94911` + `e518194` + `e8ce807` + `9f7be0f` + `2e09d5b` 已提供同步/异步 HTTP trigger、持久化 trigger CRUD、60 秒~365 天 interval worker、next_run_at at-most-once、运行结果回写、Idempotency-Key 持久化重放、异步 job 状态/取消、HMAC 结果回调、白名单控制面事件订阅、事件过滤/幂等 claim、设备白名单、trust/emergency、单并发和 429；`1176a92`~`a94bba1` 补持久回调 outbox、重试、死信、人工重放和幂等 ack；`d3dc4cf` 补 queued job 重启恢复；`3c31d9a` 补 UTC cron；`20d02cc` 补 IANA 时区和 DST；`47d5e19` 补批量 ack；`af8653f` 补 MCP 事件重连；`5a4ff4a` 补按用户持久事件 replay；本轮补法定节假日跳过、年度日历扩展、默认 2048/可配置 replay 容量、cron 漏跑补跑、`5f24ff7` 的同目录多进程回调/job claim 协调、`cd730d1` 的回调操作者归属、`c39443c` 的服务端 replay retention 配置、`2d211c1` 的 retry claim 崩溃恢复、`6c71f97` 的数据库事务 event outbox 基础设施/`scheduled_task.failed` 迁移和 `f2534ec` 的设备访问 granted/denied 迁移，上游候选继续推进；其余关键业务事件的事务 outbox 迁移、跨机器分布式队列、公平调度和 Owner 委托权限仍未完成 |
+| QD-610 | 业务系统集成与自定义工作流 | `[~]` | `bca8149` + `3f94911` + `e518194` + `e8ce807` + `9f7be0f` + `2e09d5b` 已提供同步/异步 HTTP trigger、持久化 trigger CRUD、60 秒~365 天 interval worker、next_run_at at-most-once、运行结果回写、Idempotency-Key 持久化重放、异步 job 状态/取消、HMAC 结果回调、白名单控制面事件订阅、事件过滤/幂等 claim、设备白名单、trust/emergency、单并发和 429；`1176a92`~`a94bba1` 补持久回调 outbox、重试、死信、人工重放和幂等 ack；`d3dc4cf` 补 queued job 重启恢复；`3c31d9a` 补 UTC cron；`20d02cc` 补 IANA 时区和 DST；`47d5e19` 补批量 ack；`af8653f` 补 MCP 事件重连；`5a4ff4a` 补按用户持久事件 replay；本轮补法定节假日跳过、年度日历扩展、默认 2048/可配置 replay 容量、cron 漏跑补跑、`5f24ff7` 的同目录多进程回调/job claim 协调、`cd730d1` 的回调操作者归属、`c39443c` 的服务端 replay retention 配置、`2d211c1` 的 retry claim 崩溃恢复、`6c71f97` 的数据库事务 event outbox 基础设施/`scheduled_task.failed` 迁移、`f2534ec` 的设备访问 granted/denied 迁移和 `6bdc057` 的策略变更迁移，上游候选继续推进；其余关键业务事件的事务 outbox 迁移、跨机器分布式队列、公平调度和 Owner 委托权限仍未完成 |
 
 ## 10. Web、Qt 与管理端
 
