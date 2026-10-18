@@ -15,12 +15,11 @@ import (
 // key, etc.).
 type AdminSettingsHandler struct {
 	settings *service.SettingsService
-	bus      *service.EventBus
 	audit    *service.AuditService
 }
 
-func NewAdminSettingsHandler(s *service.SettingsService, bus *service.EventBus, audit *service.AuditService) *AdminSettingsHandler {
-	return &AdminSettingsHandler{settings: s, bus: bus, audit: audit}
+func NewAdminSettingsHandler(s *service.SettingsService, audit *service.AuditService) *AdminSettingsHandler {
+	return &AdminSettingsHandler{settings: s, audit: audit}
 }
 
 // Get handles GET /v1/admin/settings.
@@ -102,15 +101,19 @@ func (h *AdminSettingsHandler) Update(c *gin.Context) {
 		cur.TurnConfigVersion++
 	}
 
-	if err := h.settings.Save(&cur); err != nil {
+	if turnChanged {
+		if err := h.settings.SaveWithEvent(&cur, func(saved *models.Settings) service.Event {
+			return service.Event{
+				Type: service.EventTurnConfigChang,
+				Data: map[string]interface{}{"turn_config_version": saved.TurnConfigVersion},
+			}
+		}); err != nil {
+			ProblemInternal(c, err.Error())
+			return
+		}
+	} else if err := h.settings.Save(&cur); err != nil {
 		ProblemInternal(c, err.Error())
 		return
-	}
-	if turnChanged {
-		h.bus.Publish(c.Request.Context(), service.Event{
-			Type: service.EventTurnConfigChang,
-			Data: map[string]interface{}{"turn_config_version": cur.TurnConfigVersion},
-		})
 	}
 	h.audit.Log(c.Request.Context(), middleware.MustAdminID(c), "", "settings.update", "settings", "", "", c.ClientIP())
 	c.JSON(http.StatusOK, cur)

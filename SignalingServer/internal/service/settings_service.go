@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"log"
 	"strings"
 	"sync"
@@ -14,9 +15,10 @@ import (
 // Dynamic settings (ICE, security) are read from the cache, which is refreshed
 // whenever settings are updated via the admin API.
 type SettingsService struct {
-	db    *gorm.DB
-	mu    sync.RWMutex
-	cache *models.Settings
+	db     *gorm.DB
+	mu     sync.RWMutex
+	cache  *models.Settings
+	outbox EventOutboxWriter
 }
 
 func NewSettingsService(db *gorm.DB) *SettingsService {
@@ -24,6 +26,13 @@ func NewSettingsService(db *gorm.DB) *SettingsService {
 	s.Reload()
 	return s
 }
+
+func (s *SettingsService) WithOutbox(outbox EventOutboxWriter) *SettingsService {
+	s.outbox = outbox
+	return s
+}
+
+type SettingsEventFactory func(settings *models.Settings) Event
 
 // Reload reads settings from DB into cache.
 func (s *SettingsService) Reload() {
@@ -57,22 +66,42 @@ func (s *SettingsService) Get() models.Settings {
 
 // Save persists settings to DB and refreshes the cache.
 func (s *SettingsService) Save(settings *models.Settings) error {
-	var existing models.Settings
-	result := s.db.First(&existing)
+	return s.SaveWithEvent(settings, nil)
+}
 
-	if result.Error == gorm.ErrRecordNotFound {
-		if err := s.db.Create(settings).Error; err != nil {
-			return err
+// SaveWithEvent persists settings and optionally enqueues an event in the same
+// database transaction. The cache is only updated after the transaction commits.
+func (s *SettingsService) SaveWithEvent(settings *models.Settings, eventFactory SettingsEventFactory) error {
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		var existing models.Settings
+		result := tx.First(&existing)
+
+		if result.Error == gorm.ErrRecordNotFound {
+			if err := tx.Create(settings).Error; err != nil {
+				return err
+			}
+		} else if result.Error != nil {
+			return result.Error
+		} else {
+			settings.ID = existing.ID
+			if err := tx.Save(settings).Error; err != nil {
+				return err
+			}
 		}
-	} else if result.Error != nil {
-		return result.Error
-	} else {
-		settings.ID = existing.ID
-		if err := s.db.Save(settings).Error; err != nil {
-			return err
+
+		if s.outbox == nil || eventFactory == nil {
+			return nil
 		}
+		evt := eventFactory(settings)
+		if evt.Type == "" {
+			return nil
+		}
+		_, err := s.outbox.EnqueueTx(context.Background(), tx, evt)
+		return err
+	})
+	if err != nil {
+		return err
 	}
-
 	s.mu.Lock()
 	s.cache = settings
 	s.mu.Unlock()
@@ -81,11 +110,11 @@ func (s *SettingsService) Save(settings *models.Settings) error {
 
 // EnvSeed holds all .env values for first-run seeding.
 type EnvSeed struct {
-	TurnURLs, TurnAuthSecret       string
-	TurnTTL                        int
+	TurnURLs, TurnAuthSecret         string
+	TurnTTL                          int
 	StunURLs, APIKey, AllowedOrigins string
-	SmsKeyID, SmsKeySecret         string
-	SmsSignName, SmsTemplateCode   string
+	SmsKeyID, SmsKeySecret           string
+	SmsSignName, SmsTemplateCode     string
 }
 
 // SeedFromEnv initializes DB with .env values on first run, or backfills

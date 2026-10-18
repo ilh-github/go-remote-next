@@ -314,6 +314,7 @@ func main() {
 		TTL:    time.Duration(cfg.EventBus.ReplayTTLSeconds) * time.Second,
 	})
 	eventOutbox := service.NewEventOutbox(db, bus)
+	settingsService = settingsService.WithOutbox(eventOutbox)
 	deviceService = deviceService.WithOutbox(eventOutbox)
 	favoriteService = favoriteService.WithOutbox(eventOutbox)
 	deviceAccessService = deviceAccessService.WithOutbox(eventOutbox)
@@ -593,7 +594,7 @@ func main() {
 	adminAdminsHandler := handler.NewAdminAdminsHandler(adminUserService, tokenService, auditService)
 	adminUsersHandler := handler.NewAdminUsersHandler(userService, tokenService, bus, auditService, presenceService, db)
 	adminDevicesHandler := handler.NewAdminDevicesHandler(deviceService, presenceService, auditService, db)
-	adminSettingsHandler := handler.NewAdminSettingsHandler(settingsService, bus, auditService)
+	adminSettingsHandler := handler.NewAdminSettingsHandler(settingsService, auditService)
 	adminPresetHandler := handler.NewAdminPresetHandler(presetService, auditService)
 	adminAuditHandler := handler.NewAdminAuditHandler(
 		auditService, cfg.Audit.RetentionDays, cfg.Audit.MaxRows, cfg.Audit.MaxRowsPerActor,

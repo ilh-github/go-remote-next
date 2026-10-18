@@ -27,6 +27,7 @@ func newEventOutboxTestDB(t *testing.T) *gorm.DB {
 	}
 	if err := db.AutoMigrate(
 		&models.EventOutbox{},
+		&models.Settings{},
 		&models.ScheduledTask{},
 		&models.DeviceAccessLog{},
 		&models.UserDevice{},
@@ -1464,6 +1465,83 @@ func TestAdminDeviceOutboxFailureRollsBackMutations(t *testing.T) {
 	}
 	if afterRotate.DeviceSecretHash != "old-hash" {
 		t.Fatalf("secret rotation was not rolled back: %+v", afterRotate)
+	}
+}
+
+func TestTurnSettingsUpdateCommitsEventWithSettingsRow(t *testing.T) {
+	db := newEventOutboxTestDB(t)
+	_, _, bus := newEventOutboxTestRedis(t)
+	outbox := NewEventOutbox(db, bus)
+	settings := NewSettingsService(db).WithOutbox(outbox)
+	next := settings.Get()
+	next.TurnURLs = "turn:turn.example.test:3478"
+	next.StunURLs = "stun:stun.example.test:3478"
+	next.TurnConfigVersion = 8
+
+	if err := settings.SaveWithEvent(&next, func(saved *models.Settings) Event {
+		return Event{
+			Type: EventTurnConfigChang,
+			Data: map[string]interface{}{"turn_config_version": saved.TurnConfigVersion},
+		}
+	}); err != nil {
+		t.Fatalf("SaveWithEvent: %v", err)
+	}
+	if got := settings.Get(); got.TurnConfigVersion != 8 ||
+		got.TurnURLs != next.TurnURLs || got.StunURLs != next.StunURLs {
+		t.Fatalf("settings cache = %+v", got)
+	}
+	var stored models.Settings
+	if err := db.First(&stored).Error; err != nil {
+		t.Fatalf("load settings: %v", err)
+	}
+	if stored.TurnConfigVersion != 8 || stored.TurnURLs != next.TurnURLs ||
+		stored.StunURLs != next.StunURLs {
+		t.Fatalf("stored settings = %+v", stored)
+	}
+	var outboxRows []models.EventOutbox
+	if err := db.Find(&outboxRows).Error; err != nil {
+		t.Fatalf("load turn outbox: %v", err)
+	}
+	if len(outboxRows) != 1 {
+		t.Fatalf("turn outbox rows = %d, want 1", len(outboxRows))
+	}
+	var event Event
+	if err := json.Unmarshal([]byte(outboxRows[0].Payload), &event); err != nil {
+		t.Fatalf("decode turn event: %v", err)
+	}
+	if event.Type != EventTurnConfigChang || event.UserID != 0 {
+		t.Fatalf("turn event = %+v", event)
+	}
+}
+
+func TestTurnSettingsOutboxFailureRollsBackSettings(t *testing.T) {
+	db := newEventOutboxTestDB(t)
+	settings := NewSettingsService(db).WithOutbox(
+		&failingScheduledTaskOutbox{err: errors.New("outbox unavailable")},
+	)
+	before := settings.Get()
+	next := before
+	next.TurnURLs = "turn:rollback.example.test:3478"
+	next.TurnConfigVersion = before.TurnConfigVersion + 1
+
+	if err := settings.SaveWithEvent(&next, func(saved *models.Settings) Event {
+		return Event{
+			Type: EventTurnConfigChang,
+			Data: map[string]interface{}{"turn_config_version": saved.TurnConfigVersion},
+		}
+	}); err == nil {
+		t.Fatal("SaveWithEvent succeeded despite outbox failure")
+	}
+	var count int64
+	if err := db.Model(&models.Settings{}).Count(&count).Error; err != nil {
+		t.Fatalf("count settings: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("settings rows after rollback = %d, want 0", count)
+	}
+	if got := settings.Get(); got.TurnConfigVersion != before.TurnConfigVersion ||
+		got.TurnURLs != before.TurnURLs {
+		t.Fatalf("settings cache changed after rollback: before=%+v after=%+v", before, got)
 	}
 }
 
