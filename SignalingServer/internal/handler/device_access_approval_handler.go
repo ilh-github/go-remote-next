@@ -194,8 +194,27 @@ func (h *DeviceAccessApprovalHandler) decide(c *gin.Context, approve bool) {
 		}
 	}
 	uid := middleware.MustUserID(c)
-	row, changed, err := h.approvals.Decide(
-		c.Request.Context(), deviceID, uint(approvalID), approve, uid, req.Reason)
+	deciderIP := c.ClientIP()
+	row, changed, err := h.approvals.DecideWithEvent(
+		c.Request.Context(), deviceID, uint(approvalID), approve, uid, req.Reason,
+		func(row *models.DeviceAccessApproval) service.Event {
+			return service.Event{
+				Type:     service.EventDeviceAccessApprovalDecided,
+				UserID:   row.OwnerID,
+				DeviceID: deviceID,
+				Data: map[string]interface{}{
+					"approval_id": row.ID,
+					"status":      row.EffectiveStatusAt(time.Now().UTC()),
+					"source":      row.Source,
+					"client_id":   row.ClientID,
+					"reason":      row.Reason,
+					// The deciding owner's observed address, matching the other
+					// audited user actions; the audit subscriber lifts it onto
+					// the row.
+					"ip": deciderIP,
+				},
+			}
+		})
 	if err != nil {
 		ProblemInternal(c, err.Error())
 		return
@@ -217,24 +236,6 @@ func (h *DeviceAccessApprovalHandler) decide(c *gin.Context, approve bool) {
 	view := approvalViewOf(*row, now)
 	if !approve {
 		h.record(c, deviceID, row, service.DeviceAccessDeniedApproval, firstNonEmpty(req.Reason, "owner denied the session"))
-	}
-	if h.bus != nil {
-		h.bus.Publish(c.Request.Context(), service.Event{
-			Type:     service.EventDeviceAccessApprovalDecided,
-			UserID:   row.OwnerID,
-			DeviceID: deviceID,
-			Data: map[string]interface{}{
-				"approval_id": row.ID,
-				"status":      view.Status,
-				"source":      row.Source,
-				"client_id":   row.ClientID,
-				"reason":      row.Reason,
-				// The deciding owner's observed address, matching the other
-				// audited user actions; the audit subscriber lifts it onto the
-				// row.
-				"ip": c.ClientIP(),
-			},
-		})
 	}
 	c.JSON(http.StatusOK, view)
 }

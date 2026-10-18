@@ -665,7 +665,7 @@ func (h *HostHandler) VerifyAccessCode(c *gin.Context) {
 		if h.access != nil {
 			ownerID = h.access.OwnerID(c.Request.Context(), deviceID)
 		}
-		row, secret, aerr := h.accessApprovals.Create(c.Request.Context(),
+		row, secret, aerr := h.accessApprovals.CreateWithEvent(c.Request.Context(),
 			service.CreateDeviceAccessApprovalInput{
 				DeviceID: deviceID,
 				OwnerID:  ownerID,
@@ -673,6 +673,20 @@ func (h *HostHandler) VerifyAccessCode(c *gin.Context) {
 				ClientIP: ip,
 				Source:   source,
 				GrantID:  grantID,
+			}, func(row *models.DeviceAccessApproval) service.Event {
+				return service.Event{
+					Type:     service.EventDeviceAccessApprovalRequested,
+					UserID:   row.OwnerID,
+					DeviceID: deviceID,
+					Data: map[string]interface{}{
+						"approval_id": row.ID,
+						"client_id":   row.ClientID,
+						"client_ip":   row.ClientIP,
+						"source":      row.Source,
+						"trigger":     approval.Trigger,
+						"expires_at":  row.ExpiresAt.UTC().Format(time.RFC3339),
+					},
+				}
 			})
 		if aerr != nil {
 			// One request per source at a time, and a ceiling on the device's
@@ -698,21 +712,6 @@ func (h *HostHandler) VerifyAccessCode(c *gin.Context) {
 			"device_id": deviceID, "ip": ip, "approval_id": row.ID,
 			"trigger": approval.Trigger, "request_id": c.GetString("request_id"),
 		})
-		if h.bus != nil && ownerID != 0 {
-			h.bus.Publish(c.Request.Context(), service.Event{
-				Type:     service.EventDeviceAccessApprovalRequested,
-				UserID:   ownerID,
-				DeviceID: deviceID,
-				Data: map[string]interface{}{
-					"approval_id": row.ID,
-					"client_id":   req.ClientID,
-					"client_ip":   ip,
-					"source":      row.Source,
-					"trigger":     approval.Trigger,
-					"expires_at":  row.ExpiresAt.UTC().Format(time.RFC3339),
-				},
-			})
-		}
 		c.JSON(http.StatusAccepted, approvalRequiredResp{
 			ApprovalID:     row.ID,
 			ApprovalSecret: secret,

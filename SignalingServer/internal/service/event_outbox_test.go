@@ -30,6 +30,7 @@ func newEventOutboxTestDB(t *testing.T) *gorm.DB {
 		&models.DeviceAccessLog{},
 		&models.UserDevice{},
 		&models.DeviceAccessPolicy{},
+		&models.DeviceAccessApproval{},
 		&models.Device{},
 		&models.RemoteSession{},
 		&models.SessionRecording{},
@@ -414,6 +415,189 @@ func TestDeviceAccessEventOutboxFailureRollsBackLog(t *testing.T) {
 	}
 	if logs != 0 {
 		t.Fatalf("access logs = %d, want rollback to 0", logs)
+	}
+}
+
+func TestDeviceAccessApprovalEventsCommitWithApprovalRows(t *testing.T) {
+	db := newEventOutboxTestDB(t)
+	_, _, bus := newEventOutboxTestRedis(t)
+	outbox := NewEventOutbox(db, bus)
+	seedOutboxTestDevice(t, db, "D1234567", 7)
+	approvals := NewDeviceAccessApprovalService(db).WithOutbox(outbox)
+	ctx := context.Background()
+
+	row, _, err := approvals.CreateWithEvent(ctx, CreateDeviceAccessApprovalInput{
+		DeviceID: "D1234567",
+		OwnerID:  7,
+		ClientID: "controller-1",
+		ClientIP: "203.0.113.7",
+		Source:   models.ApprovalSourceDeviceCode,
+		TTL:      time.Minute,
+	}, func(row *models.DeviceAccessApproval) Event {
+		return Event{
+			Type:     EventDeviceAccessApprovalRequested,
+			UserID:   row.OwnerID,
+			DeviceID: row.DeviceID,
+			Data: map[string]interface{}{
+				"approval_id": row.ID,
+				"trigger":     ApprovalTriggerAlways,
+			},
+		}
+	})
+	if err != nil {
+		t.Fatalf("CreateWithEvent: %v", err)
+	}
+	if row.Status != models.ApprovalPending {
+		t.Fatalf("created approval = %+v, want pending", row)
+	}
+
+	var outboxRows []models.EventOutbox
+	if err := db.Order("id").Find(&outboxRows).Error; err != nil {
+		t.Fatalf("load requested outbox row: %v", err)
+	}
+	if len(outboxRows) != 1 || outboxRows[0].Status != eventOutboxPending {
+		t.Fatalf("outbox rows = %+v, want one pending requested event", outboxRows)
+	}
+	var requested Event
+	if err := json.Unmarshal([]byte(outboxRows[0].Payload), &requested); err != nil {
+		t.Fatalf("decode requested event: %v", err)
+	}
+	if requested.Type != EventDeviceAccessApprovalRequested || requested.UserID != 7 ||
+		requested.DeviceID != "D1234567" ||
+		requested.Data["approval_id"] != float64(row.ID) {
+		t.Fatalf("requested event = %+v", requested)
+	}
+
+	decided, changed, err := approvals.DecideWithEvent(
+		ctx, "D1234567", row.ID, true, 7, "on my way",
+		func(row *models.DeviceAccessApproval) Event {
+			return Event{
+				Type:     EventDeviceAccessApprovalDecided,
+				UserID:   row.OwnerID,
+				DeviceID: row.DeviceID,
+				Data: map[string]interface{}{
+					"approval_id": row.ID,
+					"status":      row.Status,
+					"ip":          "198.51.100.7",
+				},
+			}
+		},
+	)
+	if err != nil {
+		t.Fatalf("DecideWithEvent: %v", err)
+	}
+	if !changed || decided == nil || decided.Status != models.ApprovalApproved {
+		t.Fatalf("decided approval = %+v, changed=%v", decided, changed)
+	}
+
+	outboxRows = nil
+	if err := db.Order("id").Find(&outboxRows).Error; err != nil {
+		t.Fatalf("load decided outbox rows: %v", err)
+	}
+	if len(outboxRows) != 2 {
+		t.Fatalf("outbox rows = %d, want requested+decided", len(outboxRows))
+	}
+	eventsByType := make(map[string]Event, len(outboxRows))
+	for _, outboxRow := range outboxRows {
+		var event Event
+		if err := json.Unmarshal([]byte(outboxRow.Payload), &event); err != nil {
+			t.Fatalf("decode outbox event %s: %v", outboxRow.ID, err)
+		}
+		eventsByType[event.Type] = event
+	}
+	decidedEvent := eventsByType[EventDeviceAccessApprovalDecided]
+	if decidedEvent.Type != EventDeviceAccessApprovalDecided || decidedEvent.UserID != 7 ||
+		decidedEvent.Data["status"] != models.ApprovalApproved ||
+		decidedEvent.Data["ip"] != "198.51.100.7" {
+		t.Fatalf("decided event = %+v", decidedEvent)
+	}
+
+	_, changed, err = approvals.DecideWithEvent(
+		ctx, "D1234567", row.ID, false, 7, "flip",
+		func(row *models.DeviceAccessApproval) Event {
+			return Event{
+				Type:     EventDeviceAccessApprovalDecided,
+				UserID:   row.OwnerID,
+				DeviceID: row.DeviceID,
+			}
+		},
+	)
+	if err != nil {
+		t.Fatalf("second DecideWithEvent: %v", err)
+	}
+	if changed {
+		t.Fatal("deciding an approval twice must not emit or change anything")
+	}
+	var total int64
+	if err := db.Model(&models.EventOutbox{}).Count(&total).Error; err != nil {
+		t.Fatalf("count outbox rows: %v", err)
+	}
+	if total != 2 {
+		t.Fatalf("outbox rows after no-op decision = %d, want 2", total)
+	}
+}
+
+func TestDeviceAccessApprovalOutboxFailureRollsBackCreateAndDecision(t *testing.T) {
+	db := newEventOutboxTestDB(t)
+	seedOutboxTestDevice(t, db, "D7654321", 7)
+	ctx := context.Background()
+	failing := NewDeviceAccessApprovalService(db).WithOutbox(
+		&failingScheduledTaskOutbox{err: errors.New("outbox unavailable")},
+	)
+
+	_, _, err := failing.CreateWithEvent(ctx, CreateDeviceAccessApprovalInput{
+		DeviceID: "D7654321",
+		OwnerID:  7,
+		ClientID: "controller-1",
+		ClientIP: "203.0.113.7",
+		TTL:      time.Minute,
+	}, func(row *models.DeviceAccessApproval) Event {
+		return Event{
+			Type:     EventDeviceAccessApprovalRequested,
+			UserID:   row.OwnerID,
+			DeviceID: row.DeviceID,
+		}
+	})
+	if err == nil {
+		t.Fatal("CreateWithEvent succeeded despite outbox failure")
+	}
+	var approvals int64
+	if err := db.Model(&models.DeviceAccessApproval{}).Count(&approvals).Error; err != nil {
+		t.Fatalf("count approvals after create rollback: %v", err)
+	}
+	if approvals != 0 {
+		t.Fatalf("approvals after create rollback = %d, want 0", approvals)
+	}
+
+	created, _, err := NewDeviceAccessApprovalService(db).Create(ctx, CreateDeviceAccessApprovalInput{
+		DeviceID: "D7654321",
+		OwnerID:  7,
+		ClientID: "controller-1",
+		ClientIP: "203.0.113.7",
+		TTL:      time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("seed pending approval: %v", err)
+	}
+	_, _, err = failing.DecideWithEvent(
+		ctx, "D7654321", created.ID, true, 7, "approve",
+		func(row *models.DeviceAccessApproval) Event {
+			return Event{
+				Type:     EventDeviceAccessApprovalDecided,
+				UserID:   row.OwnerID,
+				DeviceID: row.DeviceID,
+			}
+		},
+	)
+	if err == nil {
+		t.Fatal("DecideWithEvent succeeded despite outbox failure")
+	}
+	var stored models.DeviceAccessApproval
+	if err := db.First(&stored, created.ID).Error; err != nil {
+		t.Fatalf("load approval after decision rollback: %v", err)
+	}
+	if stored.Status != models.ApprovalPending || stored.DecidedAt != nil {
+		t.Fatalf("decision was not rolled back: %+v", stored)
 	}
 }
 

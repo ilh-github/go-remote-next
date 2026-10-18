@@ -14,6 +14,7 @@ import (
 	"quickdesk/signaling/internal/models"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // DeviceAccessApprovalDefaultTTL is how long the owner has to decide before a
@@ -107,6 +108,10 @@ const (
 // DeviceAccessApprovalService issues and resolves second-factor approvals.
 type DeviceAccessApprovalService struct {
 	db *gorm.DB
+	// outbox is optional so callers and tests that only need the approval
+	// lifecycle can keep using Create/Decide without wiring the control-plane
+	// event pipeline.
+	outbox EventOutboxWriter
 	// denialCooldown, when positive, refuses a new request from a source whose
 	// last request for the same device was denied inside the window. 0 disables
 	// it, which is the historical behaviour: a denial immediately frees the
@@ -123,6 +128,35 @@ type DeviceAccessApprovalService struct {
 
 func NewDeviceAccessApprovalService(db *gorm.DB) *DeviceAccessApprovalService {
 	return &DeviceAccessApprovalService{db: db, denialCooldownMultiplier: 1}
+}
+
+// WithOutbox makes approval lifecycle events transactional with the approval
+// row. Direct callers that do not attach an outbox keep the historical
+// no-event behaviour.
+func (s *DeviceAccessApprovalService) WithOutbox(outbox EventOutboxWriter) *DeviceAccessApprovalService {
+	s.outbox = outbox
+	return s
+}
+
+// DeviceAccessApprovalEventFactory builds the owner-scoped event from the
+// final approval row. It runs inside the caller's transaction.
+type DeviceAccessApprovalEventFactory func(row *models.DeviceAccessApproval) Event
+
+func (s *DeviceAccessApprovalService) enqueueApprovalEvent(
+	ctx context.Context,
+	tx *gorm.DB,
+	eventFactory DeviceAccessApprovalEventFactory,
+	row *models.DeviceAccessApproval,
+) error {
+	if s.outbox == nil || eventFactory == nil || row == nil {
+		return nil
+	}
+	evt := eventFactory(row)
+	if evt.Type == "" || evt.UserID == 0 {
+		return nil
+	}
+	_, err := s.outbox.EnqueueTx(ctx, tx, evt)
+	return err
 }
 
 // WithDenialCooldown sets how long a denied source must wait before it may ask
@@ -225,6 +259,18 @@ func (s *DeviceAccessApprovalService) Create(
 	ctx context.Context,
 	in CreateDeviceAccessApprovalInput,
 ) (*models.DeviceAccessApproval, string, error) {
+	return s.CreateWithEvent(ctx, in, nil)
+}
+
+// CreateWithEvent stores a pending approval and enqueues its requested event
+// in the same transaction. A failed enqueue rolls the approval row back, so
+// the owner can never miss an actionable request that already exists in the
+// database.
+func (s *DeviceAccessApprovalService) CreateWithEvent(
+	ctx context.Context,
+	in CreateDeviceAccessApprovalInput,
+	eventFactory DeviceAccessApprovalEventFactory,
+) (*models.DeviceAccessApproval, string, error) {
 	if strings.TrimSpace(in.DeviceID) == "" {
 		return nil, "", errors.New("device_id is required")
 	}
@@ -261,7 +307,10 @@ func (s *DeviceAccessApprovalService) Create(
 		if err := s.guardPendingRequests(tx, in, now); err != nil {
 			return err
 		}
-		return tx.Create(row).Error
+		if err := tx.Create(row).Error; err != nil {
+			return err
+		}
+		return s.enqueueApprovalEvent(ctx, tx, eventFactory, row)
 	})
 	if err != nil {
 		return nil, "", err
@@ -290,8 +339,13 @@ func (s *DeviceAccessApprovalService) guardPendingRequests(
 	var device struct {
 		ID uint `gorm:"column:id"`
 	}
-	if err := tx.Raw("SELECT id FROM devices WHERE device_id = ? FOR UPDATE", in.DeviceID).
-		Scan(&device).Error; err != nil {
+	err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+		Table("devices").
+		Select("id").
+		Where("device_id = ?", in.DeviceID).
+		Limit(1).
+		Find(&device).Error
+	if err != nil {
 		return err
 	}
 
@@ -598,6 +652,21 @@ func (s *DeviceAccessApprovalService) Decide(
 	decidedBy uint,
 	reason string,
 ) (*models.DeviceAccessApproval, bool, error) {
+	return s.DecideWithEvent(ctx, deviceID, approvalID, approve, decidedBy, reason, nil)
+}
+
+// DecideWithEvent records the owner's verdict and enqueues the decided event
+// in one transaction. A no-op decision (already decided, expired, or wrong
+// device) does not emit an event.
+func (s *DeviceAccessApprovalService) DecideWithEvent(
+	ctx context.Context,
+	deviceID string,
+	approvalID uint,
+	approve bool,
+	decidedBy uint,
+	reason string,
+	eventFactory DeviceAccessApprovalEventFactory,
+) (*models.DeviceAccessApproval, bool, error) {
 	now := time.Now().UTC()
 	status := models.ApprovalDenied
 	if approve {
@@ -606,28 +675,45 @@ func (s *DeviceAccessApprovalService) Decide(
 	if len(reason) > 255 {
 		reason = reason[:255]
 	}
-	result := s.db.WithContext(ctx).
-		Model(&models.DeviceAccessApproval{}).
-		Where("id = ? AND device_id = ? AND status = ? AND expires_at > ?",
-			approvalID, deviceID, models.ApprovalPending, now).
-		Updates(map[string]interface{}{
-			"status":     status,
-			"decided_by": decidedBy,
-			"decided_at": now,
-			"reason":     reason,
-			"updated_at": now,
-		})
-	if result.Error != nil {
-		return nil, false, result.Error
-	}
-	row, err := s.Get(ctx, approvalID)
+	var row models.DeviceAccessApproval
+	changed := false
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		result := tx.Model(&models.DeviceAccessApproval{}).
+			Where("id = ? AND device_id = ? AND status = ? AND expires_at > ?",
+				approvalID, deviceID, models.ApprovalPending, now).
+			Updates(map[string]interface{}{
+				"status":     status,
+				"decided_by": decidedBy,
+				"decided_at": now,
+				"reason":     reason,
+				"updated_at": now,
+			})
+		if result.Error != nil {
+			return result.Error
+		}
+		if err := tx.Where("id = ?", approvalID).First(&row).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil
+			}
+			return err
+		}
+		if row.DeviceID != deviceID {
+			row = models.DeviceAccessApproval{}
+			return nil
+		}
+		changed = result.RowsAffected == 1
+		if !changed {
+			return nil
+		}
+		return s.enqueueApprovalEvent(ctx, tx, eventFactory, &row)
+	})
 	if err != nil {
 		return nil, false, err
 	}
-	if row == nil || row.DeviceID != deviceID {
+	if row.ID == 0 {
 		return nil, false, nil
 	}
-	return row, result.RowsAffected == 1, nil
+	return &row, changed, nil
 }
 
 // Peek verifies the one-time secret and reports the current state without
