@@ -97,6 +97,8 @@
 - QD-907 信令认证边界已补：`WebSocketTransport` 的 auth_ok 超时可配置，默认仍为
   6000ms；修复超时错误先被同步 `onclose` 覆盖成通用断线错误的问题；XML、JSON
   payload 和业务 `send()` 在 auth_ok 前全部拒绝，认证完成后恢复
+- QD-907 访问码校验失败已分级：`ACCESS_POLICY_DENIED` / `FORBIDDEN` 不再误报为参数
+  缺失，离线、错误访问码、限流、审批等待和控制器签名失败分别显示稳定中文/英文原因
 - fork PR：<https://github.com/ilh-github/go-remote-next/pull/1>，OPEN / MERGEABLE /
   CLEAN，7 项检查全部成功；它的 head 是早期最小分支，不等于当前完整 `dev`
 - 服务端：Go SignalingServer
@@ -166,6 +168,8 @@
 - QD-907：TDD 覆盖可配置 auth_ok 超时、超时原始错误保留、认证前 XML/JSON payload
   丢弃和 `send()` 拒绝；WebClient 68/68 与生产构建通过，JS 379.50 kB、
   gzip 121.42 kB。
+- QD-907 访问码错误归类：访问策略拒绝、访问码错误、离线、限流、审批等待、控制器签名
+  和未知错误均有独立映射；WebClient 72/72 与生产构建通过，JS 380.30 kB、gzip 121.82 kB。
 - QD-610 第十六至十八阶段：cron trigger 新增 `skip_holidays`，按 IANA 时区本地日期跳过
   内置中国法定放假日，调休上班日仍执行；支持 `QUICKDESK_HOLIDAY_CALENDAR_DIR`
   追加后续年份；interval/event-only 使用该标志返回 400。默认 replay buffer 提升到
@@ -773,7 +777,7 @@ fork 是否能继续开发，也不能因为 fork 自己有实现就再次向 up
 | QD-904 | Web End-to-End / Playwright | `[~]` | 已有部分 smoke，覆盖面待扩 |
 | QD-905 | 信令、TURN 并发压测 | `[x]` | 已有负载和 soak 脚本 |
 | QD-906 | Windows/macOS 真机矩阵 | `[~]` | Windows 主链已验证；输入、音频、剪贴板边界待补 |
-| QD-907 | 协议异常、权限异常、重连耗尽 | `[~]` | 已补信令 auth_ok 超时可配置、错误归类竞态和认证前 payload/send 门禁；权限拒绝、重连耗尽和上传/离线组合仍需继续扩边界 |
+| QD-907 | 协议异常、权限异常、重连耗尽 | `[~]` | 已补信令 auth_ok 超时、认证前 payload/send 门禁和访问策略/错误访问码/排队/签名失败分类；重连耗尽与上传/离线组合仍待继续扩边界 |
 | QD-908 | 2h+ 桌面长稳和几百路观看 | `[ ]` | 当前缺业务级长稳基线 |
 | QD-909 | 安全审计：文件、剪贴板、权限 | `[~]` | 访问和会话已有；文件/剪贴板未进入控制面 |
 | QD-910 | 需求、上游与实现持续对账 | `[~]` | 每次上游合并、issue/PR 变化或功能完成时，同步本清单、状态证据和上游贡献决策 |
