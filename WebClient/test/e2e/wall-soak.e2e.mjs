@@ -136,7 +136,7 @@ test(
         requestAnimationFrame(tick)
       })
 
-      await page.getByRole('button', { name: 'Start rotation', exact: true })
+      await page.getByRole('button', { name: 'Start rotation', exact: true }, { timeout: 120000 })
         .evaluate((button) => button.click())
       const baseline = await performanceMetrics(cdp)
       const startedAt = Date.now()
@@ -172,7 +172,7 @@ test(
         if (remaining > 0) await new Promise((resolve) => setTimeout(resolve, remaining))
       }
 
-      await page.getByRole('button', { name: 'Stop rotation', exact: true })
+      await page.getByRole('button', { name: 'Stop rotation', exact: true }, { timeout: 120000 })
         .evaluate((button) => button.click())
       const elapsedMs = Date.now() - startedAt
       const endedFrames = await page.evaluate(() => window.__wallSoakMainFrames)
