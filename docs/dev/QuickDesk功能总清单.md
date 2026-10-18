@@ -43,7 +43,7 @@
 
 - 仓库：`go-remote-next`
 - 本地主分支：`dev`、`master`
-- 本地代码基线：`0930b27`（QD-610 管理端设备、来源封禁与 TURN 配置事务 outbox；QD-907 重连 Playwright E2E；QD-904 设备页、屏幕墙、文件管理器、真实多标签和真实自托管 SignalingServer E2E）；`origin/dev` 与
+- 本地代码基线：`d19c850`（QD-610 管理端设备、来源封禁与 TURN 配置事务 outbox；QD-907 重连 Playwright E2E；QD-904 设备页、屏幕墙、文件管理器、真实多标签和真实自托管 SignalingServer E2E；QD-908 多观看端 soak 门禁）；`origin/dev` 与
   `origin/master` 仍在 `9837194`，本地领先数量以 `git rev-list --count origin/dev..dev`
   的实时值为准
 - 上游基线：`barry-ran/QuickDesk` 的 `dev` = `5db316c`，`master` = `f6651f0`
@@ -78,6 +78,9 @@
 - QD-904 真实自托管 SignalingServer E2E 已补：临时 Redis + SQLite 服务、管理员播种、
   账号和设备、真实登录、Realtime snapshot、私有分组写库和 access-code 校验全部走真实
   HTTP/WebSocket；生产 WebClient 构建由 Chrome 驱动
+- QD-908 多观看端 soak 门禁已补：真实 `WallPage.vue` 加载可配置数量的动画会话 iframe，
+  采样瓦片存活、iframe 帧推进、主线程 rAF、JS heap、音频独占和页面错误；200 路
+  30 秒烟测通过，正式 2 小时门禁通过环境变量启用
 - QD-610 已补控制面事件订阅：Qt `CloudDeviceManager` 只向本机 MCP 广播白名单事件，
   MCP 支持 `event_type` / `event_device_id` / `event_filter`、设备 ID 归一化、
   claim-before-run 和事件 ID 幂等；SQLite 模式重启后不依赖会重置的 `server_rev`
@@ -181,7 +184,7 @@
 
 最近验证：
 
-- 本轮代码提交：`0930b27`（QD-904 真实自托管 SignalingServer E2E）、`3e0ab72`（QD-904 设备页浏览器 E2E）、`988238e`（QD-904 屏幕墙浏览器 E2E）、`28b1972`（QD-904 真实多标签浏览器 E2E）、`2d211c1`（QD-610 event retry claim 崩溃恢复）、`c39443c`（QD-610 服务端 replay retention 可配置）、`cd730d1`（QD-610 回调操作者归属）、`5f24ff7`（QD-610 同目录多进程回调与 job 协调）、`9ae401a`（QD-610 cron 漏跑补跑）、`cac2afa`（QD-610 replay 容量可配置）、`3c50004`（MCP 节假日日历随包分发）、`e30662d`（QD-610 cron 法定节假日跳过）、`b9f414c`（QD-111 / QD-408 文件传输审计）、`71b899e`（QD-316 会话内文字聊天）、`2e09d5b`（QD-610 控制面事件触发器）、`9f7be0f`（QD-610 HMAC 结果回调）、`e8ce807`（QD-610 异步任务队列/取消）、`e518194`（QD-610 Idempotency-Key）、`3f94911`（QD-610 持久化/定时触发器）、`bca8149`（QD-610 HTTP trigger）、`de88f07`（QD-506 Web 录像分块续传）、`001a76c`（QD-510 工作流核心）、`e688869`（访问码同步重试）、`5be14da`（SPAKE2 与传输错误码）、
+- 本轮代码提交：`d19c850`（QD-908 多观看端 soak 门禁）、`0930b27`（QD-904 真实自托管 SignalingServer E2E）、`3e0ab72`（QD-904 设备页浏览器 E2E）、`988238e`（QD-904 屏幕墙浏览器 E2E）、`28b1972`（QD-904 真实多标签浏览器 E2E）、`2d211c1`（QD-610 event retry claim 崩溃恢复）、`c39443c`（QD-610 服务端 replay retention 可配置）、`cd730d1`（QD-610 回调操作者归属）、`5f24ff7`（QD-610 同目录多进程回调与 job 协调）、`9ae401a`（QD-610 cron 漏跑补跑）、`cac2afa`（QD-610 replay 容量可配置）、`3c50004`（MCP 节假日日历随包分发）、`e30662d`（QD-610 cron 法定节假日跳过）、`b9f414c`（QD-111 / QD-408 文件传输审计）、`71b899e`（QD-316 会话内文字聊天）、`2e09d5b`（QD-610 控制面事件触发器）、`9f7be0f`（QD-610 HMAC 结果回调）、`e8ce807`（QD-610 异步任务队列/取消）、`e518194`（QD-610 Idempotency-Key）、`3f94911`（QD-610 持久化/定时触发器）、`bca8149`（QD-610 HTTP trigger）、`de88f07`（QD-506 Web 录像分块续传）、`001a76c`（QD-510 工作流核心）、`e688869`（访问码同步重试）、`5be14da`（SPAKE2 与传输错误码）、
   `a982a10`（Windows 自动更新重启与缓存清理）、`c77dcae`（SQLite 轻量模式）、
   `64ab93a`（备份恢复与存储配额）、`37dd8aa`（Host 指标告警）、`3021ca9`
   （私密安全披露策略）、`3474203`（信令信任边界）；
@@ -902,7 +905,7 @@ rotation 的事件写入同一数据库事务，`6386a48` 又把 TURN/STUN setti
 | QD-905 | 信令、TURN 并发压测 | `[x]` | 已有负载和 soak 脚本 |
 | QD-906 | Windows/macOS 真机矩阵 | `[~]` | Windows 主链已验证；输入、音频、剪贴板边界待补 |
 | QD-907 | 协议异常、权限异常、重连耗尽 | `[~]` | 已补信令 auth_ok 超时、认证前 payload/send 门禁、访问策略/错误访问码/排队/签名失败分类、上传 transport/503 重试耗尽，以及 WebSocket 断线后重新签发 token 的有界 `0/1/3/7s` 重连与耗尽状态。Playwright E2E 已覆盖第 1~3 次恢复、四次耗尽、不可重试策略拒绝、上传中断与信令重连并行、旧 Session 迟到事件隔离；真实弱网/代理切换、进程级断网和长时间抖动仍未验证 |
-| QD-908 | 2h+ 桌面长稳和几百路观看 | `[ ]` | 当前缺业务级长稳基线 |
+| QD-908 | 2h+ 桌面长稳和几百路观看 | `[~]` | 已新增真实 `WallPage.vue` soak 门禁；200 路 30 秒通过（主线程约 7.98 FPS、heap 增长 86.14 MiB、无页面错误），200 路 2 小时正式基线仍待完成 |
 | QD-909 | 安全审计：文件、剪贴板、权限 | `[~]` | 访问和会话已有；文件/剪贴板未进入控制面 |
 | QD-910 | 需求、上游与实现持续对账 | `[~]` | 每次上游合并、issue/PR 变化或功能完成时，同步本清单、状态证据和上游贡献决策 |
 | QD-911 | 上游私密安全披露入口 | `[~]` | fork 提交 `3021ca9` 与上游候选 `9862717` 已新增 `SECURITY.md`，覆盖私密邮箱兜底、公开 issue 禁令、范围、协调披露和 maintainer 检查项；issue #6 仍 OPEN，GitHub Private Vulnerability Reporting 仍 disabled |
