@@ -8,9 +8,9 @@
 ## 当前本地基线
 
 - fork 本地主线：`dev` / `master` 已同步；QD-907 功能提交为 `33e9851`、`fd92cdd`，
-  文档收口后本地领先 `origin/dev` 51 个提交
+  上传重试耗尽测试为 `f8d0a34`，文档收口后本地领先 `origin/dev` 53 个提交
 - fork 远端：`origin/dev` 与 `origin/master` 当前仍为 `9837194`
-- 本地领先：`dev` / `master` 均比各自远端多 51 个提交
+- 本地领先：`dev` / `master` 均比各自远端多 53 个提交
 - 推送 blocker：2026-10-18 执行 `git push origin dev master` 和候选分支 push 均被
   执行策略拒绝，错误为 `approval required by policy, but AskForApproval is set to Never`；
   未绕过审批策略。`git ls-remote` 于同一时刻确认远端主分支仍为 `9837194`，QD-111
