@@ -69,5 +69,17 @@ cd WebClient
 npm run test:e2e:devices
 ```
 
+## Self-Hosted Signaling
+
+`selfhost.e2e.mjs` builds the Go SignalingServer. It starts a temporary SQLite
+database and external Redis, seeds an online account/device through the real
+admin path, serves the production WebClient build, and drives Chrome through
+login, device listing, private-group writes, and access-code verification.
+
+```bash
+cd WebClient
+npm run test:e2e:selfhost
+```
+
 Set `QD_BROWSER_CHANNEL` to use a channel other than the locally installed
 Google Chrome.
