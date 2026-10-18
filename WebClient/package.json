@@ -10,7 +10,8 @@
     "test": "node --test test/*.test.mjs",
     "test:e2e:reconnect": "node --test test/e2e/reconnect.e2e.mjs",
     "test:e2e:file-manager": "node --test test/e2e/file-manager.e2e.mjs",
-    "test:e2e:tab-coordinator": "node --test test/e2e/tab-coordinator.e2e.mjs"
+    "test:e2e:tab-coordinator": "node --test test/e2e/tab-coordinator.e2e.mjs",
+    "test:e2e:wall": "node --test test/e2e/wall.e2e.mjs"
   },
   "dependencies": {
     "vue": "^3.4.0",

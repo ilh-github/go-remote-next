@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Screen Wall E2E</title>
+  <style>
+    body { margin: 0; padding: 20px; background: #1a1a2e; color: #eee; font-family: sans-serif; }
+    .wall-tile iframe { background: #050505; }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <script type="module">
+    import { createApp, h } from 'vue'
+    import { createI18n } from 'vue-i18n'
+    import WallPage from '/src/views/WallPage.vue'
+    import { en } from '/src/i18n/en.js'
+    import { zh } from '/src/i18n/zh.js'
+    import { userApi } from '/src/api/userApi.js'
+    import { authState, updateAuthState } from '/src/store/auth.js'
+
+    localStorage.setItem('quickdesk_signaling_url', location.origin.replace(/^http/, 'ws'))
+    userApi.setBaseUrl(location.origin)
+    updateAuthState()
+
+    const i18n = createI18n({
+      legacy: false,
+      locale: 'en-US',
+      fallbackLocale: 'en-US',
+      messages: { 'zh-CN': zh, 'en-US': en },
+    })
+    const app = createApp({
+      render: () => h(WallPage),
+    })
+    app.use(i18n)
+    app.provide('showToast', (message, type) => {
+      window.__wallToasts.push({ message, type })
+    })
+    app.provide('showLogin', () => {
+      window.__showLoginCalls += 1
+    })
+    app.provide('authState', authState)
+
+    window.__wallToasts = []
+    window.__showLoginCalls = 0
+    app.mount('#app')
+    window.__wallMounted = true
+  </script>
+</body>
+</html>

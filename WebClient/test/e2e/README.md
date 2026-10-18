@@ -45,5 +45,17 @@ cd WebClient
 npm run test:e2e:tab-coordinator
 ```
 
+## Screen Wall
+
+`wall.e2e.mjs` loads the real `WallPage.vue` through Vite, mocks the owner-scoped
+device APIs, and replaces each embedded session with a same-origin iframe that
+reports host state. It covers live tiles, exclusive audio and input, focus,
+reconnect, columns, and removal.
+
+```bash
+cd WebClient
+npm run test:e2e:wall
+```
+
 Set `QD_BROWSER_CHANNEL` to use a channel other than the locally installed
 Google Chrome.
