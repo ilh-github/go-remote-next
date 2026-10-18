@@ -49,14 +49,15 @@
   基于 PR #25 的 `feat/signaling-control-plane@8998466`；44 个文件，只含文件传输审计、
   contract smoke 和该基线已有的四套 SDK，不含 fork 清单或 C#/PHP/Kotlin SDK；本地验证
   完成但尚未推送到 `origin`
-- QD-907 上游候选已准备：`codex/upstream-websocket-auth-timeout` = `6d5ad8f`，基于
+- QD-907 上游候选已准备：`codex/upstream-websocket-auth-timeout` = `729d9fe`，基于
   PR #25 的 `feat/signaling-control-plane@8998466`；只改 WebClient 信令 transport、
   有界重连、访问码错误分类、remote 入口和 Node test。候选自身 10/10、生产构建和
   单提交 diff check 通过；修复 auth_ok 超时、认证前 payload/send 门禁、
   访问策略/错误访问码/排队/签名失败分类，以及断线后重新签发 token 的 0/1/3/7 秒
   有界重连与耗尽状态。fork 已增加真实 Chrome + Playwright 的 QD-907 E2E，
-  `830a469` 的 7/7 测试覆盖第 1~3 次恢复、四次耗尽、策略拒绝、上传并发和旧 Session 隔离；
-  该测试尚未追加到上游候选，分支仍未推送到 `origin`
+  `2ab09d5` 的 7/7 测试覆盖第 1~3 次恢复、四次耗尽、策略拒绝、上传并发和旧 Session 隔离；
+  `729d9fe` 已把同一测试追加到上游候选；候选基线没有 fork-only 录像上传模块，
+  因此该用例显式跳过，其余 6 项通过。分支仍未推送到 `origin`
 - 上游 QD-006 候选：`codex/upstream-qd-006-sqlite` = `7758456`，基于 PR #25 的
   `feat/signaling-control-plane@8998466`；候选自身完整 Go 测试、database race、
   `go vet`、Web 生产构建和最小服务 E2E 通过。PR #25 合并后需 rebase 到

@@ -43,7 +43,7 @@
 
 - 仓库：`go-remote-next`
 - 本地主分支：`dev`、`master`
-- 本地代码基线：`830a469`（QD-907 WebClient 有界信令重连与 Playwright E2E）；`origin/dev` 与
+- 本地代码基线：`2ab09d5`（QD-907 WebClient 有界信令重连与 Playwright E2E）；`origin/dev` 与
   `origin/master` 仍在 `9837194`，本地领先数量以 `git rev-list --count origin/dev..dev`
   的实时值为准
 - 上游基线：`barry-ran/QuickDesk` 的 `dev` = `5db316c`，`master` = `f6651f0`
@@ -130,6 +130,10 @@
   使用同一个 `Upload-Offset`，不会把失败上传误报成完成
 - QD-907 WebSocket 重连已有有界策略：信令断开后重新签发一次性 signal_token，按
   `0/1/3/7s` 四次尝试重连；不可重试的访问失败立即停止，尝试耗尽后显示稳定失败状态
+- QD-907 浏览器 E2E 已补：真实 Chrome 加载 `remote.html`，用本地静态服务器、假信令
+  WebSocket 和可控 `RTCPeerConnection` 覆盖第 1~3 次恢复、四次耗尽、策略拒绝、上传
+  并发和旧 Session 迟到事件；上游最小候选同步包含该测试，但录像上传用例在候选基线
+  缺少该 fork-only 模块时显式跳过
 - fork PR：<https://github.com/ilh-github/go-remote-next/pull/1>，OPEN / MERGEABLE /
   CLEAN，7 项检查全部成功；它的 head 是早期最小分支，不等于当前完整 `dev`
 - 服务端：Go SignalingServer
