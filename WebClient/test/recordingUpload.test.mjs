@@ -109,3 +109,57 @@ test('recording upload does not retry a payload rejection', async () => {
 
   assert.equal(calls, 1)
 })
+
+test('recording upload reports the last transport error after retry exhaustion', async () => {
+  const blob = new Blob(['abcdefgh'], { type: 'video/webm' })
+  const requestOffsets = []
+  const retries = []
+  let calls = 0
+
+  await assert.rejects(
+    uploadRecordingArtifact({
+      url: '/v1/me/recordings/12/artifact',
+      token: 'tok',
+      blob,
+      ext: 'webm',
+      chunkSize: 4,
+      retryDelaysMs: [0, 0, 0],
+      fetchImpl: async (_url, init) => {
+        calls += 1
+        requestOffsets.push(Number(init.headers['Upload-Offset']))
+        throw new TypeError(`connection reset ${calls}`)
+      },
+      onRetry: (state) => retries.push(state.attempt),
+    }),
+    /connection reset 3/,
+  )
+
+  assert.deepEqual(requestOffsets, [0, 0, 0])
+  assert.deepEqual(retries, [1, 2])
+})
+
+test('recording upload reports retryable HTTP failure after the final attempt', async () => {
+  const blob = new Blob(['abcdefgh'], { type: 'video/webm' })
+  let calls = 0
+
+  await assert.rejects(
+    uploadRecordingArtifact({
+      url: '/v1/me/recordings/13/artifact',
+      token: 'tok',
+      blob,
+      ext: 'webm',
+      chunkSize: 4,
+      retryDelaysMs: [0, 0],
+      fetchImpl: async () => {
+        calls += 1
+        return new Response(JSON.stringify({ detail: 'gateway unavailable' }), {
+          status: 503,
+          headers: { 'Content-Type': 'application/problem+json' },
+        })
+      },
+    }),
+    (error) => error.status === 503 && error.message.includes('gateway unavailable'),
+  )
+
+  assert.equal(calls, 2)
+})
