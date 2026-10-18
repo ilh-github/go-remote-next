@@ -29,6 +29,8 @@ docs/DeviceAccessPolicy.md
 docs/DeviceAccessPolicyInput.md
 docs/DeviceGroupsApi.md
 docs/DevicesApi.md
+docs/FileTransferAuditInput.md
+docs/FileTransfersApi.md
 docs/HostMetricReport.md
 docs/ListAccessApprovals200Response.md
 docs/ListAccessGrants200Response.md
@@ -80,6 +82,7 @@ quickdesk_signaling/api/__init__.py
 quickdesk_signaling/api/auth_api.py
 quickdesk_signaling/api/device_groups_api.py
 quickdesk_signaling/api/devices_api.py
+quickdesk_signaling/api/file_transfers_api.py
 quickdesk_signaling/api/me_api.py
 quickdesk_signaling/api/notifications_api.py
 quickdesk_signaling/api/recordings_api.py
@@ -113,6 +116,7 @@ quickdesk_signaling/models/device.py
 quickdesk_signaling/models/device_access_ban_request.py
 quickdesk_signaling/models/device_access_policy.py
 quickdesk_signaling/models/device_access_policy_input.py
+quickdesk_signaling/models/file_transfer_audit_input.py
 quickdesk_signaling/models/host_metric_report.py
 quickdesk_signaling/models/list_access_approvals200_response.py
 quickdesk_signaling/models/list_access_grants200_response.py
@@ -185,6 +189,8 @@ test/test_device_access_policy.py
 test/test_device_access_policy_input.py
 test/test_device_groups_api.py
 test/test_devices_api.py
+test/test_file_transfer_audit_input.py
+test/test_file_transfers_api.py
 test/test_host_metric_report.py
 test/test_list_access_approvals200_response.py
 test/test_list_access_grants200_response.py

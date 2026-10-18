@@ -5,6 +5,7 @@
 #define QUICKDESK_CONTROLLER_MAINCONTROLLER_H
 
 #include <QJsonObject>
+#include <QHash>
 #include <QMutex>
 #include <QObject>
 #include <QProcess>
@@ -292,6 +293,12 @@ private slots:
     void onHostReady(const QString& deviceId, const QString& accessCode);
 
 private:
+    struct FileTransferAuditState {
+        QString filename;
+        qint64 bytesTransferred = 0;
+        qint64 totalBytes = 0;
+    };
+
     std::unique_ptr<ProcessManager> m_processManager;
     std::unique_ptr<ServerManager> m_serverManager;
     std::unique_ptr<TurnServerManager> m_turnServerManager;
@@ -322,6 +329,7 @@ private:
     ServerStatus::Status m_hostServerStatus = ServerStatus::Disconnected;
     ServerStatus::Status m_clientServerStatus = ServerStatus::Disconnected;
     QString m_primaryDeviceId;  // Track primary device for client signaling status
+    QHash<QString, FileTransferAuditState> m_fileTransferAuditStates;
 
     // Tracks the last-observed host signaling state so we can detect
     // the transition into "connected" (e.g. after a network switch)

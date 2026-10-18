@@ -31,6 +31,8 @@ docs/DeviceAccessPolicy.md
 docs/DeviceAccessPolicyInput.md
 docs/DeviceGroupsApi.md
 docs/DevicesApi.md
+docs/FileTransferAuditInput.md
+docs/FileTransfersApi.md
 docs/HostMetricReport.md
 docs/ListAccessApprovals200Response.md
 docs/ListAccessGrants200Response.md
@@ -100,6 +102,7 @@ src/main/java/org/openapitools/client/StringUtil.java
 src/main/java/org/openapitools/client/api/AuthApi.java
 src/main/java/org/openapitools/client/api/DeviceGroupsApi.java
 src/main/java/org/openapitools/client/api/DevicesApi.java
+src/main/java/org/openapitools/client/api/FileTransfersApi.java
 src/main/java/org/openapitools/client/api/MeApi.java
 src/main/java/org/openapitools/client/api/NotificationsApi.java
 src/main/java/org/openapitools/client/api/RecordingsApi.java
@@ -133,6 +136,7 @@ src/main/java/org/openapitools/client/model/Device.java
 src/main/java/org/openapitools/client/model/DeviceAccessBanRequest.java
 src/main/java/org/openapitools/client/model/DeviceAccessPolicy.java
 src/main/java/org/openapitools/client/model/DeviceAccessPolicyInput.java
+src/main/java/org/openapitools/client/model/FileTransferAuditInput.java
 src/main/java/org/openapitools/client/model/HostMetricReport.java
 src/main/java/org/openapitools/client/model/ListAccessApprovals200Response.java
 src/main/java/org/openapitools/client/model/ListAccessGrants200Response.java
@@ -175,6 +179,7 @@ src/main/java/org/openapitools/client/model/UserDeviceGroupPatch.java
 src/test/java/org/openapitools/client/api/AuthApiTest.java
 src/test/java/org/openapitools/client/api/DeviceGroupsApiTest.java
 src/test/java/org/openapitools/client/api/DevicesApiTest.java
+src/test/java/org/openapitools/client/api/FileTransfersApiTest.java
 src/test/java/org/openapitools/client/api/MeApiTest.java
 src/test/java/org/openapitools/client/api/NotificationsApiTest.java
 src/test/java/org/openapitools/client/api/RecordingsApiTest.java
@@ -203,6 +208,7 @@ src/test/java/org/openapitools/client/model/DeviceAccessBanRequestTest.java
 src/test/java/org/openapitools/client/model/DeviceAccessPolicyInputTest.java
 src/test/java/org/openapitools/client/model/DeviceAccessPolicyTest.java
 src/test/java/org/openapitools/client/model/DeviceTest.java
+src/test/java/org/openapitools/client/model/FileTransferAuditInputTest.java
 src/test/java/org/openapitools/client/model/HostMetricReportTest.java
 src/test/java/org/openapitools/client/model/ListAccessApprovals200ResponseTest.java
 src/test/java/org/openapitools/client/model/ListAccessGrants200ResponseTest.java

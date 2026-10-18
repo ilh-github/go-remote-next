@@ -175,6 +175,28 @@ class UserApi {
     });
   }
 
+  async recordFileTransferAudit({
+    deviceId,
+    transferId,
+    direction,
+    status,
+    filename = '',
+    bytesTransferred = 0,
+    totalBytes = 0,
+    error = '',
+  }) {
+    return this._request('POST', '/v1/me/file-transfer-audits', {
+      device_id: deviceId,
+      transfer_id: transferId,
+      direction,
+      status,
+      filename,
+      bytes_transferred: bytesTransferred,
+      total_bytes: totalBytes,
+      error,
+    });
+  }
+
   // -------- access-code verification (§2.6 / §2.18) --------
 
   async verifyAccessCode(deviceId, code) {

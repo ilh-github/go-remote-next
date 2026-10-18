@@ -115,6 +115,7 @@ All URIs are relative to *https://your-signaling-host*
 | *DevicesApi* | [**revokeAccessGrant**](docs/DevicesApi.md#revokeaccessgrant) | **DELETE** /v1/me/devices/{device_id}/access-grants/{grant_id} | Revoke a guest access code |
 | *DevicesApi* | [**unbanDeviceAccessSource**](docs/DevicesApi.md#unbandeviceaccesssource) | **POST** /v1/me/devices/{device_id}/access-bans:remove | Remove one permanent source ban |
 | *DevicesApi* | [**verifyAccessCode**](docs/DevicesApi.md#verifyaccesscode) | **POST** /v1/devices/{device_id}/access-code:verify | Verify a device access code and mint a signal token |
+| *FileTransfersApi* | [**createFileTransferAudit**](docs/FileTransfersApi.md#createfiletransferaudit) | **POST** /v1/me/file-transfer-audits | Report a controller-observed file transfer for auditing |
 | *MeApi* | [**getMe**](docs/MeApi.md#getme) | **GET** /v1/me | The authenticated user |
 | *NotificationsApi* | [**deleteMetricAlert**](docs/NotificationsApi.md#deletemetricalert) | **DELETE** /v1/me/devices/{device_id}/metric-alert | Delete the owner's metric alert rule |
 | *NotificationsApi* | [**getMetricAlert**](docs/NotificationsApi.md#getmetricalert) | **GET** /v1/me/devices/{device_id}/metric-alert | The owner's CPU, memory, and disk alert rule |
@@ -171,6 +172,7 @@ All URIs are relative to *https://your-signaling-host*
  - [io.quickdesk.signaling.models.DeviceAccessBanRequest](docs/DeviceAccessBanRequest.md)
  - [io.quickdesk.signaling.models.DeviceAccessPolicy](docs/DeviceAccessPolicy.md)
  - [io.quickdesk.signaling.models.DeviceAccessPolicyInput](docs/DeviceAccessPolicyInput.md)
+ - [io.quickdesk.signaling.models.FileTransferAuditInput](docs/FileTransferAuditInput.md)
  - [io.quickdesk.signaling.models.HostMetricReport](docs/HostMetricReport.md)
  - [io.quickdesk.signaling.models.ListAccessApprovals200Response](docs/ListAccessApprovals200Response.md)
  - [io.quickdesk.signaling.models.ListAccessGrants200Response](docs/ListAccessGrants200Response.md)

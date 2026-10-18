@@ -62,6 +62,7 @@ tags:
   - name: devices
   - name: deviceGroups
   - name: notifications
+  - name: fileTransfers
 security:
   - ApiKeyAuth: []
   - ApiKeyAuth: []
@@ -127,6 +128,38 @@ paths:
                       $ref: '#/components/schemas/Device'
         '401':
           $ref: '#/components/responses/Unauthorized'
+  /v1/me/file-transfer-audits:
+    post:
+      tags: [fileTransfers]
+      summary: Report a controller-observed file transfer for auditing
+      operationId: createFileTransferAudit
+      description: |
+        File bytes travel directly over the Remoting data channel and never
+        pass through the signaling server. This endpoint lets an authenticated
+        device owner report a completed or failed transfer after the fact so it
+        appears in the audit trail.
+
+        Reports are idempotent by `(actor, direction, transfer_id)`: retrying
+        the same event does not create another row. The device must belong to
+        the caller. This is an attributable controller report, not
+        cryptographic proof from the host that a file operation happened.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FileTransferAuditInput'
+      responses:
+        '204':
+          description: The transfer report is in the audit trail (or was already recorded).
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /v1/me/device-groups:
     get:
       tags: [deviceGroups]
@@ -2880,6 +2913,48 @@ components:
           description: A stable machine-readable code, e.g. `INVALID_CODE` or `RATE_LIMITED`.
         trace_id:
           type: string
+    FileTransferAuditInput:
+      type: object
+      description: |
+        A controller report about one file transferred outside the signaling
+        data path. The server stores the action as
+        `file.transfer.upload` or `file.transfer.download`, the resource as
+        `file_transfer/{transfer_id}`, and the remaining fields as JSON details.
+      required: [device_id, transfer_id, direction, status]
+      properties:
+        device_id:
+          type: string
+          minLength: 1
+          maxLength: 20
+          description: A device owned by the authenticated caller.
+        transfer_id:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Stable id used to make retries idempotent.
+        direction:
+          type: string
+          enum: [upload, download]
+          description: Upload is controller to host; download is host to controller.
+        status:
+          type: string
+          enum: [completed, failed]
+        filename:
+          type: string
+          maxLength: 255
+        bytes_transferred:
+          type: integer
+          format: int64
+          minimum: 0
+        total_bytes:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Zero means the controller did not know the total size.
+        error:
+          type: string
+          maxLength: 1000
+          description: Human-readable failure detail when status is failed.
     SessionRecordingInput:
       type: object
       description: |

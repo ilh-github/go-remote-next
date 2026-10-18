@@ -23,6 +23,7 @@ export * from './Device';
 export * from './DeviceAccessBanRequest';
 export * from './DeviceAccessPolicy';
 export * from './DeviceAccessPolicyInput';
+export * from './FileTransferAuditInput';
 export * from './HostMetricReport';
 export * from './ListAccessApprovals200Response';
 export * from './ListAccessGrants200Response';

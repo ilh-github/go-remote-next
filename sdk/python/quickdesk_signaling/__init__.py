@@ -21,6 +21,7 @@ __all__ = [
     "AuthApi",
     "DeviceGroupsApi",
     "DevicesApi",
+    "FileTransfersApi",
     "MeApi",
     "NotificationsApi",
     "RecordingsApi",
@@ -58,6 +59,7 @@ __all__ = [
     "DeviceAccessBanRequest",
     "DeviceAccessPolicy",
     "DeviceAccessPolicyInput",
+    "FileTransferAuditInput",
     "HostMetricReport",
     "ListAccessApprovals200Response",
     "ListAccessGrants200Response",
@@ -103,6 +105,7 @@ __all__ = [
 from quickdesk_signaling.api.auth_api import AuthApi as AuthApi
 from quickdesk_signaling.api.device_groups_api import DeviceGroupsApi as DeviceGroupsApi
 from quickdesk_signaling.api.devices_api import DevicesApi as DevicesApi
+from quickdesk_signaling.api.file_transfers_api import FileTransfersApi as FileTransfersApi
 from quickdesk_signaling.api.me_api import MeApi as MeApi
 from quickdesk_signaling.api.notifications_api import NotificationsApi as NotificationsApi
 from quickdesk_signaling.api.recordings_api import RecordingsApi as RecordingsApi
@@ -144,6 +147,7 @@ from quickdesk_signaling.models.device import Device as Device
 from quickdesk_signaling.models.device_access_ban_request import DeviceAccessBanRequest as DeviceAccessBanRequest
 from quickdesk_signaling.models.device_access_policy import DeviceAccessPolicy as DeviceAccessPolicy
 from quickdesk_signaling.models.device_access_policy_input import DeviceAccessPolicyInput as DeviceAccessPolicyInput
+from quickdesk_signaling.models.file_transfer_audit_input import FileTransferAuditInput as FileTransferAuditInput
 from quickdesk_signaling.models.host_metric_report import HostMetricReport as HostMetricReport
 from quickdesk_signaling.models.list_access_approvals200_response import ListAccessApprovals200Response as ListAccessApprovals200Response
 from quickdesk_signaling.models.list_access_grants200_response import ListAccessGrants200Response as ListAccessGrants200Response

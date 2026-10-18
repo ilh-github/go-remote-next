@@ -4,6 +4,7 @@
 from quickdesk_signaling.api.auth_api import AuthApi
 from quickdesk_signaling.api.device_groups_api import DeviceGroupsApi
 from quickdesk_signaling.api.devices_api import DevicesApi
+from quickdesk_signaling.api.file_transfers_api import FileTransfersApi
 from quickdesk_signaling.api.me_api import MeApi
 from quickdesk_signaling.api.notifications_api import NotificationsApi
 from quickdesk_signaling.api.recordings_api import RecordingsApi

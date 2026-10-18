@@ -109,6 +109,61 @@ MainController::MainController(QObject* parent)
     // same skill bridge the MCP tools use, without blocking the GUI thread.
     m_remoteFileManager = std::make_unique<RemoteFileManager>(m_clientManager.get(), this);
 
+    connect(m_clientManager.get(), &ClientManager::fileTransferProgress,
+            this, [this](const QString&, const QString& transferId,
+                         const QString& filename, double bytesSent, double totalBytes) {
+                auto& state = m_fileTransferAuditStates[transferId];
+                state.filename = filename;
+                state.bytesTransferred = static_cast<qint64>(bytesSent);
+                state.totalBytes = static_cast<qint64>(totalBytes);
+            });
+    connect(m_clientManager.get(), &ClientManager::fileTransferComplete,
+            this, [this](const QString& deviceId, const QString& transferId,
+                         const QString& filename) {
+                const auto state = m_fileTransferAuditStates.take(transferId);
+                m_cloudDeviceManager->recordFileTransferAudit(
+                    deviceId, transferId, QStringLiteral("upload"),
+                    QStringLiteral("completed"),
+                    filename.isEmpty() ? state.filename : filename,
+                    state.bytesTransferred, state.totalBytes);
+            });
+    connect(m_clientManager.get(), &ClientManager::fileTransferError,
+            this, [this](const QString& deviceId, const QString& transferId,
+                         const QString& errorMessage) {
+                const auto state = m_fileTransferAuditStates.take(transferId);
+                m_cloudDeviceManager->recordFileTransferAudit(
+                    deviceId, transferId, QStringLiteral("upload"),
+                    QStringLiteral("failed"), state.filename,
+                    state.bytesTransferred, state.totalBytes, errorMessage);
+            });
+    connect(m_clientManager.get(), &ClientManager::fileDownloadProgress,
+            this, [this](const QString&, const QString& transferId,
+                         const QString& filename, double bytesReceived, double totalBytes) {
+                auto& state = m_fileTransferAuditStates[transferId];
+                state.filename = filename;
+                state.bytesTransferred = static_cast<qint64>(bytesReceived);
+                state.totalBytes = static_cast<qint64>(totalBytes);
+            });
+    connect(m_clientManager.get(), &ClientManager::fileDownloadComplete,
+            this, [this](const QString& deviceId, const QString& transferId,
+                         const QString& filename, const QString&) {
+                const auto state = m_fileTransferAuditStates.take(transferId);
+                m_cloudDeviceManager->recordFileTransferAudit(
+                    deviceId, transferId, QStringLiteral("download"),
+                    QStringLiteral("completed"),
+                    filename.isEmpty() ? state.filename : filename,
+                    state.bytesTransferred, state.totalBytes);
+            });
+    connect(m_clientManager.get(), &ClientManager::fileDownloadError,
+            this, [this](const QString& deviceId, const QString& transferId,
+                         const QString& errorMessage) {
+                const auto state = m_fileTransferAuditStates.take(transferId);
+                m_cloudDeviceManager->recordFileTransferAudit(
+                    deviceId, transferId, QStringLiteral("download"),
+                    QStringLiteral("failed"), state.filename,
+                    state.bytesTransferred, state.totalBytes, errorMessage);
+            });
+
     // Create SkillHostManager and wire it to HostManager (host-side skill bridge)
     m_skillHostManager = std::make_unique<SkillHostManager>(this);
     m_skillHostManager->setHostManager(m_hostManager.get());

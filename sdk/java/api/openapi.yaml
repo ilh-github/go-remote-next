@@ -65,6 +65,7 @@ tags:
 - name: devices
 - name: deviceGroups
 - name: notifications
+- name: fileTransfers
 paths:
   /v1/auth/sessions:
     post:
@@ -132,6 +133,42 @@ paths:
       - devices
       x-accepts:
       - application/json
+      - application/problem+json
+  /v1/me/file-transfer-audits:
+    post:
+      description: |
+        File bytes travel directly over the Remoting data channel and never
+        pass through the signaling server. This endpoint lets an authenticated
+        device owner report a completed or failed transfer after the fact so it
+        appears in the audit trail.
+
+        Reports are idempotent by `(actor, direction, transfer_id)`: retrying
+        the same event does not create another row. The device must belong to
+        the caller. This is an attributable controller report, not
+        cryptographic proof from the host that a file operation happened.
+      operationId: createFileTransferAudit
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FileTransferAuditInput"
+        required: true
+      responses:
+        "204":
+          description: The transfer report is in the audit trail (or was already recorded).
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+      summary: Report a controller-observed file transfer for auditing
+      tags:
+      - fileTransfers
+      x-content-type: application/json
+      x-accepts:
       - application/problem+json
   /v1/me/device-groups:
     get:
@@ -4105,6 +4142,64 @@ components:
       - status
       - title
       - type
+    FileTransferAuditInput:
+      description: |
+        A controller report about one file transferred outside the signaling
+        data path. The server stores the action as
+        `file.transfer.upload` or `file.transfer.download`, the resource as
+        `file_transfer/{transfer_id}`, and the remaining fields as JSON details.
+      example:
+        bytes_transferred: 0
+        filename: filename
+        device_id: device_id
+        total_bytes: 0
+        transfer_id: transfer_id
+        error: error
+        direction: upload
+        status: completed
+      properties:
+        device_id:
+          description: A device owned by the authenticated caller.
+          maxLength: 20
+          minLength: 1
+          type: string
+        transfer_id:
+          description: Stable id used to make retries idempotent.
+          maxLength: 100
+          minLength: 1
+          type: string
+        direction:
+          description: Upload is controller to host; download is host to controller.
+          enum:
+          - upload
+          - download
+          type: string
+        status:
+          enum:
+          - completed
+          - failed
+          type: string
+        filename:
+          maxLength: 255
+          type: string
+        bytes_transferred:
+          format: int64
+          minimum: 0
+          type: integer
+        total_bytes:
+          description: Zero means the controller did not know the total size.
+          format: int64
+          minimum: 0
+          type: integer
+        error:
+          description: Human-readable failure detail when status is failed.
+          maxLength: 1000
+          type: string
+      required:
+      - device_id
+      - direction
+      - status
+      - transfer_id
     SessionRecordingInput:
       description: |
         The index row a producer creates before (or instead of) uploading media.

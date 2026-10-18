@@ -639,6 +639,39 @@ func (s *AuditService) LogActor(ctx context.Context, actorUserID uint, action, r
 	s.db.WithContext(ctx).Create(entry)
 }
 
+// LogActorOnce writes one user-side audit row for a stable resource identity.
+// It is used by client-reported events whose transport may retry: the same
+// actor, action, resource type and resource id are accepted only once.
+func (s *AuditService) LogActorOnce(
+	ctx context.Context,
+	actorUserID uint,
+	action, resourceType, resourceID, details, ip string,
+) (bool, error) {
+	var existing int64
+	if err := s.db.WithContext(ctx).Model(&models.AuditLog{}).
+		Where("actor_user_id = ? AND action = ? AND resource_type = ? AND resource_id = ?",
+			actorUserID, action, resourceType, resourceID).
+		Count(&existing).Error; err != nil {
+		return false, err
+	}
+	if existing > 0 {
+		return false, nil
+	}
+	entry := &models.AuditLog{
+		ActorUserID:  actorUserID,
+		Action:       action,
+		ResourceType: resourceType,
+		ResourceID:   resourceID,
+		Details:      details,
+		IP:           ip,
+		CreatedAt:    time.Now(),
+	}
+	if err := s.db.WithContext(ctx).Create(entry).Error; err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // LogActorDeduped writes a user-side audit row only when the same actor has not
 // already produced an identical (action, resource) row within window, and
 // reports whether it wrote. It exists for media reads: a browser fetches a

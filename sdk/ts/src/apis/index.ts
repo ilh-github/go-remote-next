@@ -3,6 +3,7 @@
 export * from './AuthApi';
 export * from './DeviceGroupsApi';
 export * from './DevicesApi';
+export * from './FileTransfersApi';
 export * from './MeApi';
 export * from './NotificationsApi';
 export * from './RecordingsApi';

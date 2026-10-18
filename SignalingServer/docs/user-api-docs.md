@@ -16,28 +16,37 @@ contract for the stable, integrator-facing subset of this API (authenticate,
 enumerate devices, verify an access code, and manage the access policy, guest
 access codes, approvals including approve / deny / claim, offline-alert rule,
 notification channels, and the session-recording index including media
-download and playback tickets) — generate a client in any language from it.
+download and playback tickets, plus controller-reported file-transfer audit
+events) — generate a client in any language from it.
 
-Four generated clients are committed and kept in step with the spec by CI:
+Seven generated clients are committed and kept in step with the spec by CI:
 [`sdk/ts`](../../sdk/ts) (TypeScript, `fetch`), [`sdk/go`](../../sdk/go) (Go),
-[`sdk/python`](../../sdk/python) (Python) and [`sdk/java`](../../sdk/java)
-(Java, okhttp-gson). All four come from a pinned openapi-generator jar, so a
-local regeneration and a CI regeneration are byte-identical:
+[`sdk/python`](../../sdk/python) (Python), [`sdk/java`](../../sdk/java)
+(Java, okhttp-gson), [`sdk/csharp`](../../sdk/csharp) (C#),
+[`sdk/php`](../../sdk/php) (PHP) and [`sdk/kotlin`](../../sdk/kotlin) (Kotlin).
+All seven come from a pinned openapi-generator jar, so a local regeneration and
+a CI regeneration are byte-identical:
 
 ```bash
 scripts/sdk/generate-client.sh sdk/ts
 scripts/sdk/generate-client.sh sdk/go go
 scripts/sdk/generate-client.sh sdk/python python
 scripts/sdk/generate-client.sh sdk/java java
+scripts/sdk/generate-client.sh sdk/csharp csharp
+scripts/sdk/generate-client.sh sdk/php php
+scripts/sdk/generate-client.sh sdk/kotlin kotlin
 scripts/sdk/check-generated-sdk.sh          # fails when sdk/ts is stale
 scripts/sdk/check-generated-sdk.sh go       # fails when sdk/go is stale
 scripts/sdk/check-generated-sdk.sh python   # fails when sdk/python is stale
 scripts/sdk/check-generated-sdk.sh java     # fails when sdk/java is stale
+scripts/sdk/check-generated-sdk.sh csharp   # fails when sdk/csharp is stale
+scripts/sdk/check-generated-sdk.sh php      # fails when sdk/php is stale
+scripts/sdk/check-generated-sdk.sh kotlin   # fails when sdk/kotlin is stale
 ```
 
-All four clients carry hand-written `examples/` code, and the smoke job runs
-each against a live server before the conformance smoke takes its device
-offline. `sdk/go/examples/recordinglifecycle` runs a whole write workflow
+TypeScript, Go, Python and Java carry hand-written `examples/` code, and the
+smoke job runs each against a live server before the conformance smoke takes
+its device offline. `sdk/go/examples/recordinglifecycle` runs a whole write workflow
 (create a recording, upload the media, patch the row, find it in the index, mint
 a playback ticket, read the bytes back through that ticket - the route a
 `<video>` tag uses, with no Authorization header - and delete the row).
@@ -1278,6 +1287,7 @@ socket the owner's revoke does and audits `session.revoke`.
 |---|---|---|
 | `GET` | `/v1/me/connections?cursor=&limit=&since=` | — |
 | `POST` | `/v1/me/connections` | `{device_id, duration, status: "success"\|"failed", error_msg?}` |
+| `POST` | `/v1/me/file-transfer-audits` | `{device_id, transfer_id, direction: "upload"\|"download", status: "completed"\|"failed", filename?, bytes_transferred?, total_bytes?, error?}` |
 | `GET` | `/v1/me/recordings?cursor=&limit=` | — |
 | `POST` | `/v1/me/recordings` | `{device_id, device_name?, session_id?, status, format?, artifact_path?, artifact_url?, thumbnail_path?, duration_seconds?, size_bytes?, started_at?, ended_at?}` |
 | `GET` | `/v1/me/recordings/:id` | — |
@@ -1290,6 +1300,22 @@ socket the owner's revoke does and audits `session.revoke`.
 | `POST` | `/v1/me/recordings/:id/thumbnail` | Preview image (JPEG or PNG) for the recordings list. `multipart/form-data` with a `file` part, or a raw body plus `?ext=.jpg\|.jpeg\|.png`. |
 | `GET` | `/v1/me/recordings/:id/thumbnail` | Streams the stored preview back. Owner only. |
 | `POST` | `/v1/me/recordings/:id/thumbnail-ticket` | Mints `{url, expires_at}` for the preview, same rules as the artifact ticket. |
+
+File bytes travel directly over the Remoting data channel and never pass
+through the signaling server. The controller reports a completed or failed
+transfer to `POST /v1/me/file-transfer-audits`, which verifies that the device
+belongs to the caller and writes one audit row under
+`file.transfer.upload` or `file.transfer.download`. The audit resource is
+`file_transfer/{transfer_id}`; filename, direction status, byte counts and the
+optional error are stored as JSON details. Repeating the same
+`(actor, direction, transfer_id)` is idempotent, so a network retry cannot
+duplicate the trail.
+
+This is an attributable **controller report**, not cryptographic proof from
+the host that a file was actually read or written. A deployment that needs
+non-repudiable file operation evidence must add a host-signed event or inspect
+host-side filesystem telemetry; the current endpoint deliberately does not
+pretend the client report has that strength.
 
 `session_recordings` is the control-plane index for remote-session media. The
 recording engine owns the artifact and reports its metadata through

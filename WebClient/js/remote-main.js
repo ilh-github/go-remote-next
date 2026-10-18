@@ -51,6 +51,7 @@ class RemoteDesktopApp {
         this._supportsChat = false;
         this.tabCoordinator = null;
         this._recordingUploading = false;
+        this._fileTransferAudit = new Map();
 
         this._receivedStreams = null;
         this._selectedStreamId = null;
@@ -342,33 +343,59 @@ class RemoteDesktopApp {
             });
 
             this.dcHandler.addEventListener('fileTransferStarted', (e) => {
+                this._fileTransferAudit.set(e.detail.transferId, {
+                    filename: e.detail.filename,
+                    bytesTransferred: 0,
+                    totalBytes: Number(e.detail.totalBytes) || 0,
+                });
                 this._addTransferItem(e.detail.transferId, e.detail.filename, e.detail.totalBytes);
             });
 
             this.dcHandler.addEventListener('fileTransferProgress', (e) => {
+                const state = this._fileTransferAudit.get(e.detail.transferId);
+                if (state) {
+                    state.bytesTransferred = Number(e.detail.bytesSent) || 0;
+                    state.totalBytes = Number(e.detail.totalBytes) || state.totalBytes;
+                }
                 this._updateTransferProgress(e.detail.transferId, e.detail.bytesSent, e.detail.totalBytes);
             });
 
             this.dcHandler.addEventListener('fileTransferComplete', (e) => {
+                this._recordFileTransferAudit(
+                    'upload', 'completed', e.detail.transferId, e.detail.filename);
                 this._updateTransferStatus(e.detail.transferId, 'complete');
                 this._log(t('log.uploadComplete', { filename: e.detail.filename }));
             });
 
             this.dcHandler.addEventListener('fileTransferError', (e) => {
+                this._recordFileTransferAudit(
+                    'upload', 'failed', e.detail.transferId, '', e.detail.errorMessage);
                 this._updateTransferStatus(e.detail.transferId, 'error', e.detail.errorMessage);
                 this._log(t('log.uploadFailed', { error: e.detail.errorMessage }));
             });
 
             this.dcHandler.addEventListener('fileDownloadStarted', (e) => {
+                this._fileTransferAudit.set(e.detail.transferId, {
+                    filename: e.detail.filename,
+                    bytesTransferred: 0,
+                    totalBytes: Number(e.detail.totalBytes) || 0,
+                });
                 this._addTransferItem(e.detail.transferId, e.detail.filename, e.detail.totalBytes, 'download');
                 this._log(t('log.downloadStarted', { filename: e.detail.filename }));
             });
 
             this.dcHandler.addEventListener('fileDownloadProgress', (e) => {
+                const state = this._fileTransferAudit.get(e.detail.transferId);
+                if (state) {
+                    state.bytesTransferred = Number(e.detail.bytesReceived) || 0;
+                    state.totalBytes = Number(e.detail.totalBytes) || state.totalBytes;
+                }
                 this._updateTransferProgress(e.detail.transferId, e.detail.bytesReceived, e.detail.totalBytes);
             });
 
             this.dcHandler.addEventListener('fileDownloadComplete', (e) => {
+                this._recordFileTransferAudit(
+                    'download', 'completed', e.detail.transferId, e.detail.filename);
                 this._updateTransferStatus(e.detail.transferId, 'complete');
                 this._log(t('log.downloadComplete', { filename: e.detail.filename }));
                 if (e.detail.blob && !e.detail.streaming) {
@@ -377,6 +404,8 @@ class RemoteDesktopApp {
             });
 
             this.dcHandler.addEventListener('fileDownloadError', (e) => {
+                this._recordFileTransferAudit(
+                    'download', 'failed', e.detail.transferId, '', e.detail.errorMessage);
                 this._updateTransferStatus(e.detail.transferId, 'error', e.detail.errorMessage);
                 this._log(t('log.downloadFailed', { error: e.detail.errorMessage }));
             });
@@ -525,6 +554,25 @@ class RemoteDesktopApp {
 
         const duration = Math.round((Date.now() - this._connectStartTime) / 1000);
         userApi.recordConnection(this._deviceId, duration, status, errorMsg || '').catch(() => {});
+    }
+
+    _recordFileTransferAudit(direction, status, transferId, filename, errorMessage = '') {
+        const state = this._fileTransferAudit.get(transferId);
+        this._fileTransferAudit.delete(transferId);
+        if (!userApi.isLoggedIn() || !this._deviceId || !transferId) return;
+
+        const bytesTransferred = Math.max(0, Math.trunc(Number(state?.bytesTransferred) || 0));
+        const totalBytes = Math.max(0, Math.trunc(Number(state?.totalBytes) || 0));
+        userApi.recordFileTransferAudit({
+            deviceId: this._deviceId,
+            transferId,
+            direction,
+            status,
+            filename: filename || state?.filename || '',
+            bytesTransferred,
+            totalBytes,
+            error: errorMessage || '',
+        }).catch(() => {});
     }
 
     _onTrack(detail) {

@@ -773,6 +773,55 @@ void CloudDeviceManager::recordConnection(const QString& deviceId, int duration,
         });
 }
 
+void CloudDeviceManager::recordFileTransferAudit(
+    const QString& deviceId,
+    const QString& transferId,
+    const QString& direction,
+    const QString& status,
+    const QString& filename,
+    qint64 bytesTransferred,
+    qint64 totalBytes,
+    const QString& errorMessage)
+{
+    if (!m_authManager->isLoggedIn() || deviceId.isEmpty() || transferId.isEmpty()) {
+        return;
+    }
+
+    QUrl url(httpBaseUrl() + "v1/me/file-transfer-audits");
+    QJsonObject body;
+    body[QStringLiteral("device_id")] = deviceId;
+    body[QStringLiteral("transfer_id")] = transferId;
+    body[QStringLiteral("direction")] = direction;
+    body[QStringLiteral("status")] = status;
+    body[QStringLiteral("filename")] = filename;
+    body[QStringLiteral("bytes_transferred")] = bytesTransferred;
+    body[QStringLiteral("total_bytes")] = totalBytes;
+    body[QStringLiteral("error")] = errorMessage;
+
+    const QString bodyData =
+        QString::fromUtf8(QJsonDocument(body).toJson(QJsonDocument::Compact));
+    m_authManager->request(
+        QStringLiteral("POST"), url, bodyData,
+        [deviceId, transferId, direction, status](
+            int statusCode, const std::string& errorMsg, const std::string& data) {
+            Q_UNUSED(data);
+            if (statusCode != 204 || !errorMsg.empty()) {
+                LOG_WARN(
+                    "[CloudDeviceManager] file transfer audit failed: device={} transfer={} "
+                    "direction={} status={} http={} err={}",
+                    deviceId.toStdString(), transferId.toStdString(),
+                    direction.toStdString(), status.toStdString(),
+                    statusCode, errorMsg);
+                return;
+            }
+            LOG_INFO(
+                "[CloudDeviceManager] File transfer audited: device={} transfer={} "
+                "direction={} status={}",
+                deviceId.toStdString(), transferId.toStdString(),
+                direction.toStdString(), status.toStdString());
+        });
+}
+
 void CloudDeviceManager::fetchConnectionLogs()
 {
     if (!m_authManager->isLoggedIn()) return;

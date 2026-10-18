@@ -26,6 +26,8 @@ docs/DeviceAccessPolicy.md
 docs/DeviceAccessPolicyInput.md
 docs/DeviceGroupsApi.md
 docs/DevicesApi.md
+docs/FileTransferAuditInput.md
+docs/FileTransfersApi.md
 docs/HostMetricReport.md
 docs/ListAccessApprovals200Response.md
 docs/ListAccessGrants200Response.md
@@ -78,6 +80,7 @@ settings.gradle
 src/main/kotlin/io/quickdesk/signaling/apis/AuthApi.kt
 src/main/kotlin/io/quickdesk/signaling/apis/DeviceGroupsApi.kt
 src/main/kotlin/io/quickdesk/signaling/apis/DevicesApi.kt
+src/main/kotlin/io/quickdesk/signaling/apis/FileTransfersApi.kt
 src/main/kotlin/io/quickdesk/signaling/apis/MeApi.kt
 src/main/kotlin/io/quickdesk/signaling/apis/NotificationsApi.kt
 src/main/kotlin/io/quickdesk/signaling/apis/RecordingsApi.kt
@@ -123,6 +126,7 @@ src/main/kotlin/io/quickdesk/signaling/models/Device.kt
 src/main/kotlin/io/quickdesk/signaling/models/DeviceAccessBanRequest.kt
 src/main/kotlin/io/quickdesk/signaling/models/DeviceAccessPolicy.kt
 src/main/kotlin/io/quickdesk/signaling/models/DeviceAccessPolicyInput.kt
+src/main/kotlin/io/quickdesk/signaling/models/FileTransferAuditInput.kt
 src/main/kotlin/io/quickdesk/signaling/models/HostMetricReport.kt
 src/main/kotlin/io/quickdesk/signaling/models/ListAccessApprovals200Response.kt
 src/main/kotlin/io/quickdesk/signaling/models/ListAccessGrants200Response.kt
@@ -165,6 +169,7 @@ src/main/kotlin/io/quickdesk/signaling/models/UserDeviceGroupPatch.kt
 src/test/kotlin/io/quickdesk/signaling/apis/AuthApiTest.kt
 src/test/kotlin/io/quickdesk/signaling/apis/DeviceGroupsApiTest.kt
 src/test/kotlin/io/quickdesk/signaling/apis/DevicesApiTest.kt
+src/test/kotlin/io/quickdesk/signaling/apis/FileTransfersApiTest.kt
 src/test/kotlin/io/quickdesk/signaling/apis/MeApiTest.kt
 src/test/kotlin/io/quickdesk/signaling/apis/NotificationsApiTest.kt
 src/test/kotlin/io/quickdesk/signaling/apis/RecordingsApiTest.kt
@@ -193,6 +198,7 @@ src/test/kotlin/io/quickdesk/signaling/models/DeviceAccessBanRequestTest.kt
 src/test/kotlin/io/quickdesk/signaling/models/DeviceAccessPolicyInputTest.kt
 src/test/kotlin/io/quickdesk/signaling/models/DeviceAccessPolicyTest.kt
 src/test/kotlin/io/quickdesk/signaling/models/DeviceTest.kt
+src/test/kotlin/io/quickdesk/signaling/models/FileTransferAuditInputTest.kt
 src/test/kotlin/io/quickdesk/signaling/models/HostMetricReportTest.kt
 src/test/kotlin/io/quickdesk/signaling/models/ListAccessApprovals200ResponseTest.kt
 src/test/kotlin/io/quickdesk/signaling/models/ListAccessGrants200ResponseTest.kt

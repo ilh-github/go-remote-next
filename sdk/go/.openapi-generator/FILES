@@ -5,6 +5,7 @@ api/openapi.yaml
 api_auth.go
 api_device_groups.go
 api_devices.go
+api_file_transfers.go
 api_me.go
 api_notifications.go
 api_recordings.go
@@ -38,6 +39,8 @@ docs/DeviceAccessPolicy.md
 docs/DeviceAccessPolicyInput.md
 docs/DeviceGroupsAPI.md
 docs/DevicesAPI.md
+docs/FileTransferAuditInput.md
+docs/FileTransfersAPI.md
 docs/HostMetricReport.md
 docs/ListAccessApprovals200Response.md
 docs/ListAccessGrants200Response.md
@@ -108,6 +111,7 @@ model_device.go
 model_device_access_ban_request.go
 model_device_access_policy.go
 model_device_access_policy_input.go
+model_file_transfer_audit_input.go
 model_host_metric_report.go
 model_list_access_approvals_200_response.go
 model_list_access_grants_200_response.go
@@ -151,6 +155,7 @@ response.go
 test/api_auth_test.go
 test/api_device_groups_test.go
 test/api_devices_test.go
+test/api_file_transfers_test.go
 test/api_me_test.go
 test/api_notifications_test.go
 test/api_recordings_test.go

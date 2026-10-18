@@ -5,6 +5,7 @@ package.json
 src/apis/AuthApi.ts
 src/apis/DeviceGroupsApi.ts
 src/apis/DevicesApi.ts
+src/apis/FileTransfersApi.ts
 src/apis/MeApi.ts
 src/apis/NotificationsApi.ts
 src/apis/RecordingsApi.ts
@@ -35,6 +36,7 @@ src/models/Device.ts
 src/models/DeviceAccessBanRequest.ts
 src/models/DeviceAccessPolicy.ts
 src/models/DeviceAccessPolicyInput.ts
+src/models/FileTransferAuditInput.ts
 src/models/HostMetricReport.ts
 src/models/ListAccessApprovals200Response.ts
 src/models/ListAccessGrants200Response.ts

@@ -264,6 +264,50 @@ int main(int argc, char** argv) {
            QStringLiteral("host metrics identifies the reported disk"));
     metricServer.close();
 
+    int fileTransferAuditCount = 0;
+    QString fileTransferAuditMethod;
+    QString fileTransferAuditPath;
+    QJsonObject fileTransferAuditBody;
+    quickdesk::SetAuthTestRequestHandler(
+        [&](const QString& method, const QUrl& url, const QString& body,
+            quickdesk::AuthManager::ResponseCallback callback) {
+            ++fileTransferAuditCount;
+            fileTransferAuditMethod = method;
+            fileTransferAuditPath = url.path();
+            fileTransferAuditBody = QJsonDocument::fromJson(body.toUtf8()).object();
+            callback(204, "", "");
+        });
+    manager.recordFileTransferAudit(
+        QStringLiteral("123456789"),
+        QStringLiteral("transfer-audit-1"),
+        QStringLiteral("upload"),
+        QStringLiteral("completed"),
+        QStringLiteral("report.pdf"),
+        37,
+        37);
+    Expect(WaitUntil([&]() { return fileTransferAuditCount == 1; }, 5000),
+           QStringLiteral("file transfer audit is posted"));
+    Expect(fileTransferAuditMethod == QStringLiteral("POST"),
+           QStringLiteral("file transfer audit uses POST"));
+    Expect(fileTransferAuditPath == QStringLiteral("/v1/me/file-transfer-audits"),
+           QStringLiteral("file transfer audit uses the owner-scoped route"));
+    Expect(fileTransferAuditBody.value(QStringLiteral("device_id")).toString()
+               == QStringLiteral("123456789"),
+           QStringLiteral("file transfer audit carries the device"));
+    Expect(fileTransferAuditBody.value(QStringLiteral("transfer_id")).toString()
+               == QStringLiteral("transfer-audit-1"),
+           QStringLiteral("file transfer audit carries the idempotency key"));
+    Expect(fileTransferAuditBody.value(QStringLiteral("direction")).toString()
+               == QStringLiteral("upload"),
+           QStringLiteral("file transfer audit carries the direction"));
+    Expect(fileTransferAuditBody.value(QStringLiteral("status")).toString()
+               == QStringLiteral("completed"),
+           QStringLiteral("file transfer audit carries the status"));
+    Expect(fileTransferAuditBody.value(QStringLiteral("bytes_transferred")).toInteger() == 37,
+           QStringLiteral("file transfer audit carries transferred bytes"));
+    Expect(fileTransferAuditBody.value(QStringLiteral("total_bytes")).toInteger() == 37,
+           QStringLiteral("file transfer audit carries the total bytes"));
+
     bool failed = false;
     QString failedDeviceId;
     QString failedError;

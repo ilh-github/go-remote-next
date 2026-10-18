@@ -16,7 +16,8 @@ import net from 'node:net';
 // the smoke creates and deletes itself) and the approval flow (which needs the
 // device to be online and drives both triggers, the pending-queue cap, the
 // denial cooldown and an optional host-offline claim by switching policy and
-// presence temporarily).
+// presence temporarily). The file-transfer audit uses one fixed transfer id,
+// so repeated runs leave at most one idempotent audit row.
 //
 // Usage:
 //   QD_IDENTIFIER=user QD_PASSWORD=secret scripts/sdk/openapi-smoke.mjs
@@ -207,6 +208,33 @@ if (Array.isArray(deviceItems) && deviceItems.length > 0) {
 }
 
 const deviceId = smokeDevice || (Array.isArray(deviceItems) && deviceItems[0]?.device_id) || '';
+
+if (deviceId) {
+  const transferAudit = {
+    device_id: deviceId,
+    transfer_id: 'openapi-smoke-file-transfer',
+    direction: 'upload',
+    status: 'completed',
+    filename: 'openapi-smoke.txt',
+    bytes_transferred: 4,
+    total_bytes: 4,
+  };
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    const recorded = await call('POST', '/v1/me/file-transfer-audits', {
+      token,
+      body: transferAudit,
+      expect: 204,
+    });
+    check(recorded.status === 204,
+      `POST file-transfer-audits attempt ${attempt} status=${recorded.status}, want 204`);
+  }
+  const invalidTransferAudit = await call('POST', '/v1/me/file-transfer-audits', {
+    token,
+    body: { ...transferAudit, transfer_id: 'openapi-smoke-invalid', direction: 'rename' },
+    expect: 400,
+  });
+  problemShape(invalidTransferAudit.json, 'POST file-transfer-audits (invalid direction)', 'INVALID_REQUEST');
+}
 
 // 4. Owner-scoped address-book groups.
 const groupsBefore = await call('GET', '/v1/me/device-groups', { token, expect: 200 });

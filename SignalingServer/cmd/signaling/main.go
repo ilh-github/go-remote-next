@@ -526,6 +526,7 @@ func main() {
 		URLSecret:  cfg.Recording.URLSecret,
 		TicketTTL:  time.Duration(cfg.Recording.TicketTTLSeconds) * time.Second,
 	}, auditService)
+	fileTransferAuditHandler := handler.NewFileTransferAuditHandler(deviceService, auditService)
 	hostHandler := handler.NewHostHandler(deviceService, tokenService, presenceService, settingsService, rateLimitService, deviceAccessService, deviceAccessPolicyService, deviceAccessGrantService, deviceAccessApprovalService, bus, cfg)
 	realtimeHandler := handler.NewRealtimeHandler(tokenService, bus, presenceService, db, deviceService, favoriteService, metricsService, deviceAccessService, deviceAccessPolicyService, remoteSessionService, redisClient)
 	// A revoked controller must not walk straight back in with the same access
@@ -734,6 +735,10 @@ func main() {
 
 			me.GET("/connections", deviceHandler.ListConnections)
 			me.POST("/connections", deviceHandler.RecordConnection)
+			// The Remoting file data channel bypasses signaling. Controllers
+			// report completion or failure here so the control plane can retain
+			// an attributable audit trail without proxying file bytes.
+			me.POST("/file-transfer-audits", fileTransferAuditHandler.Create)
 
 			// Who is in the caller's machines right now (status=active) and who
 			// has been. Deliberately not /sessions, which is the caller's own

@@ -108,6 +108,15 @@ public:
     // Connection record
     Q_INVOKABLE void recordConnection(const QString& deviceId, int duration,
                                        const QString& status, const QString& errorMsg = QString());
+    Q_INVOKABLE void recordFileTransferAudit(
+        const QString& deviceId,
+        const QString& transferId,
+        const QString& direction,
+        const QString& status,
+        const QString& filename,
+        qint64 bytesTransferred,
+        qint64 totalBytes,
+        const QString& errorMessage = QString());
     Q_INVOKABLE void fetchConnectionLogs();
 
     // My Favorites

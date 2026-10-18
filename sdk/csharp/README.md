@@ -214,6 +214,7 @@ Class | Method | HTTP request | Description
 *DevicesApi* | [**RevokeAccessGrant**](docs/DevicesApi.md#revokeaccessgrant) | **DELETE** /v1/me/devices/{device_id}/access-grants/{grant_id} | Revoke a guest access code
 *DevicesApi* | [**UnbanDeviceAccessSource**](docs/DevicesApi.md#unbandeviceaccesssource) | **POST** /v1/me/devices/{device_id}/access-bans:remove | Remove one permanent source ban
 *DevicesApi* | [**VerifyAccessCode**](docs/DevicesApi.md#verifyaccesscode) | **POST** /v1/devices/{device_id}/access-code:verify | Verify a device access code and mint a signal token
+*FileTransfersApi* | [**CreateFileTransferAudit**](docs/FileTransfersApi.md#createfiletransferaudit) | **POST** /v1/me/file-transfer-audits | Report a controller-observed file transfer for auditing
 *MeApi* | [**GetMe**](docs/MeApi.md#getme) | **GET** /v1/me | The authenticated user
 *NotificationsApi* | [**DeleteMetricAlert**](docs/NotificationsApi.md#deletemetricalert) | **DELETE** /v1/me/devices/{device_id}/metric-alert | Delete the owner's metric alert rule
 *NotificationsApi* | [**GetMetricAlert**](docs/NotificationsApi.md#getmetricalert) | **GET** /v1/me/devices/{device_id}/metric-alert | The owner's CPU, memory, and disk alert rule
@@ -270,6 +271,7 @@ Class | Method | HTTP request | Description
  - [Model.DeviceAccessBanRequest](docs/DeviceAccessBanRequest.md)
  - [Model.DeviceAccessPolicy](docs/DeviceAccessPolicy.md)
  - [Model.DeviceAccessPolicyInput](docs/DeviceAccessPolicyInput.md)
+ - [Model.FileTransferAuditInput](docs/FileTransferAuditInput.md)
  - [Model.HostMetricReport](docs/HostMetricReport.md)
  - [Model.ListAccessApprovals200Response](docs/ListAccessApprovals200Response.md)
  - [Model.ListAccessGrants200Response](docs/ListAccessGrants200Response.md)
