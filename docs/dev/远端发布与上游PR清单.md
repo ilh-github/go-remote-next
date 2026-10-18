@@ -14,10 +14,10 @@
   共享访问码生命周期迁移为 `5e2542c`，离线告警迁移为 `b6855cc`。文档收口后
   指标阈值告警迁移为 `c4a28ee`，设备控制面变更迁移为 `0c621ef`。文档收口后
   收藏设备生命周期迁移为 `0b746b9`，管理端设备事件迁移为 `b2a0a98`，WebClient 有界重连为 `565f643`。QD-907
-  Playwright E2E 为 `830a469`、`2ab09d5`，文档收口到 `76628c0`；本地领先
-  `origin/dev` 82 个提交
+  Playwright E2E 为 `830a469`、`2ab09d5`，管理端设备 outbox 为 `b2a0a98`，
+  文档收口到 `46a6929`；领先数量以 `git rev-list --count origin/dev..dev` 为准
 - fork 远端：`origin/dev` 与 `origin/master` 当前仍为 `9837194`
-- 本地领先：`dev` / `master` 均比各自远端多 82 个提交
+- 本地 `dev` / `master` 已同步，均领先各自远端；每次发布前重新核对实时数量
 - 推送 blocker：2026-10-18 执行 `git push origin dev master` 和候选分支 push 均被
   执行策略拒绝，错误为 `approval required by policy, but AskForApproval is set to Never`；
   未绕过审批策略。`git ls-remote` 于同一时刻确认远端主分支仍为 `9837194`，
