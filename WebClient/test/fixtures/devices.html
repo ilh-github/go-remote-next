@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Devices E2E</title>
+  <style>
+    body { margin: 0; padding: 20px; background: #1a1a2e; color: #eee; font-family: sans-serif; }
+    .card { margin-bottom: 16px; padding: 16px; background: #1e2a4a; }
+    .devices-toolbar, .card-heading, .device-item, .device-actions, .group-filter,
+    .group-dialog-body, .field-grid, .form-actions, .member-list { display: flex; gap: 8px; }
+    .devices-toolbar, .card-heading, .device-item { justify-content: space-between; align-items: center; }
+    .group-filter, .group-dialog-body { flex-wrap: wrap; }
+    .dialog-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.6); padding: 24px; }
+    .dialog { max-width: 900px; margin: 24px auto; padding: 24px; background: #1e2a4a; }
+    .group-list-pane { width: 220px; }
+    .group-editor { flex: 1; min-width: 420px; }
+    .field-grid { flex-direction: column; }
+    .field { display: flex; flex-direction: column; gap: 4px; }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <script type="module">
+    import { createApp, h } from 'vue'
+    import { createI18n } from 'vue-i18n'
+    import DevicesPage from '/src/views/DevicesPage.vue'
+    import { en } from '/src/i18n/en.js'
+    import { zh } from '/src/i18n/zh.js'
+    import { userApi } from '/src/api/userApi.js'
+    import { authState, updateAuthState } from '/src/store/auth.js'
+
+    localStorage.setItem('quickdesk_signaling_url', location.origin.replace(/^http/, 'ws'))
+    userApi.setBaseUrl(location.origin)
+    updateAuthState()
+
+    const i18n = createI18n({
+      legacy: false,
+      locale: 'en-US',
+      fallbackLocale: 'en-US',
+      messages: { 'zh-CN': zh, 'en-US': en },
+    })
+    const app = createApp({
+      render: () => h(DevicesPage),
+    })
+    app.use(i18n)
+    app.provide('showToast', (message, type) => {
+      window.__deviceToasts.push({ message, type })
+    })
+    app.provide('showLogin', () => {
+      window.__showLoginCalls += 1
+    })
+    app.provide('authState', authState)
+
+    window.__deviceToasts = []
+    window.__showLoginCalls = 0
+    app.mount('#app')
+    window.__devicesMounted = true
+  </script>
+</body>
+</html>

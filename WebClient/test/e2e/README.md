@@ -57,5 +57,17 @@ cd WebClient
 npm run test:e2e:wall
 ```
 
+## Devices
+
+`devices.e2e.mjs` loads the real `DevicesPage.vue` through Vite and drives the
+owner-scoped device, favorite, connection-log, and private-group APIs. It covers
+group filtering and management, remarks, access-code checks, connect handoff,
+refresh, favorite removal, and unbind.
+
+```bash
+cd WebClient
+npm run test:e2e:devices
+```
+
 Set `QD_BROWSER_CHANNEL` to use a channel other than the locally installed
 Google Chrome.
