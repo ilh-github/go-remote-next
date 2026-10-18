@@ -12,8 +12,7 @@ use uuid::Uuid;
 
 const MIN_INTERVAL_SECONDS: u64 = 60;
 const MAX_INTERVAL_SECONDS: u64 = 365 * 24 * 60 * 60;
-const BUILTIN_HOLIDAY_CALENDAR: &str =
-    include_str!("../../SignalingServer/internal/holiday/cn-2026.json");
+const BUILTIN_HOLIDAY_CALENDAR: &str = include_str!("../resources/cn-2026.json");
 
 pub const SUPPORTED_EVENT_TYPES: &[&str] = &[
     "device.online.changed",
