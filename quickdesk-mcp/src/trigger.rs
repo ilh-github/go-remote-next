@@ -56,6 +56,8 @@ struct CreateTriggerRequest {
     event_device_id: Option<String>,
     event_filter: Option<serde_json::Value>,
     callback_url: Option<String>,
+    #[serde(default)]
+    skip_holidays: bool,
 }
 
 #[derive(Deserialize)]
@@ -472,6 +474,7 @@ async fn create_trigger(
         event_device_id: request.event_device_id,
         event_filter: request.event_filter,
         callback_url: request.callback_url,
+        skip_holidays: request.skip_holidays,
     }) {
         Ok(trigger) => trigger,
         Err(error) => return error_response(StatusCode::BAD_REQUEST, &error),
@@ -2289,7 +2292,8 @@ mod tests {
                     "workflow_id": workflow_id,
                     "device_id": "device-1",
                     "cron_expression": "0 */15 * * * *",
-                    "timezone": "Asia/Shanghai"
+                    "timezone": "Asia/Shanghai",
+                    "skip_holidays": true
                 })
                 .to_string(),
             ))
@@ -2300,6 +2304,7 @@ mod tests {
         let trigger: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(trigger["cron_expression"], "0 */15 * * * *");
         assert_eq!(trigger["timezone"], "Asia/Shanghai");
+        assert_eq!(trigger["skip_holidays"], true);
         let next_run_at =
             chrono::DateTime::parse_from_rfc3339(trigger["next_run_at"].as_str().unwrap())
                 .unwrap()
@@ -2318,6 +2323,25 @@ mod tests {
                     "workflow_id": workflow_id,
                     "device_id": "device-1",
                     "cron_expression": "not a cron"
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        let response = app.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        let request = Request::builder()
+            .method("POST")
+            .uri("/v1/triggers")
+            .header("Authorization", "Bearer business-secret")
+            .header("Content-Type", "application/json")
+            .body(Body::from(
+                json!({
+                    "name": "holiday flag without cron",
+                    "workflow_id": workflow_id,
+                    "device_id": "device-1",
+                    "interval_seconds": 60,
+                    "skip_holidays": true
                 })
                 .to_string(),
             ))
@@ -2416,6 +2440,7 @@ mod tests {
                     event_device_id: None,
                     event_filter: None,
                     callback_url: Some(format!("http://{callback_address}/scheduled-callback")),
+                    skip_holidays: false,
                 },
                 created_at,
             )
@@ -2510,6 +2535,7 @@ mod tests {
                 event_device_id: Some("device-1".to_string()),
                 event_filter: Some(json!({"reason": "policy"})),
                 callback_url: None,
+                skip_holidays: false,
             })
             .unwrap();
         let task_trigger = trigger_store
@@ -2526,6 +2552,7 @@ mod tests {
                 event_device_id: None,
                 event_filter: Some(json!({"kind": "sign_out_all_sessions"})),
                 callback_url: None,
+                skip_holidays: false,
             })
             .unwrap();
         let shared = Arc::new(SharedState {

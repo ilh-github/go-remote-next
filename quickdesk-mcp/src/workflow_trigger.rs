@@ -1,8 +1,9 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::sync::Arc;
 
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Duration, NaiveDate, TimeZone, Utc};
 use chrono_tz::Tz;
 use cron::Schedule;
 use serde::{Deserialize, Serialize};
@@ -11,6 +12,8 @@ use uuid::Uuid;
 
 const MIN_INTERVAL_SECONDS: u64 = 60;
 const MAX_INTERVAL_SECONDS: u64 = 365 * 24 * 60 * 60;
+const BUILTIN_HOLIDAY_CALENDAR: &str =
+    include_str!("../../SignalingServer/internal/holiday/cn-2026.json");
 
 pub const SUPPORTED_EVENT_TYPES: &[&str] = &[
     "device.online.changed",
@@ -42,6 +45,7 @@ pub struct WorkflowTriggerSpec {
     pub event_device_id: Option<String>,
     pub event_filter: Option<Value>,
     pub callback_url: Option<String>,
+    pub skip_holidays: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -65,6 +69,8 @@ pub struct WorkflowTrigger {
     pub event_filter: Option<Value>,
     #[serde(default)]
     pub callback_url: Option<String>,
+    #[serde(default)]
+    pub skip_holidays: bool,
     pub enabled: bool,
     pub next_run_at: Option<String>,
     pub last_run_at: Option<String>,
@@ -82,6 +88,84 @@ pub struct WorkflowTrigger {
 #[derive(Clone)]
 pub struct WorkflowTriggerStore {
     storage_dir: PathBuf,
+    holiday_calendar: Arc<HolidayCalendar>,
+}
+
+#[derive(Clone, Debug, Default)]
+struct HolidayCalendar {
+    off_days: HashSet<NaiveDate>,
+}
+
+#[derive(Deserialize)]
+struct HolidayCalendarFile {
+    days: Vec<HolidayCalendarDay>,
+}
+
+#[derive(Deserialize)]
+struct HolidayCalendarDay {
+    date: String,
+    #[serde(rename = "isOffDay")]
+    is_off_day: bool,
+}
+
+impl HolidayCalendar {
+    fn load() -> Result<Self, String> {
+        let mut calendar = Self::default();
+        calendar.load_json(BUILTIN_HOLIDAY_CALENDAR, "embedded cn-2026.json")?;
+        if let Ok(dir) = std::env::var("QUICKDESK_HOLIDAY_CALENDAR_DIR") {
+            let dir = dir.trim();
+            if !dir.is_empty() {
+                calendar.load_dir(dir)?;
+            }
+        }
+        Ok(calendar)
+    }
+
+    fn load_dir(&mut self, dir: &str) -> Result<(), String> {
+        let entries = std::fs::read_dir(dir)
+            .map_err(|error| format!("cannot read QUICKDESK_HOLIDAY_CALENDAR_DIR: {error}"))?;
+        let mut loaded = 0;
+        for entry in entries {
+            let entry =
+                entry.map_err(|error| format!("cannot read holiday calendar entry: {error}"))?;
+            let path = entry.path();
+            if !path.is_file()
+                || path
+                    .extension()
+                    .and_then(|value| value.to_str())
+                    .is_none_or(|value| !value.eq_ignore_ascii_case("json"))
+            {
+                continue;
+            }
+            let data = std::fs::read_to_string(&path)
+                .map_err(|error| format!("cannot read {}: {error}", path.display()))?;
+            self.load_json(&data, &path.display().to_string())?;
+            loaded += 1;
+        }
+        if loaded == 0 {
+            return Err(format!("no *.json holiday calendars found in {dir}"));
+        }
+        Ok(())
+    }
+
+    fn load_json(&mut self, data: &str, source: &str) -> Result<(), String> {
+        let file: HolidayCalendarFile = serde_json::from_str(data)
+            .map_err(|error| format!("cannot parse holiday calendar {source}: {error}"))?;
+        for day in file.days {
+            let parsed =
+                NaiveDate::parse_from_str(day.date.trim(), "%Y-%m-%d").map_err(|error| {
+                    format!("invalid holiday date {} in {source}: {error}", day.date)
+                })?;
+            if day.is_off_day {
+                self.off_days.insert(parsed);
+            }
+        }
+        Ok(())
+    }
+
+    fn is_off_day(&self, date: NaiveDate) -> bool {
+        self.off_days.contains(&date)
+    }
 }
 
 impl WorkflowTriggerStore {
@@ -93,7 +177,10 @@ impl WorkflowTriggerStore {
     fn from_storage_dir(storage_dir: PathBuf) -> Result<Self, String> {
         std::fs::create_dir_all(&storage_dir)
             .map_err(|error| format!("cannot create workflow trigger dir: {error}"))?;
-        Ok(Self { storage_dir })
+        Ok(Self {
+            storage_dir,
+            holiday_calendar: Arc::new(HolidayCalendar::load()?),
+        })
     }
 
     #[cfg(test)]
@@ -162,6 +249,9 @@ impl WorkflowTriggerStore {
         } else {
             None
         };
+        if spec.skip_holidays && cron_expression.is_none() {
+            return Err("trigger skip_holidays is only supported with cron_expression".to_string());
+        }
         let event_type = spec
             .event_type
             .as_deref()
@@ -201,7 +291,16 @@ impl WorkflowTriggerStore {
         let next_run_at = if let Some(seconds) = spec.interval_seconds {
             Some((now + Duration::seconds(seconds as i64)).to_rfc3339())
         } else if let Some(expression) = cron_expression.as_deref() {
-            Some(next_cron_after(expression, timezone.as_deref(), now)?.to_rfc3339())
+            Some(
+                next_cron_after(
+                    expression,
+                    timezone.as_deref(),
+                    now,
+                    spec.skip_holidays,
+                    &self.holiday_calendar,
+                )?
+                .to_rfc3339(),
+            )
         } else {
             None
         };
@@ -219,6 +318,7 @@ impl WorkflowTriggerStore {
             event_device_id,
             event_filter: spec.event_filter,
             callback_url: spec.callback_url,
+            skip_holidays: spec.skip_holidays,
             enabled: true,
             next_run_at,
             last_run_at: None,
@@ -295,7 +395,13 @@ impl WorkflowTriggerStore {
                 let Some(expression) = trigger.cron_expression.as_deref() else {
                     continue;
                 };
-                match next_cron_after(expression, trigger.timezone.as_deref(), now) {
+                match next_cron_after(
+                    expression,
+                    trigger.timezone.as_deref(),
+                    now,
+                    trigger.skip_holidays,
+                    &self.holiday_calendar,
+                ) {
                     Ok(next) => next.to_rfc3339(),
                     Err(error) => {
                         trigger.last_status = "failed".to_string();
@@ -397,16 +503,37 @@ fn next_cron_after(
     expression: &str,
     timezone: Option<&str>,
     after: DateTime<Utc>,
+    skip_holidays: bool,
+    holiday_calendar: &HolidayCalendar,
 ) -> Result<DateTime<Utc>, String> {
     let schedule = Schedule::from_str(expression)
         .map_err(|error| format!("invalid cron_expression: {error}"))?;
     let timezone = Tz::from_str(timezone.unwrap_or("UTC"))
         .map_err(|_| format!("invalid timezone: {}", timezone.unwrap_or("UTC")))?;
-    schedule
-        .after(&after.with_timezone(&timezone))
-        .next()
-        .map(|next| next.with_timezone(&Utc))
-        .ok_or_else(|| "cron_expression has no future run".to_string())
+    let mut cursor = after;
+    for _ in 0..366 {
+        let next = schedule
+            .after(&cursor.with_timezone(&timezone))
+            .next()
+            .ok_or_else(|| "cron_expression has no future run".to_string())?;
+        if !skip_holidays || !holiday_calendar.is_off_day(next.date_naive()) {
+            return Ok(next.with_timezone(&Utc));
+        }
+        let next_date = next
+            .date_naive()
+            .succ_opt()
+            .ok_or_else(|| "cron_expression has no future date".to_string())?;
+        let next_midnight = timezone
+            .from_local_datetime(
+                &next_date
+                    .and_hms_opt(0, 0, 0)
+                    .ok_or_else(|| "invalid local midnight".to_string())?,
+            )
+            .earliest()
+            .ok_or_else(|| "cron_expression has no valid local midnight".to_string())?;
+        cursor = next_midnight.with_timezone(&Utc) - Duration::milliseconds(1);
+    }
+    Err("cron_expression has no future run outside configured holidays".to_string())
 }
 
 fn truncate(value: &str, max: usize) -> String {
@@ -494,6 +621,7 @@ mod tests {
                     event_device_id: None,
                     event_filter: None,
                     callback_url: None,
+                    skip_holidays: false,
                 },
                 now,
             )
@@ -541,6 +669,7 @@ mod tests {
                     event_device_id: None,
                     event_filter: None,
                     callback_url: None,
+                    skip_holidays: false,
                 },
                 created,
             )
@@ -580,6 +709,7 @@ mod tests {
                     event_device_id: None,
                     event_filter: None,
                     callback_url: None,
+                    skip_holidays: false,
                 },
                 created,
             )
@@ -632,6 +762,7 @@ mod tests {
                     event_device_id: None,
                     event_filter: None,
                     callback_url: None,
+                    skip_holidays: false,
                 },
                 created,
             )
@@ -661,6 +792,7 @@ mod tests {
                     event_device_id: None,
                     event_filter: None,
                     callback_url: None,
+                    skip_holidays: false,
                 },
                 Utc.with_ymd_and_hms(2026, 3, 7, 15, 0, 0).unwrap(),
             )
@@ -689,6 +821,7 @@ mod tests {
                     event_device_id: None,
                     event_filter: None,
                     callback_url: None,
+                    skip_holidays: false,
                 },
                 Utc.with_ymd_and_hms(2026, 11, 1, 5, 0, 0).unwrap(),
             )
@@ -727,10 +860,156 @@ mod tests {
                     event_device_id: None,
                     event_filter: None,
                     callback_url: None,
+                    skip_holidays: false,
                 },
                 created,
             )
             .is_err());
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn cron_skips_statutory_holidays_and_resumes_after_the_break() {
+        let dir = std::env::temp_dir().join(format!("quickdesk-trigger-store-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = WorkflowTriggerStore::with_storage_dir(dir.clone());
+        let created = Utc.with_ymd_and_hms(2026, 9, 30, 8, 0, 0).unwrap();
+        let trigger = store
+            .create_at(
+                WorkflowTriggerSpec {
+                    name: "nine in shanghai except holidays".to_string(),
+                    workflow_id: Uuid::new_v4().to_string(),
+                    device_id: "device-1".to_string(),
+                    overrides: HashMap::new(),
+                    stop_on_failure: true,
+                    interval_seconds: None,
+                    cron_expression: Some("0 0 9 * * *".to_string()),
+                    timezone: Some("Asia/Shanghai".to_string()),
+                    event_type: None,
+                    event_device_id: None,
+                    event_filter: None,
+                    callback_url: None,
+                    skip_holidays: true,
+                },
+                created,
+            )
+            .unwrap();
+
+        assert!(trigger.skip_holidays);
+        assert_eq!(
+            trigger.next_run_at,
+            Some(
+                Utc.with_ymd_and_hms(2026, 10, 8, 1, 0, 0)
+                    .unwrap()
+                    .to_rfc3339()
+            )
+        );
+
+        let claimed = store.claim_due(Utc.with_ymd_and_hms(2026, 10, 8, 1, 0, 0).unwrap());
+        assert_eq!(claimed.len(), 1);
+        assert!(store.get(&trigger.id).unwrap().skip_holidays);
+        assert_eq!(
+            store.get(&trigger.id).unwrap().next_run_at,
+            Some(
+                Utc.with_ymd_and_hms(2026, 10, 9, 1, 0, 0)
+                    .unwrap()
+                    .to_rfc3339()
+            )
+        );
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn cron_skip_holidays_still_runs_on_a_makeup_workday() {
+        let dir = std::env::temp_dir().join(format!("quickdesk-trigger-store-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = WorkflowTriggerStore::with_storage_dir(dir.clone());
+        let created = Utc.with_ymd_and_hms(2026, 9, 19, 16, 0, 0).unwrap();
+        let trigger = store
+            .create_at(
+                WorkflowTriggerSpec {
+                    name: "makeup workday in shanghai".to_string(),
+                    workflow_id: Uuid::new_v4().to_string(),
+                    device_id: "device-1".to_string(),
+                    overrides: HashMap::new(),
+                    stop_on_failure: true,
+                    interval_seconds: None,
+                    cron_expression: Some("0 0 9 * * *".to_string()),
+                    timezone: Some("Asia/Shanghai".to_string()),
+                    event_type: None,
+                    event_device_id: None,
+                    event_filter: None,
+                    callback_url: None,
+                    skip_holidays: true,
+                },
+                created,
+            )
+            .unwrap();
+
+        assert_eq!(
+            trigger.next_run_at,
+            Some(
+                Utc.with_ymd_and_hms(2026, 9, 20, 1, 0, 0)
+                    .unwrap()
+                    .to_rfc3339()
+            )
+        );
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn skip_holidays_is_rejected_without_a_cron_schedule() {
+        let dir = std::env::temp_dir().join(format!("quickdesk-trigger-store-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = WorkflowTriggerStore::with_storage_dir(dir.clone());
+
+        let result = store.create(WorkflowTriggerSpec {
+            name: "interval with holiday flag".to_string(),
+            workflow_id: Uuid::new_v4().to_string(),
+            device_id: "device-1".to_string(),
+            overrides: HashMap::new(),
+            stop_on_failure: true,
+            interval_seconds: Some(60),
+            cron_expression: None,
+            timezone: None,
+            event_type: None,
+            event_device_id: None,
+            event_filter: None,
+            callback_url: None,
+            skip_holidays: true,
+        });
+
+        assert_eq!(
+            result.unwrap_err(),
+            "trigger skip_holidays is only supported with cron_expression"
+        );
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn holiday_calendar_directory_loads_future_years() {
+        let dir = std::env::temp_dir().join(format!("quickdesk-holidays-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("2027.json"),
+            r#"{
+                "year": 2027,
+                "days": [
+                    {"name": "New Year", "date": "2027-01-01", "isOffDay": true},
+                    {"name": "Make-up workday", "date": "2027-01-04", "isOffDay": false}
+                ]
+            }"#,
+        )
+        .unwrap();
+        let mut calendar = HolidayCalendar::default();
+        calendar.load_dir(dir.to_str().unwrap()).unwrap();
+
+        assert!(calendar.is_off_day(NaiveDate::from_ymd_opt(2027, 1, 1).unwrap()));
+        assert!(!calendar.is_off_day(NaiveDate::from_ymd_opt(2027, 1, 4).unwrap()));
 
         let _ = std::fs::remove_dir_all(dir);
     }
@@ -753,6 +1032,7 @@ mod tests {
             event_device_id: None,
             event_filter: None,
             callback_url: None,
+            skip_holidays: false,
         };
 
         assert!(store.create(base.clone()).is_err());
@@ -782,6 +1062,7 @@ mod tests {
                     event_device_id: None,
                     event_filter: Some(json!({"reason": "policy"})),
                     callback_url: None,
+                    skip_holidays: false,
                 },
                 now,
             )
@@ -829,6 +1110,7 @@ mod tests {
                     event_device_id: None,
                     event_filter: Some(json!({"kind": "sign_out_all_sessions"})),
                     callback_url: None,
+                    skip_holidays: false,
                 },
                 now,
             )
@@ -856,6 +1138,7 @@ mod tests {
             event_device_id: None,
             event_filter: Some(json!({"reason": "policy"})),
             callback_url: None,
+            skip_holidays: false,
         };
 
         assert!(store.create(base.clone()).is_ok());

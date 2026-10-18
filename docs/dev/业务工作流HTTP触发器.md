@@ -1,9 +1,9 @@
 # QuickDesk 业务工作流 HTTP 触发器
 
-> 状态（2026-10-18）：QD-610 第十五阶段。业务系统可以保存 interval、IANA 时区 cron 或控制面事件
+> 状态（2026-10-18）：QD-610 第十六阶段。业务系统可以保存 interval、IANA 时区 cron 或控制面事件
 > trigger，通过独立 Bearer token 立即运行，并由 HTTP transport 的后台 worker 领取到期
 > 触发器。`Idempotency-Key`、异步 job、HMAC 出站回调、持久回调 outbox 和受控控制面
-> 事件订阅、本机事件持久化和重连补发已支持；法定节假日、跨实例事件 outbox、
+> 事件订阅、本机事件持久化、重连补发和 cron 法定节假日跳过已支持；跨实例事件 outbox、
 > 委托权限细分和跨进程 worker 仍未完成。
 
 ## 1. 边界
@@ -243,6 +243,7 @@ Authorization: Bearer <QUICKDESK_TRIGGER_TOKEN>
 - 默认参数覆盖和 `stop_on_failure`；
 - 可选 `interval_seconds` 或 `cron_expression`，两者互斥；
 - cron 可选 IANA `timezone`，省略时默认 `UTC`；
+- cron 可选 `skip_holidays`，默认 `false`；启用后按触发器的本地日期跳过中国法定放假日；
 - 可选 `event_type`、`event_device_id` 和 `event_filter`；
 - `next_run_at`、上次运行 ID/状态/错误。
 
@@ -285,7 +286,8 @@ cron trigger：
   "workflow_id": "b7ca0a2f-0d4c-4f0c-9dbf-4a92e8a67d10",
   "device_id": "device-1",
   "cron_expression": "0 0 9 * * Mon-Fri",
-  "timezone": "Asia/Shanghai"
+  "timezone": "Asia/Shanghai",
+  "skip_holidays": true
 }
 ```
 
@@ -300,9 +302,16 @@ cron trigger：
 `cron_expression` 一起使用，非法名称返回 `400`。
 
 IANA 时区遵循真实 DST 偏移：春季不存在的本地时间会跳到下一有效槽位，秋季重复的本地
-时间只执行第一次，不会因回拨执行两次。当前不提供法定节假日和复杂工作日日历。进程停机
-期间错过的 cron 槽位不会补跑；恢复后从当前时刻计算下一次未来槽位，继续保证
-at-most-once，而不是一次性回放多个历史槽位。
+时间只执行第一次，不会因回拨执行两次。`skip_holidays=true` 时，调度器只在
+`timezone` 的本地日期上查日历：标记为 `isOffDay=true` 的法定假日整天跳过，调休上班日
+仍按 cron 执行，不会因为它是周末就额外跳过。内置日历当前覆盖 2026 年国务院安排；
+运营方可用 `QUICKDESK_HOLIDAY_CALENDAR_DIR` 指向一个目录，按 holiday-cn 的
+`YYYY.json` 格式追加后续年份，文件在 MCP 进程启动时加载。`skip_holidays` 只能和
+`cron_expression` 一起使用，配 interval 或 event-only trigger 返回 `400`。
+
+进程停机期间错过的 cron 槽位不会补跑；恢复后从当前时刻计算下一次未来槽位，继续保证
+at-most-once，而不是一次性回放多个历史槽位。连续超过 366 天都无法找到非节假日槽位时
+会拒绝创建或停止推进并返回错误，避免损坏的日历文件让触发器永久空转。
 
 `POST /v1/triggers/{trigger_id}/run` 返回本次 `WorkflowRunReport`，同时把 run_id、
 completed/failed 和错误写回 trigger 定义。
@@ -413,7 +422,7 @@ API 会补发 revision 更大的事件。API token 为空时，新连接直接�
 
 ## 9. 尚未完成
 
-- 法定节假日和复杂工作日日历；IANA 时区与 DST 已支持，但没有节假日跳过规则；
+- 自定义交易所日历、“每月最后一个工作日”等业务日历；法定节假日跳过和 IANA/DST 已支持；
 - 多进程共享 worker、分布式锁和公平调度；当前只支持单进程队列和单进程重启恢复；
 - 跨实例事件 outbox、服务端持久 replay retention 和超过 256 条的积压；当前只有
   QuickDesk 本机按用户分区的持久 replay buffer；

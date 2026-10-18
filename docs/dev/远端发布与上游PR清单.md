@@ -102,7 +102,7 @@
   原子持久化 replay buffer，覆盖 QuickDesk 重启。候选自身现为 48/48、Clippy、release
   构建和 diff check 通过；fork 侧 Qt CTest 15/15，QuickDesk 完整源码编译到链接阶段后
   仍受预编译 Remoting 缺失 `AGL` framework 限制。分支 push 仍被当前策略拒绝。跨实例
-  事件 outbox、超过 256 条积压、法定节假日、多进程共享 worker 和确认操作者归属仍留在
+  事件 outbox、超过 256 条积压、漏过槽位补跑、多进程共享 worker 和确认操作者归属仍留在
   后续阶段
 - QD-111 / QD-408 文件传输审计：fork 提交 `b9f414c`，控制端在 DataChannel 完成/失败后
   上报，服务端校验设备归属并按 `(actor, direction, transfer_id)` 幂等写审计。

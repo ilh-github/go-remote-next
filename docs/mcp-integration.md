@@ -1187,8 +1187,11 @@ A trigger stores the workflow, device and default overrides, plus at least one o
 rule may be combined with an event rule. Cron accepts six or seven fields
 (`second minute hour day-of-month month day-of-week [year]`) or aliases such as `@hourly`.
 An optional IANA `timezone` defaults to UTC and can only be used with cron. DST gaps move to
-the next valid slot, while repeated fall-back times run only once. Missed cron slots are not
-backfilled. Event triggers may set `event_device_id` and a
+the next valid slot, while repeated fall-back times run only once. Cron triggers may set
+`skip_holidays=true` to skip mainland China statutory days off by local date; make-up
+workdays still run. `QUICKDESK_HOLIDAY_CALENDAR_DIR` can add later years as holiday-cn
+`YYYY.json` files, and the flag is rejected without a cron schedule. Missed cron slots are
+not backfilled. Event triggers may set `event_device_id` and a
 top-level `event_filter`; omitting the device defaults it to the
 workflow execution target for device-scoped events, while user-scoped scheduled-task failures
 remain unfiltered by device. The allowlist covers device online/offline, metric alerts, access
@@ -1204,8 +1207,9 @@ events in a per-user, atomically persisted replay file under the application dat
 On reconnect, the MCP auth request includes `since_server_rev`, and the API replays newer
 events after authentication. This covers short MCP or QuickDesk restarts while the same user
 is active; user switches reload a separate scope, and older events fall out after 256 entries.
-Holiday calendars and missed-slot backfill remain future work. The current job worker is
-single-process and does not coordinate multiple processes sharing one data directory.
+Holiday calendars are supported for cron triggers; missed-slot backfill remains future
+work. The current job worker is single-process and does not coordinate multiple processes
+sharing one data directory.
 
 ---
 

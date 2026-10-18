@@ -1166,7 +1166,9 @@ delivered/dead，首次写入 `acknowledged_at`，重复确认保持幂等，不
 cron 和事件 trigger 由后台 worker 执行。时间触发器可选 60 秒~365 天的
 `interval_seconds`，或六段/七段 `cron_expression`；两者互斥，但都可以与事件触发同时
 使用。cron 可用 IANA `timezone`，省略时默认 UTC；DST 春季缺口会跳到下一有效槽位，
-秋季重复时间只执行第一次。法定节假日和停机期间漏过的槽位仍不处理。可选
+秋季重复时间只执行第一次。cron 可加 `skip_holidays=true`，按本地日期跳过内置中国
+法定放假日，调休上班日仍执行；`QUICKDESK_HOLIDAY_CALENDAR_DIR` 可用 holiday-cn
+格式追加后续年份。该标志只能与 cron 一起使用。停机期间漏过的槽位仍不补跑。可选
 `Idempotency-Key` 会把相同请求的第一次 `WorkflowRunReport` 持久化并重放；相同 key
 对应不同请求或仍在执行的请求返回 409。回调确认操作者归属、跨实例事件 outbox 和
 多进程共享 worker 尚未实现。进程重启会恢复 queued job；running job 会安全失败，不会
@@ -1184,7 +1186,8 @@ POST   /v1/triggers/{trigger_id}/run
 
 触发器保存工作流、设备、默认参数，以及至少一个 `interval_seconds`（60 秒到 365 天）、
 `cron_expression` 或 `event_type`。cron 可选 IANA `timezone`，省略时为 UTC。
-`interval_seconds` 和 `cron_expression` 互斥，时间规则可以与事件规则同时使用。事件
+`interval_seconds` 和 `cron_expression` 互斥，时间规则可以与事件规则同时使用。cron
+还可设置 `skip_holidays` 跳过法定放假日；事件
 触发器支持 `event_device_id` 和顶层
 `event_filter`；省略
 `event_device_id` 时，设备类事件默认绑定执行目标设备，用户级的计划任务失败事件则不按
@@ -1198,8 +1201,8 @@ claim 再执行。事件 `id` 是跨重启幂等键；没有 ID 的旧事件才�
 本地 WebSocket API 保留最近 256 条控制面事件，并按用户 `user_id` 原子持久化到应用数据
 目录；登录态切换会重新加载对应 scope，旧用户事件不会跨账号回放。MCP 重连 auth 会发送
 `since_server_rev` 并接收更大的 revision，从而覆盖 MCP 或 QuickDesk 短暂重启。触发
-仍按事件 `id` 幂等。超过 256 条或服务端 retention 不足时仍可能丢失。IANA 时区与 DST
-已支持，但法定节假日和漏过槽位补跑仍未实现；跨进程共享 worker 和回调确认操作者归属
+仍按事件 `id` 幂等。超过 256 条或服务端 retention 不足时仍可能丢失。IANA 时区、DST
+和法定节假日跳过已支持，但漏过槽位补跑仍未实现；跨进程共享 worker 和回调确认操作者归属
 也仍未实现。单进程重启会恢复 queued workflow job，running job
 失败关闭；HMAC 回调使用持久 outbox，并以同一 delivery id 自动重试、跨进程重启恢复，
 支持死信查询、人工重放和幂等 ack。
