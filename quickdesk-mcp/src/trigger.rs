@@ -50,6 +50,7 @@ struct CreateTriggerRequest {
     overrides: Option<HashMap<String, serde_json::Value>>,
     stop_on_failure: Option<bool>,
     interval_seconds: Option<u64>,
+    cron_expression: Option<String>,
     event_type: Option<String>,
     event_device_id: Option<String>,
     event_filter: Option<serde_json::Value>,
@@ -424,6 +425,7 @@ async fn create_trigger(
         overrides: request.overrides.unwrap_or_default(),
         stop_on_failure: request.stop_on_failure.unwrap_or(true),
         interval_seconds: request.interval_seconds,
+        cron_expression: request.cron_expression,
         event_type: request.event_type,
         event_device_id: request.event_device_id,
         event_filter: request.event_filter,
@@ -2137,6 +2139,95 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn cron_trigger_is_validated_and_scheduled() {
+        let temp = std::env::temp_dir().join(format!("quickdesk-trigger-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&temp).unwrap();
+        let workflows = WorkflowStore::with_storage_dir(temp.join("workflows"));
+        let workflow_id = workflows
+            .start_recording("cron workflow", "device-1")
+            .unwrap();
+        workflows.record_step(
+            "device-1",
+            "list_processes",
+            &json!({}),
+            "processes",
+            true,
+            StepExecutor::SkillHost,
+        );
+        workflows.stop_recording("device-1", "", &[]).unwrap();
+        let shared = Arc::new(SharedState {
+            memory: MemoryStore::with_db_path(temp.join("memory.db")).unwrap(),
+            workflow: workflows,
+            trust: TrustEngine::with_db_path(temp.join("trust.db")).unwrap(),
+        });
+        let slots = Arc::new(Semaphore::new(1));
+        let jobs = test_jobs(
+            &temp,
+            WsClient::disconnected(),
+            shared.clone(),
+            slots.clone(),
+        );
+        let app = router(TriggerRuntime {
+            token: Some("business-secret".to_string()),
+            ws: WsClient::disconnected(),
+            shared_state: shared,
+            allowed_devices: Vec::new(),
+            run_slots: slots,
+            triggers: WorkflowTriggerStore::with_storage_dir(temp.join("triggers")),
+            idempotency: WorkflowIdempotencyStore::with_storage_path(temp.join("idempotency.json")),
+            jobs,
+        });
+        let after = Utc::now();
+
+        let request = Request::builder()
+            .method("POST")
+            .uri("/v1/triggers")
+            .header("Authorization", "Bearer business-secret")
+            .header("Content-Type", "application/json")
+            .body(Body::from(
+                json!({
+                    "name": "every fifteen minutes",
+                    "workflow_id": workflow_id,
+                    "device_id": "device-1",
+                    "cron_expression": "0 */15 * * * *"
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        let response = app.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::CREATED);
+        let body = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+        let trigger: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(trigger["cron_expression"], "0 */15 * * * *");
+        let next_run_at =
+            chrono::DateTime::parse_from_rfc3339(trigger["next_run_at"].as_str().unwrap())
+                .unwrap()
+                .with_timezone(&Utc);
+        assert!(next_run_at > after);
+        assert!(next_run_at <= after + chrono::Duration::minutes(16));
+
+        let request = Request::builder()
+            .method("POST")
+            .uri("/v1/triggers")
+            .header("Authorization", "Bearer business-secret")
+            .header("Content-Type", "application/json")
+            .body(Body::from(
+                json!({
+                    "name": "bad cron",
+                    "workflow_id": workflow_id,
+                    "device_id": "device-1",
+                    "cron_expression": "not a cron"
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        let _ = std::fs::remove_dir_all(temp);
+    }
+
+    #[tokio::test]
     async fn due_trigger_runs_through_quickdesk_and_records_its_report() {
         let temp = std::env::temp_dir().join(format!("quickdesk-trigger-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&temp).unwrap();
@@ -2199,6 +2290,7 @@ mod tests {
                     overrides: HashMap::new(),
                     stop_on_failure: true,
                     interval_seconds: Some(60),
+                    cron_expression: None,
                     event_type: None,
                     event_device_id: None,
                     event_filter: None,
@@ -2291,6 +2383,7 @@ mod tests {
                 overrides: HashMap::new(),
                 stop_on_failure: true,
                 interval_seconds: None,
+                cron_expression: None,
                 event_type: Some("device.access.denied".to_string()),
                 event_device_id: Some("device-1".to_string()),
                 event_filter: Some(json!({"reason": "policy"})),
@@ -2305,6 +2398,7 @@ mod tests {
                 overrides: HashMap::new(),
                 stop_on_failure: true,
                 interval_seconds: None,
+                cron_expression: None,
                 event_type: Some("scheduled_task.failed".to_string()),
                 event_device_id: None,
                 event_filter: Some(json!({"kind": "sign_out_all_sessions"})),

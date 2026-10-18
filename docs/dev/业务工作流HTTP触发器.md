@@ -1,9 +1,9 @@
 # QuickDesk 业务工作流 HTTP 触发器
 
-> 状态（2026-10-18）：QD-610 第七阶段。业务系统可以保存 interval trigger 或控制面事件
+> 状态（2026-10-18）：QD-610 第十一阶段。业务系统可以保存 interval、UTC cron 或控制面事件
 > trigger，通过独立 Bearer token 立即运行，并由 HTTP transport 的后台 worker 领取到期
 > 触发器。`Idempotency-Key`、异步 job、HMAC 出站回调、持久回调 outbox 和受控控制面
-> 事件订阅已支持；委托权限细分、cron/日历和跨进程 worker 仍未完成。
+> 事件订阅已支持；IANA 时区日历/DST、事件停机补发、委托权限细分和跨进程 worker 仍未完成。
 
 ## 1. 边界
 
@@ -223,7 +223,7 @@ Authorization: Bearer <QUICKDESK_TRIGGER_TOKEN>
 
 - 名称、工作流 ID、设备 ID；
 - 默认参数覆盖和 `stop_on_failure`；
-- 可选 `interval_seconds`；
+- 可选 `interval_seconds` 或 `cron_expression`，两者互斥；
 - 可选 `event_type`、`event_device_id` 和 `event_filter`；
 - `next_run_at`、上次运行 ID/状态/错误。
 
@@ -252,10 +252,32 @@ POST   /v1/triggers/{trigger_id}/run
 }
 ```
 
-`interval_seconds` 范围是 60 秒到 365 天。`interval_seconds` 和 `event_type` 至少要
-提供一个，也可以同时使用；两者都省略时返回 `400`。只创建 interval trigger 后仍可随时通过
+`interval_seconds` 范围是 60 秒到 365 天。`interval_seconds`、`cron_expression` 和
+`event_type` 至少要提供一个；时间规则可以和事件规则同时使用，但 `interval_seconds`
+与 `cron_expression` 互斥，三者都省略时返回 `400`。只创建时间触发器后仍可随时通过
 `POST /v1/triggers/{trigger_id}/run` 手动执行。到期领取会先推进 `next_run_at` 再执行，
 采用 at-most-once 语义；worker 一次只领取一条，并与手动触发共用同一个执行槽。
+
+UTC cron trigger：
+
+```json
+{
+  "name": "工作日早上九点生成报表",
+  "workflow_id": "b7ca0a2f-0d4c-4f0c-9dbf-4a92e8a67d10",
+  "device_id": "device-1",
+  "cron_expression": "0 0 9 * * Mon-Fri"
+}
+```
+
+`cron_expression` 使用标准六段或七段格式：
+
+```text
+秒 分 时 日 月 周 [年]
+```
+
+也接受 `@hourly`、`@daily`、`@weekly` 等简写。cron 当前固定按 UTC 计算，不读取 IANA
+时区，也不处理本地日历、DST 或法定节假日。进程停机期间错过的 cron 槽位不会补跑；
+恢复后从当前时刻计算下一次未来槽位，继续保证 at-most-once，而不是一次性回放多个历史槽位。
 
 `POST /v1/triggers/{trigger_id}/run` 返回本次 `WorkflowRunReport`，同时把 run_id、
 completed/failed 和错误写回 trigger 定义。
@@ -356,7 +378,7 @@ MCP 停机期间已经消费过的控制面事件。
 
 ## 9. 尚未完成
 
-- cron/日历定时规则；当前只有固定 interval；
+- IANA 时区、DST、法定节假日和复杂日历规则；当前 cron 固定按 UTC 计算；
 - 多进程共享 worker、分布式锁和公平调度；当前只支持单进程队列和单进程重启恢复；
 - 控制面事件在 MCP 停机期间的补发/outbox；当前只处理实时到达的事件；
 - 回调确认操作者归属和批量确认；当前只记录 acknowledged_at 时间；

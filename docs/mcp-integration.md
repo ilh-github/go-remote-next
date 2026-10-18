@@ -1153,16 +1153,19 @@ All three trigger paths accept `callback_url`. When `QUICKDESK_CALLBACK_SECRET` 
 QuickDesk POSTs `workflow.run.completed` or `workflow.run.failed` with
 `X-QuickDesk-Timestamp`, `X-QuickDesk-Delivery-Id`, and
 `X-QuickDesk-Signature: hmac-sha1=<hex>`. The signed message is
-`timestamp + "." + raw_json_body`. Callbacks currently allow HTTP only and are a single
-best-effort delivery; remote receivers must sit behind a TLS reverse proxy.
+`timestamp + "." + raw_json_body`. Callbacks are persisted in a local outbox before
+delivery, retry with the same delivery id, survive process restart, and enter a dead-letter
+state after the retry limit. Callbacks currently allow HTTP only; remote receivers must sit
+behind a TLS reverse proxy.
 
 The trigger is disabled when `QUICKDESK_TRIGGER_TOKEN` is empty, allows one workflow run per
 process at a time, and still enforces `QUICKDESK_ALLOWED_DEVICES`. Requests are synchronous;
-persistent interval and control-plane event triggers are executed by a background worker.
-Callback outbox/retries and cross-process job recovery are not implemented yet. An optional
-`Idempotency-Key` persists and replays the first `WorkflowRunReport`; reusing a key for a
-different request, or while the original request is still running, returns 409.
-See `docs/dev/业务工作流HTTP触发器.md` for the complete contract.
+persistent interval, UTC cron and control-plane event triggers are executed by a background
+worker. An optional `Idempotency-Key` persists and replays the first `WorkflowRunReport`;
+reusing a key for a different request, or while the original request is still running,
+returns 409. A restarted process requeues jobs that were still `queued`; `running` jobs
+fail closed because their side effects are unknown. Multi-process queue coordination is not
+implemented. See `docs/dev/业务工作流HTTP触发器.md` for the complete contract.
 
 Persistent triggers are managed through:
 
@@ -1174,8 +1177,12 @@ POST   /v1/triggers/{trigger_id}/run
 ```
 
 A trigger stores the workflow, device and default overrides, plus at least one of an
-`interval_seconds` schedule (60 seconds to 365 days) or an `event_type`; both may be used
-together. Event triggers may set `event_device_id` and a top-level `event_filter`; omitting the device defaults it to the
+`interval_seconds` schedule (60 seconds to 365 days), a UTC `cron_expression`, or an
+`event_type`. `interval_seconds` and `cron_expression` are mutually exclusive; either time
+rule may be combined with an event rule. Cron accepts six or seven fields
+(`second minute hour day-of-month month day-of-week [year]`) or aliases such as `@hourly`.
+Missed cron slots are not backfilled. Event triggers may set `event_device_id` and a
+top-level `event_filter`; omitting the device defaults it to the
 workflow execution target for device-scoped events, while user-scoped scheduled-task failures
 remain unfiltered by device. The allowlist covers device online/offline, metric alerts, access
 approval and denial, remote sessions, recording lifecycle, and scheduled-task failure.
@@ -1186,9 +1193,9 @@ top-level device field, then exposes the safe subset as `controlPlaneEvent` on t
 WebSocket API. The MCP event worker matches type/device/filter and persists a claim before
 execution. The event `id` is the cross-restart idempotency key; legacy events without an ID
 fall back to `server_rev`. Event subscriptions are live-only: events consumed while the MCP
-process is down are not replayed. Cron/calendar rules, cross-process queue recovery, and
-callback outbox/retries remain future work; the current job worker is single-process and does
-not resume an interrupted queue after restart.
+process is down are not replayed. Cron is UTC-only; IANA time zones, DST, holiday calendars,
+and missed-slot backfill remain future work. The current job worker is single-process and
+does not coordinate multiple processes sharing one data directory.
 
 ---
 

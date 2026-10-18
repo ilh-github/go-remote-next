@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::str::FromStr;
 
 use chrono::{DateTime, Duration, Utc};
+use cron::Schedule;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
@@ -33,6 +35,7 @@ pub struct WorkflowTriggerSpec {
     pub overrides: HashMap<String, Value>,
     pub stop_on_failure: bool,
     pub interval_seconds: Option<u64>,
+    pub cron_expression: Option<String>,
     pub event_type: Option<String>,
     pub event_device_id: Option<String>,
     pub event_filter: Option<Value>,
@@ -48,6 +51,8 @@ pub struct WorkflowTrigger {
     pub overrides: HashMap<String, Value>,
     pub stop_on_failure: bool,
     pub interval_seconds: Option<u64>,
+    #[serde(default)]
+    pub cron_expression: Option<String>,
     #[serde(default)]
     pub event_type: Option<String>,
     #[serde(default)]
@@ -118,14 +123,30 @@ impl WorkflowTriggerStore {
                 ));
             }
         }
+        let cron_expression = spec
+            .cron_expression
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        if spec.interval_seconds.is_some() && cron_expression.is_some() {
+            return Err(
+                "trigger can use only one of interval_seconds or cron_expression".to_string(),
+            );
+        }
+        if let Some(expression) = cron_expression.as_deref() {
+            validate_cron_expression(expression)?;
+        }
         let event_type = spec
             .event_type
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(str::to_string);
-        if spec.interval_seconds.is_none() && event_type.is_none() {
-            return Err("trigger needs interval_seconds or event_type".to_string());
+        if spec.interval_seconds.is_none() && cron_expression.is_none() && event_type.is_none() {
+            return Err(
+                "trigger needs interval_seconds, cron_expression or event_type".to_string(),
+            );
         }
         if let Some(event_type) = event_type.as_deref() {
             if !SUPPORTED_EVENT_TYPES.contains(&event_type) {
@@ -152,6 +173,13 @@ impl WorkflowTriggerStore {
         };
 
         let now_text = now.to_rfc3339();
+        let next_run_at = if let Some(seconds) = spec.interval_seconds {
+            Some((now + Duration::seconds(seconds as i64)).to_rfc3339())
+        } else if let Some(expression) = cron_expression.as_deref() {
+            Some(next_cron_after(expression, now)?.to_rfc3339())
+        } else {
+            None
+        };
         let trigger = WorkflowTrigger {
             id: Uuid::new_v4().to_string(),
             name: name.to_string(),
@@ -160,14 +188,13 @@ impl WorkflowTriggerStore {
             overrides: spec.overrides,
             stop_on_failure: spec.stop_on_failure,
             interval_seconds: spec.interval_seconds,
+            cron_expression,
             event_type,
             event_device_id,
             event_filter: spec.event_filter,
             callback_url: spec.callback_url,
             enabled: true,
-            next_run_at: spec
-                .interval_seconds
-                .map(|seconds| (now + Duration::seconds(seconds as i64)).to_rfc3339()),
+            next_run_at,
             last_run_at: None,
             last_run_id: String::new(),
             last_status: String::new(),
@@ -219,7 +246,9 @@ impl WorkflowTriggerStore {
             return claimed;
         }
         for mut trigger in self.list() {
-            if !trigger.enabled || trigger.interval_seconds.is_none() {
+            if !trigger.enabled
+                || (trigger.interval_seconds.is_none() && trigger.cron_expression.is_none())
+            {
                 continue;
             }
             let Some(next_run_at) = trigger.next_run_at.as_deref() else {
@@ -234,8 +263,23 @@ impl WorkflowTriggerStore {
             if next_run_at.with_timezone(&Utc) > now {
                 continue;
             }
-            let interval = trigger.interval_seconds.unwrap_or(MIN_INTERVAL_SECONDS) as i64;
-            trigger.next_run_at = Some((now + Duration::seconds(interval)).to_rfc3339());
+            let next_run_at = if let Some(interval) = trigger.interval_seconds {
+                (now + Duration::seconds(interval as i64)).to_rfc3339()
+            } else {
+                let Some(expression) = trigger.cron_expression.as_deref() else {
+                    continue;
+                };
+                match next_cron_after(expression, now) {
+                    Ok(next) => next.to_rfc3339(),
+                    Err(error) => {
+                        trigger.last_status = "failed".to_string();
+                        trigger.last_error = error;
+                        let _ = self.save(&trigger);
+                        continue;
+                    }
+                }
+            };
+            trigger.next_run_at = Some(next_run_at);
             trigger.updated_at = now.to_rfc3339();
             if self.save(&trigger).is_ok() {
                 claimed.push(trigger);
@@ -309,6 +353,21 @@ impl WorkflowTriggerStore {
         Uuid::parse_str(id).ok()?;
         Some(self.storage_dir.join(format!("{id}.json")))
     }
+}
+
+fn validate_cron_expression(expression: &str) -> Result<(), String> {
+    Schedule::from_str(expression)
+        .map(|_| ())
+        .map_err(|error| format!("invalid cron_expression: {error}"))
+}
+
+fn next_cron_after(expression: &str, after: DateTime<Utc>) -> Result<DateTime<Utc>, String> {
+    let schedule = Schedule::from_str(expression)
+        .map_err(|error| format!("invalid cron_expression: {error}"))?;
+    schedule
+        .after(&after)
+        .next()
+        .ok_or_else(|| "cron_expression has no future run".to_string())
 }
 
 fn truncate(value: &str, max: usize) -> String {
@@ -390,6 +449,7 @@ mod tests {
                     overrides: HashMap::from([("target".to_string(), json!("daily"))]),
                     stop_on_failure: true,
                     interval_seconds: Some(3600),
+                    cron_expression: None,
                     event_type: None,
                     event_device_id: None,
                     event_filter: None,
@@ -435,6 +495,7 @@ mod tests {
                     overrides: HashMap::new(),
                     stop_on_failure: true,
                     interval_seconds: Some(60),
+                    cron_expression: None,
                     event_type: None,
                     event_device_id: None,
                     event_filter: None,
@@ -458,6 +519,56 @@ mod tests {
     }
 
     #[test]
+    fn claims_a_due_cron_once_and_advances_to_the_next_slot() {
+        let dir = std::env::temp_dir().join(format!("quickdesk-trigger-store-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = WorkflowTriggerStore::with_storage_dir(dir.clone());
+        let created = Utc.with_ymd_and_hms(2026, 10, 17, 15, 7, 0).unwrap();
+        let trigger = store
+            .create_at(
+                WorkflowTriggerSpec {
+                    name: "every fifteen minutes".to_string(),
+                    workflow_id: Uuid::new_v4().to_string(),
+                    device_id: "device-1".to_string(),
+                    overrides: HashMap::new(),
+                    stop_on_failure: true,
+                    interval_seconds: None,
+                    cron_expression: Some("0 */15 * * * *".to_string()),
+                    event_type: None,
+                    event_device_id: None,
+                    event_filter: None,
+                    callback_url: None,
+                },
+                created,
+            )
+            .unwrap();
+        assert_eq!(
+            trigger.next_run_at,
+            Some(
+                Utc.with_ymd_and_hms(2026, 10, 17, 15, 15, 0)
+                    .unwrap()
+                    .to_rfc3339()
+            )
+        );
+
+        let first = store.claim_due(Utc.with_ymd_and_hms(2026, 10, 17, 15, 15, 0).unwrap());
+        assert_eq!(first.len(), 1);
+        assert!(store
+            .claim_due(Utc.with_ymd_and_hms(2026, 10, 17, 15, 16, 0).unwrap())
+            .is_empty());
+        assert_eq!(
+            store.get(&trigger.id).unwrap().next_run_at,
+            Some(
+                Utc.with_ymd_and_hms(2026, 10, 17, 15, 30, 0)
+                    .unwrap()
+                    .to_rfc3339()
+            )
+        );
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn rejects_invalid_trigger_ids_and_interval_bounds() {
         let dir = std::env::temp_dir().join(format!("quickdesk-trigger-store-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -469,6 +580,7 @@ mod tests {
             overrides: HashMap::new(),
             stop_on_failure: true,
             interval_seconds: Some(1),
+            cron_expression: None,
             event_type: None,
             event_device_id: None,
             event_filter: None,
@@ -496,6 +608,7 @@ mod tests {
                     overrides: HashMap::new(),
                     stop_on_failure: true,
                     interval_seconds: None,
+                    cron_expression: None,
                     event_type: Some("device.access.denied".to_string()),
                     event_device_id: None,
                     event_filter: Some(json!({"reason": "policy"})),
@@ -505,10 +618,7 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(
-            trigger.event_device_id.as_deref(),
-            Some("target-device")
-        );
+        assert_eq!(trigger.event_device_id.as_deref(), Some("target-device"));
         assert!(trigger.next_run_at.is_none());
 
         assert!(store
@@ -544,6 +654,7 @@ mod tests {
                     overrides: HashMap::new(),
                     stop_on_failure: true,
                     interval_seconds: None,
+                    cron_expression: None,
                     event_type: Some("scheduled_task.failed".to_string()),
                     event_device_id: None,
                     event_filter: Some(json!({"kind": "sign_out_all_sessions"})),
@@ -569,6 +680,7 @@ mod tests {
             overrides: HashMap::new(),
             stop_on_failure: true,
             interval_seconds: None,
+            cron_expression: None,
             event_type: Some("device.access.denied".to_string()),
             event_device_id: None,
             event_filter: Some(json!({"reason": "policy"})),
