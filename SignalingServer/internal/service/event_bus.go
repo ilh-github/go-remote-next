@@ -118,6 +118,7 @@ type EventBus struct {
 	streamMaxLen int64
 	streamTTL    time.Duration
 	workQueue    chan subscriberWork
+	retryWorker  string
 }
 
 type EventBusRetention struct {
@@ -126,8 +127,11 @@ type EventBusRetention struct {
 }
 
 const (
-	defaultEventStreamMaxLen int64 = 1000
-	defaultEventStreamTTL          = time.Hour
+	defaultEventStreamMaxLen   int64 = 1000
+	defaultEventStreamTTL            = time.Hour
+	eventRetryWorkerRegistry         = "qd:events:retry:workers"
+	eventRetryHeartbeatTTL           = 2 * time.Minute
+	eventRetryRecoveryInterval       = time.Minute
 )
 
 type subscriberWork struct {
@@ -157,6 +161,7 @@ func NewEventBusWithRetention(rdb *redis.Client, retention EventBusRetention) *E
 		streamMaxLen: retention.MaxLen,
 		streamTTL:    retention.TTL,
 		workQueue:    make(chan subscriberWork, 1024),
+		retryWorker:  uuid.NewString(),
 	}
 	go b.subscriberWorker()
 	return b
@@ -284,6 +289,14 @@ func stringField(fields map[string]interface{}, key string) string {
 // or (future) outbox commit fails. A background worker drains it.
 const eventRetryKey = "qd:events:retry"
 
+func retryProcessingKey(workerID string) string {
+	return "qd:events:retry:processing:" + workerID
+}
+
+func retryHeartbeatKey(workerID string) string {
+	return "qd:events:retry:heartbeat:" + workerID
+}
+
 // StartRetryWorker launches a background goroutine that drains the retry
 // list every few seconds. Call once at server startup; it stops when ctx
 // is cancelled.
@@ -291,40 +304,59 @@ func (b *EventBus) StartRetryWorker(ctx context.Context) {
 	if b.rdb == nil {
 		return
 	}
+	b.recoverStaleRetryWorkers(ctx)
+	b.ensureRetryWorker(ctx)
 	go func() {
 		ticker := time.NewTicker(3 * time.Second)
 		defer ticker.Stop()
+		recoveryTicker := time.NewTicker(eventRetryRecoveryInterval)
+		defer recoveryTicker.Stop()
+		defer b.releaseRetryWorker(context.Background())
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
+				b.ensureRetryWorker(ctx)
 				b.drainRetry(ctx)
+			case <-recoveryTicker.C:
+				b.recoverStaleRetryWorkers(ctx)
 			}
 		}
 	}()
 }
 
 func (b *EventBus) drainRetry(ctx context.Context) {
+	if b.rdb == nil {
+		return
+	}
+	b.ensureRetryWorker(ctx)
+	processingKey := retryProcessingKey(b.retryWorker)
+	if err := b.requeueRetryProcessing(ctx, processingKey); err != nil {
+		log.Printf("[EventBus] retry processing recovery failed: %v", err)
+		return
+	}
 	// Process up to 100 pending events per tick so a massive backlog
 	// can't starve other Redis traffic.
 	for i := 0; i < 100; i++ {
-		val, err := b.rdb.RPop(ctx, eventRetryKey).Result()
+		val, err := b.rdb.LMove(ctx, eventRetryKey, processingKey, "RIGHT", "LEFT").Result()
 		if err == redis.Nil {
 			return // queue empty
 		}
 		if err != nil {
-			log.Printf("[EventBus] retry RPOP failed: %v", err)
+			log.Printf("[EventBus] retry claim failed: %v", err)
 			return
 		}
 		var evt Event
 		if err := json.Unmarshal([]byte(val), &evt); err != nil {
 			log.Printf("[EventBus] retry payload unmarshal failed: %v", err)
+			b.retryProcessed(ctx, processingKey, val)
 			continue
 		}
 		// Only the stream write needs retry — subscribers already fired
 		// on the original publish.
 		if evt.UserID == 0 {
+			b.retryProcessed(ctx, processingKey, val)
 			continue
 		}
 		streamKey := fmt.Sprintf("qd:events:user:%d", evt.UserID)
@@ -335,12 +367,99 @@ func (b *EventBus) drainRetry(ctx context.Context) {
 			Values: map[string]interface{}{"e": val},
 		})
 		if cmd.Err() != nil {
-			// Re-queue at the *back* so we don't thrash on a broken key.
-			_ = b.rdb.LPush(ctx, eventRetryKey, val).Err()
+			// Move the claimed item back atomically. This is at-least-once:
+			// a crash after XADD but before LREM may append it again.
+			if moveErr := b.rdb.LMove(
+				ctx,
+				processingKey,
+				eventRetryKey,
+				"LEFT",
+				"RIGHT",
+			).Err(); moveErr != nil {
+				log.Printf("[EventBus] retry requeue failed: %v", moveErr)
+			}
 			log.Printf("[EventBus] retry XADD %s failed: %v", streamKey, cmd.Err())
 			return
 		}
 		b.rdb.Expire(ctx, streamKey, b.streamTTL)
+		b.retryProcessed(ctx, processingKey, val)
+	}
+}
+
+func (b *EventBus) ensureRetryWorker(ctx context.Context) {
+	if b.rdb == nil {
+		return
+	}
+	pipe := b.rdb.Pipeline()
+	pipe.SAdd(ctx, eventRetryWorkerRegistry, b.retryWorker)
+	pipe.Set(ctx, retryHeartbeatKey(b.retryWorker), time.Now().UTC().Format(time.RFC3339Nano), eventRetryHeartbeatTTL)
+	if _, err := pipe.Exec(ctx); err != nil {
+		log.Printf("[EventBus] retry worker heartbeat failed: %v", err)
+	}
+}
+
+func (b *EventBus) retryProcessed(ctx context.Context, processingKey, value string) {
+	if err := b.rdb.LRem(ctx, processingKey, 1, value).Err(); err != nil {
+		log.Printf("[EventBus] retry processing cleanup failed: %v", err)
+	}
+}
+
+func (b *EventBus) releaseRetryWorker(ctx context.Context) {
+	if b.rdb == nil {
+		return
+	}
+	processingKey := retryProcessingKey(b.retryWorker)
+	if err := b.requeueRetryProcessing(ctx, processingKey); err != nil {
+		log.Printf("[EventBus] retry worker release failed: %v", err)
+		return
+	}
+	b.rdb.Del(ctx, processingKey)
+	b.rdb.SRem(ctx, eventRetryWorkerRegistry, b.retryWorker)
+	b.rdb.Del(ctx, retryHeartbeatKey(b.retryWorker))
+}
+
+func (b *EventBus) recoverStaleRetryWorkers(ctx context.Context) {
+	if b.rdb == nil {
+		return
+	}
+	workers, err := b.rdb.SMembers(ctx, eventRetryWorkerRegistry).Result()
+	if err != nil {
+		log.Printf("[EventBus] retry worker registry read failed: %v", err)
+		return
+	}
+	for _, workerID := range workers {
+		if workerID == b.retryWorker {
+			continue
+		}
+		alive, err := b.rdb.Exists(ctx, retryHeartbeatKey(workerID)).Result()
+		if err != nil {
+			log.Printf("[EventBus] retry worker heartbeat check failed: %v", err)
+			continue
+		}
+		if alive > 0 {
+			continue
+		}
+		processingKey := retryProcessingKey(workerID)
+		if moveErr := b.requeueRetryProcessing(ctx, processingKey); moveErr != nil {
+			log.Printf("[EventBus] retry worker recovery failed for %s: %v", workerID, moveErr)
+			continue
+		}
+		if err := b.rdb.Del(ctx, processingKey).Err(); err != nil {
+			log.Printf("[EventBus] retry processing cleanup failed for %s: %v", workerID, err)
+		}
+		b.rdb.SRem(ctx, eventRetryWorkerRegistry, workerID)
+	}
+}
+
+func (b *EventBus) requeueRetryProcessing(ctx context.Context, processingKey string) error {
+	for {
+		_, err := b.rdb.LMove(ctx, processingKey, eventRetryKey, "LEFT", "RIGHT").Result()
+		if err == redis.Nil {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
 	}
 }
 

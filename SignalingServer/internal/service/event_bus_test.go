@@ -166,3 +166,147 @@ func TestEventBusRetryUsesConfiguredReplayRetention(t *testing.T) {
 		t.Fatalf("retried stream TTL = %s, want 20m", ttl)
 	}
 }
+
+func TestEventBusRecoversProcessingFromDeadRetryWorker(t *testing.T) {
+	redisServer := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: redisServer.Addr()})
+	t.Cleanup(func() { _ = client.Close() })
+
+	retryEvent := Event{
+		ID:        "evt-recovered",
+		Type:      EventDeviceOnlineChanged,
+		UserID:    88,
+		ServerRev: 12,
+	}
+	payload, err := json.Marshal(retryEvent)
+	if err != nil {
+		t.Fatalf("marshal retry event: %v", err)
+	}
+	const registryKey = "qd:events:retry:workers"
+	const processingKey = "qd:events:retry:processing:dead-worker"
+	if err := client.SAdd(context.Background(), registryKey, "dead-worker").Err(); err != nil {
+		t.Fatalf("seed dead retry worker registry: %v", err)
+	}
+	if err := client.LPush(context.Background(), processingKey, string(payload)).Err(); err != nil {
+		t.Fatalf("seed dead retry worker processing list: %v", err)
+	}
+
+	bus := NewEventBus(client)
+	bus.recoverStaleRetryWorkers(context.Background())
+
+	pending, err := client.LLen(context.Background(), eventRetryKey).Result()
+	if err != nil {
+		t.Fatalf("read recovered retry queue: %v", err)
+	}
+	if pending != 1 {
+		t.Fatalf("recovered retry queue length = %d, want 1", pending)
+	}
+	processing, err := client.LLen(context.Background(), processingKey).Result()
+	if err != nil {
+		t.Fatalf("read dead retry processing list: %v", err)
+	}
+	if processing != 0 {
+		t.Fatalf("dead retry processing list length = %d, want 0", processing)
+	}
+	registered, err := client.SIsMember(context.Background(), registryKey, "dead-worker").Result()
+	if err != nil {
+		t.Fatalf("check dead retry worker registry: %v", err)
+	}
+	if registered {
+		t.Fatal("dead retry worker remained registered")
+	}
+
+	bus.drainRetry(context.Background())
+	stream, err := client.XRange(context.Background(), "qd:events:user:88", "-", "+").Result()
+	if err != nil {
+		t.Fatalf("read recovered user stream: %v", err)
+	}
+	if len(stream) != 1 {
+		t.Fatalf("recovered user stream entries = %d, want 1", len(stream))
+	}
+}
+
+func TestEventBusRetryDrainRecoversItsOwnProcessing(t *testing.T) {
+	redisServer := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: redisServer.Addr()})
+	t.Cleanup(func() { _ = client.Close() })
+
+	bus := NewEventBus(client)
+	retryEvent := Event{
+		ID:        "evt-own-processing",
+		Type:      EventDeviceOnlineChanged,
+		UserID:    89,
+		ServerRev: 13,
+	}
+	payload, err := json.Marshal(retryEvent)
+	if err != nil {
+		t.Fatalf("marshal retry event: %v", err)
+	}
+	processingKey := retryProcessingKey(bus.retryWorker)
+	if err := client.LPush(context.Background(), processingKey, string(payload)).Err(); err != nil {
+		t.Fatalf("seed own retry processing list: %v", err)
+	}
+
+	bus.drainRetry(context.Background())
+
+	stream, err := client.XRange(context.Background(), "qd:events:user:89", "-", "+").Result()
+	if err != nil {
+		t.Fatalf("read own recovered user stream: %v", err)
+	}
+	if len(stream) != 1 {
+		t.Fatalf("own recovered user stream entries = %d, want 1", len(stream))
+	}
+	processing, err := client.LLen(context.Background(), processingKey).Result()
+	if err != nil {
+		t.Fatalf("read own retry processing list: %v", err)
+	}
+	if processing != 0 {
+		t.Fatalf("own retry processing list length = %d, want 0", processing)
+	}
+}
+
+func TestEventBusDoesNotStealProcessingFromLiveRetryWorker(t *testing.T) {
+	redisServer := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: redisServer.Addr()})
+	t.Cleanup(func() { _ = client.Close() })
+
+	const registryKey = "qd:events:retry:workers"
+	const workerID = "live-worker"
+	const processingKey = "qd:events:retry:processing:live-worker"
+	if err := client.SAdd(context.Background(), registryKey, workerID).Err(); err != nil {
+		t.Fatalf("seed live retry worker registry: %v", err)
+	}
+	if err := client.Set(
+		context.Background(),
+		retryHeartbeatKey(workerID),
+		time.Now().UTC().Format(time.RFC3339Nano),
+		eventRetryHeartbeatTTL,
+	).Err(); err != nil {
+		t.Fatalf("seed live retry worker heartbeat: %v", err)
+	}
+	if err := client.LPush(
+		context.Background(),
+		processingKey,
+		`{"id":"evt-live","type":"device.online.changed","user_id":90}`,
+	).Err(); err != nil {
+		t.Fatalf("seed live retry worker processing list: %v", err)
+	}
+
+	bus := NewEventBus(client)
+	bus.recoverStaleRetryWorkers(context.Background())
+
+	processing, err := client.LLen(context.Background(), processingKey).Result()
+	if err != nil {
+		t.Fatalf("read live retry processing list: %v", err)
+	}
+	if processing != 1 {
+		t.Fatalf("live retry processing list length = %d, want 1", processing)
+	}
+	pending, err := client.LLen(context.Background(), eventRetryKey).Result()
+	if err != nil {
+		t.Fatalf("read pending retry queue: %v", err)
+	}
+	if pending != 0 {
+		t.Fatalf("pending retry queue length = %d, want 0", pending)
+	}
+}
