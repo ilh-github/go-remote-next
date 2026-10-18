@@ -7,8 +7,8 @@
 
 ## 当前本地基线
 
-- fork 主干：`a6924d1`（QD-111 / QD-408 文件传输审计与文档收口），`dev` / `master`
-  已本地同步
+- fork 本地主线：`dev` / `master` 已同步；QD-111 / QD-408 功能提交为 `b9f414c`，
+  功能文档收口为 `a6924d1`，push blocker 记录提交为 `8522e44`
 - fork 远端：`origin/dev` 与 `origin/master` 当前仍为 `9837194`
 - 本地领先：`dev` / `master` 均比各自远端多 24 个提交
 - 推送 blocker：2026-10-18 执行 `git push origin dev master` 和候选分支 push 均被
