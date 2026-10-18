@@ -6,6 +6,7 @@
 
 #include "SecurityManager.h"
 #include "ApiHandler.h"
+#include "core/controlplaneevent.h"
 
 #include <QObject>
 #include <QWebSocketServer>
@@ -60,6 +61,8 @@ private:
 
     bool authenticateClient(QWebSocket* client, const QJsonObject& msg);
     QString clientId(QWebSocket* client) const;
+    void sendEvent(QWebSocket* client, const QString& event,
+                   const QJsonObject& data);
 
     QWebSocketServer* m_server = nullptr;
     ApiHandler* m_handler = nullptr;
@@ -68,6 +71,7 @@ private:
     QSet<QWebSocket*> m_authenticatedClients;
     QMap<QWebSocket*, ClientInfo> m_clientInfo;
     QMap<QString, QWebSocket*> m_clientIdMap;
+    ControlPlaneEventReplayBuffer m_controlPlaneReplay;
     QString m_authToken;
     int m_nextClientId = 1;
 };

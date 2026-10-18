@@ -65,6 +65,7 @@ void WebSocketApiServer::stop() {
     m_authenticatedClients.clear();
     m_clientInfo.clear();
     m_clientIdMap.clear();
+    m_controlPlaneReplay.clear();
 
     m_server->close();
     delete m_server;
@@ -92,6 +93,17 @@ int WebSocketApiServer::authenticatedClientCount() const {
 
 void WebSocketApiServer::broadcastEvent(const QString& event,
                                         const QJsonObject& data) {
+    if (event == QLatin1String("controlPlaneEvent")) {
+        m_controlPlaneReplay.append(data);
+    }
+    auto& targets = m_authToken.isEmpty() ? m_clients : m_authenticatedClients;
+    for (auto* client : targets) {
+        sendEvent(client, event, data);
+    }
+}
+
+void WebSocketApiServer::sendEvent(QWebSocket* client, const QString& event,
+                                   const QJsonObject& data) {
     QJsonObject msg;
     msg["event"] = event;
     msg["data"] = data;
@@ -99,10 +111,7 @@ void WebSocketApiServer::broadcastEvent(const QString& event,
     auto text = QString::fromUtf8(
         QJsonDocument(msg).toJson(QJsonDocument::Compact));
 
-    auto& targets = m_authToken.isEmpty() ? m_clients : m_authenticatedClients;
-    for (auto* client : targets) {
-        client->sendTextMessage(text);
-    }
+    client->sendTextMessage(text);
 }
 
 QString WebSocketApiServer::clientId(QWebSocket* client) const {
@@ -136,6 +145,9 @@ void WebSocketApiServer::onNewConnection() {
         if (m_authToken.isEmpty()) {
             m_authenticatedClients.insert(client);
             emit authenticatedClientCountChanged(m_authenticatedClients.size());
+            for (const QJsonObject& event : m_controlPlaneReplay.eventsAfter(0)) {
+                sendEvent(client, QStringLiteral("controlPlaneEvent"), event);
+            }
         }
 
         m_security->recordActivity(info.id);
@@ -411,6 +423,13 @@ bool WebSocketApiServer::authenticateClient(QWebSocket* client,
     }
     client->sendTextMessage(
         QString::fromUtf8(QJsonDocument(resp).toJson(QJsonDocument::Compact)));
+
+    const qint64 sinceServerRev =
+        controlPlaneReplaySinceRev(msg.value(QStringLiteral("params")).toObject());
+    for (const QJsonObject& event :
+         m_controlPlaneReplay.eventsAfter(sinceServerRev)) {
+        sendEvent(client, QStringLiteral("controlPlaneEvent"), event);
+    }
     return true;
 }
 

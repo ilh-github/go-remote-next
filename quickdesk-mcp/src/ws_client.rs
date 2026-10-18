@@ -1,9 +1,10 @@
 use futures_util::{SinkExt, StreamExt};
 use serde_json::Value;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{Mutex, oneshot};
+use tokio::sync::{oneshot, Mutex};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 use crate::event_bus::{Event, EventBus};
@@ -34,15 +35,21 @@ pub struct WsClient {
     /// `None` means the connection is currently down.
     inner: Arc<Mutex<Option<WsInner>>>,
     event_bus: EventBus,
+    last_control_plane_rev: Arc<AtomicI64>,
 }
 
 impl WsClient {
-    pub async fn connect(url: &str, token: Option<&str>, event_bus: EventBus) -> Result<Self, String> {
+    pub async fn connect(
+        url: &str,
+        token: Option<&str>,
+        event_bus: EventBus,
+    ) -> Result<Self, String> {
         let client = Self {
             url: Arc::new(url.to_string()),
             token: Arc::new(token.map(str::to_string)),
             inner: Arc::new(Mutex::new(None)),
             event_bus,
+            last_control_plane_rev: Arc::new(AtomicI64::new(0)),
         };
         client.do_connect().await?;
         Ok(client)
@@ -55,6 +62,7 @@ impl WsClient {
             token: Arc::new(None),
             inner: Arc::new(Mutex::new(None)),
             event_bus: EventBus::new(16),
+            last_control_plane_rev: Arc::new(AtomicI64::new(0)),
         }
     }
 
@@ -74,10 +82,15 @@ impl WsClient {
             pending.clone(),
             self.inner.clone(),
             self.event_bus.clone(),
+            self.last_control_plane_rev.clone(),
         ));
 
         let mut guard = self.inner.lock().await;
-        *guard = Some(WsInner { sender: write, pending, req_counter: 0 });
+        *guard = Some(WsInner {
+            sender: write,
+            pending,
+            req_counter: 0,
+        });
         drop(guard);
 
         // Authenticate if a token was provided.
@@ -90,8 +103,13 @@ impl WsClient {
     }
 
     async fn authenticate(&self, token: &str) -> Result<(), String> {
+        let since_server_rev = self.last_control_plane_rev.load(Ordering::Relaxed);
+        let mut params = serde_json::json!({ "token": token });
+        if since_server_rev > 0 {
+            params["since_server_rev"] = serde_json::json!(since_server_rev);
+        }
         let resp = self
-            .try_request("auth", serde_json::json!({ "token": token }), Duration::from_secs(10))
+            .try_request("auth", params, Duration::from_secs(10))
             .await?;
         if resp.get("authenticated").and_then(|v| v.as_bool()) == Some(true) {
             Ok(())
@@ -101,21 +119,36 @@ impl WsClient {
     }
 
     pub async fn request(&self, method: &str, params: Value) -> Result<Value, String> {
-        self.request_with_timeout(method, params, Duration::from_secs(30)).await
+        self.request_with_timeout(method, params, Duration::from_secs(30))
+            .await
     }
 
-    pub async fn request_with_timeout(&self, method: &str, params: Value, timeout: Duration) -> Result<Value, String> {
+    pub async fn request_with_timeout(
+        &self,
+        method: &str,
+        params: Value,
+        timeout: Duration,
+    ) -> Result<Value, String> {
         match self.try_request(method, params.clone(), timeout).await {
             Ok(v) => Ok(v),
             Err(e) => {
-                tracing::warn!("WsClient request '{}' failed ({}), reconnecting…", method, e);
+                tracing::warn!(
+                    "WsClient request '{}' failed ({}), reconnecting…",
+                    method,
+                    e
+                );
                 self.do_connect().await?;
                 self.try_request(method, params, timeout).await
             }
         }
     }
 
-    async fn try_request(&self, method: &str, params: Value, timeout: Duration) -> Result<Value, String> {
+    async fn try_request(
+        &self,
+        method: &str,
+        params: Value,
+        timeout: Duration,
+    ) -> Result<Value, String> {
         let (id, rx) = {
             let mut guard = self.inner.lock().await;
             let inner = guard.as_mut().ok_or("Not connected")?;
@@ -133,9 +166,7 @@ impl WsClient {
                 .sender
                 .send(Message::Text(text.into()))
                 .await
-                .map_err(|e| {
-                    format!("WebSocket send failed: {e}")
-                })?;
+                .map_err(|e| format!("WebSocket send failed: {e}"))?;
 
             (id, rx)
         };
@@ -158,6 +189,7 @@ impl WsClient {
         pending: Arc<Mutex<PendingMap>>,
         inner: Arc<Mutex<Option<WsInner>>>,
         event_bus: EventBus,
+        last_control_plane_rev: Arc<AtomicI64>,
     ) {
         while let Some(msg) = read.next().await {
             let msg = match msg {
@@ -192,13 +224,28 @@ impl WsClient {
                 }
             } else if let Some(event_name) = parsed.get("event").and_then(|v| v.as_str()) {
                 let data = parsed.get("data").cloned().unwrap_or(Value::Null);
+                if event_name == "controlPlaneEvent" {
+                    let server_rev = data
+                        .get("server_rev")
+                        .and_then(Value::as_i64)
+                        .unwrap_or_default();
+                    if server_rev > 0 {
+                        last_control_plane_rev.fetch_max(server_rev, Ordering::Relaxed);
+                    }
+                }
                 let timestamp = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap_or_default()
                     .as_millis() as u64;
 
                 tracing::debug!("Received event: {} data={}", event_name, data);
-                event_bus.publish(Event { event: event_name.to_string(), data, timestamp }).await;
+                event_bus
+                    .publish(Event {
+                        event: event_name.to_string(),
+                        data,
+                        timestamp,
+                    })
+                    .await;
             }
         }
 
@@ -215,5 +262,124 @@ impl WsClient {
 
     pub fn event_bus(&self) -> &EventBus {
         &self.event_bus
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio_tungstenite::accept_async;
+
+    #[tokio::test]
+    async fn reconnect_auth_replays_since_last_control_plane_revision() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let (auth_tx, mut auth_rx) = tokio::sync::mpsc::unbounded_channel();
+
+        let server = tokio::spawn(async move {
+            for connection_index in 0..2 {
+                let (stream, _) = listener.accept().await.unwrap();
+                let mut socket = accept_async(stream).await.unwrap();
+                let Some(Ok(Message::Text(auth_text))) = socket.next().await else {
+                    panic!("expected auth request");
+                };
+                let auth: Value = serde_json::from_str(&auth_text).unwrap();
+                let auth_id = auth.get("id").and_then(Value::as_str).unwrap().to_string();
+                auth_tx.send(auth).unwrap();
+                socket
+                    .send(Message::Text(
+                        serde_json::json!({
+                            "id": auth_id,
+                            "result": {"authenticated": true}
+                        })
+                        .to_string()
+                        .into(),
+                    ))
+                    .await
+                    .unwrap();
+
+                if connection_index == 0 {
+                    let Some(Ok(Message::Text(trigger_text))) = socket.next().await else {
+                        panic!("expected trigger request");
+                    };
+                    let trigger: Value = serde_json::from_str(&trigger_text).unwrap();
+                    let trigger_id = trigger.get("id").and_then(Value::as_str).unwrap();
+                    socket
+                        .send(Message::Text(
+                            serde_json::json!({
+                                "id": trigger_id,
+                                "result": {"ok": true}
+                            })
+                            .to_string()
+                            .into(),
+                        ))
+                        .await
+                        .unwrap();
+                    socket
+                        .send(Message::Text(
+                            serde_json::json!({
+                                "event": "controlPlaneEvent",
+                                "data": {
+                                    "id": "evt-42",
+                                    "type": "device.online.changed",
+                                    "device_id": "device-1",
+                                    "server_rev": 42,
+                                    "data": {"online": true}
+                                }
+                            })
+                            .to_string()
+                            .into(),
+                        ))
+                        .await
+                        .unwrap();
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                    socket.close(None).await.unwrap();
+                } else {
+                    let Some(Ok(Message::Text(ping_text))) = socket.next().await else {
+                        panic!("expected ping request");
+                    };
+                    let ping: Value = serde_json::from_str(&ping_text).unwrap();
+                    let ping_id = ping.get("id").and_then(Value::as_str).unwrap();
+                    socket
+                        .send(Message::Text(
+                            serde_json::json!({
+                                "id": ping_id,
+                                "result": {"ok": true}
+                            })
+                            .to_string()
+                            .into(),
+                        ))
+                        .await
+                        .unwrap();
+                }
+            }
+        });
+
+        let client = WsClient::connect(
+            &format!("ws://{address}"),
+            Some("local-api-token"),
+            EventBus::new(16),
+        )
+        .await
+        .unwrap();
+        let first_auth = tokio::time::timeout(Duration::from_secs(2), auth_rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(first_auth["params"].get("since_server_rev").is_none());
+
+        client
+            .request("trigger", serde_json::json!({}))
+            .await
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        client.request("ping", serde_json::json!({})).await.unwrap();
+
+        let second_auth = tokio::time::timeout(Duration::from_secs(2), auth_rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(second_auth["params"]["since_server_rev"], 42);
+        server.await.unwrap();
     }
 }

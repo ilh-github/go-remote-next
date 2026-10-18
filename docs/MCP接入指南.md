@@ -1168,8 +1168,8 @@ cron 和事件 trigger 由后台 worker 执行。时间触发器可选 60 秒~36
 使用。cron 可用 IANA `timezone`，省略时默认 UTC；DST 春季缺口会跳到下一有效槽位，
 秋季重复时间只执行第一次。法定节假日和停机期间漏过的槽位仍不处理。可选
 `Idempotency-Key` 会把相同请求的第一次 `WorkflowRunReport` 持久化并重放；相同 key
-对应不同请求或仍在执行的请求返回 409。回调确认操作者归属、事件停机补发和
-多进程共享 worker 尚未实现。进程重启会恢复 queued job；running job 会安全失败，不会
+对应不同请求或仍在执行的请求返回 409。回调确认操作者归属、QuickDesk 重启后的持久
+事件补发和多进程共享 worker 尚未实现。进程重启会恢复 queued job；running job 会安全失败，不会
 自动重放未知副作用。完整契约见
 `docs/dev/业务工作流HTTP触发器.md`。
 
@@ -1195,9 +1195,11 @@ Qt 的 `CloudDeviceManager` 先完成实时流的 snapshot/replay 与 `server_re
 再从 `data.device_id` 归一化实时信封没有稳定提供的设备字段，并通过本机 WebSocket API
 发送 `controlPlaneEvent`。MCP 只订阅该事件名，按类型、设备和过滤器匹配后先持久化
 claim 再执行。事件 `id` 是跨重启幂等键；没有 ID 的旧事件才使用 `server_rev`。
-事件订阅只处理实时到达的事件，MCP 停机期间的事件不会补发。IANA 时区与 DST 已支持，
-但法定节假日和漏过槽位补跑仍未实现；跨进程共享 worker 和回调确认操作者归属也仍未
-实现。单进程重启会恢复 queued workflow job，running job
+本地 WebSocket API 在内存中保留最近 256 条控制面事件，MCP 重连 auth 会发送
+`since_server_rev` 并接收更大的 revision，从而覆盖 MCP 短暂断开或重启。触发仍按事件
+`id` 幂等。QuickDesk 自身重启后没有持久 replay buffer，超过 256 条也会丢失。IANA
+时区与 DST 已支持，但法定节假日和漏过槽位补跑仍未实现；跨进程共享 worker 和回调
+确认操作者归属也仍未实现。单进程重启会恢复 queued workflow job，running job
 失败关闭；HMAC 回调使用持久 outbox，并以同一 delivery id 自动重试、跨进程重启恢复，
 支持死信查询、人工重放和幂等 ack。
 

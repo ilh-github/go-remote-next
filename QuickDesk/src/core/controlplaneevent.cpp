@@ -58,4 +58,77 @@ QJsonObject workflowTriggerEventData(const QJsonObject& message) {
     return event;
 }
 
+qint64 controlPlaneReplaySinceRev(const QJsonObject& authParams) {
+    return qMax<qint64>(
+        0,
+        authParams.value(QStringLiteral("since_server_rev"))
+            .toVariant()
+            .toLongLong());
+}
+
+ControlPlaneEventReplayBuffer::ControlPlaneEventReplayBuffer(int capacity)
+    : m_capacity(qMax(1, capacity)) {}
+
+void ControlPlaneEventReplayBuffer::append(const QJsonObject& event) {
+    if (!isWorkflowTriggerEvent(
+            event.value(QStringLiteral("type")).toString())) {
+        return;
+    }
+    const QString id = event.value(QStringLiteral("id")).toString();
+    const qint64 serverRev =
+        event.value(QStringLiteral("server_rev")).toVariant().toLongLong();
+    if (id.isEmpty() && serverRev <= 0) {
+        return;
+    }
+    if (contains(event)) {
+        return;
+    }
+    m_events.append(event);
+    while (m_events.size() > m_capacity) {
+        m_events.removeFirst();
+    }
+}
+
+QList<QJsonObject>
+ControlPlaneEventReplayBuffer::eventsAfter(qint64 sinceServerRev) const {
+    const qint64 cursor = qMax<qint64>(0, sinceServerRev);
+    QList<QJsonObject> events;
+    for (const QJsonObject& event : m_events) {
+        const qint64 serverRev =
+            event.value(QStringLiteral("server_rev")).toVariant().toLongLong();
+        if (serverRev <= 0 || serverRev > cursor) {
+            events.append(event);
+        }
+    }
+    return events;
+}
+
+int ControlPlaneEventReplayBuffer::size() const {
+    return m_events.size();
+}
+
+void ControlPlaneEventReplayBuffer::clear() {
+    m_events.clear();
+}
+
+bool ControlPlaneEventReplayBuffer::contains(
+    const QJsonObject& event) const {
+    const QString id = event.value(QStringLiteral("id")).toString();
+    const qint64 serverRev =
+        event.value(QStringLiteral("server_rev")).toVariant().toLongLong();
+    for (const QJsonObject& existing : m_events) {
+        if (!id.isEmpty() &&
+            existing.value(QStringLiteral("id")).toString() == id) {
+            return true;
+        }
+        if (id.isEmpty() && serverRev > 0 &&
+            existing.value(QStringLiteral("server_rev"))
+                    .toVariant()
+                    .toLongLong() == serverRev) {
+            return true;
+        }
+    }
+    return false;
+}
+
 }  // namespace quickdesk

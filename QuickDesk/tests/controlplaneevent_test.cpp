@@ -66,6 +66,43 @@ int main() {
     });
     Expect(ignored.isEmpty(), "non-whitelisted events produce no forwarded data");
 
+    quickdesk::ControlPlaneEventReplayBuffer replayBuffer(2);
+    replayBuffer.append(QJsonObject{
+        {QStringLiteral("id"), QStringLiteral("evt-1")},
+        {QStringLiteral("type"), QStringLiteral("device.online.changed")},
+        {QStringLiteral("server_rev"), 1},
+    });
+    replayBuffer.append(QJsonObject{
+        {QStringLiteral("id"), QStringLiteral("evt-2")},
+        {QStringLiteral("type"), QStringLiteral("device.online.changed")},
+        {QStringLiteral("server_rev"), 2},
+    });
+    replayBuffer.append(QJsonObject{
+        {QStringLiteral("id"), QStringLiteral("evt-3")},
+        {QStringLiteral("type"), QStringLiteral("device.online.changed")},
+        {QStringLiteral("server_rev"), 3},
+    });
+    replayBuffer.append(QJsonObject{
+        {QStringLiteral("id"), QStringLiteral("evt-3")},
+        {QStringLiteral("type"), QStringLiteral("device.online.changed")},
+        {QStringLiteral("server_rev"), 3},
+    });
+    const QList<QJsonObject> replayed = replayBuffer.eventsAfter(1);
+    Expect(replayed.size() == 2, "replay buffer keeps only the configured capacity");
+    Expect(replayed.first().value(QStringLiteral("server_rev")).toInt() == 2,
+           "replay buffer returns events newer than the cursor");
+    Expect(replayed.last().value(QStringLiteral("server_rev")).toInt() == 3,
+           "replay buffer preserves event order");
+    Expect(replayBuffer.size() == 2, "duplicate event ids are not buffered twice");
+    Expect(quickdesk::controlPlaneReplaySinceRev(QJsonObject{
+               {QStringLiteral("since_server_rev"), -4}})
+               == 0,
+           "negative replay cursors are normalized to zero");
+    Expect(quickdesk::controlPlaneReplaySinceRev(QJsonObject{
+               {QStringLiteral("since_server_rev"), 42}})
+               == 42,
+           "positive replay cursors are preserved");
+
     std::cout << "control plane event tests passed\n";
     return 0;
 }

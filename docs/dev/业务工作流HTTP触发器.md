@@ -1,9 +1,10 @@
 # QuickDesk 业务工作流 HTTP 触发器
 
-> 状态（2026-10-18）：QD-610 第十二阶段。业务系统可以保存 interval、IANA 时区 cron 或控制面事件
+> 状态（2026-10-18）：QD-610 第十四阶段。业务系统可以保存 interval、IANA 时区 cron 或控制面事件
 > trigger，通过独立 Bearer token 立即运行，并由 HTTP transport 的后台 worker 领取到期
 > 触发器。`Idempotency-Key`、异步 job、HMAC 出站回调、持久回调 outbox 和受控控制面
-> 事件订阅已支持；法定节假日、事件停机补发、委托权限细分和跨进程 worker 仍未完成。
+> 事件订阅及本机短期重连补发已支持；法定节假日、QuickDesk 重启后的持久事件补发、
+> 委托权限细分和跨进程 worker 仍未完成。
 
 ## 1. 边界
 
@@ -379,8 +380,14 @@ SignalingServer 的实时信封不保证有顶层 `device_id`。Qt 事件桥和 
 `server_rev` 去重。SQLite 轻量模式的进程内 Redis 重启后会让 `server_rev` 重新计数，
 因此不能把 revision 单独作为长期唯一键，否则重启后触发器会永久停在旧 revision。
 claim 在执行前写入；如果工作流随后失败，也不会回滚 claim，避免重放网络或桌面操作。
-事件订阅是 live-only：`quickdesk-mcp` 必须在该用户事件到达时保持运行；当前不补发
-MCP 停机期间已经消费过的控制面事件。
+Qt 的本机 WebSocket API 在内存中保留最近 256 条白名单 `controlPlaneEvent`，并按事件
+`id` 或 `server_rev` 去重。`quickdesk-mcp` 重连时会在 auth 参数中发送最后见到的
+`since_server_rev`；认证成功后，API 会补发 revision 更大的事件。API token 为空时，
+新连接直接接收当前缓冲。trigger 仍以事件 `id` 做幂等 claim，所以重复补发不会重复执行。
+
+该补发窗口覆盖 `quickdesk-mcp` 短暂断开、重启，或 MCP 尚未启动但 QuickDesk 仍在运行的
+场景。它不是持久事件库：缓冲只保存在 QuickDesk 进程内存中，最多 256 条；QuickDesk
+自身重启、服务端 replay retention 不足或事件量超过窗口时仍可能丢失。
 
 ## 8. 安全
 
@@ -404,7 +411,8 @@ MCP 停机期间已经消费过的控制面事件。
 
 - 法定节假日和复杂工作日日历；IANA 时区与 DST 已支持，但没有节假日跳过规则；
 - 多进程共享 worker、分布式锁和公平调度；当前只支持单进程队列和单进程重启恢复；
-- 控制面事件在 MCP 停机期间的补发/outbox；当前只处理实时到达的事件；
+- QuickDesk 进程重启后的持久事件补发、跨实例事件 outbox 和超过 256 条的积压；
+  当前只有 QuickDesk 进程内的短期 replay buffer；
 - 回调确认操作者归属；批量确认已支持，但 trigger token 无法证明具体操作者身份；
 - Owner 委托 grant、最小权限范围和审计回传控制面。
 
