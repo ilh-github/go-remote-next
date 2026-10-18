@@ -106,7 +106,7 @@
 
 最近验证：
 
-- 本轮代码提交：`b9f414c`（QD-111 / QD-408 文件传输审计）、`71b899e`（QD-316 会话内文字聊天）、`2e09d5b`（QD-610 控制面事件触发器）、`9f7be0f`（QD-610 HMAC 结果回调）、`e8ce807`（QD-610 异步任务队列/取消）、`e518194`（QD-610 Idempotency-Key）、`3f94911`（QD-610 持久化/定时触发器）、`bca8149`（QD-610 HTTP trigger）、`de88f07`（QD-506 Web 录像分块续传）、`001a76c`（QD-510 工作流核心）、`e688869`（访问码同步重试）、`5be14da`（SPAKE2 与传输错误码）、
+- 本轮代码提交：`3c50004`（MCP 节假日日历随包分发）、`e30662d`（QD-610 cron 法定节假日跳过）、`b9f414c`（QD-111 / QD-408 文件传输审计）、`71b899e`（QD-316 会话内文字聊天）、`2e09d5b`（QD-610 控制面事件触发器）、`9f7be0f`（QD-610 HMAC 结果回调）、`e8ce807`（QD-610 异步任务队列/取消）、`e518194`（QD-610 Idempotency-Key）、`3f94911`（QD-610 持久化/定时触发器）、`bca8149`（QD-610 HTTP trigger）、`de88f07`（QD-506 Web 录像分块续传）、`001a76c`（QD-510 工作流核心）、`e688869`（访问码同步重试）、`5be14da`（SPAKE2 与传输错误码）、
   `a982a10`（Windows 自动更新重启与缓存清理）、`c77dcae`（SQLite 轻量模式）、
   `64ab93a`（备份恢复与存储配额）、`37dd8aa`（Host 指标告警）、`3021ca9`
   （私密安全披露策略）、`3474203`（信令信任边界）；
@@ -393,11 +393,12 @@
   HTTP→replay→report E2E、错误 token、设备白名单和 429 测试均通过，MCP 全量 23/23、
   Clippy 零告警和 release 构建通过。定时触发、控制面事件订阅、幂等键、出站回调和委托
   权限仍未完成，QD-610 保持 `[~]`。
-- QD-610 上游 stacked 候选：`codex/upstream-qd-610-business-trigger` = `fae947e`，
+- QD-610 上游 stacked 候选：`codex/upstream-qd-610-business-trigger` = `340b463`，
   基于 `codex/upstream-qd-510-workflow@0a9ecd5`。候选现已叠加 HTTP trigger、持久化
   interval/IANA 时区 cron trigger、Idempotency-Key、异步 job 队列/取消/单进程重启恢复、
   HMAC 持久 outbox/重试/死信/重放/单条与批量 ack、Qt 白名单事件桥、MCP event trigger
-  和持久事件重连补发；候选自身 48/48 测试、Clippy、release 构建和
+  和持久事件重连补发；本轮再叠加 `b0ef926` cron 法定节假日跳过与 `340b463`
+  MCP 内置日历资源；候选自身 52/52 测试、Clippy、release 构建和
   `git diff --check upstream/dev...HEAD` 通过。
   候选保留通用 MCP 代码和契约文档，不含 fork 清单、QD-506 或控制面业务记录。
 - QD-610 第二阶段功能提交：`3f94911`。新增 `~/.quickdesk/workflow-triggers/` JSON store、
