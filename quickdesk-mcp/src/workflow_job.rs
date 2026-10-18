@@ -1,6 +1,8 @@
 use std::collections::HashMap;
+use std::fs::OpenOptions;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, SystemTime};
 
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -18,6 +20,7 @@ use crate::workflow::WorkflowRunReport;
 use crate::ws_client::WsClient;
 
 const QUEUE_CAPACITY: usize = 32;
+const JOB_CLAIM_STALE_AFTER: Duration = Duration::from_secs(30);
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -76,6 +79,23 @@ fn default_stop_on_failure() -> bool {
 #[derive(Clone)]
 pub struct WorkflowJobStore {
     storage_dir: PathBuf,
+}
+
+struct WorkflowJobExecutionClaim {
+    path: PathBuf,
+}
+
+impl Drop for WorkflowJobExecutionClaim {
+    fn drop(&mut self) {
+        if let Err(error) = std::fs::remove_file(&self.path) {
+            if error.kind() != std::io::ErrorKind::NotFound {
+                tracing::warn!(
+                    "cannot release workflow job claim {}: {error}",
+                    self.path.display()
+                );
+            }
+        }
+    }
 }
 
 impl WorkflowJobStore {
@@ -173,6 +193,54 @@ impl WorkflowJobStore {
         })
     }
 
+    fn claim_execution(&self, run_id: &str) -> Option<WorkflowJobExecutionClaim> {
+        let claim = self.acquire_execution_claim(run_id)?;
+        let job = self.get(run_id)?;
+        (job.status == WorkflowJobStatus::Queued).then_some(claim)
+    }
+
+    fn acquire_execution_claim(&self, run_id: &str) -> Option<WorkflowJobExecutionClaim> {
+        let path = self.claim_path(run_id)?;
+        match OpenOptions::new().write(true).create_new(true).open(&path) {
+            Ok(_) => Some(WorkflowJobExecutionClaim { path }),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                if self.claim_is_stale(&path) {
+                    if let Err(remove_error) = std::fs::remove_file(&path) {
+                        if remove_error.kind() != std::io::ErrorKind::NotFound {
+                            tracing::warn!(
+                                "cannot remove stale workflow job claim {}: {remove_error}",
+                                path.display()
+                            );
+                            return None;
+                        }
+                    }
+                    return match OpenOptions::new().write(true).create_new(true).open(&path) {
+                        Ok(_) => Some(WorkflowJobExecutionClaim { path }),
+                        Err(_) => None,
+                    };
+                }
+                None
+            }
+            Err(error) => {
+                tracing::warn!("cannot claim workflow job {}: {error}", path.display());
+                None
+            }
+        }
+    }
+
+    fn execution_claim_is_active(&self, run_id: &str) -> bool {
+        self.claim_path(run_id)
+            .is_some_and(|path| path.exists() && !self.claim_is_stale(&path))
+    }
+
+    fn claim_is_stale(&self, path: &std::path::Path) -> bool {
+        std::fs::metadata(path)
+            .and_then(|metadata| metadata.modified())
+            .ok()
+            .and_then(|modified| SystemTime::now().duration_since(modified).ok())
+            .is_some_and(|age| age >= JOB_CLAIM_STALE_AFTER)
+    }
+
     pub fn mark_cancelling(&self, run_id: &str) -> Result<(), String> {
         self.update(run_id, |job| {
             if matches!(
@@ -258,6 +326,11 @@ impl WorkflowJobStore {
     fn request_path(&self, run_id: &str) -> Option<PathBuf> {
         Uuid::parse_str(run_id).ok()?;
         Some(self.storage_dir.join(format!("{run_id}.request.json")))
+    }
+
+    fn claim_path(&self, run_id: &str) -> Option<PathBuf> {
+        Uuid::parse_str(run_id).ok()?;
+        Some(self.storage_dir.join(format!("{run_id}.claim")))
     }
 }
 
@@ -454,12 +527,14 @@ impl WorkflowJobManager {
                     }
                 }
                 WorkflowJobStatus::Running => {
-                    self.store.finish(
-                        &job.run_id,
-                        WorkflowJobStatus::Failed,
-                        None,
-                        "workflow job was interrupted by process restart; side effects are unknown",
-                    )?;
+                    if !self.store.execution_claim_is_active(&job.run_id) {
+                        self.store.finish(
+                            &job.run_id,
+                            WorkflowJobStatus::Failed,
+                            None,
+                            "workflow job was interrupted by process restart; side effects are unknown",
+                        )?;
+                    }
                 }
                 WorkflowJobStatus::Cancelling => {
                     self.store.mark_cancelled(
@@ -574,6 +649,14 @@ fn start_worker(
                     .map(|mut map| map.remove(&request.run_id));
                 continue;
             }
+            let Some(_execution_claim) = context.store.claim_execution(&request.run_id) else {
+                context
+                    .active
+                    .lock()
+                    .ok()
+                    .map(|mut map| map.remove(&request.run_id));
+                continue;
+            };
             if context.store.mark_running(&request.run_id).is_err() {
                 context
                     .active
@@ -679,5 +762,37 @@ fn dirs_data_dir() -> Option<PathBuf> {
     #[cfg(not(target_os = "windows"))]
     {
         std::env::var("HOME").ok().map(PathBuf::from)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stale_queued_job_claim_can_be_reacquired() {
+        let temp = std::env::temp_dir().join(format!("quickdesk-job-{}", Uuid::new_v4()));
+        let store = WorkflowJobStore::with_storage_dir(temp.join("jobs"));
+        let job = store
+            .create("workflow-1", "device-1", &WorkflowJobRequestSpec::default())
+            .unwrap();
+        let claim_path = store.claim_path(&job.run_id).unwrap();
+        let claim = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&claim_path)
+            .unwrap();
+        claim
+            .set_times(
+                std::fs::FileTimes::new().set_modified(SystemTime::now() - Duration::from_secs(31)),
+            )
+            .unwrap();
+        drop(claim);
+
+        let recovered = store.claim_execution(&job.run_id);
+        assert!(recovered.is_some());
+        drop(recovered);
+
+        let _ = std::fs::remove_dir_all(temp);
     }
 }

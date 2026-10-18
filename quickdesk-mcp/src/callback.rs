@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::fs::OpenOptions;
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -21,6 +22,7 @@ const DEFAULT_RETRY_BASE: Duration = Duration::from_secs(5);
 const DEFAULT_RETRY_MAX: Duration = Duration::from_secs(60 * 60);
 const DEFAULT_POLL_INTERVAL: Duration = Duration::from_millis(250);
 const CALLBACK_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+const CALLBACK_CLAIM_STALE_AFTER: Duration = Duration::from_secs(30);
 
 #[derive(Clone, Debug)]
 pub struct CallbackRetryPolicy {
@@ -91,6 +93,23 @@ struct CallbackStore {
     storage_dir: PathBuf,
 }
 
+struct CallbackDeliveryClaim {
+    path: PathBuf,
+}
+
+impl Drop for CallbackDeliveryClaim {
+    fn drop(&mut self) {
+        if let Err(error) = std::fs::remove_file(&self.path) {
+            if error.kind() != std::io::ErrorKind::NotFound {
+                tracing::warn!(
+                    "cannot release callback delivery claim {}: {error}",
+                    self.path.display()
+                );
+            }
+        }
+    }
+}
+
 impl CallbackStore {
     fn new(storage_dir: PathBuf) -> Result<Self, String> {
         std::fs::create_dir_all(&storage_dir)
@@ -140,6 +159,55 @@ impl CallbackStore {
             .collect();
         due.sort_by(|left, right| left.next_attempt_at.cmp(&right.next_attempt_at));
         Ok(due)
+    }
+
+    fn claim_due(&self, delivery_id: &str, now: DateTime<Utc>) -> Option<CallbackDeliveryClaim> {
+        let claim = self.acquire_claim(delivery_id)?;
+        let delivery = self.get(delivery_id)?;
+        let due = matches!(
+            delivery.status,
+            CallbackDeliveryStatus::Pending | CallbackDeliveryStatus::Retry
+        ) && DateTime::parse_from_rfc3339(&delivery.next_attempt_at)
+            .map(|value| value.with_timezone(&Utc) <= now)
+            .unwrap_or(false);
+        due.then_some(claim)
+    }
+
+    fn acquire_claim(&self, delivery_id: &str) -> Option<CallbackDeliveryClaim> {
+        let path = self.claim_path(delivery_id)?;
+        match OpenOptions::new().write(true).create_new(true).open(&path) {
+            Ok(_) => Some(CallbackDeliveryClaim { path }),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                if self.claim_is_stale(&path) {
+                    if let Err(remove_error) = std::fs::remove_file(&path) {
+                        if remove_error.kind() != std::io::ErrorKind::NotFound {
+                            tracing::warn!(
+                                "cannot remove stale callback delivery claim {}: {remove_error}",
+                                path.display()
+                            );
+                            return None;
+                        }
+                    }
+                    return match OpenOptions::new().write(true).create_new(true).open(&path) {
+                        Ok(_) => Some(CallbackDeliveryClaim { path }),
+                        Err(_) => None,
+                    };
+                }
+                None
+            }
+            Err(error) => {
+                tracing::warn!("cannot claim callback delivery {}: {error}", path.display());
+                None
+            }
+        }
+    }
+
+    fn claim_is_stale(&self, path: &std::path::Path) -> bool {
+        std::fs::metadata(path)
+            .and_then(|metadata| metadata.modified())
+            .ok()
+            .and_then(|modified| SystemTime::now().duration_since(modified).ok())
+            .is_some_and(|age| age >= CALLBACK_CLAIM_STALE_AFTER)
     }
 
     fn list(
@@ -282,6 +350,11 @@ impl CallbackStore {
     fn delivery_path(&self, delivery_id: &str) -> Option<PathBuf> {
         Uuid::parse_str(delivery_id).ok()?;
         Some(self.storage_dir.join(format!("{delivery_id}.json")))
+    }
+
+    fn claim_path(&self, delivery_id: &str) -> Option<PathBuf> {
+        Uuid::parse_str(delivery_id).ok()?;
+        Some(self.storage_dir.join(format!("{delivery_id}.claim")))
     }
 }
 
@@ -430,6 +503,9 @@ fn start_worker(
                         if cancellation.is_cancelled() {
                             return;
                         }
+                        let Some(_claim) = store.claim_due(&delivery.id, Utc::now()) else {
+                            continue;
+                        };
                         let result = client
                             .deliver(&delivery.url, &delivery.event, &delivery.id)
                             .await;
@@ -595,6 +671,8 @@ fn dirs_data_dir() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     #[test]
@@ -666,6 +744,160 @@ mod tests {
         })
         .await
         .expect("callback should be marked delivered");
+        cancellation.cancel();
+        server.abort();
+        let _ = std::fs::remove_dir_all(temp);
+    }
+
+    #[tokio::test]
+    async fn two_outboxes_do_not_deliver_the_same_callback_concurrently() {
+        let temp = std::env::temp_dir().join(format!("quickdesk-callback-{}", Uuid::new_v4()));
+        let outbox_dir = temp.join("outbox");
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let server_cancellation = CancellationToken::new();
+        let server_attempts = attempts.clone();
+        let server_cancellation_for_task = server_cancellation.clone();
+        let server = tokio::spawn(async move {
+            loop {
+                let accepted = tokio::select! {
+                    _ = server_cancellation_for_task.cancelled() => break,
+                    accepted = listener.accept() => accepted,
+                };
+                let Ok((mut stream, _)) = accepted else {
+                    break;
+                };
+                let attempts = server_attempts.clone();
+                tokio::spawn(async move {
+                    let mut buffer = vec![0u8; 8192];
+                    let _ = stream.read(&mut buffer).await;
+                    attempts.fetch_add(1, Ordering::SeqCst);
+                    tokio::time::sleep(Duration::from_millis(500)).await;
+                    let _ = stream
+                        .write_all(
+                            b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                        )
+                        .await;
+                });
+            }
+        });
+
+        let policy = CallbackRetryPolicy {
+            max_attempts: 3,
+            base_delay: Duration::from_millis(10),
+            max_delay: Duration::from_millis(50),
+            poll_interval: Duration::from_millis(10),
+        };
+        let first_cancellation = CancellationToken::new();
+        let first = CallbackOutbox::with_storage_dir_and_secret(
+            outbox_dir.clone(),
+            first_cancellation.clone(),
+            policy.clone(),
+            "callback-outbox-secret",
+        )
+        .unwrap();
+        let second_cancellation = CancellationToken::new();
+        let _second = CallbackOutbox::with_storage_dir_and_secret(
+            outbox_dir,
+            second_cancellation.clone(),
+            policy,
+            "callback-outbox-secret",
+        )
+        .unwrap();
+
+        let delivery_id = first
+            .enqueue(
+                Some(&format!("http://{address}/shared-outbox")),
+                serde_json::json!({"event": "workflow.run.completed", "run_id": "shared"}),
+            )
+            .unwrap()
+            .expect("callback should be queued");
+        tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                if first
+                    .get(&delivery_id)
+                    .is_some_and(|delivery| delivery.status == CallbackDeliveryStatus::Delivered)
+                {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("callback should be delivered");
+        tokio::time::sleep(Duration::from_millis(300)).await;
+
+        assert_eq!(attempts.load(Ordering::SeqCst), 1);
+        first_cancellation.cancel();
+        second_cancellation.cancel();
+        server_cancellation.cancel();
+        server.abort();
+        let _ = std::fs::remove_dir_all(temp);
+    }
+
+    #[tokio::test]
+    async fn callback_outbox_recovers_a_stale_delivery_claim() {
+        let temp = std::env::temp_dir().join(format!("quickdesk-callback-{}", Uuid::new_v4()));
+        let outbox_dir = temp.join("outbox");
+        let store = CallbackStore::new(outbox_dir.clone()).unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let pending = store
+            .create(
+                &format!("http://{address}/stale-claim"),
+                serde_json::json!({"event": "workflow.run.completed", "run_id": "stale"}),
+            )
+            .unwrap();
+        let claim_path = outbox_dir.join(format!("{}.claim", pending.id));
+        let claim = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&claim_path)
+            .unwrap();
+        claim
+            .set_times(
+                std::fs::FileTimes::new().set_modified(SystemTime::now() - Duration::from_secs(31)),
+            )
+            .unwrap();
+        drop(claim);
+
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut buffer = vec![0u8; 8192];
+            let _ = stream.read(&mut buffer).await;
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                .await
+                .unwrap();
+        });
+        let cancellation = CancellationToken::new();
+        let outbox = CallbackOutbox::with_storage_dir_and_secret(
+            outbox_dir,
+            cancellation.clone(),
+            CallbackRetryPolicy {
+                max_attempts: 3,
+                base_delay: Duration::from_millis(10),
+                max_delay: Duration::from_millis(50),
+                poll_interval: Duration::from_millis(10),
+            },
+            "callback-outbox-secret",
+        )
+        .unwrap();
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if outbox
+                    .get(&pending.id)
+                    .is_some_and(|delivery| delivery.status == CallbackDeliveryStatus::Delivered)
+                {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("stale claim should be recovered");
+
         cancellation.cancel();
         server.abort();
         let _ = std::fs::remove_dir_all(temp);
