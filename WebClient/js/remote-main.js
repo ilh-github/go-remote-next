@@ -27,6 +27,12 @@ import { FileManagerPanel } from './files/file-manager-panel.js';
 import { SessionChatModel } from './chat/session-chat.js';
 import { ChatPanel } from './chat/chat-panel.js';
 import { describeAccessCodeFailure } from './auth/access-code-errors.js';
+import {
+    ReconnectExhaustedError,
+    isReconnectableAccessFailure,
+    nonRetryableReconnectError,
+    runReconnectAttempts,
+} from './signaling/reconnect.js';
 
 class RemoteDesktopApp {
     constructor() {
@@ -53,6 +59,9 @@ class RemoteDesktopApp {
         this.tabCoordinator = null;
         this._recordingUploading = false;
         this._fileTransferAudit = new Map();
+        this._connectionConfig = null;
+        this._reconnectTask = null;
+        this._manualDisconnect = false;
 
         this._receivedStreams = null;
         this._selectedStreamId = null;
@@ -278,6 +287,13 @@ class RemoteDesktopApp {
 
     async _connect(serverUrl, deviceId, accessCode, signalToken, iceServers, preferredVideoCodec) {
         this._log(t('log.connectingTo', { deviceId }));
+        this._connectionConfig = {
+            serverUrl,
+            deviceId,
+            accessCode,
+            iceServers,
+            preferredVideoCodec,
+        };
         this._deviceId = deviceId;
         this._connectStartTime = Date.now();
         this._connectionRecorded = false;
@@ -290,32 +306,41 @@ class RemoteDesktopApp {
         }
 
         try {
-            this.session = new Session({
+            const session = new Session({
                 signalingUrl: serverUrl,
                 iceServers,
                 preferredVideoCodec,
             });
+            this.session = session;
 
             this.dcHandler = new DataChannelHandler();
             this._setupSkillBridge();
 
-            this.session.addEventListener('stateChange', (e) => {
+            session.addEventListener('stateChange', (e) => {
+                if (this.session !== session) return;
                 this._onSessionStateChange(e.detail);
             });
 
-            this.session.addEventListener('log', (e) => {
+            session.addEventListener('log', (e) => {
                 this._log(e.detail.message, e.detail.level);
             });
 
-            this.session.addEventListener('track', (e) => {
+            session.addEventListener('track', (e) => {
+                if (this.session !== session) return;
                 this._onTrack(e.detail);
             });
 
-            this.session.addEventListener('datachannel', (e) => {
+            session.addEventListener('datachannel', (e) => {
+                if (this.session !== session) return;
                 this.dcHandler.handleDataChannel(e.detail.channel);
-                if (!this.dcHandler._pc && this.session.pc) {
-                    this.dcHandler.setPeerConnection(this.session.pc);
+                if (!this.dcHandler._pc && session.pc) {
+                    this.dcHandler.setPeerConnection(session.pc);
                 }
+            });
+
+            session.addEventListener('signalingDisconnected', (e) => {
+                if (this.session !== session) return;
+                this._startReconnect(e.detail);
             });
 
             this.dcHandler.addEventListener('cursorShape', (e) => {
@@ -425,11 +450,101 @@ class RemoteDesktopApp {
             });
 
             await this.session.connect(deviceId, accessCode, signalToken);
+            return true;
 
         } catch (error) {
             this._log(t('log.connectFailed', { error: error.message }), 'error');
             this._setConnectionState('failed', error.message);
+            return false;
         }
+    }
+
+    _startReconnect(detail = {}) {
+        if (this._manualDisconnect || this._reconnectTask) return
+        this._log(t('log.reconnecting', {
+            code: detail.code || '',
+            reason: detail.reason || '',
+        }), 'warning')
+
+        this._reconnectTask = runReconnectAttempts(
+            () => this._attemptReconnect(),
+            {
+                onAttempt: ({ attempt, total }) => {
+                    const text = t('status.reconnecting', { attempt, total })
+                    this._setConnectionState('reconnecting', text)
+                    this._log(t('log.reconnectAttempt', { attempt, total }))
+                },
+                onFailure: ({ attempt, total, error, retryable }) => {
+                    this._log(t('log.reconnectFailed', {
+                        attempt,
+                        total,
+                        error: error?.message || String(error),
+                    }), retryable ? 'warning' : 'error')
+                },
+            },
+        ).catch((error) => {
+            const accessMessageKey = error instanceof ReconnectExhaustedError
+                && error.retryable === false
+                ? error.cause?.messageKey
+                : ''
+            this._setConnectionState(
+                'failed',
+                t(accessMessageKey || 'status.reconnectExhausted'),
+            )
+            this._recordConnectionResult(
+                'failed',
+                error?.code || (error?.retryable === false
+                    ? 'reconnect_rejected'
+                    : 'reconnect_exhausted'),
+            )
+        }).finally(() => {
+            this._reconnectTask = null
+        })
+    }
+
+    async _attemptReconnect() {
+        const config = this._connectionConfig
+        if (!config) throw new Error('missing connection config for reconnect')
+
+        const issued = await this._issueFreshSignalToken(
+            config.deviceId,
+            config.accessCode,
+            new URLSearchParams(window.location.search),
+        )
+        if (!issued.token) {
+            const failure = issued.failure || {
+                code: 'ACCESS_VERIFY_FAILED',
+                messageKey: 'status.accessVerifyFailed',
+            }
+            if (!isReconnectableAccessFailure(failure)) {
+                throw nonRetryableReconnectError(failure.messageKey, failure)
+            }
+            const error = new Error(failure.messageKey)
+            error.code = failure.code
+            error.messageKey = failure.messageKey
+            throw error
+        }
+
+        this._resetSessionForReconnect()
+        const connected = await this._connect(
+            config.serverUrl,
+            config.deviceId,
+            config.accessCode,
+            issued.token,
+            config.iceServers,
+            config.preferredVideoCodec,
+        )
+        if (!connected) throw new Error('reconnect attempt failed')
+    }
+
+    _resetSessionForReconnect() {
+        this._cleanupInputHandlers()
+        const session = this.session
+        this.session = null
+        if (session) {
+            try { session.disconnect() } catch { /* already closed */ }
+        }
+        this.dcHandler = null
     }
 
     _onSessionStateChange(detail) {
@@ -1409,6 +1524,7 @@ class RemoteDesktopApp {
     }
 
     _disconnect() {
+        this._manualDisconnect = true
         // Release held input while the event data channel is still writable.
         this._cleanupInputHandlers();
         this.skillBridge?.close();
