@@ -1,6 +1,6 @@
 # 远端发布与上游 PR 清单
 
-**更新时间**: 2026-10-18 18:37 CST
+**更新时间**: 2026-10-18 18:41 CST
 
 这份清单记录本地验证完成后的远端写入与 PR 状态。远端状态必须以实际
 `origin/*` ref、push 结果和 GitHub PR 为准，不能把本地候选写成已共享。
@@ -13,7 +13,7 @@
   录像生命周期迁移为 `cd08a0f`，访问审批生命周期迁移为 `c650d3d`。文档收口后
   共享访问码生命周期迁移为 `5e2542c`，离线告警迁移为 `b6855cc`。文档收口后
   指标阈值告警迁移为 `c4a28ee`，设备控制面变更迁移为 `0c621ef`。文档收口后
-  收藏设备生命周期迁移为 `0b746b9`，管理端设备事件迁移为 `b2a0a98`，WebClient 有界重连为 `565f643`。QD-907
+  收藏设备生命周期迁移为 `0b746b9`，管理端设备事件迁移为 `b2a0a98`，TURN 配置事件迁移为 `6386a48`，WebClient 有界重连为 `565f643`。QD-907
   Playwright E2E 为 `830a469`、`2ab09d5`，管理端设备 outbox 为 `b2a0a98`，
   文档收口到 `46a6929`；领先数量以 `git rev-list --count origin/dev..dev` 为准
 - fork 远端：`origin/dev` 与 `origin/master` 当前仍为 `9837194`
@@ -134,12 +134,12 @@
   崩溃恢复。独立上游候选 `codex/upstream-event-replay-retention` = `b5da22f`，直接
   基于 PR #25 的 `feat/signaling-control-plane@8998466`，9 个文件；候选 Go 全包测试、
   `go vet`、EventBus race 和直接基线 diff check 通过。分支 push 仍被当前策略拒绝
-- QD-610 数据库事务 outbox 上游候选：`codex/upstream-event-outbox` = `fa18755`，
+- QD-610 数据库事务 outbox 上游候选：`codex/upstream-event-outbox` = `4a3566f`，
   stacked 在 `codex/upstream-event-replay-retention@b5da22f`；只新增 `event_outbox`
   表/模型、条件 claim worker、EventBus durable
   publish 路径、`scheduled_task.failed`、设备访问、设备控制面、收藏、共享访问码、
   离线告警、远端会话、录像和访问审批生命周期原子迁移及对应测试。候选 chain 为
-  `8998466 -> b5da22f -> f2d7cf7 -> 215f9ed -> f730557 -> 6ecf4e6 -> d9e231a -> 16c00d4 -> 36af1ca -> dda240d -> b14601b -> fa18755`；
+  `8998466 -> b5da22f -> f2d7cf7 -> 215f9ed -> f730557 -> 6ecf4e6 -> d9e231a -> 16c00d4 -> 36af1ca -> dda240d -> b14601b -> fa18755 -> 4a3566f`；
   Go 全包测试、`go vet`、race、生产构建和单提交 diff check 通过；数据库 outbox
   行为测试在 fork 的 SQLite 套件中执行，候选本身按现有上游测试约定需要
   `QD_TEST_DATABASE_URL` 才运行 Postgres 用例。分支尚未推送
@@ -147,7 +147,7 @@
   策略模型，直接 cherry-pick 会把 QD-109 等不相关功能拖进 outbox PR。等 QD-109 策略
   候选进入 stacked 基线后再追加到上游候选
 - 收藏、设备控制面、远端会话、录像、访问审批、共享访问码和离线告警 outbox 增量已追加
-  到上游候选，当前 `codex/upstream-event-outbox@fa18755`；候选全包测试、vet、race、构建和单提交 diff
+  到上游候选，当前 `codex/upstream-event-outbox@4a3566f`；候选全包测试、vet、race、构建和单提交 diff
   check 通过，数据库行为测试仍需 `QD_TEST_DATABASE_URL`
 - 指标阈值告警 outbox 增量 `c4a28ee` 暂留 fork 主干：PR #25 的 stacked 基线还没有
   QD-604 的 DeviceMetricAlertService，直接 cherry-pick 会拖入整套指标功能。等 QD-604
