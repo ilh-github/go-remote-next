@@ -29,6 +29,7 @@ func newEventOutboxTestDB(t *testing.T) *gorm.DB {
 		&models.ScheduledTask{},
 		&models.DeviceAccessLog{},
 		&models.UserDevice{},
+		&models.DeviceAccessPolicy{},
 	); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
@@ -410,6 +411,88 @@ func TestDeviceAccessEventOutboxFailureRollsBackLog(t *testing.T) {
 	}
 	if logs != 0 {
 		t.Fatalf("access logs = %d, want rollback to 0", logs)
+	}
+}
+
+func TestDevicePolicyEventCommitsPolicyAndOutboxTogether(t *testing.T) {
+	db := newEventOutboxTestDB(t)
+	_, _, bus := newEventOutboxTestRedis(t)
+	outbox := NewEventOutbox(db, bus)
+	policies := NewDeviceAccessPolicyService(db).WithOutbox(outbox)
+
+	policy, err := policies.UpsertWithEvent(
+		context.Background(),
+		"device-7",
+		7,
+		UpsertDeviceAccessPolicyInput{
+			MaxSessions: 2,
+			AllowIPs:    []string{"203.0.113.0/24"},
+			DenyIPs:     []string{"203.0.113.9"},
+		},
+		func(policy *models.DeviceAccessPolicy) Event {
+			return Event{
+				Type:     EventDevicePolicyChanged,
+				UserID:   policy.OwnerID,
+				DeviceID: policy.DeviceID,
+				Data: map[string]interface{}{
+					"deny_ips": policy.DenyIPs,
+					"ip":       "198.51.100.7",
+				},
+			}
+		},
+	)
+	if err != nil {
+		t.Fatalf("UpsertWithEvent: %v", err)
+	}
+	if policy.OwnerID != 7 || policy.MaxSessions != 2 {
+		t.Fatalf("policy = %+v", policy)
+	}
+
+	var outboxRows []models.EventOutbox
+	if err := db.Find(&outboxRows).Error; err != nil {
+		t.Fatalf("load outbox: %v", err)
+	}
+	if len(outboxRows) != 1 || outboxRows[0].Status != eventOutboxPending {
+		t.Fatalf("outbox rows = %+v, want one pending event", outboxRows)
+	}
+	var event Event
+	if err := json.Unmarshal([]byte(outboxRows[0].Payload), &event); err != nil {
+		t.Fatalf("decode event: %v", err)
+	}
+	if event.Type != EventDevicePolicyChanged || event.UserID != 7 || event.DeviceID != "device-7" {
+		t.Fatalf("outbox event = %+v", event)
+	}
+}
+
+func TestDevicePolicyEventOutboxFailureRollsBackPolicy(t *testing.T) {
+	db := newEventOutboxTestDB(t)
+	policies := NewDeviceAccessPolicyService(db).WithOutbox(
+		&failingScheduledTaskOutbox{err: errors.New("outbox unavailable")},
+	)
+
+	_, err := policies.UpsertWithEvent(
+		context.Background(),
+		"device-7",
+		7,
+		UpsertDeviceAccessPolicyInput{MaxSessions: 1},
+		func(policy *models.DeviceAccessPolicy) Event {
+			return Event{
+				Type:     EventDevicePolicyChanged,
+				UserID:   policy.OwnerID,
+				DeviceID: policy.DeviceID,
+			}
+		},
+	)
+	if err == nil {
+		t.Fatal("UpsertWithEvent succeeded despite outbox failure")
+	}
+
+	var count int64
+	if err := db.Model(&models.DeviceAccessPolicy{}).Count(&count).Error; err != nil {
+		t.Fatalf("count policies: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("policies = %d, want rollback to 0", count)
 	}
 }
 

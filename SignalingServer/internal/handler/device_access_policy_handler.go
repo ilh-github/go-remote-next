@@ -89,7 +89,7 @@ func (h *DeviceAccessPolicyHandler) Put(c *gin.Context) {
 		return
 	}
 	uid := middleware.MustUserID(c)
-	policy, err := h.policies.Upsert(c.Request.Context(), deviceID, uid,
+	policy, err := h.policies.UpsertWithEvent(c.Request.Context(), deviceID, uid,
 		service.UpsertDeviceAccessPolicyInput{
 			RemoteDisabled:     req.RemoteDisabled,
 			AllowIPs:           req.AllowIPs,
@@ -101,6 +101,27 @@ func (h *DeviceAccessPolicyHandler) Put(c *gin.Context) {
 			ApprovalRequired:   req.ApprovalRequired,
 			ApprovalMode:       req.ApprovalMode,
 			ApprovalTrustedIPs: req.ApprovalTrustedIPs,
+		},
+		func(policy *models.DeviceAccessPolicy) service.Event {
+			return service.Event{
+				Type:     service.EventDevicePolicyChanged,
+				UserID:   uid,
+				DeviceID: deviceID,
+				Data: map[string]interface{}{
+					"device_id":            deviceID,
+					"remote_disabled":      policy.RemoteDisabled,
+					"allow_ips":            decodeAllowIPsForEvent(policy.AllowIPs),
+					"deny_ips":             decodeAllowIPsForEvent(policy.DenyIPs),
+					"max_sessions":         policy.MaxSessions,
+					"allowed_windows":      decodeAccessWindowsForView(policy.AllowedWindows),
+					"timezone":             policy.Timezone,
+					"exception_dates":      decodeAccessExceptionsForView(policy.ExceptionDates),
+					"approval_required":    policy.ApprovalRequired,
+					"approval_mode":        service.EffectiveApprovalMode(policy),
+					"approval_trusted_ips": decodeAllowIPsForEvent(policy.ApprovalTrustedIPs),
+					"ip":                   c.ClientIP(),
+				},
+			}
 		})
 	if err != nil {
 		if errors.Is(err, service.ErrInvalidAllowIP) ||
@@ -115,29 +136,6 @@ func (h *DeviceAccessPolicyHandler) Put(c *gin.Context) {
 		}
 		ProblemInternal(c, err.Error())
 		return
-	}
-	if h.bus != nil {
-		h.bus.Publish(c.Request.Context(), service.Event{
-			Type:     service.EventDevicePolicyChanged,
-			UserID:   uid,
-			DeviceID: deviceID,
-			Data: map[string]interface{}{
-				"device_id":            deviceID,
-				"remote_disabled":      policy.RemoteDisabled,
-				"allow_ips":            decodeAllowIPsForEvent(policy.AllowIPs),
-				"deny_ips":             decodeAllowIPsForEvent(policy.DenyIPs),
-				"max_sessions":         policy.MaxSessions,
-				"allowed_windows":      decodeAccessWindowsForView(policy.AllowedWindows),
-				"timezone":             policy.Timezone,
-				"exception_dates":      decodeAccessExceptionsForView(policy.ExceptionDates),
-				"approval_required":    policy.ApprovalRequired,
-				"approval_mode":        service.EffectiveApprovalMode(policy),
-				"approval_trusted_ips": decodeAllowIPsForEvent(policy.ApprovalTrustedIPs),
-				// The actor's observed address, lifted onto the audit row by
-				// the audit subscriber.
-				"ip": c.ClientIP(),
-			},
-		})
 	}
 	c.JSON(http.StatusOK, policyView(deviceID, policy))
 }
@@ -157,7 +155,21 @@ func (h *DeviceAccessPolicyHandler) BanIP(c *gin.Context) {
 		return
 	}
 	uid := middleware.MustUserID(c)
-	policy, err := h.policies.BanIP(c.Request.Context(), deviceID, uid, req.Source)
+	policy, err := h.policies.BanIPWithEvent(
+		c.Request.Context(), deviceID, uid, req.Source,
+		func(policy *models.DeviceAccessPolicy) service.Event {
+			return service.Event{
+				Type:     service.EventDevicePolicyChanged,
+				UserID:   uid,
+				DeviceID: deviceID,
+				Data: map[string]interface{}{
+					"device_id": deviceID,
+					"deny_ips":  decodeAllowIPsForEvent(policy.DenyIPs),
+					"ip":        c.ClientIP(),
+					"reason":    "access source banned",
+				},
+			}
+		})
 	if err != nil {
 		if errors.Is(err, service.ErrInvalidDenyIP) {
 			ProblemBadRequest(c, ProblemCodeInvalidRequest, err.Error())
@@ -165,19 +177,6 @@ func (h *DeviceAccessPolicyHandler) BanIP(c *gin.Context) {
 		}
 		ProblemInternal(c, err.Error())
 		return
-	}
-	if h.bus != nil {
-		h.bus.Publish(c.Request.Context(), service.Event{
-			Type:     service.EventDevicePolicyChanged,
-			UserID:   uid,
-			DeviceID: deviceID,
-			Data: map[string]interface{}{
-				"device_id": deviceID,
-				"deny_ips":  decodeAllowIPsForEvent(policy.DenyIPs),
-				"ip":        c.ClientIP(),
-				"reason":    "access source banned",
-			},
-		})
 	}
 	c.JSON(http.StatusOK, policyView(deviceID, policy))
 }
@@ -196,7 +195,25 @@ func (h *DeviceAccessPolicyHandler) UnbanIP(c *gin.Context) {
 		return
 	}
 	uid := middleware.MustUserID(c)
-	policy, err := h.policies.UnbanIP(c.Request.Context(), deviceID, uid, req.Source)
+	policy, err := h.policies.UnbanIPWithEvent(
+		c.Request.Context(), deviceID, uid, req.Source,
+		func(policy *models.DeviceAccessPolicy) service.Event {
+			denyIPs := []string{}
+			if policy != nil {
+				denyIPs = decodeAllowIPsForEvent(policy.DenyIPs)
+			}
+			return service.Event{
+				Type:     service.EventDevicePolicyChanged,
+				UserID:   uid,
+				DeviceID: deviceID,
+				Data: map[string]interface{}{
+					"device_id": deviceID,
+					"deny_ips":  denyIPs,
+					"ip":        c.ClientIP(),
+					"reason":    "access source unbanned",
+				},
+			}
+		})
 	if err != nil {
 		if errors.Is(err, service.ErrInvalidDenyIP) {
 			ProblemBadRequest(c, ProblemCodeInvalidRequest, err.Error())
@@ -204,23 +221,6 @@ func (h *DeviceAccessPolicyHandler) UnbanIP(c *gin.Context) {
 		}
 		ProblemInternal(c, err.Error())
 		return
-	}
-	if h.bus != nil {
-		denyIPs := []string{}
-		if policy != nil {
-			denyIPs = decodeAllowIPsForEvent(policy.DenyIPs)
-		}
-		h.bus.Publish(c.Request.Context(), service.Event{
-			Type:     service.EventDevicePolicyChanged,
-			UserID:   uid,
-			DeviceID: deviceID,
-			Data: map[string]interface{}{
-				"device_id": deviceID,
-				"deny_ips":  denyIPs,
-				"ip":        c.ClientIP(),
-				"reason":    "access source unbanned",
-			},
-		})
 	}
 	c.JSON(http.StatusOK, policyView(deviceID, policy))
 }

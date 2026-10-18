@@ -45,12 +45,22 @@ const (
 
 // DeviceAccessPolicyService stores and evaluates per-device access policy.
 type DeviceAccessPolicyService struct {
-	db *gorm.DB
+	db     *gorm.DB
+	outbox DeviceAccessEventOutbox
 }
 
 func NewDeviceAccessPolicyService(db *gorm.DB) *DeviceAccessPolicyService {
 	return &DeviceAccessPolicyService{db: db}
 }
+
+func (s *DeviceAccessPolicyService) WithOutbox(outbox DeviceAccessEventOutbox) *DeviceAccessPolicyService {
+	s.outbox = outbox
+	return s
+}
+
+// DeviceAccessPolicyEventFactory builds the owner-scoped event from the final
+// stored policy. It runs inside the caller's transaction.
+type DeviceAccessPolicyEventFactory func(policy *models.DeviceAccessPolicy) Event
 
 // UpsertDeviceAccessPolicyInput is the validated body of the policy endpoint.
 type UpsertDeviceAccessPolicyInput struct {
@@ -83,6 +93,17 @@ func (s *DeviceAccessPolicyService) Get(ctx context.Context, deviceID string) (*
 
 // Upsert writes the policy for a device, creating the row on first use.
 func (s *DeviceAccessPolicyService) Upsert(ctx context.Context, deviceID string, ownerID uint, in UpsertDeviceAccessPolicyInput) (*models.DeviceAccessPolicy, error) {
+	return s.UpsertWithEvent(ctx, deviceID, ownerID, in, nil)
+}
+
+// UpsertWithEvent commits the policy and its change event together.
+func (s *DeviceAccessPolicyService) UpsertWithEvent(
+	ctx context.Context,
+	deviceID string,
+	ownerID uint,
+	in UpsertDeviceAccessPolicyInput,
+	eventFactory DeviceAccessPolicyEventFactory,
+) (*models.DeviceAccessPolicy, error) {
 	if err := ValidateAllowIPs(in.AllowIPs); err != nil {
 		return nil, err
 	}
@@ -130,34 +151,54 @@ func (s *DeviceAccessPolicyService) Upsert(ctx context.Context, deviceID string,
 		return nil, err
 	}
 
-	row, err := s.Get(ctx, deviceID)
+	var out *models.DeviceAccessPolicy
+	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var row models.DeviceAccessPolicy
+		loadErr := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("device_id = ?", deviceID).
+			First(&row).Error
+		if errors.Is(loadErr, gorm.ErrRecordNotFound) {
+			row = models.DeviceAccessPolicy{DeviceID: deviceID}
+		} else if loadErr != nil {
+			return loadErr
+		}
+		row.OwnerID = ownerID
+		row.RemoteDisabled = in.RemoteDisabled
+		row.AllowIPs = string(encoded)
+		row.DenyIPs = string(denyEncoded)
+		row.MaxSessions = in.MaxSessions
+		row.AllowedWindows = string(windowsEncoded)
+		row.Timezone = strings.TrimSpace(in.Timezone)
+		row.ExceptionDates = string(exceptionsEncoded)
+		row.ApprovalMode = mode
+		row.ApprovalRequired = mode == ApprovalModeAlways
+		row.ApprovalTrustedIPs = string(trustedEncoded)
+		if err := tx.Save(&row).Error; err != nil {
+			return err
+		}
+		out = &row
+		return s.enqueuePolicyEvent(ctx, tx, eventFactory, &row)
+	})
 	if err != nil {
 		return nil, err
 	}
-	if row == nil {
-		row = &models.DeviceAccessPolicy{DeviceID: deviceID}
-	}
-	row.OwnerID = ownerID
-	row.RemoteDisabled = in.RemoteDisabled
-	row.AllowIPs = string(encoded)
-	row.DenyIPs = string(denyEncoded)
-	row.MaxSessions = in.MaxSessions
-	row.AllowedWindows = string(windowsEncoded)
-	row.Timezone = strings.TrimSpace(in.Timezone)
-	row.ExceptionDates = string(exceptionsEncoded)
-	row.ApprovalMode = mode
-	row.ApprovalRequired = mode == ApprovalModeAlways
-	row.ApprovalTrustedIPs = string(trustedEncoded)
-	if err := s.db.WithContext(ctx).Save(row).Error; err != nil {
-		return nil, err
-	}
-	return row, nil
+	return out, nil
 }
 
 // BanIP permanently adds one source address to the device's deny list. The row
 // is locked while updating so two concurrent "kick and ban" calls cannot lose
 // one another's source.
 func (s *DeviceAccessPolicyService) BanIP(ctx context.Context, deviceID string, ownerID uint, source string) (*models.DeviceAccessPolicy, error) {
+	return s.BanIPWithEvent(ctx, deviceID, ownerID, source, nil)
+}
+
+func (s *DeviceAccessPolicyService) BanIPWithEvent(
+	ctx context.Context,
+	deviceID string,
+	ownerID uint,
+	source string,
+	eventFactory DeviceAccessPolicyEventFactory,
+) (*models.DeviceAccessPolicy, error) {
 	deviceID = strings.TrimSpace(deviceID)
 	if deviceID == "" {
 		return nil, errors.New("device_id is required")
@@ -192,7 +233,7 @@ func (s *DeviceAccessPolicyService) BanIP(ctx context.Context, deviceID string, 
 			return err
 		}
 		out = &row
-		return nil
+		return s.enqueuePolicyEvent(ctx, tx, eventFactory, &row)
 	})
 	if err != nil {
 		return nil, err
@@ -203,6 +244,16 @@ func (s *DeviceAccessPolicyService) BanIP(ctx context.Context, deviceID string, 
 // UnbanIP removes one exact source from the deny list. A missing policy or an
 // already-removed source is a successful no-op.
 func (s *DeviceAccessPolicyService) UnbanIP(ctx context.Context, deviceID string, ownerID uint, source string) (*models.DeviceAccessPolicy, error) {
+	return s.UnbanIPWithEvent(ctx, deviceID, ownerID, source, nil)
+}
+
+func (s *DeviceAccessPolicyService) UnbanIPWithEvent(
+	ctx context.Context,
+	deviceID string,
+	ownerID uint,
+	source string,
+	eventFactory DeviceAccessPolicyEventFactory,
+) (*models.DeviceAccessPolicy, error) {
 	deviceID = strings.TrimSpace(deviceID)
 	if deviceID == "" {
 		return nil, errors.New("device_id is required")
@@ -218,7 +269,7 @@ func (s *DeviceAccessPolicyService) UnbanIP(ctx context.Context, deviceID string
 			Where("device_id = ?", deviceID).
 			First(&row).Error
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil
+			return s.enqueuePolicyEvent(ctx, tx, eventFactory, nil)
 		}
 		if err != nil {
 			return err
@@ -229,7 +280,7 @@ func (s *DeviceAccessPolicyService) UnbanIP(ctx context.Context, deviceID string
 		}
 		if encoded == row.DenyIPs {
 			out = &row
-			return nil
+			return s.enqueuePolicyEvent(ctx, tx, eventFactory, &row)
 		}
 		row.OwnerID = ownerID
 		row.DenyIPs = encoded
@@ -237,12 +288,29 @@ func (s *DeviceAccessPolicyService) UnbanIP(ctx context.Context, deviceID string
 			return err
 		}
 		out = &row
-		return nil
+		return s.enqueuePolicyEvent(ctx, tx, eventFactory, &row)
 	})
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
+}
+
+func (s *DeviceAccessPolicyService) enqueuePolicyEvent(
+	ctx context.Context,
+	tx *gorm.DB,
+	eventFactory DeviceAccessPolicyEventFactory,
+	policy *models.DeviceAccessPolicy,
+) error {
+	if eventFactory == nil || s.outbox == nil {
+		return nil
+	}
+	evt := eventFactory(policy)
+	if evt.Type == "" || evt.UserID == 0 {
+		return nil
+	}
+	_, err := s.outbox.EnqueueTx(ctx, tx, evt)
+	return err
 }
 
 // NormalizeApprovalMode maps the stored mode (and the legacy approval_required
