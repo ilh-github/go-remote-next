@@ -1398,6 +1398,61 @@
         <source>Reconnecting</source>
         <translation>重连中</translation>
     </message>
+    <message>
+        <location filename="../../qml/views/MainWindow.qml" line="1107"/>
+        <source>Chat with the connected controller</source>
+        <translation>与已连接的控制端聊天</translation>
+    </message>
+    <message>
+        <location filename="../../qml/views/MainWindow.qml" line="1122"/>
+        <location filename="../../qml/views/RemoteWindow.qml" line="976"/>
+        <source>Session Chat</source>
+        <translation>会话聊天</translation>
+    </message>
+    <message>
+        <location filename="../../qml/views/MainWindow.qml" line="1138"/>
+        <location filename="../../qml/views/RemoteWindow.qml" line="993"/>
+        <source>No messages yet</source>
+        <translation>还没有消息</translation>
+    </message>
+    <message>
+        <location filename="../../qml/views/MainWindow.qml" line="1139"/>
+        <source>A connected controller can start a conversation.</source>
+        <translation>已连接的控制端可以发起会话。</translation>
+    </message>
+    <message>
+        <location filename="../../qml/views/MainWindow.qml" line="1186"/>
+        <location filename="../../qml/views/RemoteWindow.qml" line="1044"/>
+        <source>You</source>
+        <translation>你</translation>
+    </message>
+    <message>
+        <location filename="../../qml/views/MainWindow.qml" line="1186"/>
+        <location filename="../../qml/views/RemoteWindow.qml" line="1044"/>
+        <source>Controller</source>
+        <translation>控制端</translation>
+    </message>
+    <message>
+        <location filename="../../qml/views/MainWindow.qml" line="1202"/>
+        <source>Reply to the controller</source>
+        <translation>回复控制端</translation>
+    </message>
+    <message>
+        <location filename="../../qml/views/MainWindow.qml" line="1203"/>
+        <source>Chat reply</source>
+        <translation>聊天回复</translation>
+    </message>
+    <message>
+        <location filename="../../qml/views/MainWindow.qml" line="1209"/>
+        <location filename="../../qml/views/RemoteWindow.qml" line="1068"/>
+        <source>Send</source>
+        <translation>发送</translation>
+    </message>
+    <message>
+        <location filename="../../qml/views/MainWindow.qml" line="1217"/>
+        <source>Send chat reply</source>
+        <translation>发送聊天回复</translation>
+    </message>
 </context>
 <context>
     <name>McpConfigPopup</name>
@@ -2957,6 +3012,37 @@ Frame rate: %3 fps</source>
         <location filename="../../qml/views/RemoteWindow.qml" line="1786"/>
         <source>Emergency stop activated: </source>
         <translation>紧急停止已激活：</translation>
+    </message>
+    <message>
+        <location filename="../../qml/views/RemoteWindow.qml" line="794"/>
+        <location filename="../../qml/views/RemoteWindow.qml" line="798"/>
+        <source>Chat with the controlled machine</source>
+        <translation>与被控端聊天</translation>
+    </message>
+    <message>
+        <location filename="../../qml/views/RemoteWindow.qml" line="994"/>
+        <source>Send a message to the controlled machine.</source>
+        <translation>向被控端发送一条消息。</translation>
+    </message>
+    <message>
+        <location filename="../../qml/views/RemoteWindow.qml" line="1043"/>
+        <source>Controlled machine</source>
+        <translation>被控端</translation>
+    </message>
+    <message>
+        <location filename="../../qml/views/RemoteWindow.qml" line="1061"/>
+        <source>Type a message</source>
+        <translation>输入消息</translation>
+    </message>
+    <message>
+        <location filename="../../qml/views/RemoteWindow.qml" line="1062"/>
+        <source>Chat message</source>
+        <translation>聊天消息</translation>
+    </message>
+    <message>
+        <location filename="../../qml/views/RemoteWindow.qml" line="1077"/>
+        <source>Send chat message</source>
+        <translation>发送聊天消息</translation>
     </message>
 </context>
 <context>

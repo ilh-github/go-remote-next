@@ -24,6 +24,8 @@ import { uploadRecordingArtifact } from './recording-upload.js';
 import { SkillBridgeClient } from './protocol/skill-bridge-client.js';
 import { RemoteFileManager } from './files/remote-file-manager.js';
 import { FileManagerPanel } from './files/file-manager-panel.js';
+import { SessionChatModel } from './chat/session-chat.js';
+import { ChatPanel } from './chat/chat-panel.js';
 
 class RemoteDesktopApp {
     constructor() {
@@ -44,6 +46,9 @@ class RemoteDesktopApp {
         this.fileManager = null;
         this.fileManagerPanel = null;
         this._supportsFileManager = false;
+        this.chatModel = null;
+        this.chatPanel = null;
+        this._supportsChat = false;
         this.tabCoordinator = null;
         this._recordingUploading = false;
 
@@ -252,6 +257,7 @@ class RemoteDesktopApp {
                 this.floatingToolbar.refreshI18n();
             }
             this.fileManagerPanel?.refreshI18n();
+            this.chatPanel?.refreshI18n();
         });
     }
 
@@ -451,6 +457,32 @@ class RemoteDesktopApp {
             { idPrefix: `web-${this._deviceId || 'device'}` },
         );
         this.fileManager = new RemoteFileManager(this.skillBridge);
+        this.chatModel = new SessionChatModel({
+            send: message => this.skillBridge.sendRaw(message),
+        });
+        this.skillBridge.addEventListener('message', event => {
+            this.chatModel.handleMessage(event.detail);
+        });
+        this.chatModel.addEventListener('messageAdded', event => {
+            if (!this._wallMode && this.chatPanel?.isOpen) {
+                this.chatModel.markRead();
+            }
+            const message = event.detail;
+            this._log(t('log.chatMessage', {
+                sender: message.outgoing ? t('chat.you') : t('chat.host'),
+            }));
+        });
+        this.chatModel.addEventListener('unreadChanged', event => {
+            this.floatingToolbar?.updateChatUnread(event.detail.count);
+        });
+        this.chatModel.addEventListener('error', event => {
+            this._log(event.detail.message, 'warning');
+        });
+
+        const container = document.getElementById('remoteContainer');
+        if (container && !this._wallMode) {
+            this.chatPanel = new ChatPanel(container, this.chatModel);
+        }
     }
 
     _onTabResourceRevoked(detail) {
@@ -789,6 +821,9 @@ class RemoteDesktopApp {
             case 'fileManager':
                 this._openFileManager();
                 break;
+            case 'sessionChat':
+                this._openSessionChat();
+                break;
             case 'selectDisplay':
                 this._selectDisplay(detail.index);
                 break;
@@ -874,6 +909,7 @@ class RemoteDesktopApp {
             }
             this.skillBridge?.handleMessage(skillMessage);
             this._updateFileManagerSupport();
+            this._updateChatSupport();
             return;
         }
         if (msg.type !== 'qd-virtual-display') return;
@@ -928,6 +964,17 @@ class RemoteDesktopApp {
         if (!supported) this.fileManagerPanel?.close();
     }
 
+    _updateChatSupport() {
+        const supported = Boolean(
+            this.skillBridge
+            && this.skillBridge.supportsTool('session_chat')
+        );
+        if (supported === this._supportsChat) return;
+        this._supportsChat = supported;
+        this.floatingToolbar?.setChatSupport(supported);
+        if (!supported) this.chatPanel?.close();
+    }
+
     _openFileManager() {
         if (!this._supportsFileManager || this._wallMode) return;
         if (!this.fileManagerPanel) {
@@ -936,6 +983,11 @@ class RemoteDesktopApp {
             this.fileManagerPanel = new FileManagerPanel(container, this.fileManager);
         }
         this.fileManagerPanel.open();
+    }
+
+    _openSessionChat() {
+        if (!this._supportsChat || this._wallMode || !this.chatPanel) return;
+        this.chatPanel.open();
     }
 
     // ==================== File Transfer ====================
@@ -1298,6 +1350,7 @@ class RemoteDesktopApp {
         // Release held input while the event data channel is still writable.
         this._cleanupInputHandlers();
         this.skillBridge?.close();
+        this.chatPanel?.close();
         this.tabCoordinator?.releaseAll();
         if (this.session) {
             this.session.disconnect();

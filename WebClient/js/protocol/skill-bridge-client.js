@@ -62,6 +62,13 @@ export class SkillBridgeClient extends EventTarget {
         return promise;
     }
 
+    sendRaw(message) {
+        if (!message || typeof message !== 'object' || Array.isArray(message)) {
+            throw new TypeError('raw bridge message must be an object');
+        }
+        this._send(JSON.stringify(message));
+    }
+
     handleMessage(rawMessage) {
         let message = rawMessage;
         if (typeof rawMessage === 'string') {
@@ -91,9 +98,15 @@ export class SkillBridgeClient extends EventTarget {
         }
 
         const id = message.id;
-        if (!id) return;
+        if (!id) {
+            this._emitMessage(message);
+            return;
+        }
         const pending = this._pending.get(id);
-        if (!pending) return;
+        if (!pending) {
+            this._emitMessage(message);
+            return;
+        }
 
         clearTimeout(pending.timer);
         this._pending.delete(id);
@@ -140,6 +153,12 @@ export class SkillBridgeClient extends EventTarget {
     _emitCapabilitiesChanged() {
         this.dispatchEvent(new CustomEvent('capabilitiesChanged', {
             detail: { tools: this.tools },
+        }));
+    }
+
+    _emitMessage(message) {
+        this.dispatchEvent(new CustomEvent('message', {
+            detail: message,
         }));
     }
 }

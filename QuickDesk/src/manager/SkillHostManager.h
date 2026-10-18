@@ -54,6 +54,11 @@ public:
     void stopSkillHost();
 
     bool isRunning() const;
+    bool supportsCapability(const QString& name) const;
+
+    // Send a plain-text chat message to every connected controller. The
+    // message is not persisted and never reaches the skill-host subprocess.
+    bool sendChatMessage(const QString& text);
 
     // Query sys-info through the host-side skill bridge without exposing the
     // response to connected remote clients.
@@ -69,6 +74,13 @@ signals:
     // Emitted when the skill host sends a response back to the client.
     // SkillHostManager automatically forwards it via HostManager::sendSkillBridgeSend.
     void skillHostResponseReady(const QJsonObject& response);
+
+    // Emitted for both controller-originated and host-originated chat so the
+    // controlled machine's UI can show and answer the conversation.
+    void chatMessageReceived(const QString& from,
+                             const QString& id,
+                             const QString& text,
+                             const QString& sentAt);
 
 private slots:
     // Called when the skill-host process writes to stdout.
@@ -86,8 +98,11 @@ private:
 
     // Handle a complete JSON object received from the skill host.
     void handleSkillHostMessage(const QJsonObject& message);
+    bool handleBuiltInClientMessage(const QJsonObject& message);
     bool handleInternalResponse(const QJsonObject& message);
     void failPendingInternalRequests(const QString& error);
+    void sendBridgeMessage(const QJsonObject& message);
+    QJsonArray advertisedCapabilities(const QJsonArray& tools) const;
 
     QPointer<HostManager> m_hostManager;
     QPointer<QProcess>    m_skillHostProcess;

@@ -1398,6 +1398,61 @@
         <source>Reconnecting</source>
         <translation>Reconnecting</translation>
     </message>
+    <message>
+        <location filename="../../qml/views/MainWindow.qml" line="1107"/>
+        <source>Chat with the connected controller</source>
+        <translation>Chat with the connected controller</translation>
+    </message>
+    <message>
+        <location filename="../../qml/views/MainWindow.qml" line="1122"/>
+        <location filename="../../qml/views/RemoteWindow.qml" line="976"/>
+        <source>Session Chat</source>
+        <translation>Session Chat</translation>
+    </message>
+    <message>
+        <location filename="../../qml/views/MainWindow.qml" line="1138"/>
+        <location filename="../../qml/views/RemoteWindow.qml" line="993"/>
+        <source>No messages yet</source>
+        <translation>No messages yet</translation>
+    </message>
+    <message>
+        <location filename="../../qml/views/MainWindow.qml" line="1139"/>
+        <source>A connected controller can start a conversation.</source>
+        <translation>A connected controller can start a conversation.</translation>
+    </message>
+    <message>
+        <location filename="../../qml/views/MainWindow.qml" line="1186"/>
+        <location filename="../../qml/views/RemoteWindow.qml" line="1044"/>
+        <source>You</source>
+        <translation>You</translation>
+    </message>
+    <message>
+        <location filename="../../qml/views/MainWindow.qml" line="1186"/>
+        <location filename="../../qml/views/RemoteWindow.qml" line="1044"/>
+        <source>Controller</source>
+        <translation>Controller</translation>
+    </message>
+    <message>
+        <location filename="../../qml/views/MainWindow.qml" line="1202"/>
+        <source>Reply to the controller</source>
+        <translation>Reply to the controller</translation>
+    </message>
+    <message>
+        <location filename="../../qml/views/MainWindow.qml" line="1203"/>
+        <source>Chat reply</source>
+        <translation>Chat reply</translation>
+    </message>
+    <message>
+        <location filename="../../qml/views/MainWindow.qml" line="1209"/>
+        <location filename="../../qml/views/RemoteWindow.qml" line="1068"/>
+        <source>Send</source>
+        <translation>Send</translation>
+    </message>
+    <message>
+        <location filename="../../qml/views/MainWindow.qml" line="1217"/>
+        <source>Send chat reply</source>
+        <translation>Send chat reply</translation>
+    </message>
 </context>
 <context>
     <name>McpConfigPopup</name>
@@ -2957,6 +3012,37 @@ Frame rate: %3 fps</translation>
         <location filename="../../qml/views/RemoteWindow.qml" line="1786"/>
         <source>Emergency stop activated: </source>
         <translation>Emergency stop activated: </translation>
+    </message>
+    <message>
+        <location filename="../../qml/views/RemoteWindow.qml" line="794"/>
+        <location filename="../../qml/views/RemoteWindow.qml" line="798"/>
+        <source>Chat with the controlled machine</source>
+        <translation>Chat with the controlled machine</translation>
+    </message>
+    <message>
+        <location filename="../../qml/views/RemoteWindow.qml" line="994"/>
+        <source>Send a message to the controlled machine.</source>
+        <translation>Send a message to the controlled machine.</translation>
+    </message>
+    <message>
+        <location filename="../../qml/views/RemoteWindow.qml" line="1043"/>
+        <source>Controlled machine</source>
+        <translation>Controlled machine</translation>
+    </message>
+    <message>
+        <location filename="../../qml/views/RemoteWindow.qml" line="1061"/>
+        <source>Type a message</source>
+        <translation>Type a message</translation>
+    </message>
+    <message>
+        <location filename="../../qml/views/RemoteWindow.qml" line="1062"/>
+        <source>Chat message</source>
+        <translation>Chat message</translation>
+    </message>
+    <message>
+        <location filename="../../qml/views/RemoteWindow.qml" line="1077"/>
+        <source>Send chat message</source>
+        <translation>Send chat message</translation>
     </message>
 </context>
 <context>

@@ -5,6 +5,7 @@
 #include "HostManager.h"
 #include "infra/log/log.h"
 
+#include <QDateTime>
 #include <QJsonDocument>
 #include <QProcess>
 #include <QRegularExpression>
@@ -17,6 +18,34 @@ namespace quickdesk {
 namespace {
 
 constexpr int kInternalRequestTimeoutMs = 10000;
+constexpr int kMaxChatTextLength = 4000;
+
+QString utcTimestamp()
+{
+    return QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
+}
+
+QJsonObject chatCapability()
+{
+    return QJsonObject{
+        {QStringLiteral("name"), QStringLiteral("session_chat")},
+        {QStringLiteral("description"),
+         QStringLiteral("In-session plain-text chat with the controlled machine")},
+    };
+}
+
+QString capabilityName(const QJsonValue& value)
+{
+    if (value.isString()) {
+        return value.toString();
+    }
+    if (!value.isObject()) {
+        return {};
+    }
+    const QJsonObject object = value.toObject();
+    return object.value(QStringLiteral("name"))
+        .toString(object.value(QStringLiteral("tool")).toString());
+}
 
 QJsonObject toolResultObject(const QJsonValue& value)
 {
@@ -35,7 +64,9 @@ QJsonObject toolResultObject(const QJsonValue& value)
 
 SkillHostManager::SkillHostManager(QObject* parent)
     : QObject(parent)
-{}
+{
+    m_cachedTools = advertisedCapabilities({});
+}
 
 SkillHostManager::~SkillHostManager()
 {
@@ -68,9 +99,7 @@ void SkillHostManager::setHostManager(HostManager* hostManager)
         msg["type"] = QStringLiteral("capabilitiesReady");
         msg["tools"] = m_cachedTools;
 
-        QByteArray bytes = QJsonDocument(msg).toJson(QJsonDocument::Compact);
-        QString jsonData = QString::fromUtf8(bytes);
-        m_hostManager->sendSkillBridgeSend(jsonData);
+        sendBridgeMessage(msg);
 
         LOG_INFO("SkillHostManager: pushed cached capabilities ({} tools) to new client",
                  m_cachedTools.size());
@@ -141,14 +170,14 @@ void SkillHostManager::stopSkillHost()
         delete m_skillHostProcess;
         m_skillHostProcess = nullptr;
         m_readBuffer.clear();
-        m_cachedTools = QJsonArray();
+        m_cachedTools = advertisedCapabilities({});
         return;
     }
 
     QProcess* proc = m_skillHostProcess;
     m_skillHostProcess = nullptr;
     m_readBuffer.clear();
-    m_cachedTools = QJsonArray();
+    m_cachedTools = advertisedCapabilities({});
 
     proc->terminate();
     connect(proc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
@@ -164,6 +193,47 @@ void SkillHostManager::stopSkillHost()
 bool SkillHostManager::isRunning() const
 {
     return m_skillHostProcess && m_skillHostProcess->state() == QProcess::Running;
+}
+
+bool SkillHostManager::supportsCapability(const QString& name) const
+{
+    for (const QJsonValue& value : m_cachedTools) {
+        if (capabilityName(value) == name) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool SkillHostManager::sendChatMessage(const QString& text)
+{
+    const QString trimmed = text.trimmed();
+    if (trimmed.isEmpty()) {
+        LOG_WARN("SkillHostManager: refusing to send an empty chat message");
+        return false;
+    }
+    if (text.size() > kMaxChatTextLength) {
+        LOG_WARN("SkillHostManager: refusing a chat message longer than {}",
+                 kMaxChatTextLength);
+        return false;
+    }
+
+    QJsonObject message;
+    message[QStringLiteral("id")] =
+        QStringLiteral("host-chat-%1")
+            .arg(QUuid::createUuid().toString(QUuid::WithoutBraces));
+    message[QStringLiteral("type")] = QStringLiteral("chatMessage");
+    message[QStringLiteral("from")] = QStringLiteral("host");
+    message[QStringLiteral("text")] = text;
+    const QString sentAt = utcTimestamp();
+    message[QStringLiteral("sentAt")] = sentAt;
+
+    emit chatMessageReceived(QStringLiteral("host"),
+                             message.value(QStringLiteral("id")).toString(),
+                             text,
+                             sentAt);
+    sendBridgeMessage(message);
+    return true;
 }
 
 void SkillHostManager::requestSystemInfo(
@@ -252,12 +322,73 @@ void SkillHostManager::onMessageFromClient(const QString& jsonData)
         return;
     }
 
+    if (handleBuiltInClientMessage(doc.object())) {
+        return;
+    }
+
     if (!sendToSkillHost(doc.object())) {
         LOG_WARN("SkillHostManager: failed to forward client message to skill-host");
     }
 }
 
 // ---- Private helpers ----
+
+bool SkillHostManager::handleBuiltInClientMessage(const QJsonObject& message)
+{
+    if (message.value(QStringLiteral("type")).toString()
+        != QStringLiteral("chatSend")) {
+        return false;
+    }
+
+    QString requestId = message.value(QStringLiteral("id")).toString();
+    if (requestId.isEmpty()) {
+        requestId =
+            QStringLiteral("client-chat-%1")
+                .arg(QUuid::createUuid().toString(QUuid::WithoutBraces));
+    }
+
+    const QString text = message.value(QStringLiteral("text")).toString();
+    QString rejection;
+    if (text.trimmed().isEmpty()) {
+        rejection = QStringLiteral("Chat message must not be empty");
+    } else if (text.size() > kMaxChatTextLength) {
+        rejection = QStringLiteral("Chat message exceeds %1 characters")
+                        .arg(kMaxChatTextLength);
+    }
+
+    const QString sentAt = utcTimestamp();
+    if (!rejection.isEmpty()) {
+        QJsonObject ack;
+        ack[QStringLiteral("id")] = requestId;
+        ack[QStringLiteral("type")] = QStringLiteral("chatAck");
+        ack[QStringLiteral("accepted")] = false;
+        ack[QStringLiteral("error")] = rejection;
+        ack[QStringLiteral("sentAt")] = sentAt;
+        sendBridgeMessage(ack);
+        return true;
+    }
+
+    emit chatMessageReceived(QStringLiteral("controller"),
+                             requestId,
+                             text,
+                             sentAt);
+
+    QJsonObject ack;
+    ack[QStringLiteral("id")] = requestId;
+    ack[QStringLiteral("type")] = QStringLiteral("chatAck");
+    ack[QStringLiteral("accepted")] = true;
+    ack[QStringLiteral("sentAt")] = sentAt;
+    sendBridgeMessage(ack);
+
+    QJsonObject broadcast;
+    broadcast[QStringLiteral("id")] = requestId;
+    broadcast[QStringLiteral("type")] = QStringLiteral("chatMessage");
+    broadcast[QStringLiteral("from")] = QStringLiteral("controller");
+    broadcast[QStringLiteral("text")] = text;
+    broadcast[QStringLiteral("sentAt")] = sentAt;
+    sendBridgeMessage(broadcast);
+    return true;
+}
 
 bool SkillHostManager::sendToSkillHost(const QJsonObject& message)
 {
@@ -287,22 +418,69 @@ void SkillHostManager::handleSkillHostMessage(const QJsonObject& message)
     QString type = message["type"].toString();
 
     if (type == "capabilitiesReady" || type == "capabilitiesChanged") {
-        QJsonArray tools = message["tools"].toArray();
+        QJsonArray tools;
+        if (type == "capabilitiesReady") {
+            tools = advertisedCapabilities(message["tools"].toArray());
+        } else {
+            QHash<QString, QJsonValue> merged;
+            for (const QJsonValue& value : m_cachedTools) {
+                const QString name = capabilityName(value);
+                if (!name.isEmpty() && name != QStringLiteral("session_chat")) {
+                    merged.insert(name, value);
+                }
+            }
+            for (const QJsonValue& value :
+                 message.value(QStringLiteral("removed")).toArray()) {
+                merged.remove(capabilityName(value));
+            }
+            for (const QJsonValue& value :
+                 message.value(QStringLiteral("added")).toArray()) {
+                const QString name = capabilityName(value);
+                if (!name.isEmpty()) {
+                    merged.insert(name, value);
+                }
+            }
+            QJsonArray skillTools;
+            for (const QJsonValue& value : merged) {
+                skillTools.append(value);
+            }
+            tools = advertisedCapabilities(skillTools);
+        }
         m_cachedTools = tools;
         LOG_INFO("SkillHostManager: capabilities {}, {} tool(s)",
                  type.toStdString(), tools.size());
         emit capabilitiesChanged(tools);
-        // Fall through to forward to connected clients
+
+        QJsonObject forwarded = message;
+        forwarded[QStringLiteral("tools")] = tools;
+        sendBridgeMessage(forwarded);
+        return;
     }
 
-    // Forward all messages (toolResult, capabilitiesReady, error, etc.) to the client.
-    if (!m_hostManager) return;
+    // Forward all messages (toolResult, error, etc.) to the client.
+    sendBridgeMessage(message);
+}
 
+void SkillHostManager::sendBridgeMessage(const QJsonObject& message)
+{
     QByteArray bytes = QJsonDocument(message).toJson(QJsonDocument::Compact);
-    QString jsonData = QString::fromUtf8(bytes);
-
+    const QString jsonData = QString::fromUtf8(bytes);
     emit skillHostResponseReady(message);
-    m_hostManager->sendSkillBridgeSend(jsonData);
+    if (m_hostManager) {
+        m_hostManager->sendSkillBridgeSend(jsonData);
+    }
+}
+
+QJsonArray SkillHostManager::advertisedCapabilities(const QJsonArray& tools) const
+{
+    QJsonArray combined = tools;
+    for (const QJsonValue& value : combined) {
+        if (capabilityName(value) == QStringLiteral("session_chat")) {
+            return combined;
+        }
+    }
+    combined.append(chatCapability());
+    return combined;
 }
 
 bool SkillHostManager::handleInternalResponse(const QJsonObject& message)

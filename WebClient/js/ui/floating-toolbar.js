@@ -33,6 +33,8 @@ export class FloatingToolbar extends EventTarget {
         this._supportsLock = false;
         this._supportsFileTransfer = false;
         this._supportsFileManager = false;
+        this._supportsChat = false;
+        this._chatUnread = 0;
         this._supportsPrivacyScreen = false;
         this._supportsVirtualDisplay = false;
         this._privacyScreenActive = false;
@@ -131,6 +133,7 @@ export class FloatingToolbar extends EventTarget {
             { textKey: 'menu.downloadFile', icon: '📥', action: 'downloadFile', id: 'downloadMenuItem', hidden: true },
             { textKey: 'menu.transfers', icon: '📊', action: 'showTransfers', id: 'transfersMenuItem', hidden: true },
             { textKey: 'menu.fileManager', icon: '🗂', action: 'fileManager', id: 'fileManagerMenuItem', hidden: true },
+            { textKey: 'menu.sessionChat', icon: '💬', action: 'sessionChat', id: 'sessionChatMenuItem', hidden: true },
             { type: 'separator', id: 'vdSeparator', hidden: true },
             { textKey: 'menu.virtualDisplay', icon: '🖥️', hasSubmenu: true, action: 'submenu-virtualDisplay', id: 'vdMenuItem', hidden: true },
             { type: 'separator' },
@@ -368,6 +371,10 @@ export class FloatingToolbar extends EventTarget {
                 break;
             case 'fileManager':
                 this.dispatchEvent(new CustomEvent('action', { detail: { action: 'fileManager' } }));
+                this._hideMenu();
+                break;
+            case 'sessionChat':
+                this.dispatchEvent(new CustomEvent('action', { detail: { action: 'sessionChat' } }));
                 this._hideMenu();
                 break;
         }
@@ -690,6 +697,27 @@ export class FloatingToolbar extends EventTarget {
         if (item) item.style.display = this._supportsFileManager ? '' : 'none';
     }
 
+    setChatSupport(supported) {
+        this._supportsChat = Boolean(supported);
+        this._updateChatMenuItem();
+    }
+
+    updateChatUnread(count) {
+        this._chatUnread = Math.max(0, Number(count) || 0);
+        this._updateChatMenuItem();
+    }
+
+    _updateChatMenuItem() {
+        const item = this._menuElement.querySelector('#sessionChatMenuItem');
+        if (!item) return;
+        const text = this._chatUnread > 0
+            ? `${t('menu.sessionChat')} (${this._chatUnread})`
+            : t('menu.sessionChat');
+        const textEl = item.querySelector('.menu-text');
+        if (textEl) textEl.textContent = text;
+        item.style.display = this._supportsChat ? '' : 'none';
+    }
+
     updateTransferCount(count) {
         const transfersItem = this._menuElement.querySelector('#transfersMenuItem');
         if (transfersItem) {
@@ -714,6 +742,7 @@ export class FloatingToolbar extends EventTarget {
         this._buildMenu();
         this.setActionSupport(this._supportsSAS, this._supportsLock, this._supportsFileTransfer, this._supportsPrivacyScreen, this._supportsVirtualDisplay);
         this.setFileManagerSupport(this._supportsFileManager);
+        this.setChatSupport(this._supportsChat);
     }
 
     /** @private */

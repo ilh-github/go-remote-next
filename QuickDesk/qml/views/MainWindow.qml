@@ -34,6 +34,11 @@ ApplicationWindow {
     
     // Temporary storage for device credentials during connection
     property var pendingDeviceCredentials: ({})
+
+    // Ephemeral chat messages received by this controlled machine. They are
+    // intentionally not persisted.
+    property var hostChatMessages: []
+    property int hostChatUnread: 0
     
     // Connections aborted due to window creation failure (suppress state change toasts)
     property var abortedConnections: ({})
@@ -175,6 +180,22 @@ ApplicationWindow {
         console.log("MainWindow.qml unloading, shutting down...")
         mainController.shutdown()
         console.log("MainWindow.qml unload finish")
+    }
+
+    function appendHostChatMessage(from, text, sentAt) {
+        if (!text) return
+        var rows = hostChatMessages.slice()
+        rows.push({ from: from, text: text, sentAt: sentAt })
+        if (rows.length > 200) rows = rows.slice(rows.length - 200)
+        hostChatMessages = rows
+        if (!chatDrawer.opened) hostChatUnread++
+        Qt.callLater(function() { hostChatListView.positionViewAtEnd() })
+    }
+
+    function formatHostChatTime(value) {
+        var date = new Date(value)
+        if (isNaN(date.getTime())) return ""
+        return Qt.formatTime(date, "HH:mm")
     }
     
     // Unified function to show or switch to a device connection
@@ -1013,5 +1034,189 @@ ApplicationWindow {
     UpdateDialog {
         id: updateDialog
         updateManager: root.mainController.updateManager
+    }
+
+    Connections {
+        target: root.mainController ? root.mainController.sessionChat : null
+
+        function onHostMessageAdded(from, text, sentAt) {
+            root.appendHostChatMessage(from, text, sentAt)
+        }
+
+        function onErrorOccurred(deviceId, message) {
+            toast.show(message, QDToast.Type.Error)
+        }
+    }
+
+    Rectangle {
+        id: hostChatButton
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        anchors.rightMargin: Theme.spacingXLarge
+        anchors.bottomMargin: 54
+        width: 42
+        height: 42
+        radius: 21
+        z: 8000
+        visible: root.mainController
+                 && root.mainController.hostManager
+                 && root.mainController.hostManager.clientCount > 0
+        color: Theme.primary
+        border.width: 1
+        border.color: Qt.rgba(1, 1, 1, 0.22)
+
+        Text {
+            anchors.centerIn: parent
+            text: "💬"
+            font.pixelSize: 18
+        }
+
+        Rectangle {
+            visible: root.hostChatUnread > 0
+            anchors.right: parent.right
+            anchors.top: parent.top
+            anchors.rightMargin: -4
+            anchors.topMargin: -5
+            width: Math.max(18, hostUnreadText.implicitWidth + 8)
+            height: 18
+            radius: 9
+            color: Theme.error
+
+            Text {
+                id: hostUnreadText
+                anchors.centerIn: parent
+                text: root.hostChatUnread > 99 ? "99+" : String(root.hostChatUnread)
+                color: "white"
+                font.family: Theme.fontFamily
+                font.pixelSize: 10
+                font.weight: Font.DemiBold
+            }
+        }
+
+        MouseArea {
+            anchors.fill: parent
+            cursorShape: Qt.PointingHandCursor
+            onClicked: {
+                root.hostChatUnread = 0
+                chatDrawer.open()
+                Qt.callLater(function() { hostChatListView.positionViewAtEnd() })
+            }
+        }
+
+        Accessible.role: Accessible.Button
+        Accessible.name: qsTr("Chat with the connected controller")
+        Accessible.onPressAction: {
+            root.hostChatUnread = 0
+            chatDrawer.open()
+        }
+
+        ToolTip.visible: hostChatHover.hovered
+        ToolTip.text: qsTr("Chat with the connected controller")
+        HoverHandler { id: hostChatHover }
+    }
+
+    QDDrawer {
+        id: chatDrawer
+        edge: Qt.RightEdge
+        width: 380
+        title: qsTr("Session Chat")
+
+        onOpened: {
+            root.hostChatUnread = 0
+            Qt.callLater(function() { hostChatListView.positionViewAtEnd() })
+        }
+
+        ColumnLayout {
+            anchors.fill: parent
+            spacing: Theme.spacingSmall
+
+            QDEmptyState {
+                visible: hostChatListView.count === 0
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                iconSource: FluentIconGlyph.mailGlyph
+                title: qsTr("No messages yet")
+                description: qsTr("A connected controller can start a conversation.")
+            }
+
+            ListView {
+                id: hostChatListView
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                visible: count > 0
+                clip: true
+                spacing: Theme.spacingSmall
+                model: root.hostChatMessages
+
+                delegate: Item {
+                    required property var modelData
+                    width: hostChatListView.width
+                    height: hostBubble.height + hostTimeLabel.height + Theme.spacingSmall
+
+                    Rectangle {
+                        id: hostBubble
+                        anchors.left: modelData.from === "host" ? undefined : parent.left
+                        anchors.right: modelData.from === "host" ? parent.right : undefined
+                        width: Math.min(280, Math.max(72, hostMessageText.implicitWidth + 24))
+                        height: Math.max(38, hostMessageText.implicitHeight + 18)
+                        radius: 8
+                        color: modelData.from === "host"
+                            ? Theme.primary
+                            : Theme.surfaceVariant
+
+                        Text {
+                            id: hostMessageText
+                            anchors.fill: parent
+                            anchors.margins: 9
+                            text: modelData.text
+                            color: modelData.from === "host" ? "white" : Theme.text
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.fontSizeMedium
+                            wrapMode: Text.Wrap
+                            textFormat: Text.PlainText
+                        }
+                    }
+
+                    Text {
+                        id: hostTimeLabel
+                        anchors.top: hostBubble.bottom
+                        anchors.topMargin: 2
+                        anchors.left: modelData.from === "host" ? undefined : parent.left
+                        anchors.right: modelData.from === "host" ? parent.right : undefined
+                        text: (modelData.from === "host" ? qsTr("You") : qsTr("Controller"))
+                              + " · " + root.formatHostChatTime(modelData.sentAt)
+                        color: Theme.textSecondary
+                        font.family: Theme.fontFamily
+                        font.pixelSize: Theme.fontSizeSmall
+                    }
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.spacingSmall
+
+                TextField {
+                    id: hostChatInput
+                    Layout.fillWidth: true
+                    placeholderText: qsTr("Reply to the controller")
+                    Accessible.name: qsTr("Chat reply")
+                    onAccepted: hostChatSendButton.clicked()
+                }
+
+                QDButton {
+                    id: hostChatSendButton
+                    text: qsTr("Send")
+                    enabled: hostChatInput.text.trim().length > 0
+                    onClicked: {
+                        if (root.mainController.sessionChat.sendToControllers(hostChatInput.text)) {
+                            hostChatInput.text = ""
+                        }
+                    }
+                    Accessible.role: Accessible.Button
+                    Accessible.name: qsTr("Send chat reply")
+                }
+            }
+        }
     }
 }

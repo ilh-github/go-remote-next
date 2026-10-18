@@ -112,6 +112,7 @@ const zh = {
     'menu.transfers': '传输列表',
     'menu.transfersCount': '传输列表 ({count})',
     'menu.fileManager': '远程文件',
+    'menu.sessionChat': '会话聊天',
     'menu.virtualDisplay': '虚拟显示器',
     'menu.addDisplay': '添加 {resolution} @{hz}Hz',
     'menu.removeDisplay': '移除 #{index} ({resolution})',
@@ -155,6 +156,18 @@ const zh = {
     'files.download': '下载',
     'files.trash': '移到回收目录',
 
+    // ========== In-session chat ==========
+    'chat.title': '会话聊天',
+    'chat.subtitle': '消息仅在当前连接内传递',
+    'chat.close': '关闭聊天',
+    'chat.emptyTitle': '还没有消息',
+    'chat.emptyDescription': '向被控端发送一条消息开始会话。',
+    'chat.placeholder': '输入消息',
+    'chat.send': '发送',
+    'chat.host': '被控端',
+    'chat.controller': '控制端',
+    'chat.you': '你',
+
     // ========== remote-main.js log/status ==========
     'log.missingParams': '缺少连接参数 (device, code)',
     'status.missingParams': '缺少连接参数',
@@ -168,6 +181,7 @@ const zh = {
     'log.negotiatedCaps': 'Negotiated caps: SAS={sas} Lock={lock} FileTransfer={ft}',
     'log.fileManagerReady': '主机文件管理能力已就绪',
     'log.fileManagerUnavailable': '主机未提供完整文件管理能力',
+    'log.chatMessage': '收到来自 {sender} 的会话消息',
     'log.skillBridgeInvalidJson': '主机技能桥返回了无效 JSON',
     'log.uploadComplete': 'Upload complete: {filename}',
     'log.uploadFailed': 'Upload failed: {error}',
@@ -410,6 +424,7 @@ const en = {
     'menu.transfers': 'Transfers',
     'menu.transfersCount': 'Transfers ({count})',
     'menu.fileManager': 'Remote Files',
+    'menu.sessionChat': 'Session Chat',
     'menu.virtualDisplay': 'Virtual Display',
     'menu.addDisplay': 'Add {resolution} @{hz}Hz',
     'menu.removeDisplay': 'Remove #{index} ({resolution})',
@@ -453,6 +468,18 @@ const en = {
     'files.download': 'Download',
     'files.trash': 'Move to trash directory',
 
+    // ========== In-session chat ==========
+    'chat.title': 'Session Chat',
+    'chat.subtitle': 'Messages stay inside the active connection',
+    'chat.close': 'Close chat',
+    'chat.emptyTitle': 'No messages yet',
+    'chat.emptyDescription': 'Send a message to the controlled machine to start.',
+    'chat.placeholder': 'Type a message',
+    'chat.send': 'Send',
+    'chat.host': 'Controlled machine',
+    'chat.controller': 'Controller',
+    'chat.you': 'You',
+
     // ========== remote-main.js log/status ==========
     'log.missingParams': 'Missing connection parameters (device, code)',
     'status.missingParams': 'Missing parameters',
@@ -466,6 +493,7 @@ const en = {
     'log.negotiatedCaps': 'Negotiated caps: SAS={sas} Lock={lock} FileTransfer={ft}',
     'log.fileManagerReady': 'Host file manager capabilities are ready',
     'log.fileManagerUnavailable': 'The host does not expose the full file manager toolset',
+    'log.chatMessage': 'Received a session message from {sender}',
     'log.skillBridgeInvalidJson': 'The host skill bridge returned invalid JSON',
     'log.uploadComplete': 'Upload complete: {filename}',
     'log.uploadFailed': 'Upload failed: {error}',

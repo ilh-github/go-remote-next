@@ -116,6 +116,43 @@ add_test(
             $<TARGET_FILE:quickdesk_fake_skill_host>
 )
 
+add_executable(quickdesk_session_chat_manager_test
+    sessionchatmanager_test.cpp
+    ../src/core/db/appconfigdatabase.cpp
+    ../src/core/localconfigcenter.cpp
+    ../src/manager/NativeMessaging.cpp
+    ../src/manager/HostManager.cpp
+    ../src/manager/HostManager.h
+    ../src/manager/SessionChatManager.cpp
+    ../src/manager/SessionChatManager.h
+    ../src/manager/SkillHostManager.cpp
+    ../src/manager/SkillHostManager.h
+)
+
+target_include_directories(quickdesk_session_chat_manager_test
+    PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src
+)
+
+target_link_libraries(quickdesk_session_chat_manager_test
+    PRIVATE
+    base
+    infra
+    Qt6::Core
+    Qt6::Network
+    Qt6::Sql
+    Qt6::Test
+)
+
+if(APPLE)
+    target_link_libraries(quickdesk_session_chat_manager_test PRIVATE "-framework Foundation")
+endif()
+
+add_test(
+    NAME quickdesk_session_chat_manager_test
+    COMMAND quickdesk_session_chat_manager_test
+)
+
 add_executable(quickdesk_update_manager_test
     updatemanager_integration_test.cpp
     authmanager_stub.cpp

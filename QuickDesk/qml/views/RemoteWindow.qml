@@ -38,6 +38,26 @@ Window {
     // Virtual displays per device. Map: deviceId -> [{index, width, height, refreshRate}]
     property var virtualDisplayMap: ({})
     property int virtualDisplayVersion: 0
+
+    // In-session chat is scoped to a device. Messages are intentionally
+    // ephemeral: they live only for this RemoteWindow and are never persisted
+    // by the signaling or skill bridge.
+    property var chatMessagesMap: ({})
+    property int chatMessagesVersion: 0
+    property var chatAvailabilityMap: ({})
+    property int chatAvailabilityVersion: 0
+    property var chatUnreadMap: ({})
+    property int chatUnreadVersion: 0
+    readonly property bool activeChatAvailable: {
+        var _version = chatAvailabilityVersion
+        var devId = chatActiveDeviceId()
+        return devId ? Boolean(chatAvailabilityMap[devId]) : false
+    }
+    readonly property int activeChatUnread: {
+        var _version = chatUnreadVersion
+        var devId = chatActiveDeviceId()
+        return devId ? (chatUnreadMap[devId] || 0) : 0
+    }
     
     // C++ ConnectionListModel — only affected delegates are created/destroyed
     ConnectionListModel {
@@ -66,6 +86,52 @@ Window {
         } else {
             mainController.toggleSessionRecording(devId)
         }
+    }
+
+    function chatActiveDeviceId() {
+        return currentTabIndex >= 0 && currentTabIndex < connectionModel.count
+            ? connectionModel.deviceIdAt(currentTabIndex)
+            : ""
+    }
+
+    function chatMessagesForActiveDevice() {
+        var _version = chatMessagesVersion
+        var devId = chatActiveDeviceId()
+        return devId ? (chatMessagesMap[devId] || []) : []
+    }
+
+    function appendChatMessage(deviceId, from, text, sentAt, outgoing) {
+        if (!deviceId || !text) return
+        var messages = Object.assign({}, chatMessagesMap)
+        var rows = (messages[deviceId] || []).slice()
+        rows.push({
+            from: from,
+            text: text,
+            sentAt: sentAt,
+            outgoing: Boolean(outgoing)
+        })
+        if (rows.length > 200) rows = rows.slice(rows.length - 200)
+        messages[deviceId] = rows
+        chatMessagesMap = messages
+        chatMessagesVersion++
+        if (chatDrawer.opened && chatActiveDeviceId() === deviceId) {
+            mainController.sessionChat.markRead(deviceId)
+            Qt.callLater(function() { chatListView.positionViewAtEnd() })
+        }
+    }
+
+    function formatChatTime(value) {
+        var date = new Date(value)
+        if (isNaN(date.getTime())) return ""
+        return Qt.formatTime(date, "HH:mm")
+    }
+
+    function openSessionChat() {
+        var deviceId = chatActiveDeviceId()
+        if (!deviceId || !activeChatAvailable) return
+        mainController.sessionChat.markRead(deviceId)
+        chatDrawer.open()
+        Qt.callLater(function() { chatListView.positionViewAtEnd() })
     }
     
     // Get performance stats for a connection
@@ -674,6 +740,71 @@ Window {
             HoverHandler { id: fileHover }
         }
 
+        // In-session text chat. The entry stays hidden until the host advertises
+        // the built-in session_chat capability.
+        Rectangle {
+            id: chatButton
+            x: fileButton.x + fileButton.width + Theme.spacingSmall
+            y: recordButton.y
+            z: 1000
+            width: 34
+            height: 34
+            radius: 17
+            visible: connectionModel.count > 0 && remoteWindow.activeChatAvailable
+            color: Qt.rgba(1, 1, 1, 0.12)
+            border.width: 1
+            border.color: Qt.rgba(1, 1, 1, 0.22)
+
+            Text {
+                anchors.centerIn: parent
+                text: "💬"
+                font.pixelSize: 15
+            }
+
+            Rectangle {
+                visible: remoteWindow.activeChatUnread > 0
+                anchors.right: parent.right
+                anchors.top: parent.top
+                anchors.rightMargin: -4
+                anchors.topMargin: -5
+                width: Math.max(18, unreadText.implicitWidth + 8)
+                height: 18
+                radius: 9
+                color: Theme.error
+
+                Text {
+                    id: unreadText
+                    anchors.centerIn: parent
+                    text: remoteWindow.activeChatUnread > 99
+                        ? "99+" : String(remoteWindow.activeChatUnread)
+                    color: "white"
+                    font.family: Theme.fontFamily
+                    font.pixelSize: 10
+                    font.weight: Font.DemiBold
+                }
+            }
+
+            MouseArea {
+                anchors.fill: parent
+                cursorShape: Qt.PointingHandCursor
+                onClicked: remoteWindow.openSessionChat()
+            }
+
+            Accessible.role: Accessible.Button
+            Accessible.name: qsTr("Chat with the controlled machine")
+            Accessible.onPressAction: remoteWindow.openSessionChat()
+
+            ToolTip.visible: chatHover.hovered
+            ToolTip.text: qsTr("Chat with the controlled machine")
+            HoverHandler { id: chatHover }
+        }
+
+        Shortcut {
+            sequence: "Ctrl+Shift+C"
+            enabled: connectionModel.count > 0 && remoteWindow.activeChatAvailable
+            onActivated: remoteWindow.openSessionChat()
+        }
+
         // Single floating button bound to current active connection
         FloatingToolButton {
             x: parent.width - width - Theme.spacingXLarge
@@ -836,6 +967,145 @@ Window {
     
     // Monitor connection state changes
     // ---------------------------------------------------------------
+    // In-session plain-text chat over the existing qd-skill-bridge.
+    // ---------------------------------------------------------------
+    QDDrawer {
+        id: chatDrawer
+        edge: Qt.RightEdge
+        width: 380
+        title: qsTr("Session Chat")
+
+        onOpened: {
+            var deviceId = remoteWindow.chatActiveDeviceId()
+            if (deviceId) mainController.sessionChat.markRead(deviceId)
+            Qt.callLater(function() { chatListView.positionViewAtEnd() })
+        }
+
+        ColumnLayout {
+            anchors.fill: parent
+            spacing: Theme.spacingSmall
+
+            QDEmptyState {
+                visible: chatListView.count === 0
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                iconSource: FluentIconGlyph.mailGlyph
+                title: qsTr("No messages yet")
+                description: qsTr("Send a message to the controlled machine.")
+            }
+
+            ListView {
+                id: chatListView
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                visible: count > 0
+                clip: true
+                spacing: Theme.spacingSmall
+                model: remoteWindow.chatMessagesForActiveDevice()
+
+                delegate: Item {
+                    required property var modelData
+                    width: chatListView.width
+                    height: bubble.height + timeLabel.height + Theme.spacingSmall
+
+                    Rectangle {
+                        id: bubble
+                        anchors.left: modelData.outgoing ? undefined : parent.left
+                        anchors.right: modelData.outgoing ? parent.right : undefined
+                        width: Math.min(280, Math.max(72, messageText.implicitWidth + 24))
+                        height: Math.max(38, messageText.implicitHeight + 18)
+                        radius: 8
+                        color: modelData.outgoing
+                            ? Theme.primary
+                            : Theme.surfaceVariant
+
+                        Text {
+                            id: messageText
+                            anchors.fill: parent
+                            anchors.margins: 9
+                            text: modelData.text
+                            color: modelData.outgoing ? "white" : Theme.text
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.fontSizeMedium
+                            wrapMode: Text.Wrap
+                            textFormat: Text.PlainText
+                        }
+                    }
+
+                    Text {
+                        id: timeLabel
+                        anchors.top: bubble.bottom
+                        anchors.topMargin: 2
+                        anchors.left: modelData.outgoing ? undefined : parent.left
+                        anchors.right: modelData.outgoing ? parent.right : undefined
+                        text: {
+                            var sender = modelData.from === "host"
+                                ? qsTr("Controlled machine")
+                                : (modelData.outgoing ? qsTr("You") : qsTr("Controller"))
+                            return sender + " · " + remoteWindow.formatChatTime(modelData.sentAt)
+                        }
+                        color: Theme.textSecondary
+                        font.family: Theme.fontFamily
+                        font.pixelSize: Theme.fontSizeSmall
+                    }
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.spacingSmall
+
+                TextField {
+                    id: chatInput
+                    Layout.fillWidth: true
+                    placeholderText: qsTr("Type a message")
+                    Accessible.name: qsTr("Chat message")
+                    onAccepted: chatSendButton.clicked()
+                }
+
+                QDButton {
+                    id: chatSendButton
+                    text: qsTr("Send")
+                    enabled: chatInput.text.trim().length > 0
+                    onClicked: {
+                        var deviceId = remoteWindow.chatActiveDeviceId()
+                        if (mainController.sessionChat.sendToHost(deviceId, chatInput.text)) {
+                            chatInput.text = ""
+                        }
+                    }
+                    Accessible.role: Accessible.Button
+                    Accessible.name: qsTr("Send chat message")
+                }
+            }
+        }
+    }
+
+    Connections {
+        target: mainController.sessionChat
+
+        function onAvailabilityChanged(deviceId, available) {
+            var values = Object.assign({}, remoteWindow.chatAvailabilityMap)
+            values[deviceId] = available
+            remoteWindow.chatAvailabilityMap = values
+            remoteWindow.chatAvailabilityVersion++
+        }
+
+        function onMessageAdded(deviceId, from, text, sentAt, outgoing) {
+            remoteWindow.appendChatMessage(deviceId, from, text, sentAt, outgoing)
+        }
+
+        function onUnreadCountChanged(deviceId, count) {
+            var values = Object.assign({}, remoteWindow.chatUnreadMap)
+            values[deviceId] = count
+            remoteWindow.chatUnreadMap = values
+            remoteWindow.chatUnreadVersion++
+        }
+
+        function onErrorOccurred(deviceId, message) {
+            toast.show(message, QDToast.Type.Error)
+        }
+    }
+
     // Remote file manager (host file-ops skill over the skill bridge).
     // Browsing, new folder, rename and a reversible "move to .quickdesk-trash"
     // delete through the host's version-preserving trash_path tool.

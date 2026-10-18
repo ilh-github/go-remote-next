@@ -70,6 +70,75 @@ int main(int argc, char** argv)
            QStringLiteral("internal callback receives the parsed tool result"));
     Expect(forwardedSpy.count() == 0,
            QStringLiteral("internal system-info response is not forwarded"));
+    Expect(manager.supportsCapability(QStringLiteral("session_chat")),
+           QStringLiteral("session chat is advertised without a skill tool"));
+
+    QSignalSpy chatReceivedSpy(
+        &manager, &quickdesk::SkillHostManager::chatMessageReceived);
+    hostManager.skillMessage(QStringLiteral(
+        R"({"id":"chat-in-1","type":"chatSend","text":"hello from controller"})"));
+    Expect(WaitUntil([&]() { return chatReceivedSpy.count() == 1; }, 1000),
+           QStringLiteral("controller chat reaches the host UI"));
+    const QList<QVariant> inboundArgs = chatReceivedSpy.takeFirst();
+    Expect(inboundArgs.at(0).toString() == QStringLiteral("controller"),
+           QStringLiteral("controller chat is labelled by sender"));
+    Expect(inboundArgs.at(1).toString() == QStringLiteral("chat-in-1"),
+           QStringLiteral("controller chat keeps the request id"));
+    Expect(inboundArgs.at(2).toString()
+               == QStringLiteral("hello from controller"),
+           QStringLiteral("controller chat keeps the text"));
+    Expect(!inboundArgs.at(3).toString().isEmpty(),
+           QStringLiteral("host assigns a receive timestamp"));
+
+    bool sawAcceptedAck = false;
+    bool sawBroadcast = false;
+    for (const QList<QVariant>& arguments : forwardedSpy) {
+        const QJsonObject response = arguments.first().toJsonObject();
+        if (response.value(QStringLiteral("type")).toString()
+                == QStringLiteral("chatAck")
+            && response.value(QStringLiteral("id")).toString()
+                == QStringLiteral("chat-in-1")) {
+            sawAcceptedAck =
+                response.value(QStringLiteral("accepted")).toBool();
+        }
+        if (response.value(QStringLiteral("type")).toString()
+                == QStringLiteral("chatMessage")
+            && response.value(QStringLiteral("id")).toString()
+                == QStringLiteral("chat-in-1")) {
+            sawBroadcast = true;
+        }
+    }
+    Expect(sawAcceptedAck,
+           QStringLiteral("accepted controller chat gets a positive ack"));
+    Expect(sawBroadcast,
+           QStringLiteral("accepted controller chat is broadcast to controllers"));
+
+    const int responsesBeforeHostReply = forwardedSpy.count();
+    manager.sendChatMessage(QStringLiteral("hello from host"));
+    Expect(WaitUntil(
+               [&]() {
+                   for (int i = responsesBeforeHostReply;
+                        i < forwardedSpy.count(); ++i) {
+                       const QJsonObject response =
+                           forwardedSpy.at(i).first().toJsonObject();
+                       if (response.value(QStringLiteral("type")).toString()
+                               == QStringLiteral("chatMessage")
+                           && response.value(QStringLiteral("from")).toString()
+                               == QStringLiteral("host")) {
+                           return true;
+                       }
+                   }
+                   return false;
+               },
+               1000),
+           QStringLiteral("host chat is broadcast to controllers"));
+    Expect(chatReceivedSpy.count() == 1,
+           QStringLiteral("host chat is also visible to the host UI"));
+    const QList<QVariant> outboundArgs = chatReceivedSpy.takeFirst();
+    Expect(outboundArgs.at(0).toString() == QStringLiteral("host"),
+           QStringLiteral("host chat is labelled by sender"));
+    Expect(outboundArgs.at(2).toString() == QStringLiteral("hello from host"),
+           QStringLiteral("host chat keeps the text"));
 
     const QString clientRequest =
         QStringLiteral(

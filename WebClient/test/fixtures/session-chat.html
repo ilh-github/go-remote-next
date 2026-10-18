@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>QuickDesk Session Chat Smoke</title>
+</head>
+<body>
+    <div id="remoteContainer"></div>
+    <script type="module">
+        import { SessionChatModel } from '../../js/chat/session-chat.js';
+        import { ChatPanel } from '../../js/chat/chat-panel.js';
+        import { FloatingToolbar } from '../../js/ui/floating-toolbar.js';
+
+        const remoteHtml = await fetch('../../remote.html').then(response => response.text());
+        const parsed = new DOMParser().parseFromString(remoteHtml, 'text/html');
+        const style = document.createElement('style');
+        style.textContent = parsed.querySelector('style')?.textContent || '';
+        document.head.appendChild(style);
+
+        const sent = [];
+        const model = new SessionChatModel({
+            send: message => sent.push(message),
+            now: () => '2026-10-18T08:00:00.000Z',
+            idFactory: () => 'chat-1',
+        });
+        const container = document.getElementById('remoteContainer');
+        const toolbar = new FloatingToolbar(container);
+        toolbar.setChatSupport(true);
+        toolbar.updateChatUnread(2);
+        const panel = new ChatPanel(container, model);
+
+        model.handleMessage({
+            id: 'host-chat-1',
+            type: 'chatMessage',
+            from: 'host',
+            text: '你好，文件管理器已经打开了。',
+            sentAt: '2026-10-18T08:00:01.000Z',
+        });
+        model.send('收到，我正在检查桌面画面。');
+        model.handleMessage({
+            id: 'chat-1',
+            type: 'chatMessage',
+            from: 'controller',
+            text: '收到，我正在检查桌面画面。',
+            sentAt: '2026-10-18T08:00:02.000Z',
+        });
+        model.handleMessage({
+            id: 'host-chat-2',
+            type: 'chatMessage',
+            from: 'host',
+            text: '可以，需要我打开任务管理器吗？',
+            sentAt: '2026-10-18T08:00:03.000Z',
+        });
+
+        panel.open();
+        const panelRect = panel._root.querySelector('.chat-panel').getBoundingClientRect();
+        const chatMenuItem = toolbar._menuElement.querySelector('#sessionChatMenuItem');
+        document.documentElement.dataset.chatSmokeMetrics = JSON.stringify({
+            innerWidth: window.innerWidth,
+            scrollWidth: document.documentElement.scrollWidth,
+            panelLeft: panelRect.left,
+            panelRight: panelRect.right,
+            panelWidth: panelRect.width,
+            chatMenuVisible: chatMenuItem?.style.display !== 'none',
+            chatMenuText: chatMenuItem?.querySelector('.menu-text')?.textContent || '',
+        });
+        window.__sessionChatSmoke = {
+            messageCount: panel._messages.children.length,
+            unreadCount: model.unreadCount,
+            sentCount: sent.length,
+        };
+    </script>
+</body>
+</html>

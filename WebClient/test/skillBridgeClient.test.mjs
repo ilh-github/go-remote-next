@@ -78,3 +78,28 @@ test('capabilities track the available file tools', () => {
     assert.equal(client.supportsTool('read_file_chunk'), false);
     assert.equal(eventCount, 2);
 });
+
+test('raw bridge messages can be sent and unclaimed messages are emitted', () => {
+    const sent = [];
+    const client = new SkillBridgeClient((data) => sent.push(JSON.parse(data)));
+    const received = [];
+    client.addEventListener('message', event => received.push(event.detail));
+
+    client.sendRaw({
+        id: 'chat-1',
+        type: 'chatSend',
+        text: 'hello',
+        sentAt: '2026-10-18T00:00:00.000Z',
+    });
+    assert.equal(sent[0].type, 'chatSend');
+
+    const hostMessage = {
+        id: 'host-chat-1',
+        type: 'chatMessage',
+        from: 'host',
+        text: 'hi',
+        sentAt: '2026-10-18T00:00:01.000Z',
+    };
+    client.handleMessage(hostMessage);
+    assert.deepEqual(received, [hostMessage]);
+});

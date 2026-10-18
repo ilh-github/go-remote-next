@@ -112,6 +112,21 @@ MainController::MainController(QObject* parent)
     // Create SkillHostManager and wire it to HostManager (host-side skill bridge)
     m_skillHostManager = std::make_unique<SkillHostManager>(this);
     m_skillHostManager->setHostManager(m_hostManager.get());
+    m_sessionChatManager = std::make_unique<SessionChatManager>(
+        [this](const QString& deviceId, const QString& jsonData) {
+            if (!m_clientManager
+                || !m_clientManager->connectedDeviceIds().contains(deviceId)) {
+                return false;
+            }
+            m_clientManager->sendSkillCommand(deviceId, jsonData);
+            return true;
+        },
+        m_skillHostManager.get(),
+        this);
+    connect(m_clientManager.get(),
+            &ClientManager::skillBridgeResponseReceived,
+            m_sessionChatManager.get(),
+            &SessionChatManager::ingestSkillResponse);
     connect(m_skillHostManager.get(), &SkillHostManager::skillHostStarted,
             this, &MainController::maybeStartHostMetricsReporter);
 
@@ -627,6 +642,11 @@ void MainController::toggleSessionRecording(const QString& deviceId)
 RemoteFileManager* MainController::remoteFiles() const
 {
     return m_remoteFileManager.get();
+}
+
+SessionChatManager* MainController::sessionChat() const
+{
+    return m_sessionChatManager.get();
 }
 
 TurnServerManager* MainController::turnServerManager() const
