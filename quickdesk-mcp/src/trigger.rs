@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -64,6 +64,11 @@ struct CallbackDeliveryQuery {
     limit: Option<usize>,
 }
 
+#[derive(Deserialize)]
+struct AcknowledgeCallbackDeliveriesRequest {
+    delivery_ids: Vec<String>,
+}
+
 pub fn router(runtime: TriggerRuntime) -> Router {
     Router::new()
         .route("/v1/workflows/{workflow_id}/run", post(run_workflow))
@@ -85,6 +90,10 @@ pub fn router(runtime: TriggerRuntime) -> Router {
         .route(
             "/v1/callback-deliveries/{delivery_id}/ack",
             post(acknowledge_callback_delivery),
+        )
+        .route(
+            "/v1/callback-deliveries/ack",
+            post(acknowledge_callback_deliveries),
         )
         .route("/v1/triggers", get(list_triggers).post(create_trigger))
         .route(
@@ -393,6 +402,37 @@ async fn acknowledge_callback_delivery(
         Err(CallbackAckError::Store(error)) => {
             error_response(StatusCode::INTERNAL_SERVER_ERROR, &error)
         }
+    }
+}
+
+async fn acknowledge_callback_deliveries(
+    State(state): State<TriggerState>,
+    headers: HeaderMap,
+    Json(request): Json<AcknowledgeCallbackDeliveriesRequest>,
+) -> Response {
+    if let Err(error) = authorize_request(&state, &headers) {
+        return auth_error_response(error);
+    }
+    let mut seen = HashSet::new();
+    let delivery_ids = request
+        .delivery_ids
+        .into_iter()
+        .map(|delivery_id| delivery_id.trim().to_string())
+        .filter(|delivery_id| !delivery_id.is_empty())
+        .filter(|delivery_id| seen.insert(delivery_id.clone()))
+        .collect::<Vec<_>>();
+    if delivery_ids.is_empty() {
+        return error_response(StatusCode::BAD_REQUEST, "delivery_ids is required");
+    }
+    if delivery_ids.len() > 200 {
+        return error_response(
+            StatusCode::BAD_REQUEST,
+            "delivery_ids cannot contain more than 200 unique ids",
+        );
+    }
+    match state.jobs.acknowledge_callback_deliveries(&delivery_ids) {
+        Ok(result) => Json(result).into_response(),
+        Err(error) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &error),
     }
 }
 
@@ -1665,6 +1705,26 @@ mod tests {
         });
         let slots = Arc::new(Semaphore::new(1));
         let jobs = test_jobs(&temp, ws.clone(), shared.clone(), slots.clone());
+        let pending_delivery_id = Uuid::new_v4().to_string();
+        let pending_now = Utc::now().to_rfc3339();
+        std::fs::write(
+            temp.join("callback-outbox")
+                .join(format!("{pending_delivery_id}.json")),
+            json!({
+                "id": pending_delivery_id.clone(),
+                "url": "http://127.0.0.1:1/pending-ack",
+                "event": {"event": "callback.pending"},
+                "status": "pending",
+                "attempts": 0,
+                "next_attempt_at": (Utc::now() + chrono::Duration::hours(1)).to_rfc3339(),
+                "last_error": "",
+                "acknowledged_at": null,
+                "created_at": pending_now.clone(),
+                "updated_at": pending_now
+            })
+            .to_string(),
+        )
+        .unwrap();
         let app = router(TriggerRuntime {
             token: Some("business-secret".to_string()),
             ws,
@@ -1754,6 +1814,43 @@ mod tests {
         let body = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
         let acknowledged_again: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(acknowledged_again["acknowledged_at"], acknowledged_at);
+
+        let missing_delivery_id = "00000000-0000-0000-0000-000000000000";
+        let request = Request::builder()
+            .method("POST")
+            .uri("/v1/callback-deliveries/ack")
+            .header("Authorization", "Bearer business-secret")
+            .header("Content-Type", "application/json")
+            .body(Body::from(
+                json!({
+                    "delivery_ids": [
+                        delivery_id,
+                        pending_delivery_id,
+                        missing_delivery_id,
+                        delivery_id
+                    ]
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        let response = app.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+        let batch: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(batch["acknowledged"].as_array().unwrap().len(), 1);
+        assert_eq!(batch["acknowledged"][0]["id"], delivery_id);
+        assert_eq!(batch["skipped"], json!([pending_delivery_id]));
+        assert_eq!(batch["not_found"], json!([missing_delivery_id]));
+
+        let request = Request::builder()
+            .method("POST")
+            .uri("/v1/callback-deliveries/ack")
+            .header("Authorization", "Bearer business-secret")
+            .header("Content-Type", "application/json")
+            .body(Body::from(json!({"delivery_ids": []}).to_string()))
+            .unwrap();
+        let response = app.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 
         let request = Request::builder()
             .method("POST")

@@ -195,6 +195,7 @@ X-QuickDesk-Signature: hmac-sha1=<hex>
 GET  /v1/callback-deliveries?status=dead&limit=100
 POST /v1/callback-deliveries/{delivery_id}/retry
 POST /v1/callback-deliveries/{delivery_id}/ack
+POST /v1/callback-deliveries/ack
 Authorization: Bearer <QUICKDESK_TRIGGER_TOKEN>
 ```
 
@@ -206,6 +207,22 @@ Authorization: Bearer <QUICKDESK_TRIGGER_TOKEN>
 `ack` 只接受 `delivered` 或 `dead` 记录，首次调用写入 `acknowledged_at`，重复调用幂等
 返回同一时间。它表示“有人处理过这条投递”，不改变 `status`，也不替代接收端对 HTTP 2xx
 的处理。pending/retry 记录返回 409。
+
+批量确认：
+
+```json
+{
+  "delivery_ids": [
+    "f13f5f2c-7f97-4b1d-99d9-6ff6fef2ad08",
+    "8a5b2eb6-c418-4f7c-931a-ce66cf2e96da"
+  ]
+}
+```
+
+`POST /v1/callback-deliveries/ack` 接受去重后的 1~200 个 id，返回
+`acknowledged`、`skipped` 和 `not_found` 三组结果。已 delivered/dead 的记录幂等确认，
+pending/retry 放入 `skipped`，不存在或非法 UUID 放入 `not_found`；空数组返回 `400`。
+批量确认不会因为个别非终态记录而整体失败。
 
 ## 6. 查询运行报告
 
@@ -388,7 +405,7 @@ MCP 停机期间已经消费过的控制面事件。
 - 法定节假日和复杂工作日日历；IANA 时区与 DST 已支持，但没有节假日跳过规则；
 - 多进程共享 worker、分布式锁和公平调度；当前只支持单进程队列和单进程重启恢复；
 - 控制面事件在 MCP 停机期间的补发/outbox；当前只处理实时到达的事件；
-- 回调确认操作者归属和批量确认；当前只记录 acknowledged_at 时间；
+- 回调确认操作者归属；批量确认已支持，但 trigger token 无法证明具体操作者身份；
 - Owner 委托 grant、最小权限范围和审计回传控制面。
 
 因此 QD-610 仍保持部分完成，不能把本接口描述成完整的业务流程引擎。

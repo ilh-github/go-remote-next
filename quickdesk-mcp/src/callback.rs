@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -76,6 +77,13 @@ pub struct CallbackDelivery {
     pub acknowledged_at: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct CallbackBatchAckResult {
+    pub acknowledged: Vec<CallbackDelivery>,
+    pub skipped: Vec<String>,
+    pub not_found: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -357,6 +365,35 @@ impl CallbackOutbox {
 
     pub fn acknowledge(&self, delivery_id: &str) -> Result<CallbackDelivery, CallbackAckError> {
         self.store.acknowledge(delivery_id)
+    }
+
+    pub fn acknowledge_many(
+        &self,
+        delivery_ids: &[String],
+    ) -> Result<CallbackBatchAckResult, String> {
+        let mut result = CallbackBatchAckResult {
+            acknowledged: Vec::new(),
+            skipped: Vec::new(),
+            not_found: Vec::new(),
+        };
+        let mut seen = HashSet::new();
+        for delivery_id in delivery_ids {
+            let delivery_id = delivery_id.trim();
+            if !seen.insert(delivery_id.to_string()) {
+                continue;
+            }
+            match self.store.acknowledge(delivery_id) {
+                Ok(delivery) => result.acknowledged.push(delivery),
+                Err(CallbackAckError::NotTerminal) => {
+                    result.skipped.push(delivery_id.to_string());
+                }
+                Err(CallbackAckError::NotFound) => {
+                    result.not_found.push(delivery_id.to_string());
+                }
+                Err(CallbackAckError::Store(error)) => return Err(error),
+            }
+        }
+        Ok(result)
     }
 
     #[cfg(test)]

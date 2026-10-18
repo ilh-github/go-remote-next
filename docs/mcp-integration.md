@@ -1167,6 +1167,11 @@ returns 409. A restarted process requeues jobs that were still `queued`; `runnin
 fail closed because their side effects are unknown. Multi-process queue coordination is not
 implemented. See `docs/dev/业务工作流HTTP触发器.md` for the complete contract.
 
+Dead-letter operations also support `POST /v1/callback-deliveries/ack` with up to 200 unique
+`delivery_ids`. The response separates `acknowledged`, `skipped`, and `not_found`; only
+delivered or dead records are acknowledged, while pending/retry records are skipped without
+failing the whole batch.
+
 Persistent triggers are managed through:
 
 ```text
