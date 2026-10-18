@@ -1046,35 +1046,17 @@ func (h *RealtimeHandler) recordAccessEvent(c *gin.Context, sc *signalConn, sess
 	if h.access == nil {
 		return
 	}
-	row, err := h.access.Record(c.Request.Context(), service.RecordDeviceAccessInput{
+	_, err := h.access.RecordWithEvent(c.Request.Context(), service.RecordDeviceAccessInput{
 		DeviceID:  sc.deviceID,
 		ClientID:  sc.clientID,
 		SessionID: sessionID,
 		IP:        c.ClientIP(),
 		Result:    result,
 		Reason:    reason,
-	})
+	}, eventType)
 	if err != nil {
 		log.Printf("[device-access] record %s device=%s failed: %v", result, sc.deviceID, err)
-		return
 	}
-	if row.OwnerID == 0 || h.bus == nil {
-		return
-	}
-	h.bus.Publish(c.Request.Context(), service.Event{
-		Type:     eventType,
-		UserID:   row.OwnerID,
-		DeviceID: sc.deviceID,
-		Data: map[string]interface{}{
-			"device_id":  sc.deviceID,
-			"client_id":  row.ClientID,
-			"session_id": sessionID,
-			"ip":         row.IP,
-			"result":     row.Result,
-			"reason":     row.Reason,
-			"log_id":     row.ID,
-		},
-	})
 }
 
 // activeClientCount returns how many controllers currently hold a signaling

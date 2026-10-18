@@ -314,6 +314,7 @@ func main() {
 		TTL:    time.Duration(cfg.EventBus.ReplayTTLSeconds) * time.Second,
 	})
 	eventOutbox := service.NewEventOutbox(db, bus)
+	deviceAccessService = deviceAccessService.WithOutbox(eventOutbox)
 	deviceMetricAlertService := service.NewDeviceMetricAlertService(db, bus)
 	instanceID := uuid.NewString()
 	presenceService := service.NewPresenceService(redisClient, instanceID)

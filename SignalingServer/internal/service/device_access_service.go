@@ -77,11 +77,23 @@ func IsDeviceAccessResult(result string) bool {
 // DeviceAccessService persists device access attempts and serves them back to
 // the device owner.
 type DeviceAccessService struct {
-	db *gorm.DB
+	db     *gorm.DB
+	outbox DeviceAccessEventOutbox
+}
+
+// DeviceAccessEventOutbox is the transactional sink used for successful and
+// denied access events. The access row and outbox entry commit together.
+type DeviceAccessEventOutbox interface {
+	EnqueueTx(ctx context.Context, tx *gorm.DB, evt Event) (Event, error)
 }
 
 func NewDeviceAccessService(db *gorm.DB) *DeviceAccessService {
 	return &DeviceAccessService{db: db}
+}
+
+func (s *DeviceAccessService) WithOutbox(outbox DeviceAccessEventOutbox) *DeviceAccessService {
+	s.outbox = outbox
+	return s
 }
 
 // RecordDeviceAccessInput is one access attempt as observed by the server.
@@ -97,6 +109,16 @@ type RecordDeviceAccessInput struct {
 // Record persists one access attempt. Callers treat a failure as
 // non-fatal: the verification response must not depend on the audit write.
 func (s *DeviceAccessService) Record(ctx context.Context, in RecordDeviceAccessInput) (*models.DeviceAccessLog, error) {
+	return s.RecordWithEvent(ctx, in, "")
+}
+
+// RecordWithEvent persists an access attempt and, when eventType is non-empty,
+// enqueues the corresponding owner-scoped event in the same transaction.
+func (s *DeviceAccessService) RecordWithEvent(
+	ctx context.Context,
+	in RecordDeviceAccessInput,
+	eventType string,
+) (*models.DeviceAccessLog, error) {
 	if !IsDeviceAccessResult(in.Result) {
 		return nil, ErrInvalidDeviceAccessResult
 	}
@@ -106,17 +128,41 @@ func (s *DeviceAccessService) Record(ctx context.Context, in RecordDeviceAccessI
 	if len(in.Reason) > 255 {
 		in.Reason = in.Reason[:255]
 	}
-	row := &models.DeviceAccessLog{
-		DeviceID:  in.DeviceID,
-		OwnerID:   s.OwnerID(ctx, in.DeviceID),
-		ClientID:  in.ClientID,
-		SessionID: in.SessionID,
-		IP:        in.IP,
-		Result:    in.Result,
-		Reason:    in.Reason,
-		CreatedAt: time.Now().UTC(),
-	}
-	if err := s.db.WithContext(ctx).Create(row).Error; err != nil {
+	var row *models.DeviceAccessLog
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		row = &models.DeviceAccessLog{
+			DeviceID:  in.DeviceID,
+			OwnerID:   ownerIDWithDB(ctx, tx, in.DeviceID),
+			ClientID:  in.ClientID,
+			SessionID: in.SessionID,
+			IP:        in.IP,
+			Result:    in.Result,
+			Reason:    in.Reason,
+			CreatedAt: time.Now().UTC(),
+		}
+		if err := tx.Create(row).Error; err != nil {
+			return err
+		}
+		if eventType == "" || row.OwnerID == 0 || s.outbox == nil {
+			return nil
+		}
+		_, err := s.outbox.EnqueueTx(ctx, tx, Event{
+			Type:     eventType,
+			UserID:   row.OwnerID,
+			DeviceID: row.DeviceID,
+			Data: map[string]interface{}{
+				"device_id":  row.DeviceID,
+				"client_id":  row.ClientID,
+				"session_id": row.SessionID,
+				"ip":         row.IP,
+				"result":     row.Result,
+				"reason":     row.Reason,
+				"log_id":     row.ID,
+			},
+		})
+		return err
+	})
+	if err != nil {
 		return nil, err
 	}
 	return row, nil
@@ -126,8 +172,12 @@ func (s *DeviceAccessService) Record(ctx context.Context, in RecordDeviceAccessI
 // is unbound. Lookup errors collapse to 0 on purpose: an access attempt
 // against an unbound device is still worth recording.
 func (s *DeviceAccessService) OwnerID(ctx context.Context, deviceID string) uint {
+	return ownerIDWithDB(ctx, s.db, deviceID)
+}
+
+func ownerIDWithDB(ctx context.Context, db *gorm.DB, deviceID string) uint {
 	var ud models.UserDevice
-	err := s.db.WithContext(ctx).
+	err := db.WithContext(ctx).
 		Where("device_id = ? AND status = ?", deviceID, true).
 		Order("id ASC").
 		First(&ud).Error

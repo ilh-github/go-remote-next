@@ -791,44 +791,23 @@ func (h *HostHandler) recordDeviceAccess(c *gin.Context, deviceID, clientID, res
 	if h.access == nil {
 		return
 	}
-	row, err := h.access.Record(c.Request.Context(), service.RecordDeviceAccessInput{
+	eventType := ""
+	if result != service.DeviceAccessPendingApproval {
+		eventType = service.EventDeviceAccessGranted
+		if result != service.DeviceAccessGranted {
+			eventType = service.EventDeviceAccessDenied
+		}
+	}
+	_, err := h.access.RecordWithEvent(c.Request.Context(), service.RecordDeviceAccessInput{
 		DeviceID: deviceID,
 		ClientID: clientID,
 		IP:       c.ClientIP(),
 		Result:   result,
 		Reason:   reason,
-	})
+	}, eventType)
 	if err != nil {
 		log.Printf("[device-access] record %s device=%s failed: %v", result, deviceID, err)
-		return
 	}
-	if row.OwnerID == 0 || h.bus == nil {
-		return
-	}
-	// A pending approval is not a denial: the caller publishes
-	// device.access_approval.requested separately. Keep it out of the
-	// approved/denied realtime stream so the owner is not told "denied" while
-	// they still have a request to answer.
-	if result == service.DeviceAccessPendingApproval {
-		return
-	}
-	eventType := service.EventDeviceAccessGranted
-	if result != service.DeviceAccessGranted {
-		eventType = service.EventDeviceAccessDenied
-	}
-	h.bus.Publish(c.Request.Context(), service.Event{
-		Type:     eventType,
-		UserID:   row.OwnerID,
-		DeviceID: deviceID,
-		Data: map[string]interface{}{
-			"device_id": deviceID,
-			"client_id": row.ClientID,
-			"ip":        row.IP,
-			"result":    row.Result,
-			"reason":    row.Reason,
-			"log_id":    row.ID,
-		},
-	})
 }
 
 // -----------------------------------------------------------------------

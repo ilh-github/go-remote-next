@@ -24,7 +24,12 @@ func newEventOutboxTestDB(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatalf("open SQLite: %v", err)
 	}
-	if err := db.AutoMigrate(&models.EventOutbox{}, &models.ScheduledTask{}); err != nil {
+	if err := db.AutoMigrate(
+		&models.EventOutbox{},
+		&models.ScheduledTask{},
+		&models.DeviceAccessLog{},
+		&models.UserDevice{},
+	); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	return db
@@ -327,6 +332,84 @@ func TestScheduledTaskOutboxFailureRollsBackOutcome(t *testing.T) {
 	}
 	if got := notifier.all(); len(got) != 0 {
 		t.Fatalf("legacy notifier fired after rollback: %+v", got)
+	}
+}
+
+func TestDeviceAccessEventCommitsLogAndOutboxTogether(t *testing.T) {
+	db := newEventOutboxTestDB(t)
+	_, _, bus := newEventOutboxTestRedis(t)
+	outbox := NewEventOutbox(db, bus)
+	access := NewDeviceAccessService(db).WithOutbox(outbox)
+	if err := db.Create(&models.UserDevice{
+		UserID:   7,
+		DeviceID: "device-7",
+		Status:   true,
+	}).Error; err != nil {
+		t.Fatalf("create binding: %v", err)
+	}
+
+	row, err := access.RecordWithEvent(context.Background(), RecordDeviceAccessInput{
+		DeviceID:  "device-7",
+		ClientID:  "client-1",
+		SessionID: "session-1",
+		IP:        "203.0.113.7",
+		Result:    DeviceAccessGranted,
+		Reason:    "access code accepted",
+	}, EventDeviceAccessGranted)
+	if err != nil {
+		t.Fatalf("RecordWithEvent: %v", err)
+	}
+	if row.OwnerID != 7 || row.Result != DeviceAccessGranted {
+		t.Fatalf("access row = %+v", row)
+	}
+
+	var outboxRows []models.EventOutbox
+	if err := db.Find(&outboxRows).Error; err != nil {
+		t.Fatalf("load outbox: %v", err)
+	}
+	if len(outboxRows) != 1 || outboxRows[0].Status != eventOutboxPending {
+		t.Fatalf("outbox rows = %+v, want one pending event", outboxRows)
+	}
+	var event Event
+	if err := json.Unmarshal([]byte(outboxRows[0].Payload), &event); err != nil {
+		t.Fatalf("decode event: %v", err)
+	}
+	if event.Type != EventDeviceAccessGranted || event.UserID != 7 ||
+		event.DeviceID != "device-7" || event.Data["log_id"] != float64(row.ID) {
+		t.Fatalf("outbox event = %+v", event)
+	}
+}
+
+func TestDeviceAccessEventOutboxFailureRollsBackLog(t *testing.T) {
+	db := newEventOutboxTestDB(t)
+	access := NewDeviceAccessService(db).WithOutbox(
+		&failingScheduledTaskOutbox{err: errors.New("outbox unavailable")},
+	)
+	if err := db.Create(&models.UserDevice{
+		UserID:   7,
+		DeviceID: "device-7",
+		Status:   true,
+	}).Error; err != nil {
+		t.Fatalf("create binding: %v", err)
+	}
+
+	_, err := access.RecordWithEvent(context.Background(), RecordDeviceAccessInput{
+		DeviceID: "device-7",
+		ClientID: "client-1",
+		IP:       "203.0.113.7",
+		Result:   DeviceAccessDeniedPolicy,
+		Reason:   "policy denied",
+	}, EventDeviceAccessDenied)
+	if err == nil {
+		t.Fatal("RecordWithEvent succeeded despite outbox failure")
+	}
+
+	var logs int64
+	if err := db.Model(&models.DeviceAccessLog{}).Count(&logs).Error; err != nil {
+		t.Fatalf("count access logs: %v", err)
+	}
+	if logs != 0 {
+		t.Fatalf("access logs = %d, want rollback to 0", logs)
 	}
 }
 
