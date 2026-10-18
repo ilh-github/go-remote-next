@@ -1,6 +1,6 @@
 # QuickDesk 功能总清单
 
-> 最后对账：2026-10-18 16:56 CST。上游与 fork 状态都是动态的，实施前必须重新执行
+> 最后对账：2026-10-18 17:59 CST。上游与 fork 状态都是动态的，实施前必须重新执行
 > `git fetch --all --prune` 并核对 GitHub issue / PR。
 >
 > 本文件是 QuickDesk fork 后续产品开发的唯一功能清单。它合并三类输入：
@@ -43,10 +43,10 @@
 
 - 仓库：`go-remote-next`
 - 本地主分支：`dev`、`master`
-- 本地代码基线：`2d211c1`（QD-610 服务端 event retry claim 崩溃恢复）；`origin/dev` 与
+- 本地代码基线：`c650d3d`（QD-610 访问审批生命周期事务 outbox）；`origin/dev` 与
   `origin/master` 仍在 `9837194`，本地领先数量以 `git rev-list --count origin/dev..dev`
   的实时值为准
-- 上游基线：`barry-ran/QuickDesk` 的 `dev` 和 `master` 当前均为 `f6651f0`
+- 上游基线：`barry-ran/QuickDesk` 的 `dev` = `5db316c`，`master` = `f6651f0`
 - 上游维护口径：持续维护但暂缓更新，下一阶段重点偏 MCP；外部贡献从 `dev` 切分支，完成后合入 `dev`，维护者定期合入 `master`
 - Remoting 边界：`quickdesk-remoting` 需要编译整个 Chromium，涉及 Remoting 的改动优先向上游提需求，不要求贡献者本地编译
 - 浏览器技能桥边界：预编译 Remoting 已带 `qd-skill-bridge`，WebClient 可通过
@@ -93,6 +93,9 @@
   `remote_sessions` 同事务提交；进程重启 orphan sweep 现在会为每个被关闭会话产生结束事件
 - QD-610 录像生命周期已迁入事务 outbox：recording create/update/delete、
   artifact 和 thumbnail 更新与 `session_recordings` 同事务；删除文件仍在数据库提交后执行
+- QD-610 访问审批生命周期已迁入事务 outbox：`device.access_approval.requested/decided`
+  与 `device_access_approvals` 同事务提交；outbox 插入失败会回滚审批创建或决定，
+  handler 不再二次 publish
 - QD-610 已补 MCP 事件重连和持久化：QuickDesk WebSocket API 默认保留最近 2048 条白名单
   事件，可用 `QUICKDESK_CONTROL_PLANE_REPLAY_CAPACITY` 配置为 1~10000；按用户 ID
   原子持久化，线程重启/QuickDesk 重启后重新载入；MCP auth 携带
@@ -145,15 +148,14 @@
   QD-215 主线和上游最小候选均已提交并推送。
 - 上游核对：`upstream/dev` 已前进到 `5db316c`（skill-host 邻近运行时修复）；
   fork `dev` 已合并该基线；当前上游 open issues 10 个、
-  open PR 6 个（新增本轮的 #26 file-ops 分块与版本保留软删除、#27 WebClient 文件管理器，
-  两者为 stacked 关系）。
+  open PR 5 个（#22、#23、#25、#26、#27）；#24 已合并为 `5db316c`。
 - 上游维护：issue #21 已由维护者回复“持续维护、暂缓更新、重点偏 MCP、欢迎从
   `dev` 切分支贡献、Remoting 改动由维护者处理”；不能再把“暂缓”理解成停止维护。
-- 上游 PR：#22、#23、#24、#25 均为 OPEN / MERGEABLE，但 GitHub 返回的
-  `mergeStateStatus=UNSTABLE` 且没有 reported checks；不能把 MERGEABLE 写成 CI 已通过。
+- 上游 PR：#22、#23、#25、#27 为 OPEN / `UNSTABLE`，#26 为 OPEN / `CLEAN`；
+  多数仍没有 reported checks，不能把 MERGEABLE 或 CLEAN 写成 CI 已通过。
 - 清单统计：117 个唯一 QD ID；84 个 `[x]`、20 个 `[~]`、9 个 `[ ]`、
   1 个 `[!]`、2 个 `[>]`、1 个 `[-]`。
-- 上游待办已全部映射到本清单：10 个 open issue、6 个 open PR、3 个未完成 Roadmap
+- 上游待办已全部映射到本清单：10 个 open issue、5 个 open PR、3 个未完成 Roadmap
   项均有对应 QD、处理边界和上游贡献方式；上游已完成的 Roadmap 项只作为继承基线，
   不重复开发。
 - 本次合并后的实施结论：上游没有新增必须立即重复开发的 issue；`QD-608`
@@ -200,6 +202,10 @@
 - QD-610 录像生命周期 outbox：create/update/delete 三类事件依序生成；outbox 失败回滚
   录像创建；artifact/thumbnail 更新在同一事务内只生成一次最终事件。SignalingServer
   全量测试、vet、race 和构建通过。
+- QD-610 访问审批生命周期 outbox：requested/decided 与审批行同事务；outbox 失败分别
+  回滚创建和决定；重复决定不产生第二条事件。SignalingServer 全量测试、vet、race 和
+  构建通过；上游 `codex/upstream-event-outbox@d9e231a` 同步通过全包测试、vet、race、
+  构建和单提交 diff check。
 - QD-610 第十六至十八阶段：cron trigger 新增 `skip_holidays`，按 IANA 时区本地日期跳过
   内置中国法定放假日，调休上班日仍执行；支持 `QUICKDESK_HOLIDAY_CALENDAR_DIR`
   追加后续年份；interval/event-only 使用该标志返回 400。默认 replay buffer 提升到
@@ -1011,7 +1017,7 @@ QD-002 / QD-403 的上游候选已经推送并开 PR：
   上游 PR <https://github.com/barry-ran/QuickDesk/pull/26>，OPEN / MERGEABLE / CLEAN。
 - `codex/upstream-qd-403-webclient` = `9ff00af`：stacked 在 file-ops 分支上，只含浏览器
   `qd-skill-bridge` 客户端、Web 文件管理器 UI、remote-main 接线、样式、双语和 Node 测试；
-  上游 PR <https://github.com/barry-ran/QuickDesk/pull/27>，base 为 PR #26 的 head。
+  上游 PR <https://github.com/barry-ran/QuickDesk/pull/27>，当前 base 为 `dev`。
 - 验证基线：候选分支上 file-ops 4/4、Clippy `-D warnings`、WebClient 12/12、生产构建、
   接线检查（完整能力集打开菜单入口）和 diff check 全部通过；fork 主线另跑 62/62 与
   桌面/移动 Chrome 烟测。

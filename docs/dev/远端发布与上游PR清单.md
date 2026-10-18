@@ -1,6 +1,6 @@
 # 远端发布与上游 PR 清单
 
-**更新时间**: 2026-10-18 17:50 CST
+**更新时间**: 2026-10-18 17:59 CST
 
 这份清单记录本地验证完成后的远端写入与 PR 状态。远端状态必须以实际
 `origin/*` ref、push 结果和 GitHub PR 为准，不能把本地候选写成已共享。
@@ -10,9 +10,10 @@
 - fork 本地主线：`dev` / `master` 已同步；QD-907 功能提交为 `33e9851`、`fd92cdd`，
   上传重试耗尽测试为 `f8d0a34`；QD-610 数据库事务 outbox 提交为 `6c71f97`，设备访问
   事件迁移为 `f2534ec`，策略变更迁移为 `6bdc057`，远端会话生命周期迁移为 `3bbc175`，
-  录像生命周期迁移为 `cd08a0f`。文档收口后本地领先 `origin/dev` 64 个提交
+  录像生命周期迁移为 `cd08a0f`，访问审批生命周期迁移为 `c650d3d`。文档收口后
+  本地领先 `origin/dev` 66 个提交
 - fork 远端：`origin/dev` 与 `origin/master` 当前仍为 `9837194`
-- 本地领先：`dev` / `master` 均比各自远端多 64 个提交
+- 本地领先：`dev` / `master` 均比各自远端多 66 个提交
 - 推送 blocker：2026-10-18 执行 `git push origin dev master` 和候选分支 push 均被
   执行策略拒绝，错误为 `approval required by policy, but AskForApproval is set to Never`；
   未绕过审批策略。`git ls-remote` 于同一时刻确认远端主分支仍为 `9837194`，QD-111
@@ -33,7 +34,7 @@
   Rust 测试；已推送并创建上游 PR #26（OPEN / MERGEABLE / CLEAN）
 - 上游 QD-403 WebClient 候选：`codex/upstream-qd-403-webclient` = `9ff00af`（stacked 在
   file-ops 候选上），只含 `SkillBridgeClient`、Web 文件管理器、remote-main 接线、样式、
-  双语和 Node 测试；已推送并创建上游 PR #27（base 为 PR #26 的 head）
+  双语和 Node 测试；已推送并创建上游 PR #27（当前 base 为 `dev`）
 - 上游 QD-204 API 候选：`codex/upstream-qd-204-api` = `d2321b9`（基于 PR #25 的
   `feat/signaling-control-plane` = `8998466`）
 - 上游 QD-204 客户端候选：`codex/upstream-qd-204-client` = `b259d03`（同一 PR #25
@@ -72,13 +73,12 @@
 - 上游 QD-002 file-ops 候选：`codex/upstream-qd-002-file-ops` = `e106be4`（基于
   `upstream/dev@f6651f0`），已推送并创建上游 PR #26（OPEN / MERGEABLE / CLEAN）
 - 上游 QD-403 WebClient 候选：`codex/upstream-qd-403-webclient` = `9ff00af`（stacked 在
-  file-ops 候选上），已推送并创建上游 PR #27（base 为 PR #26 的 head）
-- 上游基线：`barry-ran/QuickDesk` 的 `dev` / `master` = `f6651f0`
+  file-ops 候选上），已推送并创建上游 PR #27（当前 base 为 `dev`）
+- 上游基线：`barry-ran/QuickDesk` 的 `dev` = `5db316c`，`master` = `f6651f0`
 - 上游维护口径：issue #21 已确认“持续维护、暂缓更新、重点偏 MCP”；贡献从
   `upstream/dev` 切分支，完成后 PR 合入 `dev`；Remoting 改动由维护者处理
-- 上游待办快照：10 个 open issue、6 个 open PR（#22、#23、#24、#25 与本轮新增的
-  #26、#27）；#26 / #27 为 MERGEABLE / CLEAN，#22~#25 为 MERGEABLE / UNSTABLE
-  且没有 reported checks
+- 上游待办快照：10 个 open issue、5 个 open PR（#22、#23、#25、#26、#27）；
+  #24 已合并为 `5db316c`；#26 为 `CLEAN`，#22、#23、#25、#27 为 `UNSTABLE`
 - 上游待办融合口径：fork 自有缺口、旧 Go-Remote 差距、上游 open issue/PR/Roadmap
   已统一落入 `docs/dev/QuickDesk功能总清单.md`；开发和上游 PR 顺序以其 3.1、3.2、
   3.3 和第 16、17 节为准
@@ -125,20 +125,21 @@
   崩溃恢复。独立上游候选 `codex/upstream-event-replay-retention` = `b5da22f`，直接
   基于 PR #25 的 `feat/signaling-control-plane@8998466`，9 个文件；候选 Go 全包测试、
   `go vet`、EventBus race 和直接基线 diff check 通过。分支 push 仍被当前策略拒绝
-- QD-610 数据库事务 outbox 上游候选：`codex/upstream-event-outbox` = `215f9ed`，
+- QD-610 数据库事务 outbox 上游候选：`codex/upstream-event-outbox` = `d9e231a`，
   stacked 在 `codex/upstream-event-replay-retention@b5da22f`；只新增 `event_outbox`
   表/模型、条件 claim worker、EventBus durable
-  publish 路径、`scheduled_task.failed` 和 `device.access.granted/denied` 原子迁移及
-  对应测试。候选 Go 全包测试、`go vet`、race 编译、生产构建和直接 stacked 基线 diff
-  check 通过；数据库 outbox 行为测试在 fork 的 SQLite 套件中执行，候选本身按现有上游
-  测试约定需要 `QD_TEST_DATABASE_URL` 才运行 Postgres 用例。分支尚未推送
+  publish 路径、`scheduled_task.failed`、设备访问、远端会话、录像和访问审批生命周期
+  原子迁移及对应测试。候选 chain 为
+  `8998466 -> b5da22f -> f2d7cf7 -> 215f9ed -> f730557 -> 6ecf4e6 -> d9e231a`；
+  Go 全包测试、`go vet`、race、生产构建和单提交 diff check 通过；数据库 outbox
+  行为测试在 fork 的 SQLite 套件中执行，候选本身按现有上游测试约定需要
+  `QD_TEST_DATABASE_URL` 才运行 Postgres 用例。分支尚未推送
 - 策略变更 outbox 增量 `6bdc057` 暂留 fork 主干：PR #25 基线还没有当前 deny/approval
   策略模型，直接 cherry-pick 会把 QD-109 等不相关功能拖进 outbox PR。等 QD-109 策略
   候选进入 stacked 基线后再追加到上游候选
-- 远端会话生命周期 outbox 增量 `3bbc175` 已追加到上游候选，当前
-  `codex/upstream-event-outbox` 继续追加录像生命周期增量 `cd08a0f`，当前
-  `6ecf4e6`；候选全包测试、vet、race、构建和 stacked diff check 通过，数据库行为测试
-  仍需 `QD_TEST_DATABASE_URL`
+- 远端会话、录像和访问审批生命周期 outbox 增量已追加到上游候选，当前
+  `codex/upstream-event-outbox@d9e231a`；候选全包测试、vet、race、构建和单提交 diff
+  check 通过，数据库行为测试仍需 `QD_TEST_DATABASE_URL`
 - QD-111 / QD-408 文件传输审计：fork 提交 `b9f414c`，控制端在 DataChannel 完成/失败后
   上报，服务端校验设备归属并按 `(actor, direction, transfer_id)` 幂等写审计。
   WebClient 66/66、生产构建、Qt CTest 15/15、Go 测试/vet 和真实 SQLite E2E 通过。
