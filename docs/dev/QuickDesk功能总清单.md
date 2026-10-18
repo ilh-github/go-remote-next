@@ -1,6 +1,6 @@
 # QuickDesk 功能总清单
 
-> 最后对账：2026-10-18 18:16 CST。上游与 fork 状态都是动态的，实施前必须重新执行
+> 最后对账：2026-10-18 18:22 CST。上游与 fork 状态都是动态的，实施前必须重新执行
 > `git fetch --all --prune` 并核对 GitHub issue / PR。
 >
 > 本文件是 QuickDesk fork 后续产品开发的唯一功能清单。它合并三类输入：
@@ -43,7 +43,7 @@
 
 - 仓库：`go-remote-next`
 - 本地主分支：`dev`、`master`
-- 本地代码基线：`0b746b9`（QD-610 收藏设备生命周期事务 outbox）；`origin/dev` 与
+- 本地代码基线：`565f643`（QD-907 WebClient 有界信令重连）；`origin/dev` 与
   `origin/master` 仍在 `9837194`，本地领先数量以 `git rev-list --count origin/dev..dev`
   的实时值为准
 - 上游基线：`barry-ran/QuickDesk` 的 `dev` = `5db316c`，`master` = `f6651f0`
@@ -128,6 +128,8 @@
   缺失，离线、错误访问码、限流、审批等待和控制器签名失败分别显示稳定中文/英文原因
 - QD-907 录制上传重试耗尽已有证据：连续传输错误和最终 503 都保留最后错误，所有尝试
   使用同一个 `Upload-Offset`，不会把失败上传误报成完成
+- QD-907 WebSocket 重连已有有界策略：信令断开后重新签发一次性 signal_token，按
+  `0/1/3/7s` 四次尝试重连；不可重试的访问失败立即停止，尝试耗尽后显示稳定失败状态
 - fork PR：<https://github.com/ilh-github/go-remote-next/pull/1>，OPEN / MERGEABLE /
   CLEAN，7 项检查全部成功；它的 head 是早期最小分支，不等于当前完整 `dev`
 - 服务端：Go SignalingServer
@@ -847,7 +849,7 @@ fork 是否能继续开发，也不能因为 fork 自己有实现就再次向 up
 | QD-904 | Web End-to-End / Playwright | `[~]` | 已有部分 smoke，覆盖面待扩 |
 | QD-905 | 信令、TURN 并发压测 | `[x]` | 已有负载和 soak 脚本 |
 | QD-906 | Windows/macOS 真机矩阵 | `[~]` | Windows 主链已验证；输入、音频、剪贴板边界待补 |
-| QD-907 | 协议异常、权限异常、重连耗尽 | `[~]` | 已补信令 auth_ok 超时、认证前 payload/send 门禁、访问策略/错误访问码/排队/签名失败分类，以及上传 transport/503 重试耗尽；WebSocket 重连耗尽与上传/离线并发组合仍待继续扩边界 |
+| QD-907 | 协议异常、权限异常、重连耗尽 | `[~]` | 已补信令 auth_ok 超时、认证前 payload/send 门禁、访问策略/错误访问码/排队/签名失败分类、上传 transport/503 重试耗尽，以及 WebSocket 断线后重新签发 token 的有界 `0/1/3/7s` 重连与耗尽状态；上传/离线并发组合和真实弱网切换仍待继续扩边界 |
 | QD-908 | 2h+ 桌面长稳和几百路观看 | `[ ]` | 当前缺业务级长稳基线 |
 | QD-909 | 安全审计：文件、剪贴板、权限 | `[~]` | 访问和会话已有；文件/剪贴板未进入控制面 |
 | QD-910 | 需求、上游与实现持续对账 | `[~]` | 每次上游合并、issue/PR 变化或功能完成时，同步本清单、状态证据和上游贡献决策 |
