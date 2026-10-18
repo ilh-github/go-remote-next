@@ -1,10 +1,11 @@
 # QuickDesk 业务工作流 HTTP 触发器
 
-> 状态（2026-10-18）：QD-610 第十六阶段。业务系统可以保存 interval、IANA 时区 cron 或控制面事件
+> 状态（2026-10-18）：QD-610 第十九阶段。业务系统可以保存 interval、IANA 时区 cron 或控制面事件
 > trigger，通过独立 Bearer token 立即运行，并由 HTTP transport 的后台 worker 领取到期
 > 触发器。`Idempotency-Key`、异步 job、HMAC 出站回调、持久回调 outbox 和受控控制面
 > 事件订阅、本机事件持久化、重连补发和 cron 法定节假日跳过已支持；跨实例事件 outbox、
-> 委托权限细分和跨进程 worker 仍未完成。
+> 委托权限细分和公平调度仍未完成。同一数据目录上的多个 MCP 进程会用原子 claim
+> 协调回调投递和 queued job 执行，但这不是跨机器数据库队列。
 
 ## 1. 边界
 
@@ -186,7 +187,9 @@ X-QuickDesk-Signature: hmac-sha1=<hex>
 幂等。单次请求 10 秒超时；失败后按 5 秒起步指数退避，最长 1 小时，最多 8 次，随后
 进入 `dead`。进程重启会重新扫描 `pending` / `retry` 记录继续投递；投递成功后状态转为
 `delivered`。异步 job JSON 同时记录 `callback_delivery_id`、`callback_status` 和
-`callback_error`，便于把 job 与 outbox 记录对应起来。
+`callback_error`，便于把 job 与 outbox 记录对应起来。多个进程共享同一目录时，worker
+先原子创建 `{delivery_id}.claim` 并复查记录仍到期，只有持锁进程可以发 HTTP；正常结束
+会释放 claim，异常遗留的 claim 在 30 秒后可按过期租约回收，避免重复投递和永久卡死。
 
 ### 5.1 死信查询与人工重放
 
@@ -424,6 +427,9 @@ API 会补发 revision 更大的事件。API token 为空时，新连接直接�
 - 同步请求会占用一个执行槽；业务系统应设置足够超时并处理 429。
 - 异步任务状态写入 `~/.quickdesk/workflow-jobs/{run_id}.json`，执行参数独立写入
   `{run_id}.request.json`；重启会恢复 queued、失败关闭 running、收口 cancelling。
+- 多个进程共享同一 jobs 目录时，执行前必须原子取得 `{run_id}.claim`；没有取到或记录
+  已不再是 queued 的 worker 会放弃执行。另一个实例持有未过期 claim 时，running job
+  不会被误判为崩溃遗留；claim 过期后仍按 fail-closed 规则转为 failed。
 - 回调只允许 HTTP，不允许直接在公网暴露；签名密钥必须由接收端独立保管。
 - 回调 outbox 会在重启后继续投递 `pending` / `retry` 记录，但 `dead` 记录当前只能
   从本地 JSON 查看，或通过受 Bearer token 保护的列表、人工重放和 ack 接口处理。
@@ -431,7 +437,8 @@ API 会补发 revision 更大的事件。API token 为空时，新连接直接�
 ## 9. 尚未完成
 
 - 自定义交易所日历、“每月最后一个工作日”等业务日历；法定节假日跳过和 IANA/DST 已支持；
-- 多进程共享 worker、分布式锁和公平调度；当前只支持单进程队列和单进程重启恢复；
+- 跨机器数据库队列、所有权心跳和公平调度；当前只协调共享同一数据目录的多进程，
+  不是 PostgreSQL/Redis 分布式 worker；
 - 跨实例事件 outbox、服务端持久 replay retention 和超出配置容量的积压；当前只有
   QuickDesk 本机按用户分区、默认 2048 条且可配置的持久 replay buffer；
 - 回调确认操作者归属；批量确认已支持，但 trigger token 无法证明具体操作者身份；

@@ -1144,8 +1144,9 @@ WebSocket 请求处中止，并写入 `cancelled=true` 的报告。
 `X-QuickDesk-Timestamp`、`X-QuickDesk-Delivery-Id` 和
 `X-QuickDesk-Signature: hmac-sha1=<hex>`；签名原文为
 `timestamp + "." + raw_json_body`。回调先进入持久 outbox，并用同一 delivery id
-自动重试和跨进程重启恢复；单次请求 10 秒超时，最多 8 次，失败后进入死信。回调当前只
-允许 HTTP，跨机器部署必须放在 TLS 反向代理后。
+自动重试和跨进程重启恢复；同一数据目录的多个 MCP 进程会用原子 claim 保证同一
+delivery 只被一个 worker 投递，异常遗留 claim 30 秒后可回收。单次请求 10 秒超时，
+最多 8 次，失败后进入死信。回调当前只允许 HTTP，跨机器部署必须放在 TLS 反向代理后。
 
 死信可通过同一 Bearer trigger token 查询和人工重放：
 
@@ -1171,8 +1172,10 @@ cron 和事件 trigger 由后台 worker 执行。时间触发器可选 60 秒~36
 格式追加后续年份。该标志只能与 cron 一起使用。停机期间漏过的槽位仍不补跑。可选
 `Idempotency-Key` 会把相同请求的第一次 `WorkflowRunReport` 持久化并重放；相同 key
 对应不同请求或仍在执行的请求返回 409。回调确认操作者归属、跨实例事件 outbox 和
-多进程共享 worker 尚未实现。进程重启会恢复 queued job；running job 会安全失败，不会
-自动重放未知副作用。完整契约见
+跨机器分布式 worker 尚未实现。同一 jobs 目录上的多个进程会用 `{run_id}.claim`
+协调 queued job，只有一个实例执行；另一个实例持有有效 claim 时不会把 running job
+误判为崩溃。进程重启会恢复 queued job；无有效 claim 的 running job 会安全失败，
+不会自动重放未知副作用。完整契约见
 `docs/dev/业务工作流HTTP触发器.md`。
 
 持久化触发器通过以下接口管理：
