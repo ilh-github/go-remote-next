@@ -95,6 +95,41 @@ int main() {
     Expect(replayed.last().value(QStringLiteral("server_rev")).toInt() == 3,
            "replay buffer preserves event order");
     Expect(replayBuffer.size() == 2, "duplicate event ids are not buffered twice");
+
+    quickdesk::ControlPlaneEventReplayBuffer defaultCapacity;
+    for (int index = 1; index <= 300; ++index) {
+        defaultCapacity.append(QJsonObject{
+            {QStringLiteral("id"), QStringLiteral("default-%1").arg(index)},
+            {QStringLiteral("type"),
+             QStringLiteral("device.online.changed")},
+            {QStringLiteral("server_rev"), index},
+        });
+    }
+    Expect(defaultCapacity.size() == 300,
+           "default replay capacity accepts more than 256 events");
+
+    quickdesk::ControlPlaneEventReplayBuffer resizable(1);
+    Expect(resizable.configureCapacity(3),
+           "replay capacity can be configured at runtime");
+    for (int index = 1; index <= 3; ++index) {
+        resizable.append(QJsonObject{
+            {QStringLiteral("id"), QStringLiteral("resize-%1").arg(index)},
+            {QStringLiteral("type"),
+             QStringLiteral("device.online.changed")},
+            {QStringLiteral("server_rev"), index},
+        });
+    }
+    Expect(resizable.size() == 3,
+           "an expanded replay capacity keeps every bounded event");
+    Expect(resizable.configureCapacity(2),
+           "replay capacity can shrink at runtime");
+    Expect(resizable.size() == 2,
+           "shrinking replay capacity keeps the newest events");
+    Expect(resizable.eventsAfter(1).last()
+                   .value(QStringLiteral("server_rev"))
+                   .toInt() == 3,
+           "shrinking replay capacity preserves event order");
+
     Expect(quickdesk::controlPlaneReplaySinceRev(QJsonObject{
                {QStringLiteral("since_server_rev"), -4}})
                == 0,

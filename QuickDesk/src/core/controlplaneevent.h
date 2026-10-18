@@ -8,17 +8,22 @@
 
 namespace quickdesk {
 
+inline constexpr int kDefaultControlPlaneReplayCapacity = 2048;
+
 bool isWorkflowTriggerEvent(const QString& type);
 QJsonObject workflowTriggerEventData(const QJsonObject& message);
 qint64 controlPlaneReplaySinceRev(const QJsonObject& authParams);
 
 class ControlPlaneEventReplayBuffer {
 public:
-    explicit ControlPlaneEventReplayBuffer(int capacity = 256);
+    explicit ControlPlaneEventReplayBuffer(
+        int capacity = kDefaultControlPlaneReplayCapacity);
 
     bool append(const QJsonObject& event);
     QList<QJsonObject> eventsAfter(qint64 sinceServerRev) const;
     int size() const;
+    int capacity() const { return m_capacity; }
+    bool configureCapacity(int capacity);
     void clear();
     bool loadFromFile(const QString& path, qint64 userId);
     bool saveToFile(const QString& path, qint64 userId) const;

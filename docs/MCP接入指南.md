@@ -1198,10 +1198,12 @@ Qt 的 `CloudDeviceManager` 先完成实时流的 snapshot/replay 与 `server_re
 再从 `data.device_id` 归一化实时信封没有稳定提供的设备字段，并通过本机 WebSocket API
 发送 `controlPlaneEvent`。MCP 只订阅该事件名，按类型、设备和过滤器匹配后先持久化
 claim 再执行。事件 `id` 是跨重启幂等键；没有 ID 的旧事件才使用 `server_rev`。
-本地 WebSocket API 保留最近 256 条控制面事件，并按用户 `user_id` 原子持久化到应用数据
-目录；登录态切换会重新加载对应 scope，旧用户事件不会跨账号回放。MCP 重连 auth 会发送
+本地 WebSocket API 默认保留最近 2048 条控制面事件，可用
+`QUICKDESK_CONTROL_PLANE_REPLAY_CAPACITY` 配置为 1~10000，并按用户 `user_id`
+原子持久化到应用数据目录；登录态切换会重新加载对应 scope，旧用户事件不会跨账号回放。
+MCP 重连 auth 会发送
 `since_server_rev` 并接收更大的 revision，从而覆盖 MCP 或 QuickDesk 短暂重启。触发
-仍按事件 `id` 幂等。超过 256 条或服务端 retention 不足时仍可能丢失。IANA 时区、DST
+仍按事件 `id` 幂等。超过配置容量或服务端 retention 不足时仍可能丢失。IANA 时区、DST
 和法定节假日跳过已支持，但漏过槽位补跑仍未实现；跨进程共享 worker 和回调确认操作者归属
 也仍未实现。单进程重启会恢复 queued workflow job，running job
 失败关闭；HMAC 回调使用持久 outbox，并以同一 delivery id 自动重试、跨进程重启恢复，

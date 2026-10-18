@@ -122,6 +122,18 @@ int ControlPlaneEventReplayBuffer::size() const {
     return m_events.size();
 }
 
+bool ControlPlaneEventReplayBuffer::configureCapacity(int capacity) {
+    const int normalized = qMax(1, capacity);
+    if (normalized == m_capacity) {
+        return true;
+    }
+    m_capacity = normalized;
+    while (m_events.size() > m_capacity) {
+        m_events.removeFirst();
+    }
+    return persist();
+}
+
 void ControlPlaneEventReplayBuffer::clear() {
     m_events.clear();
 }

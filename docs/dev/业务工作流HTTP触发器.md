@@ -389,7 +389,8 @@ SignalingServer 的实时信封不保证有顶层 `device_id`。Qt 事件桥和 
 `server_rev` 去重。SQLite 轻量模式的进程内 Redis 重启后会让 `server_rev` 重新计数，
 因此不能把 revision 单独作为长期唯一键，否则重启后触发器会永久停在旧 revision。
 claim 在执行前写入；如果工作流随后失败，也不会回滚 claim，避免重放网络或桌面操作。
-Qt 的本机 WebSocket API 保留最近 256 条白名单 `controlPlaneEvent`，并按事件
+Qt 的本机 WebSocket API 默认保留最近 2048 条白名单 `controlPlaneEvent`
+（`QUICKDESK_CONTROL_PLANE_REPLAY_CAPACITY` 可设为 1~10000），并按事件
 `id` 或 `server_rev` 去重。缓冲按当前登录用户 `user_id` 分区，原子持久化到应用数据目录
 下的 `control-plane-event-replay.json`；登录态切换会重新加载对应 scope，旧用户的文件
 不会被当作新用户事件回放。单条事件持久化使用 `QSaveFile`，文件损坏时 fail closed。
@@ -399,8 +400,8 @@ API 会补发 revision 更大的事件。API token 为空时，新连接直接�
 事件 `id` 做幂等 claim，所以重复补发不会重复执行。
 
 该补发窗口覆盖 MCP 短暂断开/重启、QuickDesk 自身重启，以及 MCP 尚未启动但 QuickDesk
-仍在运行的场景。它仍不是跨实例事件库：最多 256 条，服务端 replay retention 不足、
-事件量超过窗口或用户切换时仍可能丢失。
+仍在运行的场景。它仍不是跨实例事件库：事件量超过配置容量、服务端 replay retention
+不足或用户切换时仍可能丢失。
 
 ## 8. 安全
 
@@ -424,8 +425,8 @@ API 会补发 revision 更大的事件。API token 为空时，新连接直接�
 
 - 自定义交易所日历、“每月最后一个工作日”等业务日历；法定节假日跳过和 IANA/DST 已支持；
 - 多进程共享 worker、分布式锁和公平调度；当前只支持单进程队列和单进程重启恢复；
-- 跨实例事件 outbox、服务端持久 replay retention 和超过 256 条的积压；当前只有
-  QuickDesk 本机按用户分区的持久 replay buffer；
+- 跨实例事件 outbox、服务端持久 replay retention 和超出配置容量的积压；当前只有
+  QuickDesk 本机按用户分区、默认 2048 条且可配置的持久 replay buffer；
 - 回调确认操作者归属；批量确认已支持，但 trigger token 无法证明具体操作者身份；
 - Owner 委托 grant、最小权限范围和审计回传控制面。
 

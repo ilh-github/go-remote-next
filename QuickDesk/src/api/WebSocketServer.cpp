@@ -14,6 +14,10 @@
 
 namespace quickdesk {
 
+namespace {
+constexpr int kMaxControlPlaneReplayCapacity = 10000;
+}
+
 WebSocketApiServer::WebSocketApiServer(MainController* controller,
                                        QObject* parent)
     : QObject(parent)
@@ -25,6 +29,24 @@ WebSocketApiServer::WebSocketApiServer(MainController* controller,
 
     auto logDir = infra::ApplicationContext::instance().logPath();
     m_security->initAuditLog(logDir);
+
+    int replayCapacity = kDefaultControlPlaneReplayCapacity;
+    const QByteArray configuredCapacity =
+        qgetenv("QUICKDESK_CONTROL_PLANE_REPLAY_CAPACITY");
+    if (!configuredCapacity.isEmpty()) {
+        bool ok = false;
+        const int requested = configuredCapacity.toInt(&ok);
+        if (ok) {
+            replayCapacity =
+                qBound(1, requested, kMaxControlPlaneReplayCapacity);
+        } else {
+            LOG_WARN("Ignoring invalid QUICKDESK_CONTROL_PLANE_REPLAY_CAPACITY={}",
+                     configuredCapacity.toStdString());
+        }
+    }
+    if (!m_controlPlaneReplay.configureCapacity(replayCapacity)) {
+        LOG_WARN("Failed to persist configured control-plane replay capacity");
+    }
 
     if (m_controller && m_controller->authManager()) {
         connect(m_controller->authManager(), &AuthManager::loginStateChanged,
