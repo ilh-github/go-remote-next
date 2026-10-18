@@ -315,6 +315,7 @@ func main() {
 	})
 	eventOutbox := service.NewEventOutbox(db, bus)
 	deviceService = deviceService.WithOutbox(eventOutbox)
+	favoriteService = favoriteService.WithOutbox(eventOutbox)
 	deviceAccessService = deviceAccessService.WithOutbox(eventOutbox)
 	deviceAccessGrantService = deviceAccessGrantService.WithOutbox(eventOutbox)
 	deviceAccessPolicyService = deviceAccessPolicyService.WithOutbox(eventOutbox)
@@ -505,7 +506,7 @@ func main() {
 	publicHandler := handler.NewPublicHandler(db, redisClient, presetService, settingsService, smsService, Version)
 	authHandler := handler.NewAuthHandler(userService, tokenService, smsService, bus)
 	meHandler := handler.NewMeHandler(userService, tokenService, smsService, bus)
-	deviceHandler := handler.NewDeviceHandler(deviceService, favoriteService, connectionService, presenceService, deviceAccessService, bus, db)
+	deviceHandler := handler.NewDeviceHandler(deviceService, favoriteService, connectionService, presenceService, deviceAccessService, db)
 	userDeviceGroupsHandler := handler.NewUserDeviceGroupsHandler(userDeviceGroupService)
 	notificationChannelHandler := handler.NewNotificationChannelHandler(notificationChannelService, notificationDeliveryService)
 	notificationQuietHoursHandler := handler.NewNotificationQuietHoursHandler(

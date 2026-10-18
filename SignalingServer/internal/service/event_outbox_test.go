@@ -38,6 +38,7 @@ func newEventOutboxTestDB(t *testing.T) *gorm.DB {
 		&models.DeviceMetricSnapshot{},
 		&models.UserDeviceGroup{},
 		&models.UserDeviceGroupMember{},
+		&models.UserFavorite{},
 		&models.Device{},
 		&models.RemoteSession{},
 		&models.SessionRecording{},
@@ -1209,6 +1210,113 @@ func TestDeviceMutationOutboxFailureRollsBackBindAndUnbind(t *testing.T) {
 	}
 	if !binding.Status {
 		t.Fatalf("binding status was not rolled back: %+v", binding)
+	}
+}
+
+func TestFavoriteEventsCommitWithFavoriteRows(t *testing.T) {
+	db := newEventOutboxTestDB(t)
+	_, _, bus := newEventOutboxTestRedis(t)
+	outbox := NewEventOutbox(db, bus)
+	favorites := NewFavoriteService(db).WithOutbox(outbox)
+	ctx := context.Background()
+
+	added, err := favorites.AddWithEvent(ctx, 7, FavoriteInput{
+		DeviceID:   "D9300001",
+		DeviceName: "desk",
+	}, func(row *models.UserFavorite) Event {
+		return Event{
+			Type:     EventFavoriteAdded,
+			UserID:   row.UserID,
+			DeviceID: row.DeviceID,
+		}
+	})
+	if err != nil {
+		t.Fatalf("AddWithEvent: %v", err)
+	}
+	if added.UserID != 7 || added.DeviceName != "desk" {
+		t.Fatalf("added favorite = %+v", added)
+	}
+	name := "renamed"
+	updated, err := favorites.UpdateWithEvent(ctx, 7, added.DeviceID, FavoritePatch{
+		DeviceName: &name,
+	}, func(row *models.UserFavorite) Event {
+		return Event{
+			Type:     EventFavoriteUpdated,
+			UserID:   row.UserID,
+			DeviceID: row.DeviceID,
+		}
+	})
+	if err != nil {
+		t.Fatalf("UpdateWithEvent: %v", err)
+	}
+	if updated.DeviceName != name {
+		t.Fatalf("updated favorite = %+v", updated)
+	}
+	if err := favorites.DeleteWithEvent(
+		ctx, 7, added.DeviceID,
+		func(row *models.UserFavorite) Event {
+			return Event{
+				Type:     EventFavoriteRemoved,
+				UserID:   row.UserID,
+				DeviceID: row.DeviceID,
+			}
+		},
+	); err != nil {
+		t.Fatalf("DeleteWithEvent: %v", err)
+	}
+	var count int64
+	if err := db.Model(&models.UserFavorite{}).Count(&count).Error; err != nil {
+		t.Fatalf("count favorites: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("favorites = %d, want 0", count)
+	}
+	var outboxRows []models.EventOutbox
+	if err := db.Find(&outboxRows).Error; err != nil {
+		t.Fatalf("load favorite outbox: %v", err)
+	}
+	if len(outboxRows) != 3 {
+		t.Fatalf("favorite outbox rows = %d, want 3", len(outboxRows))
+	}
+	types := map[string]bool{}
+	for _, outboxRow := range outboxRows {
+		var event Event
+		if err := json.Unmarshal([]byte(outboxRow.Payload), &event); err != nil {
+			t.Fatalf("decode favorite event: %v", err)
+		}
+		if event.UserID != 7 || event.DeviceID != added.DeviceID {
+			t.Fatalf("favorite event routing = %+v", event)
+		}
+		types[event.Type] = true
+	}
+	if !types[EventFavoriteAdded] || !types[EventFavoriteUpdated] || !types[EventFavoriteRemoved] {
+		t.Fatalf("favorite event types = %+v", types)
+	}
+}
+
+func TestFavoriteOutboxFailureRollsBackAdd(t *testing.T) {
+	db := newEventOutboxTestDB(t)
+	favorites := NewFavoriteService(db).WithOutbox(
+		&failingScheduledTaskOutbox{err: errors.New("outbox unavailable")},
+	)
+	_, err := favorites.AddWithEvent(context.Background(), 7, FavoriteInput{
+		DeviceID: "D9300002",
+	}, func(row *models.UserFavorite) Event {
+		return Event{
+			Type:     EventFavoriteAdded,
+			UserID:   row.UserID,
+			DeviceID: row.DeviceID,
+		}
+	})
+	if err == nil {
+		t.Fatal("AddWithEvent succeeded despite outbox failure")
+	}
+	var count int64
+	if err := db.Model(&models.UserFavorite{}).Count(&count).Error; err != nil {
+		t.Fatalf("count favorites: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("favorites = %d, want rollback to 0", count)
 	}
 }
 

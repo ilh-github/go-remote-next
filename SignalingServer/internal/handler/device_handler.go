@@ -38,7 +38,6 @@ type DeviceHandler struct {
 	connections *service.ConnectionService
 	presence    *service.PresenceService
 	access      *service.DeviceAccessService
-	bus         *service.EventBus
 	db          *gorm.DB // for UserDevice remark lookups alongside devices
 }
 
@@ -48,7 +47,6 @@ func NewDeviceHandler(
 	connections *service.ConnectionService,
 	presence *service.PresenceService,
 	access *service.DeviceAccessService,
-	bus *service.EventBus,
 	db *gorm.DB,
 ) *DeviceHandler {
 	return &DeviceHandler{
@@ -57,7 +55,6 @@ func NewDeviceHandler(
 		connections: connections,
 		presence:    presence,
 		access:      access,
-		bus:         bus,
 		db:          db,
 	}
 }
@@ -543,10 +540,20 @@ func (h *DeviceHandler) AddFavorite(c *gin.Context) {
 		ProblemBadRequest(c, ProblemCodeInvalidRequest, err.Error())
 		return
 	}
-	fav, err := h.favorites.Add(c.Request.Context(), uid, service.FavoriteInput{
+	fav, err := h.favorites.AddWithEvent(c.Request.Context(), uid, service.FavoriteInput{
 		DeviceID:       req.DeviceID,
 		DeviceName:     req.DeviceName,
 		AccessPassword: req.AccessPassword,
+	}, func(row *models.UserFavorite) service.Event {
+		return service.Event{
+			Type:     service.EventFavoriteAdded,
+			UserID:   row.UserID,
+			DeviceID: row.DeviceID,
+			Data: map[string]interface{}{
+				"device_id":   row.DeviceID,
+				"device_name": row.DeviceName,
+			},
+		}
 	})
 	if err != nil {
 		if errors.Is(err, service.ErrFavoriteExists) {
@@ -556,15 +563,6 @@ func (h *DeviceHandler) AddFavorite(c *gin.Context) {
 		ProblemInternal(c, err.Error())
 		return
 	}
-	h.bus.Publish(c.Request.Context(), service.Event{
-		Type:     service.EventFavoriteAdded,
-		UserID:   uid,
-		DeviceID: req.DeviceID,
-		Data: map[string]interface{}{
-			"device_id":   req.DeviceID,
-			"device_name": req.DeviceName,
-		},
-	})
 	c.JSON(http.StatusOK, fav)
 }
 
@@ -576,9 +574,16 @@ func (h *DeviceHandler) UpdateFavorite(c *gin.Context) {
 		ProblemBadRequest(c, ProblemCodeInvalidRequest, err.Error())
 		return
 	}
-	fav, err := h.favorites.Update(c.Request.Context(), uid, deviceID, service.FavoritePatch{
+	fav, err := h.favorites.UpdateWithEvent(c.Request.Context(), uid, deviceID, service.FavoritePatch{
 		DeviceName:     req.DeviceName,
 		AccessPassword: req.AccessPassword,
+	}, func(row *models.UserFavorite) service.Event {
+		return service.Event{
+			Type:     service.EventFavoriteUpdated,
+			UserID:   row.UserID,
+			DeviceID: row.DeviceID,
+			Data:     map[string]interface{}{"device_id": row.DeviceID},
+		}
 	})
 	if err != nil {
 		if errors.Is(err, service.ErrFavoriteNotFound) {
@@ -588,21 +593,22 @@ func (h *DeviceHandler) UpdateFavorite(c *gin.Context) {
 		ProblemInternal(c, err.Error())
 		return
 	}
-	h.bus.Publish(c.Request.Context(), service.Event{
-		Type:     service.EventFavoriteUpdated,
-		UserID:   uid,
-		DeviceID: deviceID,
-		Data: map[string]interface{}{
-			"device_id": deviceID,
-		},
-	})
 	c.JSON(http.StatusOK, fav)
 }
 
 func (h *DeviceHandler) DeleteFavorite(c *gin.Context) {
 	uid := middleware.MustUserID(c)
 	deviceID := c.Param("device_id")
-	if err := h.favorites.Delete(c.Request.Context(), uid, deviceID); err != nil {
+	if err := h.favorites.DeleteWithEvent(
+		c.Request.Context(), uid, deviceID,
+		func(row *models.UserFavorite) service.Event {
+			return service.Event{
+				Type:     service.EventFavoriteRemoved,
+				UserID:   row.UserID,
+				DeviceID: row.DeviceID,
+				Data:     map[string]interface{}{"device_id": row.DeviceID},
+			}
+		}); err != nil {
 		if errors.Is(err, service.ErrFavoriteNotFound) {
 			ProblemNotFound(c, ProblemCodeNotFound, err.Error())
 			return
@@ -610,11 +616,5 @@ func (h *DeviceHandler) DeleteFavorite(c *gin.Context) {
 		ProblemInternal(c, err.Error())
 		return
 	}
-	h.bus.Publish(c.Request.Context(), service.Event{
-		Type:     service.EventFavoriteRemoved,
-		UserID:   uid,
-		DeviceID: deviceID,
-		Data:     map[string]interface{}{"device_id": deviceID},
-	})
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
