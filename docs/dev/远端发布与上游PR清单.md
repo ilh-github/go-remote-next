@@ -1,6 +1,6 @@
 # 远端发布与上游 PR 清单
 
-**更新时间**: 2026-10-18 17:36 CST
+**更新时间**: 2026-10-18 17:50 CST
 
 这份清单记录本地验证完成后的远端写入与 PR 状态。远端状态必须以实际
 `origin/*` ref、push 结果和 GitHub PR 为准，不能把本地候选写成已共享。
@@ -8,9 +8,10 @@
 ## 当前本地基线
 
 - fork 本地主线：`dev` / `master` 已同步；QD-907 功能提交为 `33e9851`、`fd92cdd`，
-  上传重试耗尽测试为 `f8d0a34`，文档收口后本地领先 `origin/dev` 53 个提交
+  上传重试耗尽测试为 `f8d0a34`；QD-610 数据库事务 outbox 提交为 `6c71f97`。文档收口
+  后本地领先 `origin/dev` 55 个提交
 - fork 远端：`origin/dev` 与 `origin/master` 当前仍为 `9837194`
-- 本地领先：`dev` / `master` 均比各自远端多 53 个提交
+- 本地领先：`dev` / `master` 均比各自远端多 55 个提交
 - 推送 blocker：2026-10-18 执行 `git push origin dev master` 和候选分支 push 均被
   执行策略拒绝，错误为 `approval required by policy, but AskForApproval is set to Never`；
   未绕过审批策略。`git ls-remote` 于同一时刻确认远端主分支仍为 `9837194`，QD-111
