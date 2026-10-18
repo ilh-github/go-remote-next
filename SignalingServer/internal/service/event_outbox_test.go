@@ -32,6 +32,7 @@ func newEventOutboxTestDB(t *testing.T) *gorm.DB {
 		&models.DeviceAccessPolicy{},
 		&models.Device{},
 		&models.RemoteSession{},
+		&models.SessionRecording{},
 	); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
@@ -616,6 +617,112 @@ func TestRemoteSessionOutboxFailureRollsBackOpen(t *testing.T) {
 	}
 	if count != 0 {
 		t.Fatalf("sessions = %d, want rollback to 0", count)
+	}
+}
+
+func TestRecordingLifecycleEventsCommitWithRecordingRows(t *testing.T) {
+	db := newEventOutboxTestDB(t)
+	_, _, bus := newEventOutboxTestRedis(t)
+	outbox := NewEventOutbox(db, bus)
+	recordings := NewSessionRecordingService(db).WithOutbox(outbox)
+	ctx := context.Background()
+
+	created, err := recordings.CreateWithEvent(ctx, 7, CreateSessionRecordingInput{
+		DeviceID:  "device-7",
+		SessionID: "session-1",
+		Status:    "recording",
+		Format:    "webm",
+	}, func(row *models.SessionRecording) Event {
+		return Event{
+			Type:     EventRecordingCreated,
+			UserID:   row.UserID,
+			DeviceID: row.DeviceID,
+			Data:     map[string]interface{}{"recording_id": row.ID},
+		}
+	})
+	if err != nil {
+		t.Fatalf("CreateWithEvent: %v", err)
+	}
+
+	status := "completed"
+	updated, err := recordings.UpdateWithEvent(ctx, 7, created.ID, UpdateSessionRecordingInput{
+		Status: &status,
+	}, func(row *models.SessionRecording) Event {
+		return Event{
+			Type:     EventRecordingUpdated,
+			UserID:   row.UserID,
+			DeviceID: row.DeviceID,
+			Data:     map[string]interface{}{"recording_id": row.ID, "status": row.Status},
+		}
+	})
+	if err != nil {
+		t.Fatalf("UpdateWithEvent: %v", err)
+	}
+	if updated.Status != "completed" {
+		t.Fatalf("updated status = %q", updated.Status)
+	}
+
+	err = recordings.DeleteWithEvent(ctx, 7, created.ID, func(row *models.SessionRecording) Event {
+		return Event{
+			Type:     EventRecordingDeleted,
+			UserID:   row.UserID,
+			DeviceID: row.DeviceID,
+			Data:     map[string]interface{}{"recording_id": row.ID},
+		}
+	})
+	if err != nil {
+		t.Fatalf("DeleteWithEvent: %v", err)
+	}
+
+	var rows []models.EventOutbox
+	if err := db.Order("created_at, id").Find(&rows).Error; err != nil {
+		t.Fatalf("load outbox: %v", err)
+	}
+	if len(rows) != 3 {
+		t.Fatalf("outbox rows = %d, want created/updated/deleted", len(rows))
+	}
+	types := map[string]bool{}
+	for i := range rows {
+		var event Event
+		if err := json.Unmarshal([]byte(rows[i].Payload), &event); err != nil {
+			t.Fatalf("decode event: %v", err)
+		}
+		types[event.Type] = true
+		if event.UserID != 7 || event.DeviceID != "device-7" {
+			t.Fatalf("event routing = %+v", event)
+		}
+	}
+	for _, typ := range []string{EventRecordingCreated, EventRecordingUpdated, EventRecordingDeleted} {
+		if !types[typ] {
+			t.Fatalf("missing %s in event types %+v", typ, types)
+		}
+	}
+}
+
+func TestRecordingOutboxFailureRollsBackCreate(t *testing.T) {
+	db := newEventOutboxTestDB(t)
+	recordings := NewSessionRecordingService(db).WithOutbox(
+		&failingScheduledTaskOutbox{err: errors.New("outbox unavailable")},
+	)
+	_, err := recordings.CreateWithEvent(context.Background(), 7, CreateSessionRecordingInput{
+		DeviceID: "device-7",
+		Status:   "recording",
+	}, func(row *models.SessionRecording) Event {
+		return Event{
+			Type:     EventRecordingCreated,
+			UserID:   row.UserID,
+			DeviceID: row.DeviceID,
+		}
+	})
+	if err == nil {
+		t.Fatal("CreateWithEvent succeeded despite outbox failure")
+	}
+	var count int64
+	if err := db.Model(&models.SessionRecording{}).Count(&count).Error; err != nil {
+		t.Fatalf("count recordings: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("recordings = %d, want rollback to 0", count)
 	}
 }
 

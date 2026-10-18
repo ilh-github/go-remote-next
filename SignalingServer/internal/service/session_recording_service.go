@@ -17,13 +17,39 @@ import (
 // SessionRecordingService stores and retrieves user-owned recording metadata.
 // Media production remains the responsibility of the remote-control engine.
 type SessionRecordingService struct {
-	db *gorm.DB
+	db     *gorm.DB
+	outbox EventOutboxWriter
 	// removeFile is a seam for tests; production deletes through os.Remove.
 	removeFile func(string) error
 }
 
 func NewSessionRecordingService(db *gorm.DB) *SessionRecordingService {
 	return &SessionRecordingService{db: db, removeFile: os.Remove}
+}
+
+func (s *SessionRecordingService) WithOutbox(outbox EventOutboxWriter) *SessionRecordingService {
+	s.outbox = outbox
+	return s
+}
+
+// SessionRecordingEventFactory builds an event from the final committed row.
+type SessionRecordingEventFactory func(row *models.SessionRecording) Event
+
+func (s *SessionRecordingService) enqueueRecordingEvent(
+	ctx context.Context,
+	tx *gorm.DB,
+	eventFactory SessionRecordingEventFactory,
+	row *models.SessionRecording,
+) error {
+	if s.outbox == nil || eventFactory == nil || row == nil {
+		return nil
+	}
+	evt := eventFactory(row)
+	if evt.Type == "" || evt.UserID == 0 {
+		return nil
+	}
+	_, err := s.outbox.EnqueueTx(ctx, tx, evt)
+	return err
 }
 
 type CreateSessionRecordingInput struct {
@@ -69,6 +95,15 @@ func (s *SessionRecordingService) Create(
 	userID uint,
 	in CreateSessionRecordingInput,
 ) (*models.SessionRecording, error) {
+	return s.CreateWithEvent(ctx, userID, in, nil)
+}
+
+func (s *SessionRecordingService) CreateWithEvent(
+	ctx context.Context,
+	userID uint,
+	in CreateSessionRecordingInput,
+	eventFactory SessionRecordingEventFactory,
+) (*models.SessionRecording, error) {
 	in.DeviceID = strings.TrimSpace(in.DeviceID)
 	in.DeviceName = strings.TrimSpace(in.DeviceName)
 	in.SessionID = strings.TrimSpace(in.SessionID)
@@ -102,7 +137,13 @@ func (s *SessionRecordingService) Create(
 		CreatedAt:       now,
 		UpdatedAt:       now,
 	}
-	if err := s.db.WithContext(ctx).Create(row).Error; err != nil {
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(row).Error; err != nil {
+			return err
+		}
+		return s.enqueueRecordingEvent(ctx, tx, eventFactory, row)
+	})
+	if err != nil {
 		return nil, err
 	}
 	return row, nil
@@ -129,6 +170,16 @@ func (s *SessionRecordingService) Update(
 	userID uint,
 	id uint,
 	in UpdateSessionRecordingInput,
+) (*models.SessionRecording, error) {
+	return s.UpdateWithEvent(ctx, userID, id, in, nil)
+}
+
+func (s *SessionRecordingService) UpdateWithEvent(
+	ctx context.Context,
+	userID uint,
+	id uint,
+	in UpdateSessionRecordingInput,
+	eventFactory SessionRecordingEventFactory,
 ) (*models.SessionRecording, error) {
 	updates := map[string]interface{}{}
 	if in.Status != nil {
@@ -171,17 +222,26 @@ func (s *SessionRecordingService) Update(
 		return s.Get(ctx, userID, id)
 	}
 	updates["updated_at"] = time.Now().UTC()
-	result := s.db.WithContext(ctx).
-		Model(&models.SessionRecording{}).
-		Where("id = ? AND user_id = ?", id, userID).
-		Updates(updates)
-	if result.Error != nil {
-		return nil, result.Error
+	var row models.SessionRecording
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		result := tx.Model(&models.SessionRecording{}).
+			Where("id = ? AND user_id = ?", id, userID).
+			Updates(updates)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return gorm.ErrRecordNotFound
+		}
+		if err := tx.Where("id = ? AND user_id = ?", id, userID).First(&row).Error; err != nil {
+			return err
+		}
+		return s.enqueueRecordingEvent(ctx, tx, eventFactory, &row)
+	})
+	if err != nil {
+		return nil, err
 	}
-	if result.RowsAffected == 0 {
-		return nil, gorm.ErrRecordNotFound
-	}
-	return s.Get(ctx, userID, id)
+	return &row, nil
 }
 
 func (s *SessionRecordingService) List(
@@ -345,20 +405,32 @@ func (s *SessionRecordingService) Get(
 }
 
 func (s *SessionRecordingService) Delete(ctx context.Context, userID uint, id uint) error {
+	return s.DeleteWithEvent(ctx, userID, id, nil)
+}
+
+func (s *SessionRecordingService) DeleteWithEvent(
+	ctx context.Context,
+	userID uint,
+	id uint,
+	eventFactory SessionRecordingEventFactory,
+) error {
 	var row models.SessionRecording
-	if err := s.db.WithContext(ctx).
-		Where("id = ? AND user_id = ?", id, userID).
-		First(&row).Error; err != nil {
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("id = ? AND user_id = ?", id, userID).First(&row).Error; err != nil {
+			return err
+		}
+		result := tx.Where("id = ? AND user_id = ?", id, userID).
+			Delete(&models.SessionRecording{})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return gorm.ErrRecordNotFound
+		}
+		return s.enqueueRecordingEvent(ctx, tx, eventFactory, &row)
+	})
+	if err != nil {
 		return err
-	}
-	result := s.db.WithContext(ctx).
-		Where("id = ? AND user_id = ?", id, userID).
-		Delete(&models.SessionRecording{})
-	if result.Error != nil {
-		return result.Error
-	}
-	if result.RowsAffected == 0 {
-		return gorm.ErrRecordNotFound
 	}
 	// The row is the only record of where the bytes live, so the files have to
 	// go with it - otherwise every delete leaks a video nothing can ever
@@ -557,6 +629,18 @@ func (s *SessionRecordingService) AttachArtifact(
 	ext string,
 	sizeBytes int64,
 ) (*models.SessionRecording, error) {
+	return s.AttachArtifactWithEvent(ctx, userID, id, storedPath, ext, sizeBytes, nil)
+}
+
+func (s *SessionRecordingService) AttachArtifactWithEvent(
+	ctx context.Context,
+	userID uint,
+	id uint,
+	storedPath string,
+	ext string,
+	sizeBytes int64,
+	eventFactory SessionRecordingEventFactory,
+) (*models.SessionRecording, error) {
 	if sizeBytes <= 0 {
 		return nil, ErrArtifactEmpty
 	}
@@ -571,31 +655,40 @@ func (s *SessionRecordingService) AttachArtifact(
 		"format":        format,
 		"updated_at":    time.Now().UTC(),
 	}
-	result := s.db.WithContext(ctx).
-		Model(&models.SessionRecording{}).
-		Where("id = ? AND user_id = ?", id, userID).
-		Updates(updates)
-	if result.Error != nil {
-		return nil, result.Error
-	}
-	if result.RowsAffected == 0 {
-		return nil, gorm.ErrRecordNotFound
-	}
-	row, err := s.Get(ctx, userID, id)
+	var row models.SessionRecording
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		result := tx.Model(&models.SessionRecording{}).
+			Where("id = ? AND user_id = ?", id, userID).
+			Updates(updates)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return gorm.ErrRecordNotFound
+		}
+		if err := tx.Where("id = ? AND user_id = ?", id, userID).First(&row).Error; err != nil {
+			return err
+		}
+		// Once the bytes are on the server "completed" is the truth, whatever
+		// the row said before. Keep the status change in this transaction so the
+		// outbox event describes the final row exactly once.
+		if row.Status != "completed" {
+			now := time.Now().UTC()
+			if err := tx.Model(&models.SessionRecording{}).
+				Where("id = ? AND user_id = ?", id, userID).
+				Updates(map[string]interface{}{"status": "completed", "updated_at": now}).Error; err != nil {
+				return err
+			}
+			if err := tx.Where("id = ? AND user_id = ?", id, userID).First(&row).Error; err != nil {
+				return err
+			}
+		}
+		return s.enqueueRecordingEvent(ctx, tx, eventFactory, &row)
+	})
 	if err != nil {
 		return nil, err
 	}
-	// Once the bytes are on the server "completed" is the truth, whatever the row
-	// said before: without this, re-uploading a capture that failed earlier would
-	// store the file and still leave the row reading "failed". A client that
-	// reports failure after this point still wins, because its PATCH lands later.
-	if row.Status != "completed" {
-		row, err = s.Update(ctx, userID, id, UpdateSessionRecordingInput{Status: strPtr("completed")})
-		if err != nil {
-			return nil, err
-		}
-	}
-	return row, nil
+	return &row, nil
 }
 
 // ArtifactFor loads a recording and asserts ownership before the handler
@@ -702,27 +795,48 @@ func (s *SessionRecordingService) AttachThumbnail(
 	ext string,
 	sizeBytes int64,
 ) (*models.SessionRecording, error) {
+	return s.AttachThumbnailWithEvent(ctx, userID, id, storedPath, ext, sizeBytes, nil)
+}
+
+func (s *SessionRecordingService) AttachThumbnailWithEvent(
+	ctx context.Context,
+	userID uint,
+	id uint,
+	storedPath string,
+	ext string,
+	sizeBytes int64,
+	eventFactory SessionRecordingEventFactory,
+) (*models.SessionRecording, error) {
 	if sizeBytes <= 0 {
 		return nil, ErrArtifactEmpty
 	}
 	if ThumbnailContentType(ext) == "" {
 		return nil, ErrArtifactTypeDenied
 	}
-	result := s.db.WithContext(ctx).
-		Model(&models.SessionRecording{}).
-		Where("id = ? AND user_id = ?", id, userID).
-		Updates(map[string]interface{}{
-			"thumbnail_path": storedPath,
-			"thumbnail_url":  ThumbnailURL(id),
-			"updated_at":     time.Now().UTC(),
-		})
-	if result.Error != nil {
-		return nil, result.Error
+	var row models.SessionRecording
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		result := tx.Model(&models.SessionRecording{}).
+			Where("id = ? AND user_id = ?", id, userID).
+			Updates(map[string]interface{}{
+				"thumbnail_path": storedPath,
+				"thumbnail_url":  ThumbnailURL(id),
+				"updated_at":     time.Now().UTC(),
+			})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return gorm.ErrRecordNotFound
+		}
+		if err := tx.Where("id = ? AND user_id = ?", id, userID).First(&row).Error; err != nil {
+			return err
+		}
+		return s.enqueueRecordingEvent(ctx, tx, eventFactory, &row)
+	})
+	if err != nil {
+		return nil, err
 	}
-	if result.RowsAffected == 0 {
-		return nil, gorm.ErrRecordNotFound
-	}
-	return s.Get(ctx, userID, id)
+	return &row, nil
 }
 
 // ThumbnailFor returns the row when it owns a preview image.

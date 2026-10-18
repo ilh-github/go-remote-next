@@ -126,7 +126,7 @@ func (h *SessionRecordingHandler) Create(c *gin.Context) {
 	if req.StartedAt != nil {
 		startedAt = *req.StartedAt
 	}
-	row, err := h.recordings.Create(c.Request.Context(), uid, service.CreateSessionRecordingInput{
+	row, err := h.recordings.CreateWithEvent(c.Request.Context(), uid, service.CreateSessionRecordingInput{
 		DeviceID:        req.DeviceID,
 		DeviceName:      req.DeviceName,
 		SessionID:       req.SessionID,
@@ -139,17 +139,8 @@ func (h *SessionRecordingHandler) Create(c *gin.Context) {
 		SizeBytes:       req.SizeBytes,
 		StartedAt:       startedAt,
 		EndedAt:         req.EndedAt,
-	})
-	if err != nil {
-		if errors.Is(err, service.ErrInvalidRecordingStatus) {
-			ProblemBadRequest(c, ProblemCodeInvalidRequest, err.Error())
-			return
-		}
-		ProblemBadRequest(c, ProblemCodeInvalidRequest, err.Error())
-		return
-	}
-	if h.bus != nil {
-		h.bus.Publish(c.Request.Context(), service.Event{
+	}, func(row *models.SessionRecording) service.Event {
+		return service.Event{
 			Type:     service.EventRecordingCreated,
 			UserID:   uid,
 			DeviceID: row.DeviceID,
@@ -159,7 +150,15 @@ func (h *SessionRecordingHandler) Create(c *gin.Context) {
 				"status":       row.Status,
 				"format":       row.Format,
 			},
-		})
+		}
+	})
+	if err != nil {
+		if errors.Is(err, service.ErrInvalidRecordingStatus) {
+			ProblemBadRequest(c, ProblemCodeInvalidRequest, err.Error())
+			return
+		}
+		ProblemBadRequest(c, ProblemCodeInvalidRequest, err.Error())
+		return
 	}
 	c.JSON(http.StatusCreated, row)
 }
@@ -219,7 +218,7 @@ func (h *SessionRecordingHandler) Update(c *gin.Context) {
 		ProblemBadRequest(c, ProblemCodeInvalidRequest, err.Error())
 		return
 	}
-	row, err := h.recordings.Update(c.Request.Context(), uid, uint(id), service.UpdateSessionRecordingInput{
+	row, err := h.recordings.UpdateWithEvent(c.Request.Context(), uid, uint(id), service.UpdateSessionRecordingInput{
 		Status:          req.Status,
 		Format:          req.Format,
 		ArtifactPath:    req.ArtifactPath,
@@ -228,6 +227,17 @@ func (h *SessionRecordingHandler) Update(c *gin.Context) {
 		DurationSeconds: req.DurationSeconds,
 		SizeBytes:       req.SizeBytes,
 		EndedAt:         req.EndedAt,
+	}, func(row *models.SessionRecording) service.Event {
+		return service.Event{
+			Type:     service.EventRecordingUpdated,
+			UserID:   uid,
+			DeviceID: row.DeviceID,
+			Data: map[string]interface{}{
+				"recording_id": row.ID,
+				"session_id":   row.SessionID,
+				"status":       row.Status,
+			},
+		}
 	})
 	if err != nil {
 		switch {
@@ -240,18 +250,6 @@ func (h *SessionRecordingHandler) Update(c *gin.Context) {
 		}
 		return
 	}
-	if h.bus != nil {
-		h.bus.Publish(c.Request.Context(), service.Event{
-			Type:     service.EventRecordingUpdated,
-			UserID:   uid,
-			DeviceID: row.DeviceID,
-			Data: map[string]interface{}{
-				"recording_id": row.ID,
-				"session_id":   row.SessionID,
-				"status":       row.Status,
-			},
-		})
-	}
 	c.JSON(http.StatusOK, row)
 }
 
@@ -262,22 +260,25 @@ func (h *SessionRecordingHandler) Delete(c *gin.Context) {
 		ProblemBadRequest(c, ProblemCodeInvalidRequest, "invalid recording id")
 		return
 	}
-	if err := h.recordings.Delete(c.Request.Context(), uid, uint(id)); err != nil {
+	if err := h.recordings.DeleteWithEvent(
+		c.Request.Context(), uid, uint(id),
+		func(row *models.SessionRecording) service.Event {
+			return service.Event{
+				Type:     service.EventRecordingDeleted,
+				UserID:   uid,
+				DeviceID: row.DeviceID,
+				// `ip` is the actor's observed address; the audit subscriber
+				// lifts it onto the row so a deletion can be explained.
+				Data: map[string]interface{}{"recording_id": row.ID, "ip": c.ClientIP()},
+			}
+		},
+	); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			ProblemNotFound(c, ProblemCodeNotFound, "Recording not found")
 			return
 		}
 		ProblemInternal(c, err.Error())
 		return
-	}
-	if h.bus != nil {
-		h.bus.Publish(c.Request.Context(), service.Event{
-			Type:   service.EventRecordingDeleted,
-			UserID: uid,
-			// `ip` is the actor's observed address; the audit subscriber lifts
-			// it onto the row so a deletion can be explained by who and where.
-			Data: map[string]interface{}{"recording_id": uint(id), "ip": c.ClientIP()},
-		})
 	}
 	c.Status(http.StatusNoContent)
 }
@@ -428,22 +429,24 @@ func (h *SessionRecordingHandler) finalizeArtifact(
 		os.Remove(tmp)
 		return nil, err
 	}
-	row, err := h.recordings.AttachArtifact(c.Request.Context(), uid, id, dest, ext, size)
+	row, err := h.recordings.AttachArtifactWithEvent(
+		c.Request.Context(), uid, id, dest, ext, size,
+		func(row *models.SessionRecording) service.Event {
+			return service.Event{
+				Type:     service.EventRecordingUpdated,
+				UserID:   uid,
+				DeviceID: row.DeviceID,
+				Data: map[string]interface{}{
+					"recording_id": row.ID,
+					"session_id":   row.SessionID,
+					"status":       row.Status,
+					"size_bytes":   row.SizeBytes,
+				},
+			}
+		},
+	)
 	if err != nil {
 		return nil, err
-	}
-	if h.bus != nil {
-		h.bus.Publish(c.Request.Context(), service.Event{
-			Type:     service.EventRecordingUpdated,
-			UserID:   uid,
-			DeviceID: row.DeviceID,
-			Data: map[string]interface{}{
-				"recording_id": row.ID,
-				"session_id":   row.SessionID,
-				"status":       row.Status,
-				"size_bytes":   row.SizeBytes,
-			},
-		})
 	}
 	return row, nil
 }
@@ -607,7 +610,21 @@ func (h *SessionRecordingHandler) UploadThumbnail(c *gin.Context) {
 		}
 	}
 
-	row, err := h.recordings.AttachThumbnail(c.Request.Context(), uid, uint(id), dest, ext, written)
+	row, err := h.recordings.AttachThumbnailWithEvent(
+		c.Request.Context(), uid, uint(id), dest, ext, written,
+		func(row *models.SessionRecording) service.Event {
+			return service.Event{
+				Type:     service.EventRecordingUpdated,
+				UserID:   uid,
+				DeviceID: row.DeviceID,
+				Data: map[string]interface{}{
+					"recording_id":  row.ID,
+					"session_id":    row.SessionID,
+					"thumbnail_url": row.ThumbnailURL,
+				},
+			}
+		},
+	)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			ProblemNotFound(c, ProblemCodeNotFound, "Recording not found")
@@ -615,18 +632,6 @@ func (h *SessionRecordingHandler) UploadThumbnail(c *gin.Context) {
 		}
 		ProblemInternal(c, err.Error())
 		return
-	}
-	if h.bus != nil {
-		h.bus.Publish(c.Request.Context(), service.Event{
-			Type:     service.EventRecordingUpdated,
-			UserID:   uid,
-			DeviceID: row.DeviceID,
-			Data: map[string]interface{}{
-				"recording_id":  row.ID,
-				"session_id":    row.SessionID,
-				"thumbnail_url": row.ThumbnailURL,
-			},
-		})
 	}
 	c.JSON(http.StatusOK, row)
 }
