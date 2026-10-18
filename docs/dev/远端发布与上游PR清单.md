@@ -105,17 +105,19 @@
   补 cron 漏跑槽位逐条补跑；`a507aa6` 补同目录多进程回调 delivery/job claim、异常
   claim 回收和 running 有效所有权保护，`b7cffa9` 同步共享 worker 契约；`f90df36`
   增加命名 operator token、ack 操作者/确认方式持久化和首次操作者保护，`bdcf7a8`
-  同步通用契约，`699e1ef` 补服务端 replay retention 配置说明。候选自身现为 59/59、Clippy、QuickDesk C++
+  同步通用契约，`699e1ef` 补服务端 replay retention 配置说明，`5fe849a` 补 retry
+  claim 崩溃恢复契约。候选自身现为 59/59、Clippy、QuickDesk C++
   编译到既有 `AGL` 链接点、release 构建和 diff check 通过；fork 侧 Qt CTest 15/15，
   QuickDesk 完整源码编译到链接阶段后仍受预编译 Remoting 缺失 `AGL` framework 限制。
-  分支 push 仍被当前策略拒绝。跨实例事件 outbox、超出配置容量的积压、跨机器分布式
+  分支 push 仍被当前策略拒绝。数据库事务 event outbox、跨机器分布式
   队列和公平调度仍留在后续阶段
-- QD-610 服务端 replay retention：fork 提交 `c39443c`，把每用户 Redis stream 从
+- QD-610 服务端 event reliability：fork 提交 `c39443c`，把每用户 Redis stream 从
   固定 `MAXLEN~1000` / 1 小时改成 `EVENT_REPLAY_MAX_LEN` 与
-  `EVENT_REPLAY_TTL_SECONDS`，正常 publish、retry 补写和 replay 读取共用同一配置。
-  独立上游候选 `codex/upstream-event-replay-retention` = `eaae35f`，直接基于 PR #25
-  的 `feat/signaling-control-plane@8998466`，9 个文件；候选 Go 全包测试、`go vet`、
-  EventBus race 和直接基线 diff check 通过。分支 push 仍被当前策略拒绝
+  `EVENT_REPLAY_TTL_SECONDS`，正常 publish、retry 补写和 replay 读取共用同一配置；
+  `2d211c1` 再把 retry list 改为 `LMOVE` 原子 claim、per-worker processing 和 heartbeat
+  崩溃恢复。独立上游候选 `codex/upstream-event-replay-retention` = `b5da22f`，直接
+  基于 PR #25 的 `feat/signaling-control-plane@8998466`，9 个文件；候选 Go 全包测试、
+  `go vet`、EventBus race 和直接基线 diff check 通过。分支 push 仍被当前策略拒绝
 - QD-111 / QD-408 文件传输审计：fork 提交 `b9f414c`，控制端在 DataChannel 完成/失败后
   上报，服务端校验设备归属并按 `(actor, direction, transfer_id)` 幂等写审计。
   WebClient 66/66、生产构建、Qt CTest 15/15、Go 测试/vet 和真实 SQLite E2E 通过。
