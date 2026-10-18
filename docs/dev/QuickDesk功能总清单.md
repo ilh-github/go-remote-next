@@ -1,6 +1,6 @@
 # QuickDesk 功能总清单
 
-> 最后对账：2026-10-18 18:28 CST。上游与 fork 状态都是动态的，实施前必须重新执行
+> 最后对账：2026-10-18 18:37 CST。上游与 fork 状态都是动态的，实施前必须重新执行
 > `git fetch --all --prune` 并核对 GitHub issue / PR。
 >
 > 本文件是 QuickDesk fork 后续产品开发的唯一功能清单。它合并三类输入：
@@ -43,7 +43,7 @@
 
 - 仓库：`go-remote-next`
 - 本地主分支：`dev`、`master`
-- 本地代码基线：`2ab09d5`（QD-907 WebClient 有界信令重连与 Playwright E2E）；`origin/dev` 与
+- 本地代码基线：`b2a0a98`（QD-610 管理端设备事务 outbox；QD-907 WebClient 有界重连与 Playwright E2E）；`origin/dev` 与
   `origin/master` 仍在 `9837194`，本地领先数量以 `git rev-list --count origin/dev..dev`
   的实时值为准
 - 上游基线：`barry-ran/QuickDesk` 的 `dev` = `5db316c`，`master` = `f6651f0`
@@ -108,6 +108,9 @@
   ownership-lost 事件也一起提交
 - QD-610 收藏设备生命周期已迁入事务 outbox：favorite added/updated/removed 与
   `user_favorites` 同事务；收藏列表不再出现数据库已变、实时 UI 未收到通知
+- QD-610 管理端设备变更已迁入事务 outbox：admin force-unbind、单条/批量硬删除和
+  device secret rotation 与对应事件同事务提交；outbox 失败会回滚设备状态或密钥哈希，
+  不再出现“操作已成功、审计/Webhook 事件却永久丢失”的窗口
 - QD-610 已补 MCP 事件重连和持久化：QuickDesk WebSocket API 默认保留最近 2048 条白名单
   事件，可用 `QUICKDESK_CONTROL_PLANE_REPLAY_CAPACITY` 配置为 1~10000；按用户 ID
   原子持久化，线程重启/QuickDesk 重启后重新载入；MCP auth 携带
@@ -243,6 +246,11 @@
 - QD-610 收藏设备 outbox：add/update/delete 三类事件与收藏行同事务；outbox 失败回滚
   新增收藏。SignalingServer 全量测试、vet、race 和构建通过；上游
   `codex/upstream-event-outbox@b14601b` 同步通过，候选不携带分组或指标功能。
+- QD-610 管理端设备 outbox：force-unbind、硬删除、批量删除和 secret rotation 的
+  业务行与 `device.ownership.lost` / `device.unbound` / `device.secret.rotated`
+  同事务；模拟 outbox 失败时设备归属、删除和密钥哈希全部回滚。SignalingServer
+  全包测试、vet、race 和构建通过；上游 `codex/upstream-event-outbox@fa18755`
+  同步通过，候选不携带 fork-only 的分组清理和指标功能。
 - QD-610 第十六至十八阶段：cron trigger 新增 `skip_holidays`，按 IANA 时区本地日期跳过
   内置中国法定放假日，调休上班日仍执行；支持 `QUICKDESK_HOLIDAY_CALENDAR_DIR`
   追加后续年份；interval/event-only 使用该标志返回 400。默认 replay buffer 提升到
@@ -812,6 +820,10 @@ fork 是否能继续开发，也不能因为 fork 自己有实现就再次向 up
 | QD-608 | OpenAPI 与生成 SDK | `[x]` | TypeScript/Go/Python/Java/C#/PHP/Kotlin 七套客户端已提交，生成器、freshness 门禁和 CI 编译覆盖全部语言；C# `dotnet build`、PHP Composer/lint、Kotlin Gradle build 通过 |
 | QD-609 | MCP / AI 自动化 | `[x]` | QuickDesk 原生能力；也是上游维护者当前最优先方向 |
 | QD-610 | 业务系统集成与自定义工作流 | `[~]` | `bca8149` + `3f94911` + `e518194` + `e8ce807` + `9f7be0f` + `2e09d5b` 已提供同步/异步 HTTP trigger、持久化 trigger CRUD、60 秒~365 天 interval worker、next_run_at at-most-once、运行结果回写、Idempotency-Key 持久化重放、异步 job 状态/取消、HMAC 结果回调、白名单控制面事件订阅、事件过滤/幂等 claim、设备白名单、trust/emergency、单并发和 429；`1176a92`~`a94bba1` 补持久回调 outbox、重试、死信、人工重放和幂等 ack；`d3dc4cf` 补 queued job 重启恢复；`3c31d9a` 补 UTC cron；`20d02cc` 补 IANA 时区和 DST；`47d5e19` 补批量 ack；`af8653f` 补 MCP 事件重连；`5a4ff4a` 补按用户持久事件 replay；本轮补法定节假日跳过、年度日历扩展、默认 2048/可配置 replay 容量、cron 漏跑补跑、`5f24ff7` 的同目录多进程回调/job claim 协调、`cd730d1` 的回调操作者归属、`c39443c` 的服务端 replay retention 配置、`2d211c1` 的 retry claim 崩溃恢复、`6c71f97` 的数据库事务 event outbox 基础设施/`scheduled_task.failed` 迁移、`f2534ec` 的设备访问 granted/denied 迁移、`6bdc057` 的策略变更迁移、`3bbc175` 的远端会话生命周期迁移、`cd08a0f` 的录像生命周期迁移、`c650d3d` 的访问审批生命周期迁移、`5e2542c` 的共享访问码生命周期迁移、`b6855cc` 的离线告警迁移、`c4a28ee` 的指标阈值告警迁移、`0c621ef` 的设备控制面变更迁移和 `0b746b9` 的收藏设备迁移，上游候选继续推进；其余在线状态、通知/管理端/账号会话类关键事件的事务 outbox 迁移、跨机器分布式队列、公平调度和 Owner 委托权限仍未完成 |
+
+QD-610 当前增量：`b2a0a98` 已把 admin force-unbind、单条/批量设备硬删除和 secret
+rotation 的事件写入同一数据库事务；上游 `codex/upstream-event-outbox@fa18755`
+保持最小候选，不携带 fork-only 的分组清理或指标代码。
 
 ## 10. Web、Qt 与管理端
 
