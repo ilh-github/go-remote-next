@@ -1,6 +1,6 @@
 # 远端发布与上游 PR 清单
 
-**更新时间**: 2026-10-18 18:22 CST
+**更新时间**: 2026-10-18 18:28 CST
 
 这份清单记录本地验证完成后的远端写入与 PR 状态。远端状态必须以实际
 `origin/*` ref、push 结果和 GitHub PR 为准，不能把本地候选写成已共享。
@@ -54,7 +54,9 @@
   有界重连、访问码错误分类、remote 入口和 Node test。候选自身 10/10、生产构建和
   单提交 diff check 通过；修复 auth_ok 超时、认证前 payload/send 门禁、
   访问策略/错误访问码/排队/签名失败分类，以及断线后重新签发 token 的 0/1/3/7 秒
-  有界重连与耗尽状态，尚未推送到 `origin`
+  有界重连与耗尽状态。fork 已增加真实 Chrome + Playwright 的 QD-907 E2E，
+  `830a469` 的 7/7 测试覆盖第 1~3 次恢复、四次耗尽、策略拒绝、上传并发和旧 Session 隔离；
+  该测试尚未追加到上游候选，分支仍未推送到 `origin`
 - 上游 QD-006 候选：`codex/upstream-qd-006-sqlite` = `7758456`，基于 PR #25 的
   `feat/signaling-control-plane@8998466`；候选自身完整 Go 测试、database race、
   `go vet`、Web 生产构建和最小服务 E2E 通过。PR #25 合并后需 rebase 到
