@@ -26,6 +26,7 @@ import { RemoteFileManager } from './files/remote-file-manager.js';
 import { FileManagerPanel } from './files/file-manager-panel.js';
 import { SessionChatModel } from './chat/session-chat.js';
 import { ChatPanel } from './chat/chat-panel.js';
+import { describeAccessCodeFailure } from './auth/access-code-errors.js';
 
 class RemoteDesktopApp {
     constructor() {
@@ -129,6 +130,7 @@ class RemoteDesktopApp {
         userApi.setBaseUrl(serverUrl);
 
         let signalToken = signalTokenFromUrl;
+        let accessFailure = null;
         if (handoff && accessCode) {
             this._writeCurrentAccessCode(deviceId, accessCode);
         } else {
@@ -137,12 +139,17 @@ class RemoteDesktopApp {
             // Re-verify the saved access_code to get a fresh one-shot
             // signal_token. As long as the access_code remains valid,
             // refresh can reconnect without asking the user to re-enter it.
-            signalToken = await this._issueFreshSignalToken(deviceId, accessCode, params);
+            const issued = await this._issueFreshSignalToken(deviceId, accessCode, params);
+            signalToken = issued.token;
+            accessFailure = issued.failure;
         }
 
         if (!deviceId || !signalToken || !accessCode) {
-            this._log(t('log.missingParams'), 'error');
-            this._setConnectionState('failed', t('status.missingParams'));
+            const message = deviceId && accessCode && accessFailure
+                ? t(accessFailure.messageKey)
+                : t('status.missingParams');
+            this._log(message, 'error');
+            this._setConnectionState('failed', message);
             return;
         }
 
@@ -227,12 +234,16 @@ class RemoteDesktopApp {
     }
 
     async _issueFreshSignalToken(deviceId, accessCode, params) {
-        if (!deviceId || !accessCode) return '';
+        if (!deviceId || !accessCode) return { token: '', failure: null };
         try {
             const v = await userApi.verifyAccessCode(deviceId, accessCode);
             if (!v || !v.ok || !v.data || !v.data.signal_token) {
-                this._log('access-code verify did not return a signal_token', 'warning');
-                return '';
+                const failure = describeAccessCodeFailure(v);
+                this._log(
+                    `access-code verify rejected: ${failure ? failure.code : 'unknown'}`,
+                    'warning',
+                );
+                return { token: '', failure };
             }
             const signalToken = v.data.signal_token;
             try {
@@ -240,10 +251,13 @@ class RemoteDesktopApp {
                 const newUrl = window.location.pathname + (params.toString() ? '?' + params.toString() : '');
                 window.history.replaceState({}, document.title, newUrl);
             } catch {}
-            return signalToken;
+            return { token: signalToken, failure: null };
         } catch (e) {
             this._log(`verifyAccessCode error: ${e && e.message ? e.message : e}`, 'warning');
-            return '';
+            return {
+                token: '',
+                failure: { code: 'ACCESS_VERIFY_FAILED', messageKey: 'status.accessVerifyFailed' },
+            };
         }
     }
 
