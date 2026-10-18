@@ -1200,12 +1200,12 @@ top-level device field, then exposes the safe subset as `controlPlaneEvent` on t
 WebSocket API. The MCP event worker matches type/device/filter and persists a claim before
 execution. The event `id` is the cross-restart idempotency key; legacy events without an ID
 fall back to `server_rev`. QuickDesk's local WebSocket API keeps the latest 256 whitelisted
-events in memory. On reconnect, the MCP auth request includes `since_server_rev`, and the API
-replays newer events after authentication. This covers short MCP disconnects or restarts
-while QuickDesk remains running; the buffer is lost when QuickDesk restarts and older events
-fall out after 256 entries. Holiday calendars and missed-slot backfill remain future work.
-The current job worker is single-process and does not coordinate multiple processes sharing
-one data directory.
+events in a per-user, atomically persisted replay file under the application data directory.
+On reconnect, the MCP auth request includes `since_server_rev`, and the API replays newer
+events after authentication. This covers short MCP or QuickDesk restarts while the same user
+is active; user switches reload a separate scope, and older events fall out after 256 entries.
+Holiday calendars and missed-slot backfill remain future work. The current job worker is
+single-process and does not coordinate multiple processes sharing one data directory.
 
 ---
 

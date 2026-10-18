@@ -2,6 +2,12 @@
 
 #include "controlplaneevent.h"
 
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QSaveFile>
 #include <QSet>
 
 namespace quickdesk {
@@ -69,24 +75,33 @@ qint64 controlPlaneReplaySinceRev(const QJsonObject& authParams) {
 ControlPlaneEventReplayBuffer::ControlPlaneEventReplayBuffer(int capacity)
     : m_capacity(qMax(1, capacity)) {}
 
-void ControlPlaneEventReplayBuffer::append(const QJsonObject& event) {
+bool ControlPlaneEventReplayBuffer::append(const QJsonObject& event) {
+    if (!appendInMemory(event)) {
+        return true;
+    }
+    return persist();
+}
+
+bool ControlPlaneEventReplayBuffer::appendInMemory(
+    const QJsonObject& event) {
     if (!isWorkflowTriggerEvent(
             event.value(QStringLiteral("type")).toString())) {
-        return;
+        return false;
     }
     const QString id = event.value(QStringLiteral("id")).toString();
     const qint64 serverRev =
         event.value(QStringLiteral("server_rev")).toVariant().toLongLong();
     if (id.isEmpty() && serverRev <= 0) {
-        return;
+        return false;
     }
     if (contains(event)) {
-        return;
+        return false;
     }
     m_events.append(event);
     while (m_events.size() > m_capacity) {
         m_events.removeFirst();
     }
+    return true;
 }
 
 QList<QJsonObject>
@@ -109,6 +124,85 @@ int ControlPlaneEventReplayBuffer::size() const {
 
 void ControlPlaneEventReplayBuffer::clear() {
     m_events.clear();
+}
+
+bool ControlPlaneEventReplayBuffer::loadFromFile(const QString& path,
+                                                  qint64 userId) {
+    clear();
+    if (path.isEmpty() || userId <= 0) {
+        return true;
+    }
+    QFile file(path);
+    if (!file.exists()) {
+        return true;
+    }
+    if (!file.open(QIODevice::ReadOnly)) {
+        return false;
+    }
+    const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
+    if (!doc.isObject()) {
+        return false;
+    }
+    const QJsonObject root = doc.object();
+    if (root.value(QStringLiteral("version")).toInt() != 1 ||
+        root.value(QStringLiteral("user_id")).toVariant().toLongLong() !=
+            userId) {
+        return true;
+    }
+    const QJsonValue eventsValue = root.value(QStringLiteral("events"));
+    if (!eventsValue.isArray()) {
+        return false;
+    }
+    for (const QJsonValue& value : eventsValue.toArray()) {
+        if (value.isObject()) {
+            appendInMemory(value.toObject());
+        }
+    }
+    return true;
+}
+
+bool ControlPlaneEventReplayBuffer::saveToFile(const QString& path,
+                                                qint64 userId) const {
+    if (path.isEmpty() || userId <= 0) {
+        return false;
+    }
+    const QFileInfo fileInfo(path);
+    if (!QDir().mkpath(fileInfo.absolutePath())) {
+        return false;
+    }
+    QJsonArray events;
+    for (const QJsonObject& event : m_events) {
+        events.append(event);
+    }
+    const QJsonObject root{
+        {QStringLiteral("version"), 1},
+        {QStringLiteral("user_id"), userId},
+        {QStringLiteral("events"), events},
+    };
+    QSaveFile file(path);
+    if (!file.open(QIODevice::WriteOnly)) {
+        return false;
+    }
+    file.write(QJsonDocument(root).toJson(QJsonDocument::Compact));
+    return file.commit();
+}
+
+bool ControlPlaneEventReplayBuffer::configureStorage(const QString& path,
+                                                      qint64 userId) {
+    m_storagePath = path;
+    m_userId = userId;
+    if (m_storagePath.isEmpty() || m_userId <= 0) {
+        clear();
+        return true;
+    }
+    return loadFromFile(m_storagePath, m_userId);
+}
+
+bool ControlPlaneEventReplayBuffer::persist() const {
+    if (m_storagePath.isEmpty() || m_userId <= 0) {
+        return true;
+    }
+    return saveToFile(m_storagePath, m_userId);
 }
 
 bool ControlPlaneEventReplayBuffer::contains(

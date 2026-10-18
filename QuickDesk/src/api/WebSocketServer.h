@@ -63,8 +63,10 @@ private:
     QString clientId(QWebSocket* client) const;
     void sendEvent(QWebSocket* client, const QString& event,
                    const QJsonObject& data);
+    void reloadControlPlaneReplay();
 
     QWebSocketServer* m_server = nullptr;
+    MainController* m_controller = nullptr;
     ApiHandler* m_handler = nullptr;
     SecurityManager* m_security = nullptr;
     QSet<QWebSocket*> m_clients;

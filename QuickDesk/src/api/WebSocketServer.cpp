@@ -2,7 +2,10 @@
 
 #include "WebSocketServer.h"
 #include "ApiHandler.h"
+#include "controller/MainController.h"
 #include "infra/log/log.h"
+#include "manager/AuthManager.h"
+#include <QDir>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QPointer>
@@ -14,6 +17,7 @@ namespace quickdesk {
 WebSocketApiServer::WebSocketApiServer(MainController* controller,
                                        QObject* parent)
     : QObject(parent)
+    , m_controller(controller)
     , m_handler(new ApiHandler(controller, this))
     , m_security(new SecurityManager(this)) {
     connect(m_security, &SecurityManager::sessionExpired,
@@ -21,6 +25,12 @@ WebSocketApiServer::WebSocketApiServer(MainController* controller,
 
     auto logDir = infra::ApplicationContext::instance().logPath();
     m_security->initAuditLog(logDir);
+
+    if (m_controller && m_controller->authManager()) {
+        connect(m_controller->authManager(), &AuthManager::loginStateChanged,
+                this, &WebSocketApiServer::reloadControlPlaneReplay);
+    }
+    reloadControlPlaneReplay();
 }
 
 WebSocketApiServer::~WebSocketApiServer() {
@@ -28,6 +38,7 @@ WebSocketApiServer::~WebSocketApiServer() {
 }
 
 bool WebSocketApiServer::start(quint16 port, const QHostAddress& address) {
+    reloadControlPlaneReplay();
     if (m_server) {
         return m_server->isListening();
     }
@@ -94,7 +105,9 @@ int WebSocketApiServer::authenticatedClientCount() const {
 void WebSocketApiServer::broadcastEvent(const QString& event,
                                         const QJsonObject& data) {
     if (event == QLatin1String("controlPlaneEvent")) {
-        m_controlPlaneReplay.append(data);
+        if (!m_controlPlaneReplay.append(data)) {
+            LOG_WARN("Failed to persist control-plane event replay buffer");
+        }
     }
     auto& targets = m_authToken.isEmpty() ? m_clients : m_authenticatedClients;
     for (auto* client : targets) {
@@ -112,6 +125,24 @@ void WebSocketApiServer::sendEvent(QWebSocket* client, const QString& event,
         QJsonDocument(msg).toJson(QJsonDocument::Compact));
 
     client->sendTextMessage(text);
+}
+
+void WebSocketApiServer::reloadControlPlaneReplay() {
+    const qint64 userId =
+        m_controller && m_controller->authManager()
+            ? static_cast<qint64>(m_controller->authManager()->userId())
+            : 0;
+    const QString dataPath =
+        infra::ApplicationContext::instance().localDataPath();
+    const QString storagePath =
+        userId > 0 && !dataPath.isEmpty()
+            ? QDir(dataPath).filePath(
+                  QStringLiteral("control-plane-event-replay.json"))
+            : QString();
+    if (!m_controlPlaneReplay.configureStorage(storagePath, userId)) {
+        LOG_WARN("Failed to load control-plane event replay buffer from {}",
+                 storagePath.toStdString());
+    }
 }
 
 QString WebSocketApiServer::clientId(QWebSocket* client) const {

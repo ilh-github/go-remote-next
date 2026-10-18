@@ -3,6 +3,7 @@
 #include "core/controlplaneevent.h"
 
 #include <QJsonObject>
+#include <QTemporaryDir>
 
 #include <cstdlib>
 #include <iostream>
@@ -102,6 +103,22 @@ int main() {
                {QStringLiteral("since_server_rev"), 42}})
                == 42,
            "positive replay cursors are preserved");
+
+    QTemporaryDir temporaryDir;
+    Expect(temporaryDir.isValid(), "temporary replay directory is created");
+    const QString replayPath = temporaryDir.filePath(QStringLiteral("events.json"));
+    Expect(replayBuffer.saveToFile(replayPath, 7),
+           "replay buffer persists to disk");
+    quickdesk::ControlPlaneEventReplayBuffer restored(2);
+    Expect(restored.loadFromFile(replayPath, 7),
+           "replay buffer restores for the same user");
+    Expect(restored.size() == 2,
+           "persisted replay buffer preserves its bounded events");
+    quickdesk::ControlPlaneEventReplayBuffer otherUser(2);
+    Expect(otherUser.loadFromFile(replayPath, 8),
+           "a different user file is treated as an empty replay scope");
+    Expect(otherUser.size() == 0,
+           "replay events never cross user scopes");
 
     std::cout << "control plane event tests passed\n";
     return 0;
