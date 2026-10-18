@@ -30,12 +30,49 @@ import (
 type DeviceService struct {
 	repo    *repository.DeviceRepository
 	secrets *DeviceSecretService
+	outbox  EventOutboxWriter
 }
 
 const heartbeatDBUpdateInterval = 5 * time.Minute
 
 func NewDeviceService(repo *repository.DeviceRepository, secrets *DeviceSecretService) *DeviceService {
 	return &DeviceService{repo: repo, secrets: secrets}
+}
+
+func (s *DeviceService) WithOutbox(outbox EventOutboxWriter) *DeviceService {
+	s.outbox = outbox
+	return s
+}
+
+// DeviceMutationEventFactory builds zero or more events from the final device
+// row. It runs inside the caller's transaction.
+type DeviceMutationEventFactory func(tx *gorm.DB, device *models.Device) ([]Event, error)
+
+// DeviceBindEventFactory additionally sees what the bind changed: the previous
+// owner and the idempotent already-owned case.
+type DeviceBindEventFactory func(tx *gorm.DB, result BindResult) ([]Event, error)
+
+func (s *DeviceService) enqueueDeviceEvents(
+	ctx context.Context,
+	tx *gorm.DB,
+	events []Event,
+	err error,
+) error {
+	if err != nil {
+		return err
+	}
+	if s.outbox == nil {
+		return nil
+	}
+	for _, evt := range events {
+		if evt.Type == "" || evt.UserID == 0 {
+			continue
+		}
+		if _, err := s.outbox.EnqueueTx(ctx, tx, evt); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // ProvisionRequest is the decoded body of POST /v1/devices:provision.
@@ -182,6 +219,35 @@ func (s *DeviceService) SetAccessCode(ctx context.Context, deviceID, code string
 	return s.repo.SetAccessCode(ctx, deviceID, code)
 }
 
+// SetAccessCodeWithEvents writes the access code and an owner-scoped event in
+// one transaction. A missing device keeps the historical no-op success.
+func (s *DeviceService) SetAccessCodeWithEvents(
+	ctx context.Context,
+	deviceID string,
+	code string,
+	eventFactory DeviceMutationEventFactory,
+) error {
+	return s.repo.DB(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&models.Device{}).
+			Where("device_id = ?", deviceID).
+			Update("access_code", code).Error; err != nil {
+			return err
+		}
+		if s.outbox == nil || eventFactory == nil {
+			return nil
+		}
+		var d models.Device
+		if err := tx.Where("device_id = ?", deviceID).First(&d).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil
+			}
+			return err
+		}
+		events, err := eventFactory(tx, &d)
+		return s.enqueueDeviceEvents(ctx, tx, events, err)
+	})
+}
+
 // VerifyAccessCode does a constant-time comparison against the stored
 // plaintext code in DB. Used by POST /v1/devices/:id/access-code:verify
 // (and only there — host signaling auth goes through signal_token).
@@ -219,6 +285,18 @@ type BindResult struct {
 // SELECT ... FOR UPDATE on the device row so two users racing to bind the
 // same device see strict ordering (搂2.14).
 func (s *DeviceService) BindToUser(ctx context.Context, deviceID string, userID uint) (BindResult, error) {
+	return s.BindToUserWithEvents(ctx, deviceID, userID, nil)
+}
+
+// BindToUserWithEvents commits the ownership flip and its realtime events
+// together. A takeover emits both the old owner's ownership-lost event and the
+// new owner's added event through the same factory.
+func (s *DeviceService) BindToUserWithEvents(
+	ctx context.Context,
+	deviceID string,
+	userID uint,
+	eventFactory DeviceBindEventFactory,
+) (BindResult, error) {
 	var out BindResult
 	err := s.repo.DB(ctx).Transaction(func(tx *gorm.DB) error {
 		var d models.Device
@@ -235,7 +313,11 @@ func (s *DeviceService) BindToUser(ctx context.Context, deviceID string, userID 
 			// Keep the user_devices row fresh (status=true).
 			s.upsertUserDevice(tx, userID, deviceID)
 			out = BindResult{Device: &d, AlreadyOwned: true}
-			return nil
+			if s.outbox == nil || eventFactory == nil {
+				return nil
+			}
+			events, err := eventFactory(tx, out)
+			return s.enqueueDeviceEvents(ctx, tx, events, err)
 		}
 
 		// Takeover: remember the previous owner so the handler can notify.
@@ -261,7 +343,11 @@ func (s *DeviceService) BindToUser(ctx context.Context, deviceID string, userID 
 		}
 		s.upsertUserDevice(tx, userID, deviceID)
 		out = BindResult{Device: &d, PreviousOwner: prev}
-		return nil
+		if s.outbox == nil || eventFactory == nil {
+			return nil
+		}
+		events, err := eventFactory(tx, out)
+		return s.enqueueDeviceEvents(ctx, tx, events, err)
 	})
 	return out, err
 }
@@ -290,6 +376,15 @@ func (s *DeviceService) upsertUserDevice(tx *gorm.DB, userID uint, deviceID stri
 // UnbindFromUser implements DELETE /v1/me/devices/:id: clears user_id +
 // logged_in on the device and flips the user_device row to inactive.
 func (s *DeviceService) UnbindFromUser(ctx context.Context, deviceID string, userID uint) error {
+	return s.UnbindFromUserWithEvents(ctx, deviceID, userID, nil)
+}
+
+func (s *DeviceService) UnbindFromUserWithEvents(
+	ctx context.Context,
+	deviceID string,
+	userID uint,
+	eventFactory DeviceMutationEventFactory,
+) error {
 	return s.repo.DB(ctx).Transaction(func(tx *gorm.DB) error {
 		var d models.Device
 		if err := tx.Clauses(lockForUpdate()).Where("device_id = ?", deviceID).First(&d).Error; err != nil {
@@ -306,9 +401,16 @@ func (s *DeviceService) UnbindFromUser(ctx context.Context, deviceID string, use
 		if err := removeDeviceFromUserGroups(tx, userID, deviceID); err != nil {
 			return err
 		}
-		return tx.Model(&models.UserDevice{}).
+		if err := tx.Model(&models.UserDevice{}).
 			Where("user_id = ? AND device_id = ?", userID, deviceID).
-			Update("status", false).Error
+			Update("status", false).Error; err != nil {
+			return err
+		}
+		if s.outbox == nil || eventFactory == nil {
+			return nil
+		}
+		events, err := eventFactory(tx, &d)
+		return s.enqueueDeviceEvents(ctx, tx, events, err)
 	})
 }
 
@@ -324,6 +426,15 @@ func removeDeviceFromUserGroups(tx *gorm.DB, userID uint, deviceID string) error
 // logged_in=false while leaving ownership intact. Qt calls this as
 // step 1 of the logout flow (搂2.11).
 func (s *DeviceService) ClearSession(ctx context.Context, deviceID string, userID uint) error {
+	return s.ClearSessionWithEvents(ctx, deviceID, userID, nil)
+}
+
+func (s *DeviceService) ClearSessionWithEvents(
+	ctx context.Context,
+	deviceID string,
+	userID uint,
+	eventFactory DeviceMutationEventFactory,
+) error {
 	return s.repo.DB(ctx).Transaction(func(tx *gorm.DB) error {
 		var d models.Device
 		if err := tx.Clauses(lockForUpdate()).Where("device_id = ?", deviceID).First(&d).Error; err != nil {
@@ -333,7 +444,14 @@ func (s *DeviceService) ClearSession(ctx context.Context, deviceID string, userI
 			return ErrDeviceNotOwned
 		}
 		d.LoggedIn = false
-		return tx.Save(&d).Error
+		if err := tx.Save(&d).Error; err != nil {
+			return err
+		}
+		if s.outbox == nil || eventFactory == nil {
+			return nil
+		}
+		events, err := eventFactory(tx, &d)
+		return s.enqueueDeviceEvents(ctx, tx, events, err)
 	})
 }
 
@@ -346,6 +464,16 @@ type PatchMetaInput struct {
 // PatchMeta updates device_name on devices and/or remark on user_devices.
 // The caller must be the current owner; we enforce that inside the tx.
 func (s *DeviceService) PatchMeta(ctx context.Context, deviceID string, userID uint, in PatchMetaInput) error {
+	return s.PatchMetaWithEvents(ctx, deviceID, userID, in, nil)
+}
+
+func (s *DeviceService) PatchMetaWithEvents(
+	ctx context.Context,
+	deviceID string,
+	userID uint,
+	in PatchMetaInput,
+	eventFactory DeviceMutationEventFactory,
+) error {
 	return s.repo.DB(ctx).Transaction(func(tx *gorm.DB) error {
 		var d models.Device
 		if err := tx.Where("device_id = ?", deviceID).First(&d).Error; err != nil {
@@ -369,7 +497,14 @@ func (s *DeviceService) PatchMeta(ctx context.Context, deviceID string, userID u
 				return err
 			}
 		}
-		return nil
+		if s.outbox == nil || eventFactory == nil {
+			return nil
+		}
+		if err := tx.Where("device_id = ?", deviceID).First(&d).Error; err != nil {
+			return err
+		}
+		events, err := eventFactory(tx, &d)
+		return s.enqueueDeviceEvents(ctx, tx, events, err)
 	})
 }
 

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"quickdesk/signaling/internal/models"
+	"quickdesk/signaling/internal/repository"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/glebarez/sqlite"
@@ -35,6 +36,8 @@ func newEventOutboxTestDB(t *testing.T) *gorm.DB {
 		&models.DeviceOfflineAlertRule{},
 		&models.DeviceMetricAlertRule{},
 		&models.DeviceMetricSnapshot{},
+		&models.UserDeviceGroup{},
+		&models.UserDeviceGroupMember{},
 		&models.Device{},
 		&models.RemoteSession{},
 		&models.SessionRecording{},
@@ -1003,6 +1006,209 @@ func TestMetricAlertOutboxFailureRollsBackClaim(t *testing.T) {
 	}
 	if stored.CPUAlertedAt != nil {
 		t.Fatalf("metric alert claim was not rolled back: %+v", stored)
+	}
+}
+
+func TestDeviceMutationsCommitEventsWithStateChanges(t *testing.T) {
+	db := newEventOutboxTestDB(t)
+	_, _, bus := newEventOutboxTestRedis(t)
+	outbox := NewEventOutbox(db, bus)
+	device := models.Device{
+		DeviceID:   "D9200001",
+		DeviceUUID: "uuid-D9200001",
+	}
+	if err := db.Create(&device).Error; err != nil {
+		t.Fatalf("create device: %v", err)
+	}
+	devices := NewDeviceService(repository.NewDeviceRepository(db), NewDeviceSecretService()).
+		WithOutbox(outbox)
+	ctx := context.Background()
+
+	bound, err := devices.BindToUserWithEvents(
+		ctx, device.DeviceID, 7,
+		func(_ *gorm.DB, result BindResult) ([]Event, error) {
+			return []Event{{
+				Type:     EventDeviceBound,
+				UserID:   7,
+				DeviceID: result.Device.DeviceID,
+			}}, nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("BindToUserWithEvents: %v", err)
+	}
+	if bound.Device.UserID == nil || *bound.Device.UserID != 7 || !bound.Device.LoggedIn {
+		t.Fatalf("bound device = %+v", bound.Device)
+	}
+	if err := devices.SetAccessCodeWithEvents(
+		ctx, device.DeviceID, "246810",
+		func(_ *gorm.DB, device *models.Device) ([]Event, error) {
+			return []Event{{
+				Type:     EventDeviceAccessCodeChanged,
+				UserID:   *device.UserID,
+				DeviceID: device.DeviceID,
+			}}, nil
+		},
+	); err != nil {
+		t.Fatalf("SetAccessCodeWithEvents: %v", err)
+	}
+	if err := devices.ClearSessionWithEvents(
+		ctx, device.DeviceID, 7,
+		func(_ *gorm.DB, device *models.Device) ([]Event, error) {
+			return []Event{{
+				Type:     EventDeviceSessionUpdated,
+				UserID:   7,
+				DeviceID: device.DeviceID,
+			}}, nil
+		},
+	); err != nil {
+		t.Fatalf("ClearSessionWithEvents: %v", err)
+	}
+	name := "desk"
+	remark := "lab"
+	if err := devices.PatchMetaWithEvents(
+		ctx, device.DeviceID, 7,
+		PatchMetaInput{DeviceName: &name, Remark: &remark},
+		func(_ *gorm.DB, device *models.Device) ([]Event, error) {
+			return []Event{
+				{Type: EventDeviceNameChanged, UserID: 7, DeviceID: device.DeviceID},
+				{Type: EventDeviceRemarkChanged, UserID: 7, DeviceID: device.DeviceID},
+			}, nil
+		},
+	); err != nil {
+		t.Fatalf("PatchMetaWithEvents: %v", err)
+	}
+	if err := devices.UnbindFromUserWithEvents(
+		ctx, device.DeviceID, 7,
+		func(_ *gorm.DB, device *models.Device) ([]Event, error) {
+			return []Event{{
+				Type:     EventDeviceUnbound,
+				UserID:   7,
+				DeviceID: device.DeviceID,
+			}}, nil
+		},
+	); err != nil {
+		t.Fatalf("UnbindFromUserWithEvents: %v", err)
+	}
+
+	var stored models.Device
+	if err := db.Where("device_id = ?", device.DeviceID).First(&stored).Error; err != nil {
+		t.Fatalf("load device: %v", err)
+	}
+	if stored.UserID != nil || stored.LoggedIn || stored.AccessCode != "246810" ||
+		stored.DeviceName != name {
+		t.Fatalf("final device = %+v", stored)
+	}
+	var userDevice models.UserDevice
+	if err := db.Where("user_id = ? AND device_id = ?", 7, device.DeviceID).First(&userDevice).Error; err != nil {
+		t.Fatalf("load user device: %v", err)
+	}
+	if userDevice.Status || userDevice.Remark != remark {
+		t.Fatalf("final user device = %+v", userDevice)
+	}
+
+	var outboxRows []models.EventOutbox
+	if err := db.Find(&outboxRows).Error; err != nil {
+		t.Fatalf("load device outbox: %v", err)
+	}
+	if len(outboxRows) != 6 {
+		t.Fatalf("device outbox rows = %d, want 6", len(outboxRows))
+	}
+	types := map[string]int{}
+	for _, outboxRow := range outboxRows {
+		var event Event
+		if err := json.Unmarshal([]byte(outboxRow.Payload), &event); err != nil {
+			t.Fatalf("decode device event: %v", err)
+		}
+		if event.UserID != 7 || event.DeviceID != device.DeviceID {
+			t.Fatalf("device event routing = %+v", event)
+		}
+		types[event.Type]++
+	}
+	if types[EventDeviceBound] != 1 ||
+		types[EventDeviceAccessCodeChanged] != 1 ||
+		types[EventDeviceSessionUpdated] != 1 ||
+		types[EventDeviceNameChanged] != 1 ||
+		types[EventDeviceRemarkChanged] != 1 ||
+		types[EventDeviceUnbound] != 1 {
+		t.Fatalf("device event types = %+v", types)
+	}
+}
+
+func TestDeviceMutationOutboxFailureRollsBackBindAndUnbind(t *testing.T) {
+	db := newEventOutboxTestDB(t)
+	failing := NewDeviceService(repository.NewDeviceRepository(db), NewDeviceSecretService()).
+		WithOutbox(&failingScheduledTaskOutbox{err: errors.New("outbox unavailable")})
+	ctx := context.Background()
+	unbound := models.Device{
+		DeviceID:   "D9200002",
+		DeviceUUID: "uuid-D9200002",
+	}
+	if err := db.Create(&unbound).Error; err != nil {
+		t.Fatalf("create unbound device: %v", err)
+	}
+	if _, err := failing.BindToUserWithEvents(
+		ctx, unbound.DeviceID, 7,
+		func(_ *gorm.DB, result BindResult) ([]Event, error) {
+			return []Event{{
+				Type:     EventDeviceBound,
+				UserID:   7,
+				DeviceID: result.Device.DeviceID,
+			}}, nil
+		},
+	); err == nil {
+		t.Fatal("BindToUserWithEvents succeeded despite outbox failure")
+	}
+	var afterBind models.Device
+	if err := db.Where("device_id = ?", unbound.DeviceID).First(&afterBind).Error; err != nil {
+		t.Fatalf("load device after bind rollback: %v", err)
+	}
+	if afterBind.UserID != nil || afterBind.LoggedIn {
+		t.Fatalf("bind was not rolled back: %+v", afterBind)
+	}
+
+	owner := uint(7)
+	owned := models.Device{
+		DeviceID:   "D9200003",
+		DeviceUUID: "uuid-D9200003",
+		UserID:     &owner,
+		LoggedIn:   true,
+	}
+	if err := db.Create(&owned).Error; err != nil {
+		t.Fatalf("create owned device: %v", err)
+	}
+	if err := db.Create(&models.UserDevice{
+		UserID:   owner,
+		DeviceID: owned.DeviceID,
+		Status:   true,
+	}).Error; err != nil {
+		t.Fatalf("create owned binding: %v", err)
+	}
+	if err := failing.UnbindFromUserWithEvents(
+		ctx, owned.DeviceID, owner,
+		func(_ *gorm.DB, device *models.Device) ([]Event, error) {
+			return []Event{{
+				Type:     EventDeviceUnbound,
+				UserID:   owner,
+				DeviceID: device.DeviceID,
+			}}, nil
+		},
+	); err == nil {
+		t.Fatal("UnbindFromUserWithEvents succeeded despite outbox failure")
+	}
+	var afterUnbind models.Device
+	if err := db.Where("device_id = ?", owned.DeviceID).First(&afterUnbind).Error; err != nil {
+		t.Fatalf("load device after unbind rollback: %v", err)
+	}
+	if afterUnbind.UserID == nil || *afterUnbind.UserID != owner || !afterUnbind.LoggedIn {
+		t.Fatalf("unbind was not rolled back: %+v", afterUnbind)
+	}
+	var binding models.UserDevice
+	if err := db.Where("user_id = ? AND device_id = ?", owner, owned.DeviceID).First(&binding).Error; err != nil {
+		t.Fatalf("load binding after unbind rollback: %v", err)
+	}
+	if !binding.Status {
+		t.Fatalf("binding status was not rolled back: %+v", binding)
 	}
 }
 

@@ -233,24 +233,24 @@ func (h *HostHandler) SetAccessCode(c *gin.Context) {
 		ProblemBadRequest(c, ProblemCodeInvalidRequest, err.Error())
 		return
 	}
-	if err := h.devices.SetAccessCode(c.Request.Context(), deviceID, req.AccessCode); err != nil {
+	if err := h.devices.SetAccessCodeWithEvents(
+		c.Request.Context(), deviceID, req.AccessCode,
+		func(_ *gorm.DB, device *models.Device) ([]service.Event, error) {
+			if device.UserID == nil {
+				return nil, nil
+			}
+			return []service.Event{{
+				Type:     service.EventDeviceAccessCodeChanged,
+				UserID:   *device.UserID,
+				DeviceID: deviceID,
+				Data: map[string]interface{}{
+					"device_id":           deviceID,
+					"access_code_changed": true,
+				},
+			}}, nil
+		}); err != nil {
 		ProblemInternal(c, err.Error())
 		return
-	}
-	// Owner gets notified so their UI refreshes. Only publish to the
-	// device's current owner (if any); unbound devices produce no user
-	// event (webhook/audit subscribers see it anyway).
-	d, err := h.devices.GetByDeviceID(c.Request.Context(), deviceID)
-	if err == nil && d.UserID != nil {
-		h.bus.Publish(c.Request.Context(), service.Event{
-			Type:     service.EventDeviceAccessCodeChanged,
-			UserID:   *d.UserID,
-			DeviceID: deviceID,
-			Data: map[string]interface{}{
-				"device_id":           deviceID,
-				"access_code_changed": true,
-			},
-		})
 	}
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }

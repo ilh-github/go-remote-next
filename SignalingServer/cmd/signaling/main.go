@@ -314,6 +314,7 @@ func main() {
 		TTL:    time.Duration(cfg.EventBus.ReplayTTLSeconds) * time.Second,
 	})
 	eventOutbox := service.NewEventOutbox(db, bus)
+	deviceService = deviceService.WithOutbox(eventOutbox)
 	deviceAccessService = deviceAccessService.WithOutbox(eventOutbox)
 	deviceAccessGrantService = deviceAccessGrantService.WithOutbox(eventOutbox)
 	deviceAccessPolicyService = deviceAccessPolicyService.WithOutbox(eventOutbox)

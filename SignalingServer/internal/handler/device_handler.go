@@ -191,7 +191,63 @@ func (h *DeviceHandler) Bind(c *gin.Context) {
 		ProblemBadRequest(c, ProblemCodeInvalidRequest, err.Error())
 		return
 	}
-	result, err := h.devices.BindToUser(c.Request.Context(), req.DeviceID, uid)
+	online := h.presence.IsOnline(c.Request.Context(), req.DeviceID)
+	result, err := h.devices.BindToUserWithEvents(
+		c.Request.Context(), req.DeviceID, uid,
+		func(tx *gorm.DB, result service.BindResult) ([]service.Event, error) {
+			var ud models.UserDevice
+			_ = tx.Where("user_id = ? AND device_id = ?", uid, req.DeviceID).First(&ud).Error
+			item := h.toDeviceItem(result.Device, ud.Remark, online)
+			deviceEventData := map[string]interface{}{
+				"device_id":    item.DeviceID,
+				"device_name":  item.DeviceName,
+				"remark":       item.Remark,
+				"online":       item.Online,
+				"logged_in":    item.LoggedIn,
+				"os":           item.OS,
+				"os_version":   item.OSVersion,
+				"app_version":  item.AppVersion,
+				"last_seen_at": item.LastSeenAt,
+			}
+			if result.PreviousOwner != nil {
+				events := []service.Event{{
+					Type:     service.EventDeviceOwnershipLost,
+					UserID:   *result.PreviousOwner,
+					DeviceID: req.DeviceID,
+					Data: map[string]interface{}{
+						"device_id": req.DeviceID,
+						"new_owner": uid,
+					},
+				}}
+				if !result.AlreadyOwned {
+					events = append(events, service.Event{
+						Type:     service.EventDeviceAdded,
+						UserID:   uid,
+						DeviceID: req.DeviceID,
+						Data:     deviceEventData,
+					})
+				}
+				return events, nil
+			}
+			if result.AlreadyOwned {
+				return []service.Event{{
+					Type:     service.EventDeviceSessionUpdated,
+					UserID:   uid,
+					DeviceID: req.DeviceID,
+					Data: map[string]interface{}{
+						"device_id": req.DeviceID,
+						"online":    item.Online,
+						"logged_in": item.LoggedIn,
+					},
+				}}, nil
+			}
+			return []service.Event{{
+				Type:     service.EventDeviceBound,
+				UserID:   uid,
+				DeviceID: req.DeviceID,
+				Data:     deviceEventData,
+			}}, nil
+		})
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			ProblemNotFound(c, ProblemCodeDeviceNotFound, "Device not registered")
@@ -201,28 +257,11 @@ func (h *DeviceHandler) Bind(c *gin.Context) {
 		return
 	}
 
-	online := h.presence.IsOnline(c.Request.Context(), req.DeviceID)
 	var ud models.UserDevice
 	h.db.WithContext(c.Request.Context()).
 		Where("user_id = ? AND device_id = ?", uid, req.DeviceID).
 		First(&ud)
 	item := h.toDeviceItem(result.Device, ud.Remark, online)
-	deviceEventData := map[string]interface{}{
-		"device_id":    item.DeviceID,
-		"device_name":  item.DeviceName,
-		"remark":       item.Remark,
-		"online":       item.Online,
-		"logged_in":    item.LoggedIn,
-		"os":           item.OS,
-		"os_version":   item.OSVersion,
-		"app_version":  item.AppVersion,
-		"last_seen_at": item.LastSeenAt,
-	}
-
-	// Event fan-out. Takeover → (ownership.lost to old owner) + (added to new).
-	// Plain bind → device.bound to new owner. The new-owner event carries
-	// the non-secret DeviceItem fields so clients can converge via ordered
-	// WS patches without issuing a racing HTTP list fetch.
 	if result.PreviousOwner != nil {
 		observability.Event("device", "ownership_transferred", map[string]interface{}{
 			"device_id":     req.DeviceID,
@@ -230,45 +269,11 @@ func (h *DeviceHandler) Bind(c *gin.Context) {
 			"previous_user": *result.PreviousOwner,
 			"request_id":    c.GetString("request_id"),
 		})
-		h.bus.Publish(c.Request.Context(), service.Event{
-			Type:     service.EventDeviceOwnershipLost,
-			UserID:   *result.PreviousOwner,
-			DeviceID: req.DeviceID,
-			Data: map[string]interface{}{
-				"device_id": req.DeviceID,
-				"new_owner": uid,
-			},
-		})
-		if !result.AlreadyOwned {
-			h.bus.Publish(c.Request.Context(), service.Event{
-				Type:     service.EventDeviceAdded,
-				UserID:   uid,
-				DeviceID: req.DeviceID,
-				Data:     deviceEventData,
-			})
-		}
-	} else if result.AlreadyOwned {
-		h.bus.Publish(c.Request.Context(), service.Event{
-			Type:     service.EventDeviceSessionUpdated,
-			UserID:   uid,
-			DeviceID: req.DeviceID,
-			Data: map[string]interface{}{
-				"device_id": req.DeviceID,
-				"online":    item.Online,
-				"logged_in": item.LoggedIn,
-			},
-		})
 	} else {
 		observability.Event("device", "bound", map[string]interface{}{
 			"device_id":  req.DeviceID,
 			"request_id": c.GetString("request_id"),
 			"user_id":    uid,
-		})
-		h.bus.Publish(c.Request.Context(), service.Event{
-			Type:     service.EventDeviceBound,
-			UserID:   uid,
-			DeviceID: req.DeviceID,
-			Data:     deviceEventData,
 		})
 	}
 
@@ -279,16 +284,19 @@ func (h *DeviceHandler) Bind(c *gin.Context) {
 func (h *DeviceHandler) Unbind(c *gin.Context) {
 	uid := middleware.MustUserID(c)
 	deviceID := c.Param("device_id")
-	if err := h.devices.UnbindFromUser(c.Request.Context(), deviceID, uid); err != nil {
+	if err := h.devices.UnbindFromUserWithEvents(
+		c.Request.Context(), deviceID, uid,
+		func(_ *gorm.DB, _ *models.Device) ([]service.Event, error) {
+			return []service.Event{{
+				Type:     service.EventDeviceUnbound,
+				UserID:   uid,
+				DeviceID: deviceID,
+				Data:     map[string]interface{}{"device_id": deviceID},
+			}}, nil
+		}); err != nil {
 		h.writeDeviceErr(c, err)
 		return
 	}
-	h.bus.Publish(c.Request.Context(), service.Event{
-		Type:     service.EventDeviceUnbound,
-		UserID:   uid,
-		DeviceID: deviceID,
-		Data:     map[string]interface{}{"device_id": deviceID},
-	})
 	observability.Event("device", "unbound", map[string]interface{}{
 		"device_id":  deviceID,
 		"request_id": c.GetString("request_id"),
@@ -301,19 +309,22 @@ func (h *DeviceHandler) Unbind(c *gin.Context) {
 func (h *DeviceHandler) ClearSession(c *gin.Context) {
 	uid := middleware.MustUserID(c)
 	deviceID := c.Param("device_id")
-	if err := h.devices.ClearSession(c.Request.Context(), deviceID, uid); err != nil {
+	if err := h.devices.ClearSessionWithEvents(
+		c.Request.Context(), deviceID, uid,
+		func(_ *gorm.DB, _ *models.Device) ([]service.Event, error) {
+			return []service.Event{{
+				Type:     service.EventDeviceSessionUpdated,
+				UserID:   uid,
+				DeviceID: deviceID,
+				Data: map[string]interface{}{
+					"device_id": deviceID,
+					"logged_in": false,
+				},
+			}}, nil
+		}); err != nil {
 		h.writeDeviceErr(c, err)
 		return
 	}
-	h.bus.Publish(c.Request.Context(), service.Event{
-		Type:     service.EventDeviceSessionUpdated,
-		UserID:   uid,
-		DeviceID: deviceID,
-		Data: map[string]interface{}{
-			"device_id": deviceID,
-			"logged_in": false,
-		},
-	})
 	observability.Event("device", "session_cleared", map[string]interface{}{
 		"device_id":  deviceID,
 		"request_id": c.GetString("request_id"),
@@ -343,34 +354,37 @@ func (h *DeviceHandler) Patch(c *gin.Context) {
 		ProblemBadRequest(c, ProblemCodeInvalidRequest, "no patchable fields supplied")
 		return
 	}
-	if err := h.devices.PatchMeta(c.Request.Context(), deviceID, uid, service.PatchMetaInput{
-		DeviceName: req.DeviceName,
-		Remark:     req.Remark,
-	}); err != nil {
+	if err := h.devices.PatchMetaWithEvents(
+		c.Request.Context(), deviceID, uid,
+		service.PatchMetaInput{DeviceName: req.DeviceName, Remark: req.Remark},
+		func(_ *gorm.DB, _ *models.Device) ([]service.Event, error) {
+			events := make([]service.Event, 0, 2)
+			if req.DeviceName != nil {
+				events = append(events, service.Event{
+					Type:     service.EventDeviceNameChanged,
+					UserID:   uid,
+					DeviceID: deviceID,
+					Data: map[string]interface{}{
+						"device_id":   deviceID,
+						"device_name": *req.DeviceName,
+					},
+				})
+			}
+			if req.Remark != nil {
+				events = append(events, service.Event{
+					Type:     service.EventDeviceRemarkChanged,
+					UserID:   uid,
+					DeviceID: deviceID,
+					Data: map[string]interface{}{
+						"device_id": deviceID,
+						"remark":    *req.Remark,
+					},
+				})
+			}
+			return events, nil
+		}); err != nil {
 		h.writeDeviceErr(c, err)
 		return
-	}
-	if req.DeviceName != nil {
-		h.bus.Publish(c.Request.Context(), service.Event{
-			Type:     service.EventDeviceNameChanged,
-			UserID:   uid,
-			DeviceID: deviceID,
-			Data: map[string]interface{}{
-				"device_id":   deviceID,
-				"device_name": *req.DeviceName,
-			},
-		})
-	}
-	if req.Remark != nil {
-		h.bus.Publish(c.Request.Context(), service.Event{
-			Type:     service.EventDeviceRemarkChanged,
-			UserID:   uid,
-			DeviceID: deviceID,
-			Data: map[string]interface{}{
-				"device_id": deviceID,
-				"remark":    *req.Remark,
-			},
-		})
 	}
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
