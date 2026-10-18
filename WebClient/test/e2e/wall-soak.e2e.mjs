@@ -231,10 +231,12 @@ async function performanceMetrics(cdp) {
 }
 
 // A wall with hundreds of iframes makes Playwright's actionability checks slow
-// and flaky, so the click goes straight to the button element.
+// and flaky, so the click goes straight to the button element. The timeout has
+// to be passed to evaluate(): a second options argument on getByRole() is
+// silently ignored and evaluate would fall back to 30 seconds.
 async function clickByName(page, name) {
-  return page.getByRole('button', { name, exact: true }, { timeout: 120000 })
-    .evaluate((button) => button.click())
+  return page.getByRole('button', { name, exact: true })
+    .evaluate((button) => button.click(), null, { timeout: 120000 })
 }
 
 function uniqueIndexes(count, wanted) {
