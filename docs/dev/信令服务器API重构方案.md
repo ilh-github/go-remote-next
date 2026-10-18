@@ -579,6 +579,9 @@ QuickDesk 的行为是：**Qt 登录账号后立即自动调 `POST /v1/me/device
 3. **断开重连的 resume**：client 重连 send `{type:"resume", since_rev: N}`；服务端从 Redis stream `qd:events:user:{uid}` 拿 N+1..now 的事件补发；若差距过大（stream 被裁剪），回 `{type:"snapshot_required"}` → 客户端自动重发 auth 重取 snapshot
 4. Redis stream `qd:events:user:{uid}` 使用 `EVENT_REPLAY_MAX_LEN`（默认 1000）条精确上限和
    `EVENT_REPLAY_TTL_SECONDS`（默认 3600 秒）TTL；超过保留窗口时仍返回 `snapshot_required`
+5. 用户 stream 写入失败时事件进入 Redis retry list；worker 用 `LMOVE` 原子领取到自己的
+   processing list，heartbeat 过期后其他实例会恢复死 worker 的遗留事件。XADD 成功后、删除
+   processing 前崩溃仍可能造成 at-least-once 重复，客户端继续按事件 ID 幂等
 
 **客户端责任**（Qt/WebClient）：
 - 任何 `device.*` 事件到达后，直接 patch 本地设备列表，**不回拉** `fetchMyDevices`（防止雪崩）
