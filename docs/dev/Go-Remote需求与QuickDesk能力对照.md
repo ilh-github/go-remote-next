@@ -60,6 +60,7 @@ QuickDesk 已经覆盖了远程控制最核心、最难实现的画面、输入�
 | 硬件编码 | GPU 编码 | Chromium Remoting 各平台编码后端 | 已有 | 不重写 |
 | 远程输入 | 鼠标、键盘、滚轮 | Chromium Remoting Host 输入注入 | 已有 | 不重写 |
 | 文本剪贴板 | 双向文本同步 | Host/Client 剪贴板同步 | 已有 | 保留并补边界测试 |
+| 会话聊天 | 控制端与被控端双向短消息 | 复用 `qd-skill-bridge` 内建 `session_chat`：Qt 控制窗口、Qt Host 窗口和 WebClient 都有聊天入口；支持 ACK、回显去重、按设备未读和 4000 字上限，消息不持久化 | 已完成 | 后续如需审计、私聊房间、附件或离线补发，另立控制面需求，不修改 Remoting |
 | 图片剪贴板 | 图片复制粘贴 | 已专项核对：剪贴板在 Remoting 内核里（`remoting.protocol.ClipboardEvent`、`clipboard_win.cc`），消息体只认 UTF-8 文本，二进制会被丢掉 | 缺失 | 要做得改 Remoting 协议（新增图片格式/分片），按"不为普通业务功能编译 Chromium"暂时搁置 |
 | 文件传输 | 文件发送 | 支持远程文件传输；macOS Host 上传和落盘字节已验证；WebClient 已按 Chromium 协议解释 0~7 错误码 | 部分 | QD-214 当前阻塞在 Windows Host 用户上下文：普通用户 `0x522/type=2`，SYSTEM/session 0 为 `type=7 NOT_LOGGED_IN`；需要修 Host 服务 session 或 Remoting，不在 WebClient 绕过 |
 | 文件管理 | 浏览目录、新建、重命名、删除、分片上传下载 | **Qt 与 Web 文件管理器均已完成**：Qt 使用 `RemoteFileManager` + `file-ops`；Web 通过预编译 Remoting 内置的 `qd-skill-bridge` 转发到同一套工具。host 新增 `get_default_directory`、`read_file_chunk`、`write_file_chunk`、`trash_path`；Web 支持目录、新建、重命名、版本保留软删除、文本预览和 64 KiB 分块上传下载 | 已完成 | 后续只需补真实 Windows/macOS Host 的跨平台 E2E 和大于 4 GiB 文件边界；不需要为文件管理器编译 Chromium |

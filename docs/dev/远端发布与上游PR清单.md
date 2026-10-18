@@ -451,6 +451,12 @@ PR 描述至少写明：
   的旧口径。Qt 访问审批页 `7c23f13`、会话实时消费 `ea5a65f`、计划任务页 `42b6c61`、
   通知规则页 `dbd828f` 和录像回放页 `74c7022` 作为 Qt 管理面候选，不携带 fork
   专属总清单。
+- `feat(chat): add in-session text chat`：QD-316 会话内聊天，候选分支
+  `codex/upstream-qd-316-session-chat-v2` = `96b36d0`，基于 `upstream/dev@5db316c`。
+  只包含内建 `session_chat` bridge、Qt/Web 聊天 UI、双语文案和 Web 测试，不含 fork
+  清单、文件管理器或业务控制面。候选自身 Web 测试 4/4、生产构建、Qt 源码/QML 编译
+  通过，最终 App 链接仍受既有 macOS `AGL` 缺失影响；`git push origin` 被当前策略
+  拒绝，因此尚未创建 upstream PR。
 - 上游 issue #18 连接历史：上游 `dev` 已存在 `ConnectionHistory` 和历史列表 UI，
   当前不应重复实现；先核对完整功能，再决定是否在 issue 中说明可关闭。
 
