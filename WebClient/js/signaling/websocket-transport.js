@@ -11,7 +11,7 @@
  * 旧版 URL 里带 access_code 的做法已废弃（第 1.3 节缺陷 #1/#3）。
  */
 
-const AUTH_TIMEOUT_MS = 6000; // 稍大于服务端 5s，给 RTT 留余量
+const DEFAULT_AUTH_TIMEOUT_MS = 6000; // 稍大于服务端 5s，给 RTT 留余量
 
 export class WebSocketTransport {
     /**
@@ -22,6 +22,7 @@ export class WebSocketTransport {
      * @param {Function} options.onAuthOk    - 收到 auth_ok，可以发 SDP
      * @param {Function} options.onClose     - (code, reason)
      * @param {Function} options.onError     - (error)
+     * @param {number} [options.authTimeoutMs=6000] - auth_ok 超时，测试可缩短
      */
     constructor(options) {
         this.signalingUrl = options.signalingUrl || 'ws://localhost:8000';
@@ -30,6 +31,9 @@ export class WebSocketTransport {
         this.onAuthOk  = options.onAuthOk  || (() => {});
         this.onClose   = options.onClose   || (() => {});
         this.onError   = options.onError   || (() => {});
+        this.authTimeoutMs = Number.isFinite(options.authTimeoutMs) && options.authTimeoutMs >= 0
+            ? options.authTimeoutMs
+            : DEFAULT_AUTH_TIMEOUT_MS;
 
         this.ws = null;
         this._authOk = false;
@@ -88,7 +92,7 @@ export class WebSocketTransport {
                         console.error('[WebSocket] auth_ok timeout');
                         this._fail(new Error('Auth timeout'));
                     }
-                }, AUTH_TIMEOUT_MS);
+                }, this.authTimeoutMs);
             };
 
             this.ws.onerror = (event) => {
@@ -205,8 +209,10 @@ export class WebSocketTransport {
     _fail(err) {
         this._closed = true;
         clearTimeout(this._authTimer); this._authTimer = null;
+        const reject = this._reject;
+        this._reject = this._resolve = null;
+        if (reject) reject(err);
         try { this.ws && this.ws.close(); } catch { /* noop */ }
-        if (this._reject) { this._reject(err); this._reject = this._resolve = null; }
     }
 
     disconnect() {
