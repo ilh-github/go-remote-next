@@ -1,6 +1,6 @@
 # QuickDesk 功能总清单
 
-> 最后对账：2026-10-18 18:41 CST。上游与 fork 状态都是动态的，实施前必须重新执行
+> 最后对账：2026-10-18 18:46 CST。上游与 fork 状态都是动态的，实施前必须重新执行
 > `git fetch --all --prune` 并核对 GitHub issue / PR。
 >
 > 本文件是 QuickDesk fork 后续产品开发的唯一功能清单。它合并三类输入：
@@ -43,7 +43,7 @@
 
 - 仓库：`go-remote-next`
 - 本地主分支：`dev`、`master`
-- 本地代码基线：`6386a48`（QD-610 管理端设备与 TURN 配置事务 outbox；QD-907 WebClient 有界重连与 Playwright E2E）；`origin/dev` 与
+- 本地代码基线：`8de8af0`（QD-610 管理端设备、来源封禁与 TURN 配置事务 outbox；QD-907 WebClient 有界重连与 Playwright E2E）；`origin/dev` 与
   `origin/master` 仍在 `9837194`，本地领先数量以 `git rev-list --count origin/dev..dev`
   的实时值为准
 - 上游基线：`barry-ran/QuickDesk` 的 `dev` = `5db316c`，`master` = `f6651f0`
@@ -111,6 +111,10 @@
 - QD-610 管理端设备变更已迁入事务 outbox：admin force-unbind、单条/批量硬删除和
   device secret rotation 与对应事件同事务提交；outbox 失败会回滚设备状态或密钥哈希，
   不再出现“操作已成功、审计/Webhook 事件却永久丢失”的窗口
+- QD-610 管理员跨账号来源封禁/解封已迁入事务 outbox：管理员 ban/unban 复用策略服务
+  的 `BanIPWithEvent` / `UnbanIPWithEvent`，策略行与 `device.access_policy.changed`
+  同事务；SQLite handler E2E 已断言两次操作各产生一条 outbox 事件。该能力依赖
+  QD-109 策略基线，因此留在 fork，不塞入缺少该功能的 PR #25 outbox 候选
 - QD-610 TURN/STUN 配置变更已迁入事务 outbox：`turn.config.changed` 与 settings 行
   同事务提交，缓存仅在提交成功后刷新；outbox 失败时配置版本和数据库都保持旧值
 - QD-610 已补 MCP 事件重连和持久化：QuickDesk WebSocket API 默认保留最近 2048 条白名单
@@ -253,6 +257,11 @@
   同事务；模拟 outbox 失败时设备归属、删除和密钥哈希全部回滚。SignalingServer
   全包测试、vet、race 和构建通过；上游 `codex/upstream-event-outbox@fa18755`
   同步通过，候选不携带 fork-only 的分组清理和指标功能。
+- QD-610 管理员来源封禁 outbox：跨账号 `access-bans` 和 `access-bans:remove`
+  不再在 handler 里二次 publish，改为策略事务内 enqueue；新增 SQLite HTTP handler
+  测试先 RED 为 0 条 outbox，再 GREEN 为 ban/unban 两条策略事件。SignalingServer
+  全包测试、vet、handler/service race 和构建通过；因基线缺少访问策略功能，该提交
+  只留在 fork。
 - QD-610 TURN/STUN 设置 outbox：settings 创建/更新与 `turn.config.changed` 同事务，
   cache 只在提交后更新；模拟 outbox 失败时数据库不产生设置行、缓存版本不变。
   SignalingServer 全包测试、vet、race 和构建通过；上游
@@ -829,7 +838,9 @@ fork 是否能继续开发，也不能因为 fork 自己有实现就再次向 up
 
 QD-610 当前增量：`b2a0a98` 已把 admin force-unbind、单条/批量设备硬删除和 secret
 rotation 的事件写入同一数据库事务，`6386a48` 又把 TURN/STUN settings 与
-`turn.config.changed` 合并到同一事务；上游
+`turn.config.changed` 合并到同一事务，`8de8af0` 补齐管理员跨账号来源 ban/unban
+的策略事件事务化；其中来源封禁依赖 fork 的 QD-109 策略模型，不进入 PR #25 的
+通用 outbox 候选。上游
 `codex/upstream-event-outbox@4a3566f` 保持最小候选，不携带 fork-only 的分组清理或
 指标代码。
 
