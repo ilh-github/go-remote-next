@@ -103,11 +103,13 @@
   `340b463` 把 2026 日历作为 MCP 自带资源，修复上游候选缺少服务端 holiday 目录时的
   编译失败；`908696f` 补默认 2048、可配置 1~10000 的控制面 replay 容量；`0b4bbb9`
   补 cron 漏跑槽位逐条补跑；`a507aa6` 补同目录多进程回调 delivery/job claim、异常
-  claim 回收和 running 有效所有权保护，`b7cffa9` 同步通用 MCP 契约文档。候选自身现为 59/59、Clippy、QuickDesk C++
+  claim 回收和 running 有效所有权保护，`b7cffa9` 同步共享 worker 契约；`f90df36`
+  增加命名 operator token、ack 操作者/确认方式持久化和首次操作者保护，`bdcf7a8`
+  同步通用契约。候选自身现为 59/59、Clippy、QuickDesk C++
   编译到既有 `AGL` 链接点、release 构建和 diff check 通过；fork 侧 Qt CTest 15/15，
   QuickDesk 完整源码编译到链接阶段后仍受预编译 Remoting 缺失 `AGL` framework 限制。
   分支 push 仍被当前策略拒绝。跨实例事件 outbox、超出配置容量的积压、跨机器分布式
-  队列、公平调度和确认操作者归属仍留在后续阶段
+  队列和公平调度仍留在后续阶段
 - QD-111 / QD-408 文件传输审计：fork 提交 `b9f414c`，控制端在 DataChannel 完成/失败后
   上报，服务端校验设备归属并按 `(actor, direction, transfer_id)` 幂等写审计。
   WebClient 66/66、生产构建、Qt CTest 15/15、Go 测试/vet 和真实 SQLite E2E 通过。
