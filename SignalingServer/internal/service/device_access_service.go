@@ -81,11 +81,9 @@ type DeviceAccessService struct {
 	outbox DeviceAccessEventOutbox
 }
 
-// DeviceAccessEventOutbox is the transactional sink used for successful and
-// denied access events. The access row and outbox entry commit together.
-type DeviceAccessEventOutbox interface {
-	EnqueueTx(ctx context.Context, tx *gorm.DB, evt Event) (Event, error)
-}
+// DeviceAccessEventOutbox is kept as an alias for callers introduced before the
+// generic EventOutboxWriter.
+type DeviceAccessEventOutbox = EventOutboxWriter
 
 func NewDeviceAccessService(db *gorm.DB) *DeviceAccessService {
 	return &DeviceAccessService{db: db}

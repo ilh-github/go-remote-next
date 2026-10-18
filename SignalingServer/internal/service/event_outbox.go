@@ -34,6 +34,12 @@ type EventOutbox struct {
 	batch    int
 }
 
+// EventOutboxWriter is the narrow transaction-side interface used by services
+// that must commit an event with their business row.
+type EventOutboxWriter interface {
+	EnqueueTx(ctx context.Context, tx *gorm.DB, evt Event) (Event, error)
+}
+
 func NewEventOutbox(db *gorm.DB, bus *EventBus) *EventOutbox {
 	return &EventOutbox{
 		db:       db,

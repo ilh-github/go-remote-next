@@ -316,6 +316,7 @@ func main() {
 	eventOutbox := service.NewEventOutbox(db, bus)
 	deviceAccessService = deviceAccessService.WithOutbox(eventOutbox)
 	deviceAccessPolicyService = deviceAccessPolicyService.WithOutbox(eventOutbox)
+	remoteSessionService = remoteSessionService.WithOutbox(eventOutbox)
 	deviceMetricAlertService := service.NewDeviceMetricAlertService(db, bus)
 	instanceID := uuid.NewString()
 	presenceService := service.NewPresenceService(redisClient, instanceID)

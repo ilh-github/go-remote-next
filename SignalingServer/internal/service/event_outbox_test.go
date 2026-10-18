@@ -30,6 +30,8 @@ func newEventOutboxTestDB(t *testing.T) *gorm.DB {
 		&models.DeviceAccessLog{},
 		&models.UserDevice{},
 		&models.DeviceAccessPolicy{},
+		&models.Device{},
+		&models.RemoteSession{},
 	); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
@@ -493,6 +495,138 @@ func TestDevicePolicyEventOutboxFailureRollsBackPolicy(t *testing.T) {
 	}
 	if count != 0 {
 		t.Fatalf("policies = %d, want rollback to 0", count)
+	}
+}
+
+func TestRemoteSessionLifecycleEventsCommitWithSessionRows(t *testing.T) {
+	db := newEventOutboxTestDB(t)
+	_, _, bus := newEventOutboxTestRedis(t)
+	outbox := NewEventOutbox(db, bus)
+	seedOutboxTestDevice(t, db, "device-7", 7)
+	sessions := NewRemoteSessionService(db).WithOutbox(outbox)
+	ctx := context.Background()
+
+	opened, err := sessions.Open(ctx, OpenRemoteSessionInput{
+		SessionID:  "session-1",
+		DeviceID:   "device-7",
+		ClientID:   "client-1",
+		ClientIP:   "203.0.113.7",
+		InstanceID: "instance-a",
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	if !opened.Active || opened.UserID != 7 {
+		t.Fatalf("opened session = %+v", opened)
+	}
+
+	closed, changed, err := sessions.Close(ctx, "session-1", models.RemoteSessionEndDisconnected)
+	if err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if !changed || closed.EndedAt == nil || closed.EndReason != models.RemoteSessionEndDisconnected {
+		t.Fatalf("closed session = %+v, changed=%v", closed, changed)
+	}
+
+	var rows []models.EventOutbox
+	if err := db.Order("created_at, id").Find(&rows).Error; err != nil {
+		t.Fatalf("load outbox: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("outbox rows = %d, want started and ended", len(rows))
+	}
+	types := map[string]bool{}
+	for i := range rows {
+		var event Event
+		if err := json.Unmarshal([]byte(rows[i].Payload), &event); err != nil {
+			t.Fatalf("decode event: %v", err)
+		}
+		types[event.Type] = true
+		if event.UserID != 7 || event.DeviceID != "device-7" {
+			t.Fatalf("event routing = %+v", event)
+		}
+	}
+	if !types[EventRemoteSessionStarted] || !types[EventRemoteSessionEnded] {
+		t.Fatalf("event types = %+v", types)
+	}
+}
+
+func TestRemoteSessionOrphanSweepEnqueuesEndedEvent(t *testing.T) {
+	db := newEventOutboxTestDB(t)
+	_, _, bus := newEventOutboxTestRedis(t)
+	outbox := NewEventOutbox(db, bus)
+	seedOutboxTestDevice(t, db, "device-7", 7)
+	if err := db.Create(&models.RemoteSession{
+		SessionID:  "session-orphan",
+		UserID:     7,
+		DeviceID:   "device-7",
+		ClientID:   "client-1",
+		ClientIP:   "203.0.113.7",
+		InstanceID: "dead-instance",
+		StartedAt:  time.Now().UTC().Add(-time.Minute),
+	}).Error; err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	sessions := NewRemoteSessionService(db).WithOutbox(outbox)
+
+	closed, err := sessions.CloseOrphanedSessions(
+		context.Background(),
+		[]string{"live-instance"},
+		models.RemoteSessionEndServerRestart,
+	)
+	if err != nil {
+		t.Fatalf("CloseOrphanedSessions: %v", err)
+	}
+	if closed != 1 {
+		t.Fatalf("closed = %d, want 1", closed)
+	}
+	var row models.EventOutbox
+	if err := db.First(&row).Error; err != nil {
+		t.Fatalf("load outbox: %v", err)
+	}
+	var event Event
+	if err := json.Unmarshal([]byte(row.Payload), &event); err != nil {
+		t.Fatalf("decode event: %v", err)
+	}
+	if event.Type != EventRemoteSessionEnded || event.Data["end_reason"] != models.RemoteSessionEndServerRestart {
+		t.Fatalf("sweep event = %+v", event)
+	}
+}
+
+func TestRemoteSessionOutboxFailureRollsBackOpen(t *testing.T) {
+	db := newEventOutboxTestDB(t)
+	seedOutboxTestDevice(t, db, "device-7", 7)
+	sessions := NewRemoteSessionService(db).WithOutbox(
+		&failingScheduledTaskOutbox{err: errors.New("outbox unavailable")},
+	)
+
+	_, err := sessions.Open(context.Background(), OpenRemoteSessionInput{
+		SessionID:  "session-1",
+		DeviceID:   "device-7",
+		ClientID:   "client-1",
+		ClientIP:   "203.0.113.7",
+		InstanceID: "instance-a",
+	})
+	if err == nil {
+		t.Fatal("Open succeeded despite outbox failure")
+	}
+	var count int64
+	if err := db.Model(&models.RemoteSession{}).Count(&count).Error; err != nil {
+		t.Fatalf("count sessions: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("sessions = %d, want rollback to 0", count)
+	}
+}
+
+func seedOutboxTestDevice(t *testing.T, db *gorm.DB, deviceID string, userID uint) {
+	t.Helper()
+	if err := db.Create(&models.Device{
+		DeviceID:   deviceID,
+		DeviceUUID: "uuid-" + deviceID,
+		UserID:     &userID,
+	}).Error; err != nil {
+		t.Fatalf("create device: %v", err)
 	}
 }
 

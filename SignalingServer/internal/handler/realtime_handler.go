@@ -864,7 +864,7 @@ func (h *RealtimeHandler) openRemoteSession(c *gin.Context, sc *signalConn, sess
 	if h.remoteSessions == nil {
 		return
 	}
-	row, err := h.remoteSessions.Open(c.Request.Context(), service.OpenRemoteSessionInput{
+	_, err := h.remoteSessions.Open(c.Request.Context(), service.OpenRemoteSessionInput{
 		SessionID: sessionID,
 		DeviceID:  sc.deviceID,
 		ClientID:  sc.clientID,
@@ -879,7 +879,6 @@ func (h *RealtimeHandler) openRemoteSession(c *gin.Context, sc *signalConn, sess
 			sc.deviceID, sessionID, err)
 		return
 	}
-	h.publishRemoteSessionEvent(c.Request.Context(), service.EventRemoteSessionStarted, row)
 }
 
 // closeRemoteSession stamps the end of a session whose socket has gone away.
@@ -921,7 +920,6 @@ func (h *RealtimeHandler) closeRemoteSession(sc *signalConn) {
 				closed.DeviceID, closed.SessionID, err)
 		}
 	}
-	h.publishRemoteSessionEvent(ctx, service.EventRemoteSessionEnded, closed)
 }
 
 // RevokeSession closes the live signaling socket behind one session id, if this
@@ -1009,34 +1007,6 @@ func (h *RealtimeHandler) StartSessionRevokeBus(ctx context.Context) {
 		log.Printf("[session-revoke] session=%s is not connected here; ignoring the request", sessionID)
 	})
 	go h.revokeBus.Run(ctx)
-}
-
-// publishRemoteSessionEvent fans one lifecycle transition out to the owner's
-// realtime stream. An unbound device has no owner to tell, so the row is still
-// recorded but nothing is published.
-func (h *RealtimeHandler) publishRemoteSessionEvent(ctx context.Context, eventType string, row *models.RemoteSession) {
-	if h.bus == nil || row == nil || row.UserID == 0 {
-		return
-	}
-	data := map[string]interface{}{
-		"session_id":       row.SessionID,
-		"device_id":        row.DeviceID,
-		"client_id":        row.ClientID,
-		"client_ip":        row.ClientIP,
-		"started_at":       row.StartedAt,
-		"active":           row.Active,
-		"duration_seconds": row.DurationSeconds,
-	}
-	if row.EndedAt != nil {
-		data["ended_at"] = *row.EndedAt
-		data["end_reason"] = row.EndReason
-	}
-	h.bus.Publish(ctx, service.Event{
-		Type:     eventType,
-		UserID:   row.UserID,
-		DeviceID: row.DeviceID,
-		Data:     data,
-	})
 }
 
 // recordAccessEvent appends one row to the device's access timeline and fans
