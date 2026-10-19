@@ -10,6 +10,10 @@ const SOAK_SECONDS = positiveInteger(process.env.QD_WALL_SOAK_SECONDS, 12)
 const SAMPLE_MS = positiveInteger(process.env.QD_WALL_SAMPLE_MS, 1000)
 const MIN_MAIN_FPS = positiveNumber(process.env.QD_WALL_MIN_MAIN_FPS, 1)
 const MAX_HEAP_GROWTH_MB = positiveNumber(process.env.QD_WALL_MAX_HEAP_GROWTH_MB, 256)
+// Startup for hundreds of animated iframes plus the final sampling pass takes
+// minutes under load, so the node:test timeout needs headroom beyond the soak
+// window itself.
+const SOAK_TIMEOUT_HEADROOM_MS = positiveNumber(process.env.QD_WALL_TIMEOUT_HEADROOM_MS, 60 * 60 * 1000)
 const DEVICES = Array.from({ length: DEVICE_COUNT }, (_, index) => {
   const suffix = String(index + 1).padStart(3, '0')
   return {
@@ -56,7 +60,11 @@ after(async () => {
 
 test(
   `screen wall stays live with ${DEVICE_COUNT} viewers for ${SOAK_SECONDS}s`,
-  { timeout: (SOAK_SECONDS + 1800) * 1000 },
+  // The 2h+ gate outlives node:test's timeout, so the soak runs as a plain
+  // awaited routine and the test only wraps setup plus assertions. Startup for
+  // hundreds of iframes and the final CDP/frame sampling are slow, so the
+  // wrapper timeout has to cover them, not just the soak window.
+  { timeout: SOAK_SECONDS * 1000 + SOAK_TIMEOUT_HEADROOM_MS },
   async () => {
     const context = await browser.newContext({ viewport: { width: 1600, height: 1000 } })
     await context.addInitScript(({ devices }) => {
@@ -202,7 +210,7 @@ test(
             url.pathname.endsWith('/remote.html')
             && url.searchParams.get('device') === device.device_id
           ),
-        })
+        }, { timeout: 120000 })
         assert.ok(frame, `missing iframe for ${device.device_id}`)
         const value = await frame.evaluate(() => ({
           frames: window.__wallSoakFrames,
