@@ -28,26 +28,38 @@ import (
 // keep retrying — the server stays usable; devices just rely on the
 // synchronous wsconn DEL path for online-changed events.
 type PresenceWatcher struct {
+	db           *gorm.DB
 	rdb          *redis.Client
 	bus          *EventBus
 	presence     *PresenceService
 	deviceRepo   *repository.DeviceRepository
 	scanInterval time.Duration
+	outbox       EventOutboxWriter
 }
 
 func NewPresenceWatcher(
+	db *gorm.DB,
 	rdb *redis.Client,
 	bus *EventBus,
 	presence *PresenceService,
 	deviceRepo *repository.DeviceRepository,
 ) *PresenceWatcher {
 	return &PresenceWatcher{
+		db:           db,
 		rdb:          rdb,
 		bus:          bus,
 		presence:     presence,
 		deviceRepo:   deviceRepo,
 		scanInterval: offlineScanInterval,
 	}
+}
+
+// WithOutbox makes the offline transition durable: the remembered-online
+// candidate is dropped and its `device.online.changed` event is enqueued in
+// one transaction, so a crash between them cannot silently lose the event.
+func (w *PresenceWatcher) WithOutbox(outbox EventOutboxWriter) *PresenceWatcher {
+	w.outbox = outbox
+	return w
 }
 
 // Start launches the subscription goroutine. Cancel ctx to stop.
@@ -187,7 +199,8 @@ func (w *PresenceWatcher) publishOfflineIfRemembered(ctx context.Context, device
 	if d.UserID == nil {
 		return
 	}
-	w.bus.Publish(ctx, Event{
+
+	evt := Event{
 		Type:     EventDeviceOnlineChanged,
 		UserID:   *d.UserID,
 		DeviceID: deviceID,
@@ -196,5 +209,19 @@ func (w *PresenceWatcher) publishOfflineIfRemembered(ctx context.Context, device
 			"online":    false,
 			"logged_in": false, // derived: intent AND online → false since online=false
 		},
-	})
+	}
+
+	// Without an outbox this stays best-effort. With one, the durable event is
+	// committed before the in-memory candidate is dropped, so a crash between
+	// "device went offline" and "event exists" cannot lose the transition.
+	if w.outbox == nil {
+		w.bus.Publish(ctx, evt)
+		return
+	}
+	if err := w.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		_, err := w.outbox.EnqueueTx(ctx, tx, evt)
+		return err
+	}); err != nil {
+		log.Printf("[PresenceWatcher] enqueue offline event for %s failed: %v", deviceID, err)
+	}
 }

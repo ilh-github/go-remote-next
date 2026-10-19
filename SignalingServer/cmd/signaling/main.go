@@ -464,7 +464,8 @@ func main() {
 	// Watch Redis keyspace notifications so heartbeat-TTL expiries
 	// surface as device.online.changed events (§2.17). Requires Redis
 	// server to be configured with `notify-keyspace-events Ex`.
-	service.NewPresenceWatcher(redisClient, bus, presenceService, deviceRepo).
+	service.NewPresenceWatcher(db, redisClient, bus, presenceService, deviceRepo).
+		WithOutbox(eventOutbox).
 		Start(context.Background())
 
 	// Per-device offline alerts. Presence says "the heartbeat stopped"; this
