@@ -137,6 +137,7 @@ test(
       })
 
       await clickByName(page, 'Start rotation')
+      assert.equal(await page.evaluate(() => !!document.querySelector('.wall-tools .primary')), true)
       const baseline = await performanceMetrics(cdp)
       const startedAt = Date.now()
       const startedFrames = await page.evaluate(() => window.__wallSoakMainFrames)
@@ -171,7 +172,20 @@ test(
         if (remaining > 0) await new Promise((resolve) => setTimeout(resolve, remaining))
       }
 
+      const rotateToolbar = await page.evaluate(() => {
+        const wall = document.querySelector('.wall-tools')
+        const buttons = [...(wall?.querySelectorAll('button') || [])]
+          .map((button) => (button.textContent || '').trim())
+        return {
+          html: wall ? wall.innerHTML.slice(0, 400) : 'MISSING',
+          buttons,
+          tiles: document.querySelectorAll('.wall-tile').length,
+          rotating: !!wall?.querySelector('.primary'),
+        }
+      })
+      console.log('WALL_SOAK_TOOLBAR', JSON.stringify(rotateToolbar))
       await clickByName(page, 'Stop rotation')
+      assert.equal(await page.evaluate(() => !document.querySelector('.wall-tools .primary')), true)
       const elapsedMs = Date.now() - startedAt
       const endedFrames = await page.evaluate(() => window.__wallSoakMainFrames)
       const finalMetrics = await performanceMetrics(cdp)
@@ -230,14 +244,17 @@ async function performanceMetrics(cdp) {
   return Object.fromEntries(result.metrics.map((metric) => [metric.name, metric.value]))
 }
 
-// A wall with hundreds of iframes makes Playwright's actionability checks slow
-// and flaky, and getByRole() also depends on the accessibility tree, which a
-// page this size stops updating reliably. Select by DOM text instead and click
-// the element directly.
+// A wall with hundreds of iframes makes Playwright's locator engine slow enough
+// to time out, and getByRole() additionally depends on the accessibility tree.
+// Clicking is done in one page-side query instead.
 async function clickByName(page, name) {
-  return page.locator('button', { hasText: name })
-    .first()
-    .evaluate((button) => button.click(), null, { timeout: 120000 })
+  return page.evaluate((label) => {
+    const button = [...document.querySelectorAll('button')]
+      .find((candidate) => (candidate.textContent || '').trim() === label)
+    if (!button) return false
+    button.click()
+    return true
+  }, name)
 }
 
 function uniqueIndexes(count, wanted) {
