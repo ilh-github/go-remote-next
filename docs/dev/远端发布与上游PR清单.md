@@ -1,6 +1,6 @@
 # 远端发布与上游 PR 清单
 
-**更新时间**: 2026-10-18 19:24 CST
+**更新时间**: 2026-10-20 00:10 CST
 
 这份清单记录本地验证完成后的远端写入与 PR 状态。远端状态必须以实际
 `origin/*` ref、push 结果和 GitHub PR 为准，不能把本地候选写成已共享。
@@ -18,10 +18,14 @@
   `git rev-list --count origin/dev..dev`、`git rev-parse HEAD` 的实时值为准
 - fork 远端：`origin/dev` 与 `origin/master` 当前仍为 `9837194`
 - 本地 `dev` / `master` 已同步，均领先各自远端；每次发布前重新核对实时数量
-- 推送 blocker：2026-10-18 执行 `git push origin dev master` 和候选分支 push 均被
-  执行策略拒绝，错误为 `approval required by policy, but AskForApproval is set to Never`；
-  未绕过审批策略。`git ls-remote` 于同一时刻确认远端主分支仍为 `9837194`，
-  QD-403 远端仍为 `9ff00af`，QD-003 远端仍为旧 `6047615`
+- 2026-10-20 00:10 执行策略放行：`git push origin dev master` 成功，远端
+  `dev` 与 `master` 均到达 `cddc0db`，与本地一致（`git rev-list --left-right
+  --count origin/dev...dev` = `0 0`）。此前 111 个积压提交全部推送完成，
+  包含 QD-908 soak 门禁修正与 `cddc0db` 的在线状态 outbox 迁移
+- 推送 blocker（历史，已于 2026-10-20 解除）：2026-10-18 执行 `git push origin dev master`
+  和候选分支 push 均被执行策略拒绝，错误为
+  `approval required by policy, but AskForApproval is set to Never`；未绕过审批策略。
+  该阻塞在 2026-10-20 00:10 解除，主分支已同步；候选分支见下方“待推送候选”
 - 功能分支：`codex/product-backlog` = `dea02f9`
 - 上游 QD-003 候选：`codex/upstream-cross-tab-coordination` = `93eee37`（基于 `upstream/dev`）
 - 上游 QD-114 候选：`codex/upstream-qd-114-spki` = `13559e6`（基于 `upstream/dev`）

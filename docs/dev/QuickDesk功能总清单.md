@@ -43,7 +43,7 @@
 
 - 仓库：`go-remote-next`
 - 本地主分支：`dev`、`master`
-- 本地代码基线：`d19c850`（QD-610 管理端设备、来源封禁与 TURN 配置事务 outbox；QD-907 重连 Playwright E2E；QD-904 设备页、屏幕墙、文件管理器、真实多标签和真实自托管 SignalingServer E2E；QD-908 多观看端 soak 门禁）；`origin/dev` 与
+- 本地代码基线：`cddc0db`（QD-610 管理端设备、来源封禁与 TURN 配置事务 outbox 及在线状态离线事件迁移；QD-907 重连 Playwright E2E；QD-904 设备页、屏幕墙、文件管理器、真实多标签和真实自托管 SignalingServer E2E；QD-908 多观看端 soak 门禁）；`origin/dev` 与
   `origin/master` 仍在 `9837194`，本地领先数量以 `git rev-list --count origin/dev..dev`
   的实时值为准
 - 上游基线：`barry-ran/QuickDesk` 的 `dev` = `5db316c`，`master` = `f6651f0`
@@ -184,7 +184,7 @@
 
 最近验证：
 
-- 本轮代码提交：`d19c850`（QD-908 多观看端 soak 门禁）、`0930b27`（QD-904 真实自托管 SignalingServer E2E）、`3e0ab72`（QD-904 设备页浏览器 E2E）、`988238e`（QD-904 屏幕墙浏览器 E2E）、`28b1972`（QD-904 真实多标签浏览器 E2E）、`2d211c1`（QD-610 event retry claim 崩溃恢复）、`c39443c`（QD-610 服务端 replay retention 可配置）、`cd730d1`（QD-610 回调操作者归属）、`5f24ff7`（QD-610 同目录多进程回调与 job 协调）、`9ae401a`（QD-610 cron 漏跑补跑）、`cac2afa`（QD-610 replay 容量可配置）、`3c50004`（MCP 节假日日历随包分发）、`e30662d`（QD-610 cron 法定节假日跳过）、`b9f414c`（QD-111 / QD-408 文件传输审计）、`71b899e`（QD-316 会话内文字聊天）、`2e09d5b`（QD-610 控制面事件触发器）、`9f7be0f`（QD-610 HMAC 结果回调）、`e8ce807`（QD-610 异步任务队列/取消）、`e518194`（QD-610 Idempotency-Key）、`3f94911`（QD-610 持久化/定时触发器）、`bca8149`（QD-610 HTTP trigger）、`de88f07`（QD-506 Web 录像分块续传）、`001a76c`（QD-510 工作流核心）、`e688869`（访问码同步重试）、`5be14da`（SPAKE2 与传输错误码）、
+- 本轮代码提交：`cddc0db`（QD-610 在线状态离线事件事务 outbox）、`5000d2f`、`7929550`、`b6265e9`、`5704682`、`65e19e1`（QD-908 200 路长跑门禁的超时与按钮定位修正）、`d19c850`（QD-908 多观看端 soak 门禁）、`0930b27`（QD-904 真实自托管 SignalingServer E2E）、`3e0ab72`（QD-904 设备页浏览器 E2E）、`988238e`（QD-904 屏幕墙浏览器 E2E）、`28b1972`（QD-904 真实多标签浏览器 E2E）、`2d211c1`（QD-610 event retry claim 崩溃恢复）、`c39443c`（QD-610 服务端 replay retention 可配置）、`cd730d1`（QD-610 回调操作者归属）、`5f24ff7`（QD-610 同目录多进程回调与 job 协调）、`9ae401a`（QD-610 cron 漏跑补跑）、`cac2afa`（QD-610 replay 容量可配置）、`3c50004`（MCP 节假日日历随包分发）、`e30662d`（QD-610 cron 法定节假日跳过）、`b9f414c`（QD-111 / QD-408 文件传输审计）、`71b899e`（QD-316 会话内文字聊天）、`2e09d5b`（QD-610 控制面事件触发器）、`9f7be0f`（QD-610 HMAC 结果回调）、`e8ce807`（QD-610 异步任务队列/取消）、`e518194`（QD-610 Idempotency-Key）、`3f94911`（QD-610 持久化/定时触发器）、`bca8149`（QD-610 HTTP trigger）、`de88f07`（QD-506 Web 录像分块续传）、`001a76c`（QD-510 工作流核心）、`e688869`（访问码同步重试）、`5be14da`（SPAKE2 与传输错误码）、
   `a982a10`（Windows 自动更新重启与缓存清理）、`c77dcae`（SQLite 轻量模式）、
   `64ab93a`（备份恢复与存储配额）、`37dd8aa`（Host 指标告警）、`3021ca9`
   （私密安全披露策略）、`3474203`（信令信任边界）；
@@ -725,8 +725,9 @@ Private Vulnerability Reporting，后者等协议实现。当前继续做不依�
    和服务端可配置 replay retention
    已完成；同目录多进程回调/job claim、回调操作者归属、数据库事务 event outbox
    基础设施、`scheduled_task.failed`、设备访问 granted/denied、策略变更、远端会话
-   started/ended 和录像 created/updated/deleted 迁移也已落地。下一步迁移在线状态、
-   审批和通知类关键事件，再做跨机器分布式队列和 Owner 委托权限。通用触发链路能从
+   started/ended 和录像 created/updated/deleted 迁移也已落地；`cddc0db` 又把在线状态的
+   离线事件（hb TTL 到期）迁入事务 outbox。下一步迁移上线事件、审批和通知类关键事件，
+   再做跨机器分布式队列和 Owner 委托权限。通用触发链路能从
    当前的 MCP
    trigger 候选继续 stacked 回贡，后几项若绑定 fork 业务数据库则留在 `Fork-only`。
 2. **QD-511 智能回放**：预录屏幕断言与状态不匹配暂停已完成；剩余 OCR 关键词、AI 介入和人工接管；
