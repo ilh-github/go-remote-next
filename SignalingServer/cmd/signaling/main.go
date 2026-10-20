@@ -507,7 +507,8 @@ func main() {
 	// -------------------------------------------------------------------
 	publicHandler := handler.NewPublicHandler(db, redisClient, presetService, settingsService, smsService, Version)
 	authHandler := handler.NewAuthHandler(userService, tokenService, smsService, bus)
-	meHandler := handler.NewMeHandler(userService, tokenService, smsService, bus)
+	meHandler := handler.NewMeHandler(userService, tokenService, smsService, bus, db)
+	meHandler.WithSessionRevokedOutbox(eventOutbox)
 	deviceHandler := handler.NewDeviceHandler(deviceService, favoriteService, connectionService, presenceService, deviceAccessService, db)
 	userDeviceGroupsHandler := handler.NewUserDeviceGroupsHandler(userDeviceGroupService)
 	notificationChannelHandler := handler.NewNotificationChannelHandler(notificationChannelService, notificationDeliveryService)

@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"log"
 	"net/http"
 
 	"quickdesk/signaling/internal/middleware"
@@ -8,6 +9,7 @@ import (
 	"quickdesk/signaling/internal/service"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 // MeHandler implements endpoints under /v1/me/* that act on the
@@ -18,10 +20,33 @@ type MeHandler struct {
 	tokens *service.TokenService
 	sms    *service.SmsService
 	bus    *service.EventBus
+	// sessionRevoked makes the "every session was kicked" event recoverable.
+	// The token revocation itself stays in Redis and cannot join a database
+	// transaction; this only hardens the publish that follows it.
+	sessionRevoked *service.SessionRevokedEmitter
 }
 
-func NewMeHandler(users *service.UserService, tokens *service.TokenService, sms *service.SmsService, bus *service.EventBus) *MeHandler {
-	return &MeHandler{users: users, tokens: tokens, sms: sms, bus: bus}
+func NewMeHandler(
+	users *service.UserService,
+	tokens *service.TokenService,
+	sms *service.SmsService,
+	bus *service.EventBus,
+	db *gorm.DB,
+) *MeHandler {
+	return &MeHandler{
+		users:          users,
+		tokens:         tokens,
+		sms:            sms,
+		bus:            bus,
+		sessionRevoked: service.NewSessionRevokedEmitter(db, bus),
+	}
+}
+
+// WithSessionRevokedOutbox shares the server's single outbox worker so the
+// revocation event is retried by the same drain loop as every other event.
+func (h *MeHandler) WithSessionRevokedOutbox(outbox service.EventOutboxWriter) *MeHandler {
+	h.sessionRevoked.WithOutbox(outbox)
+	return h
 }
 
 // Get handles GET /v1/me.
@@ -67,11 +92,11 @@ func (h *MeHandler) ChangePassword(c *gin.Context) {
 		"request_id": c.GetString("request_id"),
 		"user_id":    uid,
 	})
-	h.bus.Publish(c.Request.Context(), service.Event{
-		Type:   service.EventSessionRevoked,
-		UserID: uid,
-		Data:   map[string]interface{}{"reason": "password_changed"},
-	})
+	if err := h.sessionRevoked.Publish(c.Request.Context(), uid, map[string]interface{}{
+		"reason": "password_changed",
+	}); err != nil {
+		log.Printf("[me] enqueue session.revoked for user %d failed: %v", uid, err)
+	}
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
