@@ -1,6 +1,6 @@
 # 远端发布与上游 PR 清单
 
-**更新时间**: 2026-10-20 00:10 CST
+**更新时间**: 2026-10-21 01:05 CST
 
 这份清单记录本地验证完成后的远端写入与 PR 状态。远端状态必须以实际
 `origin/*` ref、push 结果和 GitHub PR 为准，不能把本地候选写成已共享。
@@ -16,8 +16,11 @@
   收藏设备生命周期迁移为 `0b746b9`，管理端设备事件迁移为 `b2a0a98`，TURN 配置事件迁移为 `6386a48`，管理员来源封禁事务化为 `8de8af0`，WebClient 有界重连为 `565f643`。QD-907
   Playwright E2E 为 `830a469`、`2ab09d5`；领先数量和当前文档提交以
   `git rev-list --count origin/dev..dev`、`git rev-parse HEAD` 的实时值为准
-- fork 远端：`origin/dev` 与 `origin/master` 当前仍为 `9837194`
+- fork 远端：`origin/dev` 与 `origin/master` 当前均为 `a1d34c5`
 - 本地 `dev` / `master` 已同步，均领先各自远端；每次发布前重新核对实时数量
+- 2026-10-21 01:05 `git push origin dev` 成功：远端 `dev` 到达 `a1d34c5`
+  （QD-610 账号会话撤销事件全部迁入事务 outbox，含上一片 `314c73b` 的改密码路径），
+  本地 `dev` 与 `master` 均已同步到同一提交
 - 2026-10-20 00:10 执行策略放行：`git push origin dev master` 成功，远端
   `dev` 与 `master` 均到达 `cddc0db`，与本地一致（`git rev-list --left-right
   --count origin/dev...dev` = `0 0`）。此前 111 个积压提交全部推送完成，
