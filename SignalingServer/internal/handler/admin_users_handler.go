@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"strconv"
 
@@ -24,6 +25,10 @@ type AdminUsersHandler struct {
 	audit    *service.AuditService
 	presence *service.PresenceService
 	db       *gorm.DB
+	// sessionRevoked makes the revocation event recoverable when an outbox is
+	// attached. The revocation itself lives in Redis and cannot join the
+	// admin's database write, so this only hardens the publish.
+	sessionRevoked *service.SessionRevokedEmitter
 }
 
 func NewAdminUsersHandler(
@@ -34,7 +39,38 @@ func NewAdminUsersHandler(
 	presence *service.PresenceService,
 	db *gorm.DB,
 ) *AdminUsersHandler {
-	return &AdminUsersHandler{users: users, tokens: tokens, bus: bus, audit: audit, presence: presence, db: db}
+	return &AdminUsersHandler{
+		users:          users,
+		tokens:         tokens,
+		bus:            bus,
+		audit:          audit,
+		presence:       presence,
+		db:             db,
+		sessionRevoked: service.NewSessionRevokedEmitter(db, bus),
+	}
+}
+
+// WithSessionRevokedOutbox shares the server's single outbox worker so the
+// revocation event is retried by the same drain loop as every other event.
+func (h *AdminUsersHandler) WithSessionRevokedOutbox(outbox service.EventOutboxWriter) *AdminUsersHandler {
+	h.sessionRevoked.WithOutbox(outbox)
+	return h
+}
+
+func (h *AdminUsersHandler) publishSessionRevoked(c *gin.Context, userID uint, reason string) {
+	if h.sessionRevoked != nil {
+		if err := h.sessionRevoked.Publish(c.Request.Context(), userID, map[string]interface{}{
+			"reason": reason,
+		}); err != nil {
+			log.Printf("[admin] enqueue session.revoked for user %d failed: %v", userID, err)
+		}
+		return
+	}
+	h.bus.Publish(c.Request.Context(), service.Event{
+		Type:   service.EventSessionRevoked,
+		UserID: userID,
+		Data:   map[string]interface{}{"reason": reason},
+	})
 }
 
 // List handles GET /v1/admin/users with cursor-based pagination (§3.1).
@@ -285,11 +321,7 @@ func (h *AdminUsersHandler) Patch(c *gin.Context) {
 		// Revoke every active session for this user so they're forced to
 		// log in again with the new password (§2.16).
 		h.tokens.RevokeAllForSubject(c.Request.Context(), service.ScopeUser, u.ID)
-		h.bus.Publish(c.Request.Context(), service.Event{
-			Type:   service.EventSessionRevoked,
-			UserID: u.ID,
-			Data:   map[string]interface{}{"reason": "admin_password_reset"},
-		})
+		h.publishSessionRevoked(c, u.ID, "admin_password_reset")
 		h.logAdminAction(c, "user_password_reset", u.ID, nil)
 	}
 
@@ -343,11 +375,7 @@ func (h *AdminUsersHandler) Delete(c *gin.Context) {
 	}
 	// Revoke any lingering sessions.
 	h.tokens.RevokeAllForSubject(c.Request.Context(), service.ScopeUser, uint(id))
-	h.bus.Publish(c.Request.Context(), service.Event{
-		Type:   service.EventSessionRevoked,
-		UserID: uint(id),
-		Data:   map[string]interface{}{"reason": "admin_user_deleted"},
-	})
+	h.publishSessionRevoked(c, uint(id), "admin_user_deleted")
 	h.audit.Log(c.Request.Context(), middleware.MustAdminID(c), "", "user.delete", "user", c.Param("id"), "", c.ClientIP())
 	h.logAdminAction(c, "user_deleted", uint(id), nil)
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
@@ -361,11 +389,7 @@ func (h *AdminUsersHandler) RevokeSessions(c *gin.Context) {
 		return
 	}
 	h.tokens.RevokeAllForSubject(c.Request.Context(), service.ScopeUser, uint(id))
-	h.bus.Publish(c.Request.Context(), service.Event{
-		Type:   service.EventSessionRevoked,
-		UserID: uint(id),
-		Data:   map[string]interface{}{"reason": "admin_forced"},
-	})
+	h.publishSessionRevoked(c, uint(id), "admin_forced")
 	h.audit.Log(c.Request.Context(), middleware.MustAdminID(c), "", "user.sessions.revoke", "user", c.Param("id"), "", c.ClientIP())
 	h.logAdminAction(c, "user_sessions_revoked", uint(id), nil)
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
@@ -426,21 +450,13 @@ func (h *AdminUsersHandler) Batch(c *gin.Context) {
 		}
 		for _, id := range req.IDs {
 			h.tokens.RevokeAllForSubject(c.Request.Context(), service.ScopeUser, id)
-			h.bus.Publish(c.Request.Context(), service.Event{
-				Type:   service.EventSessionRevoked,
-				UserID: id,
-				Data:   map[string]interface{}{"reason": "admin_user_disabled"},
-			})
+			h.publishSessionRevoked(c, id, "admin_user_disabled")
 		}
 	case "delete":
 		for _, id := range req.IDs {
 			_ = h.users.Delete(c.Request.Context(), id)
 			h.tokens.RevokeAllForSubject(c.Request.Context(), service.ScopeUser, id)
-			h.bus.Publish(c.Request.Context(), service.Event{
-				Type:   service.EventSessionRevoked,
-				UserID: id,
-				Data:   map[string]interface{}{"reason": "admin_user_deleted"},
-			})
+			h.publishSessionRevoked(c, id, "admin_user_deleted")
 		}
 	case "set_level":
 		if req.Level == "" {

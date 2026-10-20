@@ -92,11 +92,9 @@ func (h *MeHandler) ChangePassword(c *gin.Context) {
 		"request_id": c.GetString("request_id"),
 		"user_id":    uid,
 	})
-	if err := h.sessionRevoked.Publish(c.Request.Context(), uid, map[string]interface{}{
+	h.publishSessionRevoked(c, uid, map[string]interface{}{
 		"reason": "password_changed",
-	}); err != nil {
-		log.Printf("[me] enqueue session.revoked for user %d failed: %v", uid, err)
-	}
+	})
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
@@ -239,13 +237,9 @@ func (h *MeHandler) DeleteCurrentSession(c *gin.Context) {
 	observability.Event("auth", "session_revoked", map[string]interface{}{
 		"family_id": family, "reason": "self_logout", "request_id": c.GetString("request_id"), "user_id": uid,
 	})
-	h.bus.Publish(c.Request.Context(), service.Event{
-		Type:   service.EventSessionRevoked,
-		UserID: uid,
-		Data: map[string]interface{}{
-			"family_id": family,
-			"reason":    "self_logout",
-		},
+	h.publishSessionRevoked(c, uid, map[string]interface{}{
+		"family_id": family,
+		"reason":    "self_logout",
 	})
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
@@ -266,10 +260,28 @@ func (h *MeHandler) DeleteSessionByID(c *gin.Context) {
 	observability.Event("auth", "session_revoked", map[string]interface{}{
 		"family_id": familyID, "reason": "user_session_management", "request_id": c.GetString("request_id"), "user_id": uid,
 	})
+	h.publishSessionRevoked(c, uid, map[string]interface{}{
+		"family_id": familyID,
+		"reason":    "user_session_management",
+	})
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+// publishSessionRevoked routes a revocation through the recoverable emitter
+// when one is wired, and falls back to the bus otherwise. The revocation has
+// already happened by the time this runs, so a failed publish is logged and
+// never turned into a request error: the client asked to be logged out and
+// that already worked.
+func (h *MeHandler) publishSessionRevoked(c *gin.Context, uid uint, data map[string]interface{}) {
+	if h.sessionRevoked != nil {
+		if err := h.sessionRevoked.Publish(c.Request.Context(), uid, data); err != nil {
+			log.Printf("[me] enqueue session.revoked for user %d failed: %v", uid, err)
+		}
+		return
+	}
 	h.bus.Publish(c.Request.Context(), service.Event{
 		Type:   service.EventSessionRevoked,
 		UserID: uid,
-		Data:   map[string]interface{}{"family_id": familyID},
+		Data:   data,
 	})
-	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }

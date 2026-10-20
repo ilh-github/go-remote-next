@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"errors"
 	"log"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"quickdesk/signaling/internal/service"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 // AuthHandler implements public auth endpoints under /v1/auth/*:
@@ -28,10 +30,47 @@ type AuthHandler struct {
 	tokens *service.TokenService
 	sms    *service.SmsService
 	bus    *service.EventBus
+	// sessionRevoked makes the revocation event recoverable when an outbox is
+	// attached. The token families live in Redis, so this only hardens the
+	// publish that follows the revocation, not the two together.
+	sessionRevoked *service.SessionRevokedEmitter
 }
 
-func NewAuthHandler(users *service.UserService, tokens *service.TokenService, sms *service.SmsService, bus *service.EventBus) *AuthHandler {
-	return &AuthHandler{users: users, tokens: tokens, sms: sms, bus: bus}
+func NewAuthHandler(
+	users *service.UserService,
+	tokens *service.TokenService,
+	sms *service.SmsService,
+	bus *service.EventBus,
+	db *gorm.DB,
+) *AuthHandler {
+	return &AuthHandler{
+		users:          users,
+		tokens:         tokens,
+		sms:            sms,
+		bus:            bus,
+		sessionRevoked: service.NewSessionRevokedEmitter(db, bus),
+	}
+}
+
+// WithSessionRevokedOutbox shares the server's single outbox worker so the
+// revocation event is retried by the same drain loop as every other event.
+func (h *AuthHandler) WithSessionRevokedOutbox(outbox service.EventOutboxWriter) *AuthHandler {
+	h.sessionRevoked.WithOutbox(outbox)
+	return h
+}
+
+func (h *AuthHandler) publishSessionRevoked(ctx context.Context, userID uint, data map[string]interface{}) {
+	if h.sessionRevoked != nil {
+		if err := h.sessionRevoked.Publish(ctx, userID, data); err != nil {
+			log.Printf("[auth] enqueue session.revoked for user %d failed: %v", userID, err)
+		}
+		return
+	}
+	h.bus.Publish(ctx, service.Event{
+		Type:   service.EventSessionRevoked,
+		UserID: userID,
+		Data:   data,
+	})
 }
 
 // -----------------------------------------------------------------------
@@ -173,13 +212,9 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 				// mistake this for an account-wide administrative revocation.
 				log.Printf("[auth] refresh family revoked user_id=%d family_id=%s reason=family_break request_id=%s",
 					fb.SubjectID, fb.FamilyID, c.GetHeader("X-Request-ID"))
-				h.bus.Publish(c.Request.Context(), service.Event{
-					Type:   service.EventSessionRevoked,
-					UserID: fb.SubjectID,
-					Data: map[string]interface{}{
-						"family_id": fb.FamilyID,
-						"reason":    "family_break",
-					},
+				h.publishSessionRevoked(c.Request.Context(), fb.SubjectID, map[string]interface{}{
+					"family_id": fb.FamilyID,
+					"reason":    "family_break",
 				})
 			}
 			ProblemUnauthorized(c, ProblemCodeRefreshInvalid, "Refresh token reuse detected; session family revoked")
@@ -257,10 +292,8 @@ func (h *AuthHandler) ConfirmPasswordReset(c *gin.Context) {
 			"request_id": c.GetString("request_id"),
 			"user_id":    u.ID,
 		})
-		h.bus.Publish(c.Request.Context(), service.Event{
-			Type:   service.EventSessionRevoked,
-			UserID: u.ID,
-			Data:   map[string]interface{}{"reason": "password_reset"},
+		h.publishSessionRevoked(c.Request.Context(), u.ID, map[string]interface{}{
+			"reason": "password_reset",
 		})
 	}
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})

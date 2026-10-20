@@ -513,10 +513,22 @@ func (s *ScheduledTaskService) Run(ctx context.Context, interval time.Duration) 
 type SignOutAllSessionsAction struct {
 	tokens *TokenService
 	bus    *EventBus
+	db     *gorm.DB
+	// outbox makes the publish durable. The revocation itself lives in
+	// Redis and cannot join the scheduled task's transaction, so this only
+	// guarantees the event survives a crash, not that both commit together.
+	outbox EventOutboxWriter
 }
 
-func NewSignOutAllSessionsAction(tokens *TokenService, bus *EventBus) *SignOutAllSessionsAction {
-	return &SignOutAllSessionsAction{tokens: tokens, bus: bus}
+func NewSignOutAllSessionsAction(tokens *TokenService, bus *EventBus, db *gorm.DB) *SignOutAllSessionsAction {
+	return &SignOutAllSessionsAction{tokens: tokens, bus: bus, db: db}
+}
+
+// WithOutbox routes the revocation event through the transactional outbox.
+// Without one the action keeps the historical direct publish.
+func (a *SignOutAllSessionsAction) WithOutbox(outbox EventOutboxWriter) *SignOutAllSessionsAction {
+	a.outbox = outbox
+	return a
 }
 
 func (a *SignOutAllSessionsAction) Run(ctx context.Context, task models.ScheduledTask) error {
@@ -524,15 +536,32 @@ func (a *SignOutAllSessionsAction) Run(ctx context.Context, task models.Schedule
 		return errors.New("token service is not configured")
 	}
 	a.tokens.RevokeAllForSubject(ctx, ScopeUser, task.UserID)
-	if a.bus != nil {
-		a.bus.Publish(ctx, Event{
-			Type:   EventSessionRevoked,
-			UserID: task.UserID,
-			Data: map[string]interface{}{
-				"reason":  "scheduled_task",
-				"task_id": task.ID,
-			},
-		})
+	evt := Event{
+		Type:   EventSessionRevoked,
+		UserID: task.UserID,
+		Data: map[string]interface{}{
+			"reason":  "scheduled_task",
+			"task_id": task.ID,
+		},
+	}
+	if a.outbox == nil || a.bus == nil {
+		if a.bus != nil {
+			a.bus.Publish(ctx, evt)
+		}
+		return nil
+	}
+	// There is no business row to bind to here: the task outcome is written
+	// by runOne after this returns. The outbox still turns a lost publish
+	// into a retried one, which is the failure that matters.
+	if err := a.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		_, err := a.outbox.EnqueueTx(ctx, tx, evt)
+		return err
+	}); err != nil {
+		// The sessions are already gone in Redis; a failed enqueue must not
+		// fail the occurrence, or the task retries a revocation that already
+		// happened. The log line is the only trace an operator gets, which is
+		// exactly why the publish belongs in the outbox.
+		log.Printf("[scheduled-task] enqueue session.revoked for task %d failed: %v", task.ID, err)
 	}
 	return nil
 }

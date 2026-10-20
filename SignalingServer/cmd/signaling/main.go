@@ -443,7 +443,8 @@ func main() {
 		WithOutbox(eventOutbox)
 	scheduledTaskService.RegisterAction(
 		models.ScheduledTaskSignOutAllSessions,
-		service.NewSignOutAllSessionsAction(tokenService, bus),
+		service.NewSignOutAllSessionsAction(tokenService, bus, db).
+			WithOutbox(eventOutbox),
 	)
 
 	// Subscribe system-scope event fanouts (realtime subscribes inside its
@@ -506,7 +507,8 @@ func main() {
 	// Handlers
 	// -------------------------------------------------------------------
 	publicHandler := handler.NewPublicHandler(db, redisClient, presetService, settingsService, smsService, Version)
-	authHandler := handler.NewAuthHandler(userService, tokenService, smsService, bus)
+	authHandler := handler.NewAuthHandler(userService, tokenService, smsService, bus, db)
+	authHandler.WithSessionRevokedOutbox(eventOutbox)
 	meHandler := handler.NewMeHandler(userService, tokenService, smsService, bus, db)
 	meHandler.WithSessionRevokedOutbox(eventOutbox)
 	deviceHandler := handler.NewDeviceHandler(deviceService, favoriteService, connectionService, presenceService, deviceAccessService, db)
@@ -595,6 +597,7 @@ func main() {
 	adminTOTPHandler := handler.NewAdminTOTPHandler(adminUserService, db)
 	adminAdminsHandler := handler.NewAdminAdminsHandler(adminUserService, tokenService, auditService)
 	adminUsersHandler := handler.NewAdminUsersHandler(userService, tokenService, bus, auditService, presenceService, db)
+	adminUsersHandler.WithSessionRevokedOutbox(eventOutbox)
 	adminDevicesHandler := handler.NewAdminDevicesHandler(deviceService, presenceService, auditService, db)
 	adminSettingsHandler := handler.NewAdminSettingsHandler(settingsService, auditService)
 	adminPresetHandler := handler.NewAdminPresetHandler(presetService, auditService)
