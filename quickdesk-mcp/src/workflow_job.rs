@@ -7,7 +7,7 @@ use std::time::{Duration, SystemTime};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use tokio::sync::{mpsc, Semaphore};
+use tokio::sync::{Notify, Semaphore};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
@@ -16,11 +16,23 @@ use crate::callback::{
     CallbackDeliveryStatus, CallbackOutbox, CallbackRetryError,
 };
 use crate::server::{QuickDeskMcpServer, SharedState};
+use crate::fair_queue::FairQueue;
 use crate::workflow::WorkflowRunReport;
 use crate::ws_client::WsClient;
 
-const QUEUE_CAPACITY: usize = 32;
+/// Bound on queued work per submitter. One submitter can hold the single
+/// execution slot with a long backlog, but it must not be able to pin an
+/// unbounded amount of other submitters' turns behind its own either.
+const QUEUE_CAPACITY_PER_SUBMITTER: usize = 8;
+/// Total bound across every submitter, so a fleet of busy callers cannot
+/// grow the queue without limit.
+const QUEUE_CAPACITY_TOTAL: usize = 256;
 const JOB_CLAIM_STALE_AFTER: Duration = Duration::from_secs(30);
+
+/// Owner key used when a caller does not identify itself. Every anonymous
+/// submitter shares one lane, so a single anonymous flood cannot starve the
+/// identified callers either - it just competes as one submitter.
+const ANONYMOUS_SUBMITTER: &str = "anonymous";
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -337,7 +349,14 @@ impl WorkflowJobStore {
 #[derive(Clone)]
 pub struct WorkflowJobManager {
     store: WorkflowJobStore,
-    sender: mpsc::Sender<WorkflowJobRequest>,
+    /// Fair, round-robin queue of pending work. The single execution slot
+    /// makes ordering the fairness question: a plain FIFO lets the fastest
+    /// submitter push everyone else's runs behind an unbounded number of its
+    /// own.
+    queue: Arc<Mutex<FairQueue<WorkflowJobRequest>>>,
+    /// Wakes the worker when new work is pushed. `notify_one` is enough: the
+    /// worker drains the queue until it is empty before waiting again.
+    work_ready: Arc<Notify>,
     active: Arc<Mutex<HashMap<String, CancellationToken>>>,
     callbacks: CallbackOutbox,
 }
@@ -350,6 +369,9 @@ struct WorkflowJobRequest {
     overrides: HashMap<String, Value>,
     stop_on_failure: bool,
     callback_url: Option<String>,
+    /// Submitter identity, used as the fair-queue lane key. `None` (or an
+    /// empty string) means the caller did not identify itself.
+    submitter: Option<String>,
 }
 
 #[derive(Debug)]
@@ -362,6 +384,8 @@ pub enum CancelJobError {
 #[derive(Clone)]
 struct WorkerContext {
     store: WorkflowJobStore,
+    queue: Arc<Mutex<FairQueue<WorkflowJobRequest>>>,
+    work_ready: Arc<Notify>,
     active: Arc<Mutex<HashMap<String, CancellationToken>>>,
     callbacks: CallbackOutbox,
     ws: WsClient,
@@ -399,18 +423,21 @@ impl WorkflowJobManager {
         run_slots: Arc<Semaphore>,
         callbacks: CallbackOutbox,
     ) -> Result<Self, String> {
-        let (sender, receiver) = mpsc::channel(QUEUE_CAPACITY);
+        let queue = Arc::new(Mutex::new(FairQueue::new()));
+        let work_ready = Arc::new(Notify::new());
         let manager = Self {
             store,
-            sender,
+            queue: queue.clone(),
+            work_ready: work_ready.clone(),
             active: Arc::new(Mutex::new(HashMap::new())),
             callbacks: callbacks.clone(),
         };
         start_worker(
-            receiver,
             cancellation,
             WorkerContext {
                 store: manager.store.clone(),
+                queue,
+                work_ready,
                 active: manager.active.clone(),
                 callbacks,
                 ws,
@@ -469,6 +496,7 @@ impl WorkflowJobManager {
         overrides: HashMap<String, Value>,
         stop_on_failure: bool,
         callback_url: Option<String>,
+        submitter: Option<&str>,
     ) -> Result<WorkflowRunJob, String> {
         let spec = WorkflowJobRequestSpec {
             overrides,
@@ -488,16 +516,55 @@ impl WorkflowJobManager {
             overrides: spec.overrides,
             stop_on_failure: spec.stop_on_failure,
             callback_url: spec.callback_url,
+            submitter: Some(normalize_submitter(submitter)),
         };
-        if let Err(error) = self.sender.try_send(request) {
+        let lane_key = request.submitter.clone().unwrap_or_default();
+        let rejection = {
+            let queue = self
+                .queue
+                .lock()
+                .map_err(|_| "workflow job queue poisoned".to_string())?;
+            Self::check_queue_capacity(&queue, &lane_key)
+        };
+        if let Some(message) = rejection {
             self.active.lock().unwrap().remove(&job.run_id);
-            let message = format!("workflow job queue is full: {error}");
             let _ = self
                 .store
                 .finish(&job.run_id, WorkflowJobStatus::Failed, None, &message);
             return Err(message);
         }
+        {
+            let mut queue = self
+                .queue
+                .lock()
+                .map_err(|_| "workflow job queue poisoned".to_string())?;
+            queue.push(&lane_key, request);
+        }
+        self.work_ready.notify_one();
         Ok(job)
+    }
+
+    /// Capacity is checked per submitter and in total. The per-submitter
+    /// bound is the fairness rule: a caller that floods the queue is
+    /// rejected rather than being allowed to hold everyone else's turn.
+    /// `trigger.rs` maps the "queue is full" wording onto 429, so the
+    /// message keeps that phrase for both cases.
+    fn check_queue_capacity(
+        queue: &FairQueue<WorkflowJobRequest>,
+        submitter: &str,
+    ) -> Option<String> {
+        if queue.len() >= QUEUE_CAPACITY_TOTAL {
+            return Some(format!(
+                "workflow job queue is full: {QUEUE_CAPACITY_TOTAL} jobs are already waiting"
+            ));
+        }
+        let waiting = queue.waiting_for(submitter);
+        if waiting >= QUEUE_CAPACITY_PER_SUBMITTER {
+            return Some(format!(
+                "workflow job queue is full: {waiting} jobs from this caller are already waiting (limit {QUEUE_CAPACITY_PER_SUBMITTER})"
+            ));
+        }
+        None
     }
 
     fn recover_persisted_jobs(&self) -> Result<(), String> {
@@ -517,14 +584,30 @@ impl WorkflowJobManager {
                         overrides: spec.overrides,
                         stop_on_failure: spec.stop_on_failure,
                         callback_url: spec.callback_url,
+                        // A recovered job has no live caller, so it cannot be
+                        // attributed to a submitter. It gets its own lane so
+                        // recovery cannot evict a live caller's turn.
+                        submitter: Some(format!("recovered:{}", job.run_id)),
                     };
-                    if let Err(error) = self.sender.try_send(request) {
+                    let lane_key = request.submitter.clone().unwrap_or_default();
+                    let rejection = {
+                        let mut queue = self
+                            .queue
+                            .lock()
+                            .map_err(|_| "workflow job queue poisoned".to_string())?;
+                        let rejection = Self::check_queue_capacity(&queue, &lane_key);
+                        if rejection.is_none() {
+                            queue.push(&lane_key, request);
+                        }
+                        rejection
+                    };
+                    if let Some(message) = rejection {
                         self.active.lock().unwrap().remove(&job.run_id);
                         let _ = self.store.finish(
                             &job.run_id,
                             WorkflowJobStatus::Failed,
                             None,
-                            &format!("workflow job recovery queue is full: {error}"),
+                            &message,
                         );
                     }
                 }
@@ -549,6 +632,7 @@ impl WorkflowJobManager {
                 | WorkflowJobStatus::Cancelled => {}
             }
         }
+        self.work_ready.notify_one();
         Ok(())
     }
 
@@ -582,18 +666,25 @@ impl WorkflowJobManager {
 }
 
 fn start_worker(
-    mut receiver: mpsc::Receiver<WorkflowJobRequest>,
     cancellation: CancellationToken,
     context: WorkerContext,
 ) {
     tokio::spawn(async move {
         loop {
+            // Take one job per wake-up so a newly pushed job cannot be served
+            // ahead of work that was already waiting: the queue is drained in
+            // fair order, one item at a time.
             let request = tokio::select! {
                 _ = cancellation.cancelled() => break,
-                request = receiver.recv() => match request {
-                    Some(request) => request,
-                    None => break,
-                },
+                _ = context.work_ready.notified() => {
+                    match context.queue.lock().ok().and_then(|mut queue| queue.pop()) {
+                        Some(request) => request,
+                        // A notification can arrive between the last pop and
+                        // the wait; the queue being empty is not a reason to
+                        // stop the worker.
+                        None => continue,
+                    }
+                }
             };
             let token = context
                 .active
@@ -756,6 +847,20 @@ fn record_callback_result(
     }
 }
 
+/// Collapses a caller-supplied submitter into a lane key.
+///
+/// `None` or blank means the caller did not identify itself, and every
+/// anonymous caller shares one lane: a flood of anonymous work then competes
+/// as a single submitter instead of starving the identified ones. The value
+/// is length-bounded so a hostile header cannot grow the lane map.
+fn normalize_submitter(submitter: Option<&str>) -> String {
+    match submitter.map(str::trim).filter(|value| !value.is_empty()) {
+        Some(value) if value.len() <= 128 => value.to_string(),
+        Some(value) => value.chars().take(128).collect(),
+        None => ANONYMOUS_SUBMITTER.to_string(),
+    }
+}
+
 fn dirs_data_dir() -> Option<PathBuf> {
     #[cfg(target_os = "windows")]
     {
@@ -770,6 +875,58 @@ fn dirs_data_dir() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // The single execution slot makes queue order the fairness question. A
+    // busy submitter with several queued runs must not push a one-run
+    // submitter behind all of them: with round-robin the quiet submitter's
+    // job runs second.
+    #[tokio::test]
+    async fn a_busy_submitter_cannot_delay_a_quiet_one() {
+        let temp = std::env::temp_dir().join(format!("quickdesk-job-fair-{}", Uuid::new_v4()));
+        let store = WorkflowJobStore::with_storage_dir(temp.join("jobs"));
+
+        let busy_runs = [
+            store
+                .create("workflow-busy", "device-1", &WorkflowJobRequestSpec::default())
+                .unwrap()
+                .run_id,
+            store
+                .create("workflow-busy", "device-1", &WorkflowJobRequestSpec::default())
+                .unwrap()
+                .run_id,
+            store
+                .create("workflow-busy", "device-1", &WorkflowJobRequestSpec::default())
+                .unwrap()
+                .run_id,
+        ];
+        let quiet_run = store
+            .create("workflow-quiet", "device-1", &WorkflowJobRequestSpec::default())
+            .unwrap()
+            .run_id;
+
+        // The queue is drained directly rather than through the worker: this
+        // test is about ordering, not about execution.
+        let mut queue = FairQueue::new();
+        for run_id in &busy_runs {
+            queue.push("operator:busy", run_id.clone());
+        }
+        queue.push("operator:quiet", quiet_run.clone());
+
+        let mut served = Vec::new();
+        while let Some(run_id) = queue.pop() {
+            served.push(run_id);
+        }
+        assert_eq!(served.len(), 4);
+        assert_eq!(served[0], busy_runs[0]);
+        assert_eq!(
+            served[1], quiet_run,
+            "the single quiet job must be served second, not last"
+        );
+        assert_eq!(served[2], busy_runs[1]);
+        assert_eq!(served[3], busy_runs[2]);
+
+        let _ = std::fs::remove_dir_all(temp);
+    }
 
     #[test]
     fn stale_queued_job_claim_can_be_reacquired() {

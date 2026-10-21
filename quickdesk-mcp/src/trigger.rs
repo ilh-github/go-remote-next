@@ -144,6 +144,24 @@ fn authorize_request(state: &TriggerState, headers: &HeaderMap) -> Result<(), Tr
     Ok(())
 }
 
+/// Identifies the caller for the fair queue.
+///
+/// The async entry point is where several callers can be waiting at once, and
+/// the single execution slot makes their order the fairness question. The
+/// shared trigger token is one identity for everyone who holds it, so an
+/// operator token - when configured - is what separates callers: each named
+/// operator gets its own turn. Without operator tokens every caller shares
+/// one lane, which is the same behaviour as before rather than a regression.
+fn submitter_key(registry: &OperatorRegistry, headers: &HeaderMap) -> String {
+    let authorization = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok());
+    if let Some(actor) = registry.actor_for_authorization(authorization) {
+        return format!("operator:{actor}");
+    }
+    "trigger-token".to_string()
+}
+
 #[derive(Clone, Debug)]
 struct OperatorCredential {
     actor: String,
@@ -350,6 +368,16 @@ async fn run_workflow_async(
     if let Err(error) = authorize_request(&state, &headers) {
         return auth_error_response(error);
     }
+    // Operator tokens are what separate callers into fair-queue lanes. An
+    // unparsable configuration must not silently widen the lanes, so the
+    // request is refused the same way the ack endpoints refuse it.
+    let operator_registry = match OperatorRegistry::from_env() {
+        Ok(registry) => registry,
+        Err(error) => {
+            tracing::error!("cannot load operator tokens: {error}");
+            return auth_error_response(TriggerAuthError::Misconfigured);
+        }
+    };
     let device_id = request.device_id.trim();
     if device_id.is_empty() {
         return error_response(StatusCode::BAD_REQUEST, "device_id is required");
@@ -368,6 +396,7 @@ async fn run_workflow_async(
         request.overrides.unwrap_or_default(),
         request.stop_on_failure.unwrap_or(true),
         request.callback_url,
+        Some(&submitter_key(&operator_registry, &headers)),
     ) {
         Ok(job) => (StatusCode::ACCEPTED, Json(job)).into_response(),
         Err(error) if error.contains("queue is full") => {
@@ -995,6 +1024,48 @@ mod tests {
         ));
         assert!(!authorize_bearer(Some(token), None));
         assert!(!authorize_bearer(None, Some("Bearer business-secret")));
+    }
+
+    // Two operators holding different operator tokens must land in different
+    // fair-queue lanes; that is the whole point of reading the token here.
+    #[test]
+    fn submitter_key_separates_operator_tokens() {
+        let registry = OperatorRegistry::from_json(
+            r#"{"alice":"token-alice","bob":"token-bob"}"#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            submitter_key(&registry, &headers_with("Bearer token-alice")),
+            "operator:alice"
+        );
+        assert_eq!(
+            submitter_key(&registry, &headers_with("Bearer token-bob")),
+            "operator:bob"
+        );
+    }
+
+    // Without operator tokens every caller shares one lane. That is the
+    // pre-existing behaviour, not a fairness regression: the shared trigger
+    // token is a single identity.
+    #[test]
+    fn submitter_key_falls_back_to_the_shared_trigger_identity() {
+        let registry = OperatorRegistry::from_json("").unwrap();
+
+        assert_eq!(
+            submitter_key(&registry, &headers_with("Bearer business-secret")),
+            "trigger-token"
+        );
+        assert_eq!(submitter_key(&registry, &HeaderMap::new()), "trigger-token");
+    }
+
+    fn headers_with(authorization: &str) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            axum::http::header::AUTHORIZATION,
+            authorization.parse().unwrap(),
+        );
+        headers
     }
 
     #[tokio::test]
