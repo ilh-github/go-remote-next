@@ -44,6 +44,10 @@ pub struct WorkflowTriggerSpec {
     pub event_device_id: Option<String>,
     pub event_filter: Option<Value>,
     pub callback_url: Option<String>,
+    /// Caller identity the owner binds this trigger to, used to resolve the
+    /// delegation grant that authorises each run. Empty means the trigger
+    /// runs as itself rather than as a named operator.
+    pub subject: String,
     pub skip_holidays: bool,
     pub backfill_missed: bool,
 }
@@ -69,6 +73,9 @@ pub struct WorkflowTrigger {
     pub event_filter: Option<Value>,
     #[serde(default)]
     pub callback_url: Option<String>,
+    /// Caller identity this trigger runs as. See `WorkflowTriggerSpec`.
+    #[serde(default)]
+    pub subject: String,
     #[serde(default)]
     pub skip_holidays: bool,
     #[serde(default)]
@@ -325,6 +332,7 @@ impl WorkflowTriggerStore {
             event_device_id,
             event_filter: spec.event_filter,
             callback_url: spec.callback_url,
+            subject: spec.subject.trim().to_string(),
             skip_holidays: spec.skip_holidays,
             backfill_missed: spec.backfill_missed,
             enabled: true,
@@ -636,6 +644,7 @@ mod tests {
                     callback_url: None,
                     skip_holidays: false,
                     backfill_missed: false,
+                    subject: String::new(),
                 },
                 now,
             )
@@ -685,6 +694,7 @@ mod tests {
                     callback_url: None,
                     skip_holidays: false,
                     backfill_missed: false,
+                    subject: String::new(),
                 },
                 created,
             )
@@ -726,6 +736,7 @@ mod tests {
                     callback_url: None,
                     skip_holidays: false,
                     backfill_missed: false,
+                    subject: String::new(),
                 },
                 created,
             )
@@ -780,6 +791,7 @@ mod tests {
                     callback_url: None,
                     skip_holidays: false,
                     backfill_missed: false,
+                    subject: String::new(),
                 },
                 created,
             )
@@ -811,6 +823,7 @@ mod tests {
                     callback_url: None,
                     skip_holidays: false,
                     backfill_missed: false,
+                    subject: String::new(),
                 },
                 Utc.with_ymd_and_hms(2026, 3, 7, 15, 0, 0).unwrap(),
             )
@@ -841,6 +854,7 @@ mod tests {
                     callback_url: None,
                     skip_holidays: false,
                     backfill_missed: false,
+                    subject: String::new(),
                 },
                 Utc.with_ymd_and_hms(2026, 11, 1, 5, 0, 0).unwrap(),
             )
@@ -881,6 +895,7 @@ mod tests {
                     callback_url: None,
                     skip_holidays: false,
                     backfill_missed: false,
+                    subject: String::new(),
                 },
                 created,
             )
@@ -912,6 +927,7 @@ mod tests {
                     callback_url: None,
                     skip_holidays: true,
                     backfill_missed: false,
+                    subject: String::new(),
                 },
                 created,
             )
@@ -965,6 +981,7 @@ mod tests {
                     callback_url: None,
                     skip_holidays: true,
                     backfill_missed: false,
+                    subject: String::new(),
                 },
                 created,
             )
@@ -1003,6 +1020,7 @@ mod tests {
             callback_url: None,
             skip_holidays: true,
             backfill_missed: false,
+            subject: String::new(),
         });
 
         assert_eq!(
@@ -1034,6 +1052,7 @@ mod tests {
             callback_url: None,
             skip_holidays: false,
             backfill_missed: true,
+            subject: String::new(),
         });
 
         assert_eq!(
@@ -1091,6 +1110,7 @@ mod tests {
                     callback_url: None,
                     skip_holidays: false,
                     backfill_missed: true,
+                    subject: String::new(),
                 },
                 created,
             )
@@ -1142,6 +1162,7 @@ mod tests {
             callback_url: None,
             skip_holidays: false,
             backfill_missed: false,
+            subject: String::new(),
         };
 
         assert!(store.create(base.clone()).is_err());
@@ -1173,6 +1194,7 @@ mod tests {
                     callback_url: None,
                     skip_holidays: false,
                     backfill_missed: false,
+                    subject: String::new(),
                 },
                 now,
             )
@@ -1222,6 +1244,7 @@ mod tests {
                     callback_url: None,
                     skip_holidays: false,
                     backfill_missed: false,
+                    subject: String::new(),
                 },
                 now,
             )
@@ -1251,6 +1274,7 @@ mod tests {
             callback_url: None,
             skip_holidays: false,
             backfill_missed: false,
+            subject: String::new(),
         };
 
         assert!(store.create(base.clone()).is_ok());

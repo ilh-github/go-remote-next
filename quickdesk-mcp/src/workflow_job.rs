@@ -369,6 +369,9 @@ struct WorkflowJobRequest {
     overrides: HashMap<String, Value>,
     stop_on_failure: bool,
     callback_url: Option<String>,
+    /// Tools the authorising grant denies. Carried with the job because the
+    /// grant is resolved at enqueue time and the worker runs later.
+    denied_tools: Vec<String>,
     /// Submitter identity, used as the fair-queue lane key. `None` (or an
     /// empty string) means the caller did not identify itself.
     submitter: Option<String>,
@@ -489,6 +492,9 @@ impl WorkflowJobManager {
         self.callbacks.acknowledge_many(delivery_ids, actor)
     }
 
+    // The job's own request plus the fair-queue lane key. Both are flat
+    // values the caller already holds.
+    #[allow(clippy::too_many_arguments)]
     pub fn enqueue(
         &self,
         workflow_id: &str,
@@ -496,6 +502,7 @@ impl WorkflowJobManager {
         overrides: HashMap<String, Value>,
         stop_on_failure: bool,
         callback_url: Option<String>,
+        denied_tools: Vec<String>,
         submitter: Option<&str>,
     ) -> Result<WorkflowRunJob, String> {
         let spec = WorkflowJobRequestSpec {
@@ -516,6 +523,7 @@ impl WorkflowJobManager {
             overrides: spec.overrides,
             stop_on_failure: spec.stop_on_failure,
             callback_url: spec.callback_url,
+            denied_tools,
             submitter: Some(normalize_submitter(submitter)),
         };
         let lane_key = request.submitter.clone().unwrap_or_default();
@@ -584,6 +592,7 @@ impl WorkflowJobManager {
                         overrides: spec.overrides,
                         stop_on_failure: spec.stop_on_failure,
                         callback_url: spec.callback_url,
+                        denied_tools: Vec::new(),
                         // A recovered job has no live caller, so it cannot be
                         // attributed to a submitter. It gets its own lane so
                         // recovery cannot evict a live caller's turn.
@@ -769,6 +778,7 @@ fn start_worker(
                     &request.device_id,
                     request.overrides,
                     request.stop_on_failure,
+                    request.denied_tools.clone(),
                     request.run_id.clone(),
                     token.clone(),
                 )

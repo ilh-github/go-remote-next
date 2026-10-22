@@ -79,6 +79,12 @@ pub struct AppConfig {
     /// Bearer token for the local business-workflow HTTP trigger. Empty disables the trigger API.
     #[arg(long, env = "QUICKDESK_TRIGGER_TOKEN")]
     pub trigger_token: Option<String>,
+
+    /// Require an Owner-issued delegation grant for every workflow run. Off
+    /// keeps the shared-token behaviour, where the token alone authorises any
+    /// workflow the process already allows.
+    #[arg(long, env = "QUICKDESK_DELEGATION_REQUIRED", default_value = "false")]
+    pub delegation_required: bool,
 }
 
 impl AppConfig {

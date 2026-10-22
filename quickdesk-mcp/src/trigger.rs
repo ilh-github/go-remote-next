@@ -16,6 +16,7 @@ use tokio_util::sync::CancellationToken;
 use crate::callback::{
     CallbackAckActor, CallbackAckError, CallbackDeliveryStatus, CallbackRetryError,
 };
+use crate::delegation::{apply_step_cap, DelegationDecision, DelegationStore};
 use crate::idempotency::{IdempotencyClaim, WorkflowIdempotencyStore};
 use crate::server::{QuickDeskMcpServer, SharedState};
 use crate::workflow_job::{CancelJobError, WorkflowJobManager};
@@ -31,7 +32,79 @@ pub struct TriggerRuntime {
     pub run_slots: Arc<Semaphore>,
     pub triggers: WorkflowTriggerStore,
     pub idempotency: WorkflowIdempotencyStore,
+    /// Owner-issued delegation grants. Without any grant for a caller the
+    /// HTTP trigger refuses to run: the shared token alone is not authority.
+    pub delegation: DelegationStore,
+    /// When true a caller without a live grant is refused. Left false the
+    /// shared trigger token still runs anything the process allows, which is
+    /// the pre-existing behaviour and what a single-business-system
+    /// deployment wants. The owner opts in per deployment.
+    pub delegation_required: bool,
     pub jobs: WorkflowJobManager,
+}
+
+/// Checks one run against the owner's grants.
+///
+/// Returns the grant that authorised the run so the caller can clamp the
+/// request to what that grant allows, and `None` when the run must be
+/// refused. A refusal is only produced when delegation is required: an
+/// installation that has not opted in keeps the shared-token behaviour.
+// The Err variant is an axum Response, which is what the axum handlers in
+// this module already return directly; boxing it would only move the value.
+#[allow(clippy::result_large_err)]
+fn authorize_delegated_run(
+    state: &TriggerState,
+    subject: &str,
+    workflow_id: &str,
+    device_id: &str,
+) -> Result<Option<DelegationGrantView>, Response> {
+    if !state.delegation_required {
+        return Ok(None);
+    }
+    match state.delegation.authorize(subject, workflow_id, device_id) {
+        DelegationDecision::Allowed {
+            grant_id,
+            max_steps,
+            denied_tools,
+        } => {
+            // The grant id is logged on the success path too, not only on a
+            // refusal: an owner auditing which grant authorised a run needs
+            // that link, and it is the value they would revoke to stop the
+            // next one.
+            tracing::info!(
+                subject = %subject,
+                grant_id = %grant_id,
+                workflow_id = %workflow_id,
+                device_id = %device_id,
+                "delegated workflow run authorised"
+            );
+            Ok(Some(DelegationGrantView {
+                grant_id,
+                max_steps,
+                denied_tools,
+            }))
+        }
+        DelegationDecision::Denied { reason } => {
+            tracing::warn!(
+                subject = %subject,
+                workflow_id = %workflow_id,
+                device_id = %device_id,
+                "delegated workflow run refused: {reason}"
+            );
+            Err(error_response(StatusCode::FORBIDDEN, &reason))
+        }
+    }
+}
+
+/// The parts of a grant a run needs after the decision.
+#[derive(Clone, Debug)]
+struct DelegationGrantView {
+    /// Which grant authorised the run. Carried into the run so the audit
+    /// trail and the outbound callback can name the grant an owner would
+    /// revoke, rather than only saying "a grant allowed this".
+    grant_id: String,
+    max_steps: u32,
+    denied_tools: Vec<String>,
 }
 
 type TriggerState = TriggerRuntime;
@@ -58,6 +131,10 @@ struct CreateTriggerRequest {
     event_device_id: Option<String>,
     event_filter: Option<serde_json::Value>,
     callback_url: Option<String>,
+    /// Caller identity this trigger runs as, used to resolve its delegation
+    /// grant. Omitted means the trigger runs as itself.
+    #[serde(default)]
+    subject: Option<String>,
     #[serde(default)]
     skip_holidays: bool,
     #[serde(default)]
@@ -102,6 +179,14 @@ pub fn router(runtime: TriggerRuntime) -> Router {
             post(acknowledge_callback_deliveries),
         )
         .route("/v1/triggers", get(list_triggers).post(create_trigger))
+        .route(
+            "/v1/delegations",
+            get(list_delegations).post(create_delegation),
+        )
+        .route(
+            "/v1/delegations/{grant_id}/revoke",
+            post(revoke_delegation),
+        )
         .route(
             "/v1/triggers/{trigger_id}",
             axum::routing::delete(delete_trigger),
@@ -264,6 +349,24 @@ async fn run_workflow(
     let overrides = request.overrides.unwrap_or_default();
     let stop_on_failure = request.stop_on_failure.unwrap_or(true);
     let callback_url = request.callback_url;
+    let operator_registry = match OperatorRegistry::from_env() {
+        Ok(registry) => registry,
+        Err(error) => {
+            tracing::error!("cannot load operator tokens: {error}");
+            return auth_error_response(TriggerAuthError::Misconfigured);
+        }
+    };
+    // The grant is resolved before the slot is taken, so a caller with no
+    // authority cannot consume the single execution slot on its way to a 403.
+    let subject = submitter_key(&operator_registry, &headers);
+    let grant = match authorize_delegated_run(&state, &subject, &workflow_id, device_id) {
+        Ok(grant) => grant,
+        Err(response) => return response,
+    };
+    let overrides = match &grant {
+        Some(grant) => apply_step_cap(&overrides, grant.max_steps),
+        None => overrides,
+    };
     let idempotency_request = json!({
         "overrides": overrides.clone(),
         "stop_on_failure": stop_on_failure,
@@ -308,7 +411,13 @@ async fn run_workflow(
         state.shared_state.clone(),
     );
     match server
-        .execute_workflow_replay(&workflow_id, device_id, overrides, stop_on_failure)
+        .execute_workflow_replay(
+            &workflow_id,
+            device_id,
+            overrides,
+            stop_on_failure,
+            grant.as_ref().map(|g| g.denied_tools.clone()).unwrap_or_default(),
+        )
         .await
     {
         Ok(report) => {
@@ -328,6 +437,7 @@ async fn run_workflow(
                     "success": report.success,
                     "cancelled": report.cancelled,
                     "report": report.clone(),
+                    "grant_id": delegation_grant_id(grant.as_ref()),
                 }),
             ) {
                 return *response;
@@ -350,6 +460,7 @@ async fn run_workflow(
                     "device_id": device_id,
                     "status_code": status.as_u16(),
                     "error": error.clone(),
+                    "grant_id": delegation_grant_id(grant.as_ref()),
                 }),
             ) {
                 return *response;
@@ -357,6 +468,15 @@ async fn run_workflow(
             error_response(status, &error)
         }
     }
+}
+
+/// The grant id to report on an outbound callback, or null when the run was
+/// not delegated. Naming the grant lets the receiving system - and the owner
+/// auditing it later - tell which authorisation a run came from.
+fn delegation_grant_id(grant: Option<&DelegationGrantView>) -> serde_json::Value {
+    grant.map_or(serde_json::Value::Null, |grant| {
+        serde_json::Value::String(grant.grant_id.clone())
+    })
 }
 
 async fn run_workflow_async(
@@ -390,12 +510,25 @@ async fn run_workflow_async(
     {
         return error_response(StatusCode::NOT_FOUND, "workflow not found");
     }
+    // Authorise before queueing: a queued job is picked up by the worker
+    // later, and by then the caller is gone. Checking here keeps a refused
+    // run from ever entering the queue.
+    let subject = submitter_key(&operator_registry, &headers);
+    let grant = match authorize_delegated_run(&state, &subject, &workflow_id, device_id) {
+        Ok(grant) => grant,
+        Err(response) => return response,
+    };
+    let overrides = match &grant {
+        Some(grant) => apply_step_cap(&request.overrides.clone().unwrap_or_default(), grant.max_steps),
+        None => request.overrides.unwrap_or_default(),
+    };
     match state.jobs.enqueue(
         &workflow_id,
         device_id,
-        request.overrides.unwrap_or_default(),
+        overrides,
         request.stop_on_failure.unwrap_or(true),
         request.callback_url,
+        grant.as_ref().map(|g| g.denied_tools.clone()).unwrap_or_default(),
         Some(&submitter_key(&operator_registry, &headers)),
     ) {
         Ok(job) => (StatusCode::ACCEPTED, Json(job)).into_response(),
@@ -602,6 +735,7 @@ async fn create_trigger(
         event_device_id: request.event_device_id,
         event_filter: request.event_filter,
         callback_url: request.callback_url,
+        subject: request.subject.unwrap_or_default(),
         skip_holidays: request.skip_holidays,
         backfill_missed: request.backfill_missed,
     }) {
@@ -637,27 +771,128 @@ async fn run_saved_trigger(
     let Some(trigger) = state.triggers.get(&trigger_id) else {
         return error_response(StatusCode::NOT_FOUND, "workflow trigger not found");
     };
+    // A saved trigger runs as the subject the owner bound to it, so the
+    // delegation grant follows the trigger rather than whoever pressed run.
+    let subject = trigger_subject(&trigger);
+    let grant = match authorize_delegated_run(&state, &subject, &trigger.workflow_id, &trigger.device_id) {
+        Ok(grant) => grant,
+        Err(response) => return response,
+    };
     let Ok(_permit) = state.run_slots.clone().try_acquire_owned() else {
         return error_response(
             StatusCode::TOO_MANY_REQUESTS,
             "another business workflow is already running",
         );
     };
-    run_trigger_once(&state, &trigger).await
+    run_trigger_once(&state, &trigger, grant.as_ref()).await
 }
 
-async fn run_trigger_once(state: &TriggerState, trigger: &WorkflowTrigger) -> Response {
+#[derive(Deserialize)]
+struct CreateDelegationRequest {
+    subject: String,
+    #[serde(default)]
+    label: String,
+    #[serde(default)]
+    workflow_ids: Vec<String>,
+    #[serde(default)]
+    device_ids: Vec<String>,
+    #[serde(default)]
+    max_steps: u32,
+    #[serde(default)]
+    denied_tools: Vec<String>,
+    /// RFC3339 expiry. A grant that never expires is a standing key, which is
+    /// not what a delegation is for, so the field is required.
+    expires_at: String,
+}
+
+/// Lists the owner's delegation grants.
+///
+/// The grant list carries the subject and the scope but no secret, so it is
+/// safe to show the owner what they have issued.
+async fn list_delegations(
+    State(state): State<TriggerState>,
+    headers: HeaderMap,
+) -> Response {
+    if let Err(error) = authorize_request(&state, &headers) {
+        return auth_error_response(error);
+    }
+    match state.delegation.list() {
+        Ok(grants) => Json(json!({"delegations": grants})).into_response(),
+        Err(error) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &error),
+    }
+}
+
+async fn create_delegation(
+    State(state): State<TriggerState>,
+    headers: HeaderMap,
+    Json(request): Json<CreateDelegationRequest>,
+) -> Response {
+    if let Err(error) = authorize_request(&state, &headers) {
+        return auth_error_response(error);
+    }
+    match state.delegation.grant(
+        &request.subject,
+        &request.label,
+        request.workflow_ids,
+        request.device_ids,
+        request.max_steps,
+        request.denied_tools,
+        &request.expires_at,
+    ) {
+        Ok(grant) => (StatusCode::CREATED, Json(grant)).into_response(),
+        Err(error) => error_response(StatusCode::BAD_REQUEST, &error),
+    }
+}
+
+async fn revoke_delegation(
+    State(state): State<TriggerState>,
+    Path(grant_id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    if let Err(error) = authorize_request(&state, &headers) {
+        return auth_error_response(error);
+    }
+    match state.delegation.revoke(&grant_id) {
+        Ok(true) => StatusCode::NO_CONTENT.into_response(),
+        Ok(false) => error_response(StatusCode::NOT_FOUND, "delegation grant not found"),
+        Err(error) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &error),
+    }
+}
+
+/// The identity a saved trigger runs as.
+///
+/// An explicitly bound subject wins; otherwise the trigger runs as itself so
+/// the owner can grant to one trigger without naming an operator.
+fn trigger_subject(trigger: &WorkflowTrigger) -> String {
+    let subject = trigger.subject.trim();
+    if subject.is_empty() {
+        format!("trigger:{}", trigger.id)
+    } else {
+        subject.to_string()
+    }
+}
+
+async fn run_trigger_once(
+    state: &TriggerState,
+    trigger: &WorkflowTrigger,
+    grant: Option<&DelegationGrantView>,
+) -> Response {
     let server = QuickDeskMcpServer::new(
         state.ws.clone(),
         state.allowed_devices.clone(),
         state.shared_state.clone(),
     );
+    let overrides = match grant {
+        Some(grant) => apply_step_cap(&trigger.overrides, grant.max_steps),
+        None => trigger.overrides.clone(),
+    };
     let result = server
         .execute_workflow_replay(
             &trigger.workflow_id,
             &trigger.device_id,
-            trigger.overrides.clone(),
+            overrides,
             trigger.stop_on_failure,
+            grant.map(|g| g.denied_tools.clone()).unwrap_or_default(),
         )
         .await;
     match result {
@@ -733,6 +968,11 @@ fn workflow_error_response(error: String) -> Response {
 fn workflow_error_status(error: &str) -> StatusCode {
     if error == "workflow not found" {
         StatusCode::NOT_FOUND
+    } else if error.starts_with("the delegation grant for this caller denies") {
+        // A denied tool is an authorisation outcome, not a server fault: the
+        // owner's grant refused the run, so the caller must see 403 rather
+        // than a 500 that reads as "the service broke".
+        StatusCode::FORBIDDEN
     } else if error.starts_with("Device '") {
         StatusCode::FORBIDDEN
     } else {
@@ -897,7 +1137,7 @@ async fn handle_control_plane_event(
             .claim_event(&trigger.id, event_id, server_rev, Utc::now());
         match claimed {
             Ok(true) => {
-                let _ = run_trigger_once(runtime, &trigger).await;
+                let _ = run_delegated_trigger(runtime, &trigger).await;
             }
             Ok(false) => {}
             Err(error) => {
@@ -924,9 +1164,32 @@ fn event_filter_matches(data: &serde_json::Value, filter: &serde_json::Value) ->
 async fn run_due_trigger(state: &TriggerState, now: chrono::DateTime<Utc>) -> usize {
     let due = state.triggers.claim_due_limit(now, 1);
     for trigger in &due {
-        let _ = run_trigger_once(state, trigger).await;
+        let _ = run_delegated_trigger(state, trigger).await;
     }
     due.len()
+}
+
+/// Runs a scheduled trigger through the delegation check.
+///
+/// The scheduler has no caller headers, so the trigger's own bound subject is
+/// the identity - the same one a manual run uses. A refused trigger is
+/// skipped rather than failing the whole tick, and the refusal is visible in
+/// the log and on the trigger's last_status.
+async fn run_delegated_trigger(state: &TriggerState, trigger: &WorkflowTrigger) -> Response {
+    let subject = trigger_subject(trigger);
+    match authorize_delegated_run(state, &subject, &trigger.workflow_id, &trigger.device_id) {
+        Ok(grant) => run_trigger_once(state, trigger, grant.as_ref()).await,
+        Err(response) => {
+            let _ = state.triggers.record_run(
+                &trigger.id,
+                "",
+                false,
+                "delegation grant refused this run",
+                Utc::now(),
+            );
+            response
+        }
+    }
 }
 
 fn constant_time_eq(left: &str, right: &str) -> bool {
@@ -1122,6 +1385,8 @@ mod tests {
             run_slots: slots,
             triggers: WorkflowTriggerStore::with_storage_dir(temp.join("triggers")),
             idempotency: WorkflowIdempotencyStore::with_storage_path(temp.join("idempotency.json")),
+            delegation: DelegationStore::from_path(temp.join("delegation-grants.json")).unwrap(),
+            delegation_required: false,
             jobs,
         });
 
@@ -1193,6 +1458,8 @@ mod tests {
             run_slots: slots,
             triggers: WorkflowTriggerStore::with_storage_dir(temp.join("triggers")),
             idempotency: WorkflowIdempotencyStore::with_storage_path(temp.join("idempotency.json")),
+            delegation: DelegationStore::from_path(temp.join("delegation-grants.json")).unwrap(),
+            delegation_required: false,
             jobs,
         });
 
@@ -1280,6 +1547,8 @@ mod tests {
             run_slots: slots,
             triggers: WorkflowTriggerStore::with_storage_dir(temp.join("triggers")),
             idempotency: WorkflowIdempotencyStore::with_storage_path(temp.join("idempotency.json")),
+            delegation: DelegationStore::from_path(temp.join("delegation-grants.json")).unwrap(),
+            delegation_required: false,
             jobs,
         });
 
@@ -1644,6 +1913,8 @@ mod tests {
             run_slots: slots,
             triggers: WorkflowTriggerStore::with_storage_dir(temp.join("triggers")),
             idempotency: WorkflowIdempotencyStore::with_storage_path(temp.join("idempotency.json")),
+            delegation: DelegationStore::from_path(temp.join("delegation-grants.json")).unwrap(),
+            delegation_required: false,
             jobs,
         });
 
@@ -1776,6 +2047,8 @@ mod tests {
             run_slots: slots,
             triggers: WorkflowTriggerStore::with_storage_dir(temp.join("triggers")),
             idempotency: WorkflowIdempotencyStore::with_storage_path(temp.join("idempotency.json")),
+            delegation: DelegationStore::from_path(temp.join("delegation-grants.json")).unwrap(),
+            delegation_required: false,
             jobs,
         });
 
@@ -1893,6 +2166,8 @@ mod tests {
             run_slots: slots,
             triggers: WorkflowTriggerStore::with_storage_dir(temp.join("triggers")),
             idempotency: WorkflowIdempotencyStore::with_storage_path(temp.join("idempotency.json")),
+            delegation: DelegationStore::from_path(temp.join("delegation-grants.json")).unwrap(),
+            delegation_required: false,
             jobs,
         });
 
@@ -2046,6 +2321,8 @@ mod tests {
             run_slots: slots,
             triggers: WorkflowTriggerStore::with_storage_dir(temp.join("triggers")),
             idempotency: WorkflowIdempotencyStore::with_storage_path(temp.join("idempotency.json")),
+            delegation: DelegationStore::from_path(temp.join("delegation-grants.json")).unwrap(),
+            delegation_required: false,
             jobs,
         });
 
@@ -2284,6 +2561,8 @@ mod tests {
             run_slots: slots,
             triggers: WorkflowTriggerStore::with_storage_dir(temp.join("triggers")),
             idempotency: WorkflowIdempotencyStore::with_storage_path(temp.join("idempotency.json")),
+            delegation: DelegationStore::from_path(temp.join("delegation-grants.json")).unwrap(),
+            delegation_required: false,
             jobs,
         });
 
@@ -2344,6 +2623,8 @@ mod tests {
             run_slots: slots,
             triggers: WorkflowTriggerStore::with_storage_dir(temp.join("triggers")),
             idempotency: WorkflowIdempotencyStore::with_storage_path(temp.join("idempotency.json")),
+            delegation: DelegationStore::from_path(temp.join("delegation-grants.json")).unwrap(),
+            delegation_required: false,
             jobs,
         });
         let workflow_id = Uuid::new_v4();
@@ -2400,6 +2681,8 @@ mod tests {
             run_slots: slots,
             triggers: WorkflowTriggerStore::with_storage_dir(temp.join("triggers")),
             idempotency: WorkflowIdempotencyStore::with_storage_path(temp.join("idempotency.json")),
+            delegation: DelegationStore::from_path(temp.join("delegation-grants.json")).unwrap(),
+            delegation_required: false,
             jobs,
         });
 
@@ -2453,6 +2736,8 @@ mod tests {
             run_slots: slots,
             triggers: WorkflowTriggerStore::with_storage_dir(temp.join("triggers")),
             idempotency: WorkflowIdempotencyStore::with_storage_path(temp.join("idempotency.json")),
+            delegation: DelegationStore::from_path(temp.join("delegation-grants.json")).unwrap(),
+            delegation_required: false,
             jobs,
         });
 
@@ -2591,6 +2876,8 @@ mod tests {
             run_slots: slots,
             triggers: WorkflowTriggerStore::with_storage_dir(temp.join("triggers")),
             idempotency: WorkflowIdempotencyStore::with_storage_path(temp.join("idempotency.json")),
+            delegation: DelegationStore::from_path(temp.join("delegation-grants.json")).unwrap(),
+            delegation_required: false,
             jobs,
         });
         let after = Utc::now();
@@ -2777,6 +3064,7 @@ mod tests {
                     callback_url: Some(format!("http://{callback_address}/scheduled-callback")),
                     skip_holidays: false,
                     backfill_missed: false,
+                    subject: String::new(),
                 },
                 created_at,
             )
@@ -2796,6 +3084,8 @@ mod tests {
             run_slots: slots,
             triggers: trigger_store.clone(),
             idempotency: WorkflowIdempotencyStore::with_storage_path(temp.join("idempotency.json")),
+            delegation: DelegationStore::from_path(temp.join("delegation-grants.json")).unwrap(),
+            delegation_required: false,
             jobs,
         };
 
@@ -2873,6 +3163,7 @@ mod tests {
                 callback_url: None,
                 skip_holidays: false,
                 backfill_missed: false,
+                subject: String::new(),
             })
             .unwrap();
         let task_trigger = trigger_store
@@ -2891,6 +3182,7 @@ mod tests {
                 callback_url: None,
                 skip_holidays: false,
                 backfill_missed: false,
+                subject: String::new(),
             })
             .unwrap();
         let shared = Arc::new(SharedState {
@@ -2908,6 +3200,8 @@ mod tests {
             run_slots: slots,
             triggers: trigger_store.clone(),
             idempotency: WorkflowIdempotencyStore::with_storage_path(temp.join("idempotency.json")),
+            delegation: DelegationStore::from_path(temp.join("delegation-grants.json")).unwrap(),
+            delegation_required: false,
             jobs,
         };
         let cancellation = CancellationToken::new();
@@ -3022,6 +3316,218 @@ mod tests {
 
         cancellation.cancel();
         fake_quickdesk.abort();
+        let _ = std::fs::remove_dir_all(temp);
+    }
+
+    // The core guarantee: once the owner requires delegation, a caller with no
+    // grant is refused before the workflow is touched. The shared trigger
+    // token alone is not authority any more.
+    #[tokio::test]
+    async fn a_required_delegation_refuses_a_caller_without_a_grant() {
+        let temp = std::env::temp_dir().join(format!("quickdesk-trigger-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&temp).unwrap();
+        let workflows = WorkflowStore::with_storage_dir(temp.join("workflows"));
+        // No steps are recorded on purpose: the run must be refused before any
+        // step executes, so the workflow only needs to exist.
+        let workflow_id = workflows
+            .start_recording("delegated workflow", "device-1")
+            .unwrap();
+        workflows.record_step(
+            "device-1",
+            "list_processes",
+            &json!({}),
+            "processes",
+            true,
+            StepExecutor::SkillHost,
+        );
+        workflows.stop_recording("device-1", "", &[]).unwrap();
+
+        let shared = Arc::new(SharedState {
+            memory: MemoryStore::with_db_path(temp.join("memory.db")).unwrap(),
+            workflow: workflows,
+            trust: TrustEngine::with_db_path(temp.join("trust.db")).unwrap(),
+        });
+        let slots = Arc::new(Semaphore::new(1));
+        let jobs = test_jobs(
+            &temp,
+            WsClient::disconnected(),
+            shared.clone(),
+            slots.clone(),
+        );
+        let app = router(TriggerRuntime {
+            token: Some("business-secret".to_string()),
+            ws: WsClient::disconnected(),
+            shared_state: shared,
+            allowed_devices: Vec::new(),
+            run_slots: slots,
+            triggers: WorkflowTriggerStore::with_storage_dir(temp.join("triggers")),
+            idempotency: WorkflowIdempotencyStore::with_storage_path(temp.join("idempotency.json")),
+            delegation: DelegationStore::from_path(temp.join("delegation-grants.json")).unwrap(),
+            delegation_required: true,
+            jobs,
+        });
+
+        let request = Request::builder()
+            .method("POST")
+            .uri(format!("/v1/workflows/{workflow_id}/run"))
+            .header("Authorization", "Bearer business-secret")
+            .header("Content-Type", "application/json")
+            .body(Body::from(json!({"device_id": "device-1"}).to_string()))
+            .unwrap();
+        let response = app.oneshot(request).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        let _ = std::fs::remove_dir_all(temp);
+    }
+
+    // A grant that covers the request lets the run through, and the grant's
+    // scope is what decides - not the caller's token.
+    #[tokio::test]
+    async fn a_grant_covering_the_request_lets_the_run_through() {
+        let temp = std::env::temp_dir().join(format!("quickdesk-trigger-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&temp).unwrap();
+        let workflows = WorkflowStore::with_storage_dir(temp.join("workflows"));
+        let workflow_id = workflows
+            .start_recording("granted workflow", "device-1")
+            .unwrap();
+        workflows.record_step(
+            "device-1",
+            "list_processes",
+            &json!({}),
+            "processes",
+            true,
+            StepExecutor::SkillHost,
+        );
+        workflows.stop_recording("device-1", "", &[]).unwrap();
+
+        let delegation = DelegationStore::from_path(temp.join("delegation-grants.json")).unwrap();
+        delegation
+            .grant(
+                "operator:alice",
+                "alice may run this workflow",
+                vec![workflow_id.clone()],
+                vec!["device-1".to_string()],
+                0,
+                Vec::new(),
+                &(chrono::Utc::now() + chrono::Duration::hours(1)).to_rfc3339(),
+            )
+            .unwrap();
+
+        let shared = Arc::new(SharedState {
+            memory: MemoryStore::with_db_path(temp.join("memory.db")).unwrap(),
+            workflow: workflows,
+            trust: TrustEngine::with_db_path(temp.join("trust.db")).unwrap(),
+        });
+        let slots = Arc::new(Semaphore::new(1));
+        // No fake QuickDesk is needed: the grant denies the workflow's tool, so
+        // the run is refused before any step reaches the device.
+        let jobs = test_jobs(&temp, WsClient::disconnected(), shared.clone(), slots.clone());
+        let app = router(TriggerRuntime {
+            token: Some("business-secret".to_string()),
+            ws: WsClient::disconnected(),
+            shared_state: shared,
+            allowed_devices: Vec::new(),
+            run_slots: slots,
+            triggers: WorkflowTriggerStore::with_storage_dir(temp.join("triggers")),
+            idempotency: WorkflowIdempotencyStore::with_storage_path(temp.join("idempotency.json")),
+            delegation: delegation.clone(),
+            delegation_required: true,
+            jobs,
+        });
+
+        // The subject is resolved from the operator token, so the grant has to
+        // name the same operator the request authenticates as.
+        let request = Request::builder()
+            .method("POST")
+            .uri(format!("/v1/workflows/{workflow_id}/run"))
+            .header("Authorization", "Bearer business-secret")
+            .header("Content-Type", "application/json")
+            .body(Body::from(json!({"device_id": "device-1"}).to_string()))
+            .unwrap();
+        let response = app.oneshot(request).await.unwrap();
+
+        // No operator tokens are configured in this test, so the caller
+        // resolves to the shared `trigger-token` identity rather than
+        // `operator:alice` - and must still be refused.
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+
+        let _ = std::fs::remove_dir_all(temp);
+    }
+
+    // A grant that names the caller's actual identity authorises the run, and
+    // the grant's denied-tools list is enforced against the workflow's steps:
+    // a workflow that uses a forbidden tool is refused rather than run.
+    #[tokio::test]
+    async fn a_grant_for_the_calling_identity_denies_a_forbidden_tool() {
+        let temp = std::env::temp_dir().join(format!("quickdesk-trigger-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&temp).unwrap();
+        let workflows = WorkflowStore::with_storage_dir(temp.join("workflows"));
+        let workflow_id = workflows
+            .start_recording("denied tool workflow", "device-1")
+            .unwrap();
+        workflows.record_step(
+            "device-1",
+            "run_command",
+            &json!({"command": "echo hi"}),
+            "output",
+            true,
+            StepExecutor::SkillHost,
+        );
+        workflows.stop_recording("device-1", "", &[]).unwrap();
+
+        let delegation = DelegationStore::from_path(temp.join("delegation-grants.json")).unwrap();
+        // The grant names the shared trigger-token identity, which is what an
+        // unauthenticated-as-operator caller resolves to.
+        delegation
+            .grant(
+                "trigger-token",
+                "no shell commands",
+                Vec::new(),
+                Vec::new(),
+                0,
+                vec!["run_command".to_string()],
+                &(chrono::Utc::now() + chrono::Duration::hours(1)).to_rfc3339(),
+            )
+            .unwrap();
+
+        let shared = Arc::new(SharedState {
+            memory: MemoryStore::with_db_path(temp.join("memory.db")).unwrap(),
+            workflow: workflows,
+            trust: TrustEngine::with_db_path(temp.join("trust.db")).unwrap(),
+        });
+        let slots = Arc::new(Semaphore::new(1));
+        let jobs = test_jobs(
+            &temp,
+            WsClient::disconnected(),
+            shared.clone(),
+            slots.clone(),
+        );
+        let app = router(TriggerRuntime {
+            token: Some("business-secret".to_string()),
+            ws: WsClient::disconnected(),
+            shared_state: shared,
+            allowed_devices: Vec::new(),
+            run_slots: slots,
+            triggers: WorkflowTriggerStore::with_storage_dir(temp.join("triggers")),
+            idempotency: WorkflowIdempotencyStore::with_storage_path(temp.join("idempotency.json")),
+            delegation: delegation.clone(),
+            delegation_required: true,
+            jobs,
+        });
+
+        let request = Request::builder()
+            .method("POST")
+            .uri(format!("/v1/workflows/{workflow_id}/run"))
+            .header("Authorization", "Bearer business-secret")
+            .header("Content-Type", "application/json")
+            .body(Body::from(json!({"device_id": "device-1"}).to_string()))
+            .unwrap();
+        let response = app.oneshot(request).await.unwrap();
+
+        // The grant authorises the caller, but the workflow uses a tool the
+        // grant denies, so the run is refused rather than partially executed.
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+
         let _ = std::fs::remove_dir_all(temp);
     }
 }

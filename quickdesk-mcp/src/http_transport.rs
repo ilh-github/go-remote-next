@@ -11,6 +11,7 @@ use tokio_util::sync::CancellationToken;
 use tower_http::cors::{AllowHeaders, AllowMethods, CorsLayer};
 
 use crate::config::AppConfig;
+use crate::delegation::DelegationStore;
 use crate::idempotency::WorkflowIdempotencyStore;
 use crate::server::{QuickDeskMcpServer, SharedState};
 use crate::trigger::TriggerRuntime;
@@ -31,6 +32,7 @@ pub async fn start_http(
     let mcp_allowed_devices = allowed_devices.clone();
     let workflow_triggers = WorkflowTriggerStore::new()?;
     let idempotency = WorkflowIdempotencyStore::new()?;
+    let delegation = DelegationStore::new()?;
     let business_run_slots = Arc::new(Semaphore::new(1));
     let jobs = WorkflowJobManager::new(
         ct.child_token(),
@@ -65,6 +67,8 @@ pub async fn start_http(
         run_slots: business_run_slots.clone(),
         triggers: workflow_triggers.clone(),
         idempotency: idempotency.clone(),
+        delegation: delegation.clone(),
+        delegation_required: config.delegation_required,
         jobs: jobs.clone(),
     };
     let business_router = crate::trigger::router(trigger_runtime.clone());

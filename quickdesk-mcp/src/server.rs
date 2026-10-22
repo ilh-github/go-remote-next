@@ -752,24 +752,32 @@ impl QuickDeskMcpServer {
         device_id: &str,
         overrides: HashMap<String, serde_json::Value>,
         stop_on_failure: bool,
+        denied_tools: Vec<String>,
     ) -> Result<WorkflowRunReport, String> {
         self.execute_workflow_replay_cancellable(
             workflow_id,
             device_id,
             overrides,
             stop_on_failure,
+            denied_tools,
             Uuid::new_v4().to_string(),
             CancellationToken::new(),
         )
         .await
     }
 
+    // One argument per input the replay needs: what to run, where, with which
+    // overrides, whether to stop on failure, which tools the caller's grant
+    // denies, the run id and the cancellation token. They are already flat
+    // values, so a struct would add a layer without removing one.
+    #[allow(clippy::too_many_arguments)]
     pub async fn execute_workflow_replay_cancellable(
         &self,
         workflow_id: &str,
         device_id: &str,
         overrides: HashMap<String, serde_json::Value>,
         stop_on_failure: bool,
+        denied_tools: Vec<String>,
         run_id: String,
         cancellation: CancellationToken,
     ) -> Result<WorkflowRunReport, String> {
@@ -778,6 +786,17 @@ impl QuickDeskMcpServer {
             .state
             .workflow
             .build_replay_steps(workflow_id, &overrides)?;
+        let denied_steps: Vec<String> = steps
+            .iter()
+            .filter(|step| denied_tools.iter().any(|tool| tool == &step.tool_name))
+            .map(|step| format!("step-{}", step.seq))
+            .collect();
+        if !denied_steps.is_empty() {
+            return Err(format!(
+                "the delegation grant for this caller denies tools used by steps {:?}",
+                denied_steps
+            ));
+        }
         let total = steps.len() as u32;
         let started_at = Utc::now().to_rfc3339();
         let mut step_results = Vec::with_capacity(steps.len());
@@ -2043,6 +2062,7 @@ Safety failures always stop; operational failures follow stop_on_failure.")]
                 &p.device_id,
                 overrides,
                 stop_on_failure,
+                Vec::new(),
             )
             .await
         {
