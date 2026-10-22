@@ -1,10 +1,10 @@
 # QuickDesk 业务工作流 HTTP 触发器
 
-> 状态（2026-10-18）：QD-610 第二十阶段。业务系统可以保存 interval、IANA 时区 cron 或控制面事件
+> 状态（2026-10-23）：QD-610 第二十一阶段。业务系统可以保存 interval、IANA 时区 cron 或控制面事件
 > trigger，通过独立 Bearer token 立即运行，并由 HTTP transport 的后台 worker 领取到期
 > 触发器。`Idempotency-Key`、异步 job、HMAC 出站回调、持久回调 outbox 和受控控制面
-> 事件订阅、本机事件持久化、重连补发和 cron 法定节假日跳过已支持；跨实例事件 outbox、
-> 委托权限细分和公平调度仍未完成。同一数据目录上的多个 MCP 进程会用原子 claim
+> 事件订阅、本机事件持久化、重连补发、cron 法定节假日跳过、公平调度和 Owner 委托 grant
+> 已支持；跨机器分布式队列仍未完成。同一数据目录上的多个 MCP 进程会用原子 claim
 > 协调回调投递和 queued job 执行，但这不是跨机器数据库队列；回调确认可按 operator token
 > 记录具体操作者。
 
@@ -462,11 +462,11 @@ worker 用 `LMOVE` 原子领取到 per-worker processing list，并通过 heartb
 ## 9. 尚未完成
 
 - 自定义交易所日历、“每月最后一个工作日”等业务日历；法定节假日跳过和 IANA/DST 已支持；
-- 跨机器数据库队列、所有权心跳和公平调度；当前只协调共享同一数据目录的多进程，
+- 跨机器数据库队列和所有权心跳；当前只协调共享同一数据目录的多进程，
   不是 PostgreSQL/Redis 分布式 worker；
 - 数据库事务 outbox 和 Redis 完全不可用/整库丢失时的 durable backlog；服务端
   retry list 已具备跨 worker claim 与崩溃恢复，每用户 replay window 也可配置，
   QuickDesk 本机有默认 2048 条且可配置的持久 replay buffer，但它们仍不是事务 outbox；
-- Owner 委托 grant、最小权限范围和审计回传控制面；
+- 委托 grant 目前是单机 JSON 文件，不是多实例共享的授权源；跨机器部署需要先定共享存储；
 
 因此 QD-610 仍保持部分完成，不能把本接口描述成完整的业务流程引擎。
