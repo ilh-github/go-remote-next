@@ -90,6 +90,7 @@ const zh = {
     'mobile.logs': '日志',
     'mobile.zoom': '缩放',
     'mobile.fullscreen': '全屏',
+    'mobile.annotate': '标注',
     'mobile.close': '关闭',
 
     // ========== Floating toolbar ==========
@@ -420,6 +421,7 @@ const en = {
     'mobile.logs': 'Logs',
     'mobile.zoom': 'Zoom',
     'mobile.fullscreen': 'Fullscreen',
+    'mobile.annotate': 'Annotate',
     'mobile.close': 'Close',
 
     // ========== Floating toolbar ==========

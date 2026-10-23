@@ -1967,6 +1967,16 @@ class RemoteDesktopApp {
             }
         });
 
+        // QD-315: the desktop floating menu is not created in mobile layout, so
+        // annotation needs its own entry here or the feature is unreachable on a
+        // phone. The same toggle drives both.
+        const annotateButton = document.getElementById('btnAnnotate');
+        annotateButton?.addEventListener('click', () => {
+            this._setupAnnotations();
+            this._toggleAnnotations();
+            annotateButton.classList.toggle('active', this._annotating);
+        });
+
         document.getElementById('btnDisconnect')?.addEventListener('click', () => {
             this._disconnect();
         });
