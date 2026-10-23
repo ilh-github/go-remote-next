@@ -43,11 +43,11 @@
 
 - 仓库：`go-remote-next`
 - 本地主分支：`dev`、`master`
-- 本地代码基线：`3858f11`（QD-004 artifact 摘要校验：上传字节的 SHA-256 与声明值不符即拒绝且不落库；`2c3ca9b` 的 QD-005/QD-808 打包门禁：Release 默认强制公证，Debug 保持宽松；`2062b95` 的 QD-004 服务端半边补齐：一次性上传票据可实际用于上传，且绑 session 防跨会话写入；`f365e1b` 的一次性上传票据；`1ad0b85` 的 QD-511 人工接管：park 的 run 留下 resume point，operator 可查询、接管和清除；`97b8619` 的 QD-610 Owner 委托权限：Owner 可签发带 workflow/设备范围、步骤上限和禁权工具的委托 grant；`2848be5` 的公平调度：异步工作流按提交方轮转；`a1d34c5` 的账号会话撤销事件全部迁入事务 outbox；本轮之前的
+- 本地代码基线：`e04451c`（QD-004 artifact 摘要校验：上传字节的 SHA-256 与声明值不符即拒绝且不落库；`2c3ca9b` 的 QD-005/QD-808 打包门禁：Release 默认强制公证，Debug 保持宽松；`2062b95` 的 QD-004 服务端半边补齐：一次性上传票据可实际用于上传，且绑 session 防跨会话写入；`f365e1b` 的一次性上传票据；`1ad0b85` 的 QD-511 人工接管：park 的 run 留下 resume point，operator 可查询、接管和清除；`97b8619` 的 QD-610 Owner 委托权限：Owner 可签发带 workflow/设备范围、步骤上限和禁权工具的委托 grant；`2848be5` 的公平调度：异步工作流按提交方轮转；`a1d34c5` 的账号会话撤销事件全部迁入事务 outbox；本轮之前的
   `314c73b` 先让改密码路径的 `session.revoked` 可恢复；更早的 `cddc0db` 为管理端设备、
   来源封禁与 TURN 配置事务 outbox 及在线状态离线事件迁移；QD-907 重连 Playwright E2E；
   QD-904 设备页、屏幕墙、文件管理器、真实多标签和真实自托管 SignalingServer E2E；
-  QD-908 多观看端 soak 门禁）；`origin/dev` 与 `origin/master` 已同步到 `3858f11`，
+  QD-908 多观看端 soak 门禁）；`origin/dev` 与 `origin/master` 已同步到 `e04451c`，
   本地领先数量以 `git rev-list --count origin/dev..dev` 的实时值为准
 - 上游基线：`barry-ran/QuickDesk` 的 `dev` = `5db316c`，`master` = `f6651f0`
 - 上游维护口径：持续维护但暂缓更新，下一阶段重点偏 MCP；外部贡献从 `dev` 切分支，完成后合入 `dev`，维护者定期合入 `master`
@@ -924,7 +924,7 @@ rotation 的事件写入同一数据库事务，`6386a48` 又把 TURN/STUN setti
 | QD-906 | Windows/macOS 真机矩阵 | `[~]` | Windows 主链已验证；输入、音频、剪贴板边界待补 |
 | QD-907 | 协议异常、权限异常、重连耗尽 | `[~]` | 已补信令 auth_ok 超时、认证前 payload/send 门禁、访问策略/错误访问码/排队/签名失败分类、上传 transport/503 重试耗尽，以及 WebSocket 断线后重新签发 token 的有界 `0/1/3/7s` 重连与耗尽状态。Playwright E2E 已覆盖第 1~3 次恢复、四次耗尽、不可重试策略拒绝、上传中断与信令重连并行、旧 Session 迟到事件隔离；真实弱网/代理切换、进程级断网和长时间抖动仍未验证 |
 | QD-908 | 2h+ 桌面长稳和几百路观看 | `[~]` | 已新增真实 `WallPage.vue` soak 门禁；200 路 30 秒通过（主线程约 7.98 FPS、heap 增长 86.14 MiB、无页面错误），200 路 2 小时正式基线仍待完成 |
-| QD-909 | 安全审计：文件、剪贴板、权限 | `[~]` | 访问和会话已有；文件/剪贴板未进入控制面 |
+| QD-909 | 安全审计：文件、剪贴板、权限 | `[~]` | 访问、会话和文件传输已有 attributable 上报；`e04451c` 补剪贴板：`POST /v1/me/clipboard-audits` 记方向、MIME 类型和字节数，**契约里没有存放文本的字段**——剪贴板内容照例是密码、恢复码或私信，「14:03 拷走 1.2 KB 文本」足以回答调查问题，而存文本会把审计链变成每个后来读库者都继承的凭据库；客户端 builder 只取文本用于测量，从构造上就没有内容进入审计行的路径；真机 E2E 直接回读 SQLite 文件，断言行存在、带字节数、且既不含文本也不含片段；本地写入失败也按 failed 上报（字节确实过了数据通道）。剩余：权限侧边界随 QD-115 收口 |
 | QD-910 | 需求、上游与实现持续对账 | `[~]` | 每次上游合并、issue/PR 变化或功能完成时，同步本清单、状态证据和上游贡献决策 |
 | QD-911 | 上游私密安全披露入口 | `[~]` | fork 提交 `3021ca9` 与上游候选 `9862717` 已新增 `SECURITY.md`，覆盖私密邮箱兜底、公开 issue 禁令、范围、协调披露和 maintainer 检查项；issue #6 仍 OPEN，GitHub Private Vulnerability Reporting 仍 disabled |
 
