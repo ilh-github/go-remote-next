@@ -1114,6 +1114,13 @@ hash）或 `screen_contains`（屏幕文本需包含指定内容），`retries` 
 上限 10）。回放到该步之前会先向被控端 `assertScreenState` 校验；不匹配就跳过执行，把这
 一步记为 `pending` 并写清期望值、观测值和尝试次数，然后停止本次回放。
 
+两种 `kind` 走不同的被控端接口，因为被控端的条件求值器只认五种类型
+（`text_present`、`text_absent`、`text_present_exact`、`window_title_contains`、
+`window_title_equals`）：`screen_contains` 作为 `text_present` 送给 `assertScreenState`；
+`screen_hash` 在被控端没有对应条件类型，改为经 `getUiState` 读 `ocr.frameHash` 后本地比对。
+观测值取被控端逐条件报告的 `actual` 字段。发送被控端不认识的条件类型会让 `passed`
+恒为 `false`，带断言的步骤会永远 park，因此这条契约由测试固定。
+
 `kind` 传空即清空断言，工作流回到无保护回放。没有断言的工作流行为与之前完全一致。
 
 - 工作流文件包含 `format_version`；旧文件缺少该字段时按版本 1 读取。

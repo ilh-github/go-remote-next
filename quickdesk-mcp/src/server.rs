@@ -986,18 +986,79 @@ impl QuickDeskMcpServer {
 impl QuickDeskMcpServer {
     /// Ask the host whether one recorded pre-condition still holds.
     ///
-    /// The host already exposes `assertScreenState`, so the expectation is
-    /// translated into that request instead of pulling a screenshot back into
-    /// this process. A transport or protocol error returns `None`; the caller
-    /// treats that as "cannot prove it still holds" and parks the step.
+    /// The host already exposes `assertScreenState` for text and
+    /// `getUiState` for the frame hash, so the expectation is checked against
+    /// one of those instead of pulling a screenshot back into this process.
+    /// A transport or protocol error returns `None`; the caller treats that as
+    /// "cannot prove it still holds" and parks the step.
     async fn check_step_expectation(
         &self,
         device_id: &str,
         expect: &crate::workflow::StepExpectation,
     ) -> Option<ExpectationOutcome> {
-        let req = build_screen_assertion_request(device_id, expect)?;
-        let response = self.ws.request("assertScreenState", req).await.ok()?;
-        Some(parse_screen_assertion_response(expect, &response))
+        match screen_expectation_check(&expect.kind)? {
+            ScreenExpectationCheck::HostCondition(_) => {
+                let req = build_screen_assertion_request(device_id, expect)?;
+                let response = self.ws.request("assertScreenState", req).await.ok()?;
+                Some(parse_screen_assertion_response(expect, &response))
+            }
+            ScreenExpectationCheck::FrameHash => {
+                let response = self
+                    .ws
+                    .request("getUiState", json!({ "deviceId": device_id }))
+                    .await
+                    .ok()?;
+                Some(parse_frame_hash_response(expect, &response))
+            }
+        }
+    }
+}
+
+/// Read the host's current frame hash out of a `getUiState` reply and compare
+/// it with the recorded one. The hash is what the host computed over the frame
+/// it is showing, so a different screen is a different hash.
+fn parse_frame_hash_response(
+    expect: &crate::workflow::StepExpectation,
+    response: &serde_json::Value,
+) -> ExpectationOutcome {
+    let observed = response
+        .get("ocr")
+        .and_then(|ocr| ocr.get("frameHash"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    let expected = expect.value.trim();
+    if !observed.is_empty() && observed.eq_ignore_ascii_case(expected) {
+        return ExpectationOutcome::Matched;
+    }
+    ExpectationOutcome::Mismatched {
+        expected: expected.to_string(),
+        observed,
+    }
+}
+
+/// Which host request one expectation kind is checked with.
+///
+/// The host's `VerificationService::evaluate` switches on exactly five
+/// condition types and treats anything else as unknown, which leaves `passed`
+/// false. Sending our own vocabulary would park every guarded step on a screen
+/// that actually matches, so `screen_contains` goes out as the host's
+/// `text_present`. `screen_hash` has no host condition type at all and is
+/// therefore checked against the frame hash `getUiState` reports, compared
+/// here where the recorded value is known.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ScreenExpectationCheck {
+    /// Ask the host `assertScreenState` with this condition type.
+    HostCondition(&'static str),
+    /// Read the host's current frame hash and compare it locally.
+    FrameHash,
+}
+
+fn screen_expectation_check(kind: &str) -> Option<ScreenExpectationCheck> {
+    match kind {
+        "screen_contains" => Some(ScreenExpectationCheck::HostCondition("text_present")),
+        "screen_hash" => Some(ScreenExpectationCheck::FrameHash),
+        _ => None,
     }
 }
 
@@ -1007,14 +1068,14 @@ fn build_screen_assertion_request(
     device_id: &str,
     expect: &crate::workflow::StepExpectation,
 ) -> Option<serde_json::Value> {
-    let condition = match expect.kind.as_str() {
-        "screen_hash" => json!({ "type": "frameHash", "value": expect.value.trim() }),
-        "screen_contains" => json!({ "type": "textContains", "value": expect.value.trim() }),
-        _ => return None,
+    let condition_type = match screen_expectation_check(&expect.kind)? {
+        ScreenExpectationCheck::HostCondition(condition_type) => condition_type,
+        // The frame hash is read with `getUiState`, not asserted here.
+        ScreenExpectationCheck::FrameHash => return None,
     };
     Some(json!({
         "deviceId": device_id,
-        "expectations": [condition],
+        "expectations": [{"type": condition_type, "value": expect.value.trim()}],
     }))
 }
 
@@ -1031,12 +1092,21 @@ fn parse_screen_assertion_response(
     if passed {
         return ExpectationOutcome::Matched;
     }
+    // The host reports what it saw per condition under `results[].actual`.
+    // There is no `observed` object in its reply; reading one produces an empty
+     // string, which tells the operator the screen was blank when it was not.
     let observed = response
-        .get("observed")
-        .and_then(|value| value.get("frameHash").or_else(|| value.get("text")))
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("")
-        .to_string();
+        .get("results")
+        .and_then(serde_json::Value::as_array)
+        .and_then(|results| results.first())
+        .map(|result| {
+            result
+                .get("actual")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("")
+                .to_string()
+        })
+        .unwrap_or_default();
     ExpectationOutcome::Mismatched {
         expected: expect.value.trim().to_string(),
         observed,
@@ -2901,24 +2971,67 @@ mod tests {
 
     #[test]
     fn screen_expectations_become_host_assert_requests() {
-        assert_eq!(
-            build_screen_assertion_request("device-1", &expectation("screen_hash", " abc ")),
-            Some(json!({
-                "deviceId": "device-1",
-                "expectations": [{"type": "frameHash", "value": "abc"}],
-            })),
-        );
+        // `screen_contains` must go out in the host's own vocabulary. Its
+        // `VerificationService::evaluate` understands five condition types and
+        // `textContains` is not one of them: such a request lands in the
+        // unknown branch, `passed` stays false, and every guarded step parks on
+        // a screen that actually matches.
         assert_eq!(
             build_screen_assertion_request("device-1", &expectation("screen_contains", "Save")),
             Some(json!({
                 "deviceId": "device-1",
-                "expectations": [{"type": "textContains", "value": "Save"}],
+                "expectations": [{"type": "text_present", "value": "Save"}],
             })),
+        );
+        // `screen_hash` has no host condition type, so it must not be sent as
+        // one: asking the host to find a hash as screen text can never pass.
+        assert_eq!(
+            build_screen_assertion_request("device-1", &expectation("screen_hash", "abc123")),
+            None,
+            "the frame hash is read with getUiState, not asserted as screen text",
+        );
+        assert_eq!(
+            screen_expectation_check("screen_hash"),
+            Some(ScreenExpectationCheck::FrameHash),
         );
         assert_eq!(
             build_screen_assertion_request("device-1", &expectation("screen_pixel", "1,2")),
             None,
             "an unsupported kind must not be sent to the host",
+        );
+    }
+
+    // The frame hash is compared locally against what `getUiState` reports, so
+    // the same case-insensitive rule the host-side check uses applies here.
+    #[test]
+    fn a_recorded_frame_hash_is_compared_against_the_host_current_one() {
+        let expect = expectation("screen_hash", "AbC123");
+
+        assert_eq!(
+            parse_frame_hash_response(
+                &expect,
+                &json!({"ocr": {"frameHash": "abc123", "blocks": []}}),
+            ),
+            ExpectationOutcome::Matched,
+        );
+        assert_eq!(
+            parse_frame_hash_response(
+                &expect,
+                &json!({"ocr": {"frameHash": "def456", "blocks": []}}),
+            ),
+            ExpectationOutcome::Mismatched {
+                expected: "AbC123".to_string(),
+                observed: "def456".to_string(),
+            },
+        );
+        // A reply without a hash proves nothing, so it is a mismatch that says
+        // so rather than a silent pass.
+        assert_eq!(
+            parse_frame_hash_response(&expect, &json!({"ocr": {"blocks": []}})),
+            ExpectationOutcome::Mismatched {
+                expected: "AbC123".to_string(),
+                observed: String::new(),
+            },
         );
     }
 
@@ -2933,12 +3046,55 @@ mod tests {
 
         // A missing allPassed is not proof of a pass.
         assert_eq!(
-            parse_screen_assertion_response(&expect, &json!({"observed": {"text": "Other"}})),
+            parse_screen_assertion_response(&expect, &json!({"summary": "OCR error: no frame"})),
             ExpectationOutcome::Mismatched {
                 expected: "Save".to_string(),
-                observed: "Other".to_string(),
+                observed: String::new(),
             },
         );
+        assert_eq!(
+            parse_screen_assertion_response(&expect, &json!({"allPassed": false})),
+            ExpectationOutcome::Mismatched {
+                expected: "Save".to_string(),
+                observed: String::new(),
+            },
+        );
+    }
+
+    // The host reports what it actually saw per condition, under
+    // `results[].actual`, and there is no `observed` object anywhere in its
+    // reply. Reading a field that does not exist yields an empty observation,
+    // which turns every park report into "expected Save, observed nothing" —
+    // the operator is told the screen was blank when it was full of text.
+    #[test]
+    fn a_park_report_carries_what_the_host_actually_saw() {
+        let expect = expectation("screen_contains", "Save");
+        assert_eq!(
+            parse_screen_assertion_response(&expect, &json!({
+                "allPassed": false,
+                "summary": "Assertion failed: Text \"Save\" not found on screen",
+                "results": [{
+                    "type": "text_present",
+                    "value": "Save",
+                    "passed": false,
+                    "actual": "Discard changes?",
+                    "reason": "Text \"Save\" not found on screen",
+                }],
+            })),
+            ExpectationOutcome::Mismatched {
+                expected: "Save".to_string(),
+                observed: "Discard changes?".to_string(),
+            },
+        );
+
+        // A passing reply is still a match, and never invents an observation.
+        assert_eq!(
+            parse_screen_assertion_response(&expect, &json!({"allPassed": true})),
+            ExpectationOutcome::Matched,
+        );
+
+        // A reply with no per-condition detail reports an empty observation
+        // rather than guessing at one.
         assert_eq!(
             parse_screen_assertion_response(&expect, &json!({"allPassed": false})),
             ExpectationOutcome::Mismatched {
