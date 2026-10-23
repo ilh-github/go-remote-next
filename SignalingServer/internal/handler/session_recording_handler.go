@@ -29,6 +29,9 @@ type SessionRecordingHandler struct {
 	bus        *service.EventBus
 	store      SessionRecordingStore
 	audit      *service.AuditService
+	// uploads mints the one-shot Host upload tickets. Nil means the route is
+	// unavailable, which is how a deployment without Redis is told.
+	uploads *service.RecordingUploadTicketStore
 }
 
 // SessionRecordingStore describes where uploaded media files live and how
@@ -51,7 +54,27 @@ func NewSessionRecordingHandler(
 	store SessionRecordingStore,
 	audit *service.AuditService,
 ) *SessionRecordingHandler {
-	return &SessionRecordingHandler{recordings: recordings, bus: bus, store: store, audit: audit}
+	return &SessionRecordingHandler{
+		recordings: recordings,
+		bus:        bus,
+		store:      store,
+		audit:      audit,
+	}
+}
+
+// WithUploadTickets attaches the one-shot Host upload credentials.
+func (h *SessionRecordingHandler) WithUploadTickets(
+	uploads *service.RecordingUploadTicketStore,
+) *SessionRecordingHandler {
+	h.uploads = uploads
+	return h
+}
+
+// uploadTicketTTL is deliberately much shorter than a playback ticket: an
+// upload ticket exists for one push, and a Host that cannot finish within
+// minutes should ask for a fresh one rather than hold a live credential.
+func (h *SessionRecordingHandler) uploadTicketTTL() time.Duration {
+	return 5 * time.Minute
 }
 
 // recordingAuditWindow collapses the burst of requests one playback produces
@@ -822,6 +845,54 @@ func (h *SessionRecordingHandler) CreateThumbnailTicket(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"url":        fmt.Sprintf("/v1/recordings/%d/thumbnail?t=%s", row.ID, ticket),
 		"expires_at": exp,
+	})
+}
+
+// CreateUploadTicket mints the one-shot credential a Host uses to push the
+// artifact for a recording it owns.
+//
+// QD-004 needs the Host to upload media the server has never seen, and the
+// Host must not hold the user's Bearer token to do it. The playback tickets
+// above are the wrong shape for that: they are meant to be replayed every
+// time the owner watches the video, while an upload credential that can be
+// replayed lets whoever holds it overwrite the artifact again and again.
+//
+// A deployment without Redis cannot remember a redemption, so the one-shot
+// guarantee does not hold there. Rather than issue a ticket that looks safe
+// and is not, the route refuses and says why.
+func (h *SessionRecordingHandler) CreateUploadTicket(c *gin.Context) {
+	uid := middleware.MustUserID(c)
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil || id == 0 {
+		ProblemBadRequest(c, ProblemCodeInvalidRequest, "invalid recording id")
+		return
+	}
+	if h.uploads == nil || !h.uploads.SingleUse() {
+		ProblemBadRequest(c, ProblemCodeInvalidRequest,
+			"one-shot upload tickets require Redis; set REDIS_DRIVER or use the Bearer-authenticated upload route")
+		return
+	}
+	// The recording must exist and belong to this user before a credential is
+	// minted for it. `Get` rather than `ArtifactFor`: an upload ticket is issued
+	// precisely because there is no artifact yet, and demanding one would make
+	// the route unusable for its only purpose.
+	if _, err := h.recordings.Get(c.Request.Context(), uid, uint(id)); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			ProblemNotFound(c, ProblemCodeNotFound, "Recording not found")
+			return
+		}
+		ProblemInternal(c, err.Error())
+		return
+	}
+	ticket, exp, err := h.uploads.Issue(uint(id), uid, h.uploadTicketTTL())
+	if err != nil {
+		ProblemBadRequest(c, ProblemCodeInvalidRequest, err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"upload_url": fmt.Sprintf("/v1/recordings/%d/artifact?t=%s", id, ticket),
+		"expires_at": exp,
+		"single_use": true,
 	})
 }
 

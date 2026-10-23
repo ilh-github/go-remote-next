@@ -552,6 +552,14 @@ func main() {
 		URLSecret:  cfg.Recording.URLSecret,
 		TicketTTL:  time.Duration(cfg.Recording.TicketTTLSeconds) * time.Second,
 	}, auditService)
+	// QD-004: the Host needs a credential that is neither the user's Bearer
+	// token nor a replayable link. Redis is what makes redemption
+	// remembered, so the store is wired only when it is available; the route
+	// refuses instead of degrading to a replayable ticket.
+	if redisClient != nil {
+		sessionRecordingHandler.WithUploadTickets(
+			service.NewRecordingUploadTicketStore(redisClient, cfg.Recording.URLSecret))
+	}
 	fileTransferAuditHandler := handler.NewFileTransferAuditHandler(deviceService, auditService)
 	hostHandler := handler.NewHostHandler(deviceService, tokenService, presenceService, settingsService, rateLimitService, deviceAccessService, deviceAccessPolicyService, deviceAccessGrantService, deviceAccessApprovalService, bus, cfg)
 	realtimeHandler := handler.NewRealtimeHandler(tokenService, bus, presenceService, db, deviceService, favoriteService, metricsService, deviceAccessService, deviceAccessPolicyService, remoteSessionService, redisClient)
@@ -808,6 +816,7 @@ func main() {
 			me.PATCH("/recordings/:id/artifact", sessionRecordingHandler.AppendArtifact)
 			me.GET("/recordings/:id/artifact", sessionRecordingHandler.DownloadArtifact)
 			me.POST("/recordings/:id/artifact-ticket", sessionRecordingHandler.CreateArtifactTicket)
+			me.POST("/recordings/:id/upload-ticket", sessionRecordingHandler.CreateUploadTicket)
 			me.POST("/recordings/:id/thumbnail", sessionRecordingHandler.UploadThumbnail)
 			me.GET("/recordings/:id/thumbnail", sessionRecordingHandler.DownloadThumbnail)
 			me.POST("/recordings/:id/thumbnail-ticket", sessionRecordingHandler.CreateThumbnailTicket)
