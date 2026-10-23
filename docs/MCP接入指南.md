@@ -169,6 +169,7 @@ quickdesk-mcp [--ws-url ws://127.0.0.1:9600] [--token YOUR_TOKEN]
 | `--cors-origin` | （空） | `QUICKDESK_CORS_ORIGIN` | 允许的 CORS 来源（仅 HTTP 模式） |
 | `--stateless` | `false` | — | 使用无状态 HTTP 会话（仅 HTTP 模式） |
 | `--trigger-token` | （空） | `QUICKDESK_TRIGGER_TOKEN` | 本地业务工作流 HTTP 触发器的独立 Bearer Token |
+| `--workflow-claim-db` | （空） | `QUICKDESK_WORKFLOW_CLAIM_DB` | 多机部署时所有 workflow worker 共享的 SQLite 路径；为空则只用本机文件 claim，只能协调同一台机器上的进程 |
 | — | `{}` | `QUICKDESK_OPERATOR_TOKENS` | 回调确认使用的 `{"操作者":"token"}` JSON；operator token 只能 ack，不能运行工作流 |
 
 ### 3. 开始使用

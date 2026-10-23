@@ -85,6 +85,13 @@ pub struct AppConfig {
     /// workflow the process already allows.
     #[arg(long, env = "QUICKDESK_DELEGATION_REQUIRED", default_value = "false")]
     pub delegation_required: bool,
+
+    /// Path to a SQLite database shared by every workflow worker in this
+    /// deployment. Empty keeps the local-file claim, which only coordinates
+    /// processes on one machine: two workers on two hosts would each open their
+    /// own claim file and both would drive the same run.
+    #[arg(long, env = "QUICKDESK_WORKFLOW_CLAIM_DB")]
+    pub workflow_claim_db: Option<String>,
 }
 
 impl AppConfig {

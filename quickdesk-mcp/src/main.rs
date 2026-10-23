@@ -1,6 +1,7 @@
 mod config;
 mod callback;
 mod delegation;
+mod distributed_claim;
 mod fair_queue;
 mod event_bus;
 mod http_transport;

@@ -17,6 +17,9 @@ use crate::callback::{
 };
 use crate::server::{QuickDeskMcpServer, SharedState};
 use crate::fair_queue::FairQueue;
+use crate::distributed_claim::{ClaimLease, DistributedClaimStore};
+#[cfg(test)]
+use crate::distributed_claim::CLAIM_STALE_AFTER_SECONDS;
 use crate::workflow::WorkflowRunReport;
 use crate::ws_client::WsClient;
 
@@ -205,10 +208,50 @@ impl WorkflowJobStore {
         })
     }
 
-    fn claim_execution(&self, run_id: &str) -> Option<WorkflowJobExecutionClaim> {
+    /// Takes the execution claim for a run.
+    ///
+    /// The local-file claim is checked first because it is the one that has
+    /// always protected same-machine workers, and it is cheap. The distributed
+    /// claim is then required on top of it when one is configured: without it
+    /// two workers on two machines would each open their own claim file - each
+    /// is atomic on its own host and invisible to the other - and both would
+    /// drive the same remote desktop.
+    ///
+    /// `worker_id` identifies this process to the shared store, so a claim lost
+    /// to a crash can be told apart from one this worker still holds.
+    fn claim_execution_for(
+        &self,
+        run_id: &str,
+        worker_id: &str,
+        distributed: Option<&DistributedClaimStore>,
+    ) -> Option<WorkflowJobExecutionClaim> {
         let claim = self.acquire_execution_claim(run_id)?;
         let job = self.get(run_id)?;
-        (job.status == WorkflowJobStatus::Queued).then_some(claim)
+        if job.status != WorkflowJobStatus::Queued {
+            return None;
+        }
+        // The distributed claim is taken only after the local one and the status
+        // check, so a run that is not claimable never occupies a row in the
+        // shared database.
+        if let Some(store) = distributed {
+            if !store.is_enabled() {
+                return Some(claim);
+            }
+            match store.try_claim(run_id, worker_id) {
+                Ok(true) => {}
+                // Another machine holds it, or the shared store is unreachable.
+                // Either way this worker must not drive the run.
+                Ok(false) => return None,
+                Err(error) => {
+                    tracing::warn!(
+                        "cannot claim workflow job {} in the shared store: {error}",
+                        run_id
+                    );
+                    return None;
+                }
+            }
+        }
+        Some(claim)
     }
 
     fn acquire_execution_claim(&self, run_id: &str) -> Option<WorkflowJobExecutionClaim> {
@@ -349,6 +392,12 @@ impl WorkflowJobStore {
 #[derive(Clone)]
 pub struct WorkflowJobManager {
     store: WorkflowJobStore,
+    /// Shared execution claims, when this deployment runs workers on more than
+    /// one machine. `None` is the single-machine case and keeps the local file
+    /// claim as the only guard.
+    distributed_claims: Option<DistributedClaimStore>,
+    /// How this process identifies itself in the shared claim store.
+    worker_id: String,
     /// Fair, round-robin queue of pending work. The single execution slot
     /// makes ordering the fairness question: a plain FIFO lets the fastest
     /// submitter push everyone else's runs behind an unbounded number of its
@@ -387,6 +436,13 @@ pub enum CancelJobError {
 #[derive(Clone)]
 struct WorkerContext {
     store: WorkflowJobStore,
+    /// Shared execution claims. `None` keeps the single-machine behaviour that
+    /// shipped first; a configured store is what makes two workers on two
+    /// machines unable to drive the same run.
+    distributed_claims: Option<DistributedClaimStore>,
+    /// Identifies this process in the shared store, so a claim held by a crashed
+    /// worker can be told apart from one this worker still owns.
+    worker_id: String,
     queue: Arc<Mutex<FairQueue<WorkflowJobRequest>>>,
     work_ready: Arc<Notify>,
     active: Arc<Mutex<HashMap<String, CancellationToken>>>,
@@ -417,6 +473,18 @@ impl WorkflowJobManager {
         )
     }
 
+    /// Attaches a shared claim store so two workers on two machines cannot both
+    /// drive the same queued run.
+    ///
+    /// A setter rather than another constructor argument: the single-machine
+    /// deployment never calls it, and the field it sets has to reach the worker
+    /// context that is already built by `with_store_and_callbacks`.
+    pub fn with_distributed_claims(mut self, claims: DistributedClaimStore, worker_id: String) -> Self {
+        self.distributed_claims = Some(claims);
+        self.worker_id = worker_id;
+        self
+    }
+
     pub(crate) fn with_store_and_callbacks(
         store: WorkflowJobStore,
         cancellation: CancellationToken,
@@ -430,6 +498,8 @@ impl WorkflowJobManager {
         let work_ready = Arc::new(Notify::new());
         let manager = Self {
             store,
+            distributed_claims: None,
+            worker_id: String::new(),
             queue: queue.clone(),
             work_ready: work_ready.clone(),
             active: Arc::new(Mutex::new(HashMap::new())),
@@ -439,6 +509,8 @@ impl WorkflowJobManager {
             cancellation,
             WorkerContext {
                 store: manager.store.clone(),
+                distributed_claims: manager.distributed_claims.clone(),
+                worker_id: manager.worker_id.clone(),
                 queue,
                 work_ready,
                 active: manager.active.clone(),
@@ -751,7 +823,15 @@ fn start_worker(
                     .map(|mut map| map.remove(&request.run_id));
                 continue;
             }
-            let Some(_execution_claim) = context.store.claim_execution(&request.run_id) else {
+            // The local file claim protects this machine's workers; the shared
+            // lease protects the ones on other machines, heartbeats while the
+            // run executes, and releases when it ends. A disabled store yields
+            // no lease and changes nothing.
+            let Some(_execution_claim) = context.store.claim_execution_for(
+                &request.run_id,
+                &context.worker_id,
+                context.distributed_claims.as_ref(),
+            ) else {
                 context
                     .active
                     .lock()
@@ -759,6 +839,39 @@ fn start_worker(
                     .map(|mut map| map.remove(&request.run_id));
                 continue;
             };
+            let shared_lease = match context.distributed_claims.as_ref() {
+                Some(store) => match ClaimLease::acquire(store, &request.run_id, &context.worker_id).await {
+                    // `Some` means this worker now holds the shared claim; `None`
+                    // means another machine does. Either way it is the answer.
+                    Ok(lease) => lease,
+                    Err(error) => {
+                        // An unreachable shared store is not a reason to drive
+                        // the run: the claim is the only thing standing between
+                        // this worker and a second one on another machine.
+                        tracing::warn!(
+                            "cannot take the shared claim for {}: {error}",
+                            request.run_id
+                        );
+                        None
+                    }
+                },
+                // No shared store configured: nothing to take, and nothing to
+                // refuse. The local file claim is the whole guard, as before.
+                None => None,
+            };
+            if context.distributed_claims.is_some() && shared_lease.is_none() {
+                // Another machine holds the run, or the shared store could not be
+                // read. Both mean this worker must not drive it.
+                context
+                    .active
+                    .lock()
+                    .ok()
+                    .map(|mut map| map.remove(&request.run_id));
+                continue;
+            }
+            // Held for the rest of the run: it heartbeats while the steps execute
+            // and releases when the run ends, including on the failure paths.
+            let _shared_lease = shared_lease;
             if context.store.mark_running(&request.run_id).is_err() {
                 context
                     .active
@@ -938,6 +1051,94 @@ mod tests {
         let _ = std::fs::remove_dir_all(temp);
     }
 
+    // The whole point of the shared store. Two managers on two machines - which
+    // in a test means two stores whose directories cannot see each other, the
+    // same situation a second host is in - must not both drive one run. Before
+    // the shared claim each would open its own claim file and both would run.
+    #[test]
+    fn two_stores_that_cannot_see_each_other_share_one_claim() {
+        let root = std::env::temp_dir().join(format!("quickdesk-xmachine-{}", Uuid::new_v4()));
+        let local_a = WorkflowJobStore::with_storage_dir(root.join("machine-a").join("jobs"));
+        let local_b = WorkflowJobStore::with_storage_dir(root.join("machine-b").join("jobs"));
+        // One shared database, the only thing the two machines have in common.
+        let claims = DistributedClaimStore::open(root.join("shared").join("claims.db"))
+            .expect("open shared claims");
+
+        // Both machines hold a copy of the same queued run. That is what a real
+        // deployment looks like: each worker enqueued against its own store, so
+        // the run id is the one thing the two directories agree on.
+        let job = local_a
+            .create("workflow-1", "device-1", &WorkflowJobRequestSpec::default())
+            .unwrap();
+        local_b.save(&job).expect("machine-b holds the same run");
+        assert_eq!(
+            local_b.get(&job.run_id).map(|row| row.run_id),
+            Some(job.run_id.clone())
+        );
+
+        let held_by_a = local_a.claim_execution_for(&job.run_id, "machine-a", Some(&claims));
+        assert!(held_by_a.is_some(), "the first machine must take the run");
+
+        let held_by_b = local_b.claim_execution_for(&job.run_id, "machine-b", Some(&claims));
+        assert!(
+            held_by_b.is_none(),
+            "the second machine drove a run another machine already holds"
+        );
+        assert_eq!(
+            claims
+                .holder(&job.run_id)
+                .expect("holder")
+                .map(|row| row.worker_id),
+            Some("machine-a".to_string())
+        );
+
+        // When the holder goes away the run becomes drivable again, which is what
+        // keeps a crashed worker from stranding the queue.
+        drop(held_by_a);
+        let stale = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64
+            - (CLAIM_STALE_AFTER_SECONDS + 1);
+        claims
+            .age_claim_for_test(&job.run_id, stale)
+            .expect("age the shared claim");
+
+        assert!(
+            local_b
+                .claim_execution_for(&job.run_id, "machine-b", Some(&claims))
+                .is_some(),
+            "a dead holder's run was never recoverable"
+        );
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    // Without a shared store the behaviour is exactly what it was: the local
+    // claim is the only guard, and a second store that cannot see the first one's
+    // claim file claims the run too. This test documents the gap the shared store
+    // closes rather than pretending it was never there.
+    #[test]
+    fn without_a_shared_store_two_blind_stores_both_claim() {
+        let root = std::env::temp_dir().join(format!("quickdesk-noshare-{}", Uuid::new_v4()));
+        let local_a = WorkflowJobStore::with_storage_dir(root.join("a").join("jobs"));
+        let local_b = WorkflowJobStore::with_storage_dir(root.join("b").join("jobs"));
+        let job_a = local_a
+            .create("workflow-1", "device-1", &WorkflowJobRequestSpec::default())
+            .unwrap();
+        let job_b = local_b
+            .create("workflow-1", "device-1", &WorkflowJobRequestSpec::default())
+            .unwrap();
+
+        assert!(local_a.claim_execution_for(&job_a.run_id, "a", None).is_some());
+        assert!(
+            local_b.claim_execution_for(&job_b.run_id, "b", None).is_some(),
+            "the local-only path is unchanged, which is the documented gap"
+        );
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
     #[test]
     fn stale_queued_job_claim_can_be_reacquired() {
         let temp = std::env::temp_dir().join(format!("quickdesk-job-{}", Uuid::new_v4()));
@@ -958,7 +1159,7 @@ mod tests {
             .unwrap();
         drop(claim);
 
-        let recovered = store.claim_execution(&job.run_id);
+        let recovered = store.claim_execution_for(&job.run_id, "worker-a", None);
         assert!(recovered.is_some());
         drop(recovered);
 

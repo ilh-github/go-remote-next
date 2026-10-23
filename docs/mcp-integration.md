@@ -169,6 +169,7 @@ quickdesk-mcp [--ws-url ws://127.0.0.1:9600] [--token YOUR_TOKEN]
 | `--cors-origin` | (none) | `QUICKDESK_CORS_ORIGIN` | Allowed CORS origin (HTTP mode only) |
 | `--stateless` | `false` | — | Use stateless HTTP sessions (HTTP mode only) |
 | `--trigger-token` | (none) | `QUICKDESK_TRIGGER_TOKEN` | Separate Bearer token for the local business-workflow HTTP trigger |
+| `--workflow-claim-db` | (none) | `QUICKDESK_WORKFLOW_CLAIM_DB` | SQLite path shared by every workflow worker in a multi-machine deployment; empty keeps the local file claim, which only coordinates processes on one machine |
 
 ### 3. Use It
 

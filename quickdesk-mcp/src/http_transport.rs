@@ -12,6 +12,7 @@ use tower_http::cors::{AllowHeaders, AllowMethods, CorsLayer};
 
 use crate::config::AppConfig;
 use crate::delegation::DelegationStore;
+use crate::distributed_claim::DistributedClaimStore;
 use crate::idempotency::WorkflowIdempotencyStore;
 use crate::server::{QuickDeskMcpServer, SharedState};
 use crate::trigger::TriggerRuntime;
@@ -41,6 +42,25 @@ pub async fn start_http(
         allowed_devices.clone(),
         business_run_slots.clone(),
     )?;
+    // A shared claim database is what makes a multi-machine deployment safe:
+    // without it every worker's claim lives on its own filesystem, and two of
+    // them would each believe they own the same run.
+    let jobs = match config.workflow_claim_db.as_deref().map(str::trim) {
+        Some(path) if !path.is_empty() => {
+            let claims = DistributedClaimStore::open(path)
+                .map_err(|error| format!("cannot open workflow claim database {path}: {error}"))?;
+            let worker_id = format!(
+                "{}@{}",
+                std::process::id(),
+                hostname().unwrap_or_else(|| "unknown-host".to_string())
+            );
+            tracing::info!(
+                "workflow execution claims are shared at {path}; this worker is {worker_id}"
+            );
+            jobs.with_distributed_claims(claims, worker_id)
+        }
+        _ => jobs,
+    };
 
     let mcp_service: StreamableHttpService<QuickDeskMcpServer, LocalSessionManager> =
         StreamableHttpService::new(
@@ -160,4 +180,14 @@ pub async fn start_http(
         .await?;
 
     Ok(())
+}
+
+/// Best-effort host name, used only to make a worker id readable in the shared
+/// claim store. `HOSTNAME` is what containers and systemd set; falling back to a
+/// marker is fine because the process id already makes the id unique.
+fn hostname() -> Option<String> {
+    std::env::var("HOSTNAME")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
 }
