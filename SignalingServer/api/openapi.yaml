@@ -2412,11 +2412,18 @@ components:
           description: "Sources exempted by `approval_mode: untrusted_ip`."
           items:
             type: string
+        control_mode:
+          type: string
+          enum: [shared, exclusive]
+          # One line on purpose: a folded block makes the generator emit
+          # trailing whitespace into every SDK's doc comment, which
+          # `git diff --check` then rejects on generated files.
+          description: "How several controllers share control of the machine. `shared` (the default) lets every connected controller drive it, which is what a device with no policy row already does. `exclusive` gives control to one controller at a time - a new one takes over and the previous holder is sent a `control_revoked` frame on its signaling socket. Separate from `max_sessions`, which caps how many people may watch. Omitted or empty means `shared`, because the endpoint replaces the whole policy."
     DeviceAccessPolicy:
       allOf:
         - $ref: '#/components/schemas/DeviceAccessPolicyInput'
         - type: object
-          required: [device_id, allow_ips, deny_ips, allowed_windows, exception_dates, approval_mode, approval_trusted_ips]
+          required: [device_id, allow_ips, deny_ips, allowed_windows, exception_dates, approval_mode, approval_trusted_ips, control_mode]
           properties:
             device_id:
               type: string

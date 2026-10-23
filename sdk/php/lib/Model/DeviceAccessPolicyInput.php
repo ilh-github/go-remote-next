@@ -67,7 +67,8 @@ class DeviceAccessPolicyInput implements ModelInterface, ArrayAccess, \JsonSeria
         'exception_dates' => '\OpenAPI\Client\Model\AccessExceptionDate[]',
         'approval_required' => 'bool',
         'approval_mode' => 'string',
-        'approval_trusted_ips' => 'string[]'
+        'approval_trusted_ips' => 'string[]',
+        'control_mode' => 'string'
     ];
 
     /**
@@ -87,7 +88,8 @@ class DeviceAccessPolicyInput implements ModelInterface, ArrayAccess, \JsonSeria
         'exception_dates' => null,
         'approval_required' => null,
         'approval_mode' => null,
-        'approval_trusted_ips' => null
+        'approval_trusted_ips' => null,
+        'control_mode' => null
     ];
 
     /**
@@ -105,7 +107,8 @@ class DeviceAccessPolicyInput implements ModelInterface, ArrayAccess, \JsonSeria
         'exception_dates' => false,
         'approval_required' => false,
         'approval_mode' => false,
-        'approval_trusted_ips' => false
+        'approval_trusted_ips' => false,
+        'control_mode' => false
     ];
 
     /**
@@ -203,7 +206,8 @@ class DeviceAccessPolicyInput implements ModelInterface, ArrayAccess, \JsonSeria
         'exception_dates' => 'exception_dates',
         'approval_required' => 'approval_required',
         'approval_mode' => 'approval_mode',
-        'approval_trusted_ips' => 'approval_trusted_ips'
+        'approval_trusted_ips' => 'approval_trusted_ips',
+        'control_mode' => 'control_mode'
     ];
 
     /**
@@ -221,7 +225,8 @@ class DeviceAccessPolicyInput implements ModelInterface, ArrayAccess, \JsonSeria
         'exception_dates' => 'setExceptionDates',
         'approval_required' => 'setApprovalRequired',
         'approval_mode' => 'setApprovalMode',
-        'approval_trusted_ips' => 'setApprovalTrustedIps'
+        'approval_trusted_ips' => 'setApprovalTrustedIps',
+        'control_mode' => 'setControlMode'
     ];
 
     /**
@@ -239,7 +244,8 @@ class DeviceAccessPolicyInput implements ModelInterface, ArrayAccess, \JsonSeria
         'exception_dates' => 'getExceptionDates',
         'approval_required' => 'getApprovalRequired',
         'approval_mode' => 'getApprovalMode',
-        'approval_trusted_ips' => 'getApprovalTrustedIps'
+        'approval_trusted_ips' => 'getApprovalTrustedIps',
+        'control_mode' => 'getControlMode'
     ];
 
     /**
@@ -287,6 +293,8 @@ class DeviceAccessPolicyInput implements ModelInterface, ArrayAccess, \JsonSeria
     public const APPROVAL_MODE_ALWAYS = 'always';
     public const APPROVAL_MODE_GRANT = 'grant';
     public const APPROVAL_MODE_UNTRUSTED_IP = 'untrusted_ip';
+    public const CONTROL_MODE_SHARED = 'shared';
+    public const CONTROL_MODE_EXCLUSIVE = 'exclusive';
 
     /**
      * Gets allowable values of the enum
@@ -300,6 +308,19 @@ class DeviceAccessPolicyInput implements ModelInterface, ArrayAccess, \JsonSeria
             self::APPROVAL_MODE_ALWAYS,
             self::APPROVAL_MODE_GRANT,
             self::APPROVAL_MODE_UNTRUSTED_IP,
+        ];
+    }
+
+    /**
+     * Gets allowable values of the enum
+     *
+     * @return string[]
+     */
+    public function getControlModeAllowableValues()
+    {
+        return [
+            self::CONTROL_MODE_SHARED,
+            self::CONTROL_MODE_EXCLUSIVE,
         ];
     }
 
@@ -328,6 +349,7 @@ class DeviceAccessPolicyInput implements ModelInterface, ArrayAccess, \JsonSeria
         $this->setIfExists('approval_required', $data ?? [], null);
         $this->setIfExists('approval_mode', $data ?? [], null);
         $this->setIfExists('approval_trusted_ips', $data ?? [], null);
+        $this->setIfExists('control_mode', $data ?? [], null);
     }
 
     /**
@@ -362,6 +384,15 @@ class DeviceAccessPolicyInput implements ModelInterface, ArrayAccess, \JsonSeria
             $invalidProperties[] = sprintf(
                 "invalid value '%s' for 'approval_mode', must be one of '%s'",
                 $this->container['approval_mode'],
+                implode("', '", $allowedValues)
+            );
+        }
+
+        $allowedValues = $this->getControlModeAllowableValues();
+        if (!is_null($this->container['control_mode']) && !in_array($this->container['control_mode'], $allowedValues, true)) {
+            $invalidProperties[] = sprintf(
+                "invalid value '%s' for 'control_mode', must be one of '%s'",
+                $this->container['control_mode'],
                 implode("', '", $allowedValues)
             );
         }
@@ -657,6 +688,43 @@ class DeviceAccessPolicyInput implements ModelInterface, ArrayAccess, \JsonSeria
             throw new \InvalidArgumentException('non-nullable approval_trusted_ips cannot be null');
         }
         $this->container['approval_trusted_ips'] = $approval_trusted_ips;
+
+        return $this;
+    }
+
+    /**
+     * Gets control_mode
+     *
+     * @return string|null
+     */
+    public function getControlMode()
+    {
+        return $this->container['control_mode'];
+    }
+
+    /**
+     * Sets control_mode
+     *
+     * @param string|null $control_mode How several controllers share control of the machine. `shared` (the default) lets every connected controller drive it, which is what a device with no policy row already does. `exclusive` gives control to one controller at a time - a new one takes over and the previous holder is sent a `control_revoked` frame on its signaling socket. Separate from `max_sessions`, which caps how many people may watch. Omitted or empty means `shared`, because the endpoint replaces the whole policy.
+     *
+     * @return self
+     */
+    public function setControlMode($control_mode)
+    {
+        if (is_null($control_mode)) {
+            throw new \InvalidArgumentException('non-nullable control_mode cannot be null');
+        }
+        $allowedValues = $this->getControlModeAllowableValues();
+        if (!in_array($control_mode, $allowedValues, true)) {
+            throw new \InvalidArgumentException(
+                sprintf(
+                    "Invalid value '%s' for 'control_mode', must be one of '%s'",
+                    $control_mode,
+                    implode("', '", $allowedValues)
+                )
+            );
+        }
+        $this->container['control_mode'] = $control_mode;
 
         return $this;
     }

@@ -60,6 +60,10 @@ type RealtimeHandler struct {
 	// revokeCooldown refuses a controller that was just thrown out for a short
 	// window, so the kick is not cosmetic. Nil (or a zero TTL) disables it.
 	revokeCooldown *service.RevokeCooldown
+	// controlGrants decides which controller may drive a device when the owner
+	// set it to exclusive. Nil means shared, which is the historical behaviour
+	// and what an instance that was never wired up must keep doing.
+	controlGrants *service.ControlGrants
 
 	// Per-user fan-out for realtime events.
 	eventsMu sync.RWMutex
@@ -772,6 +776,28 @@ func (h *RealtimeHandler) HandleSignal(c *gin.Context) {
 		}
 	}
 
+	// Control is granted per controller once it is authenticated. The device's
+	// mode decides whether that means anything: in shared mode every controller
+	// gets a grant and nobody is notified, which is the behaviour every existing
+	// install has. In exclusive mode the asker becomes the holder and the
+	// previous one is told it lost control.
+	//
+	// The media is peer to peer, so this cannot stop a controller that ignores
+	// the answer - it makes the takeover visible and gives the client the fact
+	// it needs to stop sending input, the same settlement the WebClient already
+	// does between same-origin tabs.
+	if sc.role == service.SignalRoleClient && h.controlGrants != nil {
+		mode := h.controlMode(c.Request.Context(), sc.deviceID)
+		previous := h.controlGrants.Get(sc.deviceID).Holder
+		grant := h.controlGrants.Request(sc.deviceID, sc.clientID, mode)
+		if revoked := controlRevokedTarget(mode, previous, sc.clientID); revoked != "" {
+			h.sendToClient(sc.deviceID, revoked, controlRevokedFrame(grant.Mode, sc.clientID))
+		}
+		sc.send(mustMarshal(controlGrantFrame(grant, grant.Holds(sc.clientID))))
+		log.Printf("[realtime/signal] control_grant device=%s client_id=%s mode=%s holder=%s",
+			sc.deviceID, sc.clientID, grant.Mode, grant.Holder)
+	}
+
 	log.Printf("[realtime/signal] auth_ok role=%s device=%s client_id=%s session=%s remote=%s",
 		sc.role, sc.deviceID, sc.clientID, sessionID, c.ClientIP())
 	if err := conn.WriteJSON(map[string]interface{}{
@@ -805,6 +831,10 @@ func (h *RealtimeHandler) HandleSignal(c *gin.Context) {
 		// caught the first time this was written. Passing the connection (not a
 		// bare id) is what lets a deliberate revoke record its own end_reason.
 		defer h.closeRemoteSession(sc)
+		// Control ends with the socket, for the same reason the session row does.
+		// Deferring here rather than inside the helper keeps the release tied to
+		// the same lifetime as the close it belongs to.
+		defer h.releaseControl(sc.deviceID, sc.clientID)
 		h.openRemoteSession(c, sc, sessionID)
 	}
 
@@ -1099,6 +1129,15 @@ func (h *RealtimeHandler) unregisterSignalConn(sc *signalConn) {
 		}
 	}
 	h.signalMu.Unlock()
+
+	// A host that went away takes every controller with it, so a grant that is
+	// still nominally held would only be a stale answer to a question nobody is
+	// left to ask.
+	if sc.role == service.SignalRoleHost {
+		if h.controlGrants != nil {
+			h.controlGrants.ForgetDevice(sc.deviceID)
+		}
+	}
 
 	if sc.role == service.SignalRoleHost && shouldPublishOffline {
 		_ = h.presence.MarkWSDisconnected(context.Background(), sc.deviceID)

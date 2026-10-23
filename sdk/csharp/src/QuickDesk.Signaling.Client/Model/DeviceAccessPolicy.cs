@@ -72,6 +72,33 @@ namespace QuickDesk.Signaling.Client.Model
         [DataMember(Name = "approval_mode", EmitDefaultValue = false)]
         public ApprovalModeEnum? ApprovalMode { get; set; }
         /// <summary>
+        /// How several controllers share control of the machine. &#x60;shared&#x60; (the default) lets every connected controller drive it, which is what a device with no policy row already does. &#x60;exclusive&#x60; gives control to one controller at a time - a new one takes over and the previous holder is sent a &#x60;control_revoked&#x60; frame on its signaling socket. Separate from &#x60;max_sessions&#x60;, which caps how many people may watch. Omitted or empty means &#x60;shared&#x60;, because the endpoint replaces the whole policy.
+        /// </summary>
+        /// <value>How several controllers share control of the machine. &#x60;shared&#x60; (the default) lets every connected controller drive it, which is what a device with no policy row already does. &#x60;exclusive&#x60; gives control to one controller at a time - a new one takes over and the previous holder is sent a &#x60;control_revoked&#x60; frame on its signaling socket. Separate from &#x60;max_sessions&#x60;, which caps how many people may watch. Omitted or empty means &#x60;shared&#x60;, because the endpoint replaces the whole policy.</value>
+        [JsonConverter(typeof(StringEnumConverter))]
+        public enum ControlModeEnum
+        {
+            /// <summary>
+            /// Enum Shared for value: shared
+            /// </summary>
+            [EnumMember(Value = "shared")]
+            Shared = 1,
+
+            /// <summary>
+            /// Enum Exclusive for value: exclusive
+            /// </summary>
+            [EnumMember(Value = "exclusive")]
+            Exclusive = 2
+        }
+
+
+        /// <summary>
+        /// How several controllers share control of the machine. &#x60;shared&#x60; (the default) lets every connected controller drive it, which is what a device with no policy row already does. &#x60;exclusive&#x60; gives control to one controller at a time - a new one takes over and the previous holder is sent a &#x60;control_revoked&#x60; frame on its signaling socket. Separate from &#x60;max_sessions&#x60;, which caps how many people may watch. Omitted or empty means &#x60;shared&#x60;, because the endpoint replaces the whole policy.
+        /// </summary>
+        /// <value>How several controllers share control of the machine. &#x60;shared&#x60; (the default) lets every connected controller drive it, which is what a device with no policy row already does. &#x60;exclusive&#x60; gives control to one controller at a time - a new one takes over and the previous holder is sent a &#x60;control_revoked&#x60; frame on its signaling socket. Separate from &#x60;max_sessions&#x60;, which caps how many people may watch. Omitted or empty means &#x60;shared&#x60;, because the endpoint replaces the whole policy.</value>
+        [DataMember(Name = "control_mode", EmitDefaultValue = false)]
+        public ControlModeEnum? ControlMode { get; set; }
+        /// <summary>
         /// Initializes a new instance of the <see cref="DeviceAccessPolicy" /> class.
         /// </summary>
         [JsonConstructorAttribute]
@@ -89,9 +116,10 @@ namespace QuickDesk.Signaling.Client.Model
         /// <param name="approvalRequired">Legacy switch kept for older clients; prefer &#x60;approval_mode&#x60;..</param>
         /// <param name="approvalMode">When the owner must approve a correct code before a session starts..</param>
         /// <param name="approvalTrustedIps">Sources exempted by &#x60;approval_mode: untrusted_ip&#x60;..</param>
+        /// <param name="controlMode">How several controllers share control of the machine. &#x60;shared&#x60; (the default) lets every connected controller drive it, which is what a device with no policy row already does. &#x60;exclusive&#x60; gives control to one controller at a time - a new one takes over and the previous holder is sent a &#x60;control_revoked&#x60; frame on its signaling socket. Separate from &#x60;max_sessions&#x60;, which caps how many people may watch. Omitted or empty means &#x60;shared&#x60;, because the endpoint replaces the whole policy..</param>
         /// <param name="deviceId">deviceId (required).</param>
         /// <param name="updatedAt">Omitted when the owner never saved a policy..</param>
-        public DeviceAccessPolicy(bool remoteDisabled = default, List<string> allowIps = default, List<string> denyIps = default, int maxSessions = default, List<AccessWindow> allowedWindows = default, string timezone = default, List<AccessExceptionDate> exceptionDates = default, bool approvalRequired = default, ApprovalModeEnum? approvalMode = default, List<string> approvalTrustedIps = default, string deviceId = default, DateTime? updatedAt = default)
+        public DeviceAccessPolicy(bool remoteDisabled = default, List<string> allowIps = default, List<string> denyIps = default, int maxSessions = default, List<AccessWindow> allowedWindows = default, string timezone = default, List<AccessExceptionDate> exceptionDates = default, bool approvalRequired = default, ApprovalModeEnum? approvalMode = default, List<string> approvalTrustedIps = default, ControlModeEnum? controlMode = default, string deviceId = default, DateTime? updatedAt = default)
         {
             // to ensure "deviceId" is required (not null)
             if (deviceId == null)
@@ -109,6 +137,7 @@ namespace QuickDesk.Signaling.Client.Model
             this.ApprovalRequired = approvalRequired;
             this.ApprovalMode = approvalMode;
             this.ApprovalTrustedIps = approvalTrustedIps;
+            this.ControlMode = controlMode;
             this.UpdatedAt = updatedAt;
         }
 
@@ -206,6 +235,7 @@ namespace QuickDesk.Signaling.Client.Model
             sb.Append("  ApprovalRequired: ").Append(ApprovalRequired).Append("\n");
             sb.Append("  ApprovalMode: ").Append(ApprovalMode).Append("\n");
             sb.Append("  ApprovalTrustedIps: ").Append(ApprovalTrustedIps).Append("\n");
+            sb.Append("  ControlMode: ").Append(ControlMode).Append("\n");
             sb.Append("  DeviceId: ").Append(DeviceId).Append("\n");
             sb.Append("  UpdatedAt: ").Append(UpdatedAt).Append("\n");
             sb.Append("}\n");

@@ -38,7 +38,8 @@ class DeviceAccessPolicyInput(BaseModel):
     approval_required: Optional[StrictBool] = Field(default=None, description="Legacy switch kept for older clients; prefer `approval_mode`.")
     approval_mode: Optional[StrictStr] = Field(default=None, description="When the owner must approve a correct code before a session starts.")
     approval_trusted_ips: Optional[List[StrictStr]] = Field(default=None, description="Sources exempted by `approval_mode: untrusted_ip`.")
-    __properties: ClassVar[List[str]] = ["remote_disabled", "allow_ips", "deny_ips", "max_sessions", "allowed_windows", "timezone", "exception_dates", "approval_required", "approval_mode", "approval_trusted_ips"]
+    control_mode: Optional[StrictStr] = Field(default=None, description="How several controllers share control of the machine. `shared` (the default) lets every connected controller drive it, which is what a device with no policy row already does. `exclusive` gives control to one controller at a time - a new one takes over and the previous holder is sent a `control_revoked` frame on its signaling socket. Separate from `max_sessions`, which caps how many people may watch. Omitted or empty means `shared`, because the endpoint replaces the whole policy.")
+    __properties: ClassVar[List[str]] = ["remote_disabled", "allow_ips", "deny_ips", "max_sessions", "allowed_windows", "timezone", "exception_dates", "approval_required", "approval_mode", "approval_trusted_ips", "control_mode"]
 
     @field_validator('approval_mode')
     def approval_mode_validate_enum(cls, value):
@@ -48,6 +49,16 @@ class DeviceAccessPolicyInput(BaseModel):
 
         if value not in set(['off', 'always', 'grant', 'untrusted_ip']):
             raise ValueError("must be one of enum values ('off', 'always', 'grant', 'untrusted_ip')")
+        return value
+
+    @field_validator('control_mode')
+    def control_mode_validate_enum(cls, value):
+        """Validates the enum"""
+        if value is None:
+            return value
+
+        if value not in set(['shared', 'exclusive']):
+            raise ValueError("must be one of enum values ('shared', 'exclusive')")
         return value
 
     model_config = ConfigDict(
@@ -124,7 +135,8 @@ class DeviceAccessPolicyInput(BaseModel):
             "exception_dates": [AccessExceptionDate.from_dict(_item) for _item in obj["exception_dates"]] if obj.get("exception_dates") is not None else None,
             "approval_required": obj.get("approval_required"),
             "approval_mode": obj.get("approval_mode"),
-            "approval_trusted_ips": obj.get("approval_trusted_ips")
+            "approval_trusted_ips": obj.get("approval_trusted_ips"),
+            "control_mode": obj.get("control_mode")
         })
         return _obj
 

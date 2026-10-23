@@ -63,6 +63,16 @@ type DeviceAccessPolicy struct {
 	// ApprovalTrustedIPs is a JSON array of IPs/CIDRs that skip approval when
 	// ApprovalMode is "untrusted_ip". Required (non-empty) in that mode.
 	ApprovalTrustedIPs string `gorm:"type:text" json:"approval_trusted_ips"`
+	// ControlMode decides how several controllers on this device share control
+	// of it:
+	//   ""          - shared, the default every existing install already has;
+	//   "shared"    - every connected controller may drive the machine;
+	//   "exclusive" - one controller at a time; a new one takes over and the
+	//                 previous holder is told it lost control.
+	//
+	// It is deliberately separate from MaxSessions, which caps how many people
+	// may *watch*. A machine can be watched by everybody and driven by one.
+	ControlMode string `gorm:"size:16;not null;default:''" json:"control_mode"`
 
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`

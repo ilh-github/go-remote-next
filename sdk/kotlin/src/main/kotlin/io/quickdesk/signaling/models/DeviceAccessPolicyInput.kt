@@ -34,6 +34,7 @@ import com.squareup.moshi.JsonClass
  * @param approvalRequired Legacy switch kept for older clients; prefer `approval_mode`.
  * @param approvalMode When the owner must approve a correct code before a session starts.
  * @param approvalTrustedIps Sources exempted by `approval_mode: untrusted_ip`.
+ * @param controlMode How several controllers share control of the machine. `shared` (the default) lets every connected controller drive it, which is what a device with no policy row already does. `exclusive` gives control to one controller at a time - a new one takes over and the previous holder is sent a `control_revoked` frame on its signaling socket. Separate from `max_sessions`, which caps how many people may watch. Omitted or empty means `shared`, because the endpoint replaces the whole policy.
  */
 
 
@@ -77,7 +78,11 @@ data class DeviceAccessPolicyInput (
 
     /* Sources exempted by `approval_mode: untrusted_ip`. */
     @Json(name = "approval_trusted_ips")
-    val approvalTrustedIps: kotlin.collections.List<kotlin.String>? = null
+    val approvalTrustedIps: kotlin.collections.List<kotlin.String>? = null,
+
+    /* How several controllers share control of the machine. `shared` (the default) lets every connected controller drive it, which is what a device with no policy row already does. `exclusive` gives control to one controller at a time - a new one takes over and the previous holder is sent a `control_revoked` frame on its signaling socket. Separate from `max_sessions`, which caps how many people may watch. Omitted or empty means `shared`, because the endpoint replaces the whole policy. */
+    @Json(name = "control_mode")
+    val controlMode: DeviceAccessPolicyInput.ControlMode? = null
 
 ) {
 
@@ -92,6 +97,16 @@ data class DeviceAccessPolicyInput (
         @Json(name = "always") always("always"),
         @Json(name = "grant") grant("grant"),
         @Json(name = "untrusted_ip") untrusted_ip("untrusted_ip");
+    }
+    /**
+     * How several controllers share control of the machine. `shared` (the default) lets every connected controller drive it, which is what a device with no policy row already does. `exclusive` gives control to one controller at a time - a new one takes over and the previous holder is sent a `control_revoked` frame on its signaling socket. Separate from `max_sessions`, which caps how many people may watch. Omitted or empty means `shared`, because the endpoint replaces the whole policy.
+     *
+     * Values: shared,exclusive
+     */
+    @JsonClass(generateAdapter = false)
+    enum class ControlMode(val value: kotlin.String) {
+        @Json(name = "shared") shared("shared"),
+        @Json(name = "exclusive") exclusive("exclusive");
     }
 
 }

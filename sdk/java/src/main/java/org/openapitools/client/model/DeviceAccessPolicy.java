@@ -162,6 +162,63 @@ public class DeviceAccessPolicy {
   @javax.annotation.Nullable
   private List<String> approvalTrustedIps = new ArrayList<>();
 
+  /**
+   * How several controllers share control of the machine. &#x60;shared&#x60; (the default) lets every connected controller drive it, which is what a device with no policy row already does. &#x60;exclusive&#x60; gives control to one controller at a time - a new one takes over and the previous holder is sent a &#x60;control_revoked&#x60; frame on its signaling socket. Separate from &#x60;max_sessions&#x60;, which caps how many people may watch. Omitted or empty means &#x60;shared&#x60;, because the endpoint replaces the whole policy.
+   */
+  @JsonAdapter(ControlModeEnum.Adapter.class)
+  public enum ControlModeEnum {
+    SHARED("shared"),
+    
+    EXCLUSIVE("exclusive");
+
+    private String value;
+
+    ControlModeEnum(String value) {
+      this.value = value;
+    }
+
+    public String getValue() {
+      return value;
+    }
+
+    @Override
+    public String toString() {
+      return String.valueOf(value);
+    }
+
+    public static ControlModeEnum fromValue(String value) {
+      for (ControlModeEnum b : ControlModeEnum.values()) {
+        if (b.value.equals(value)) {
+          return b;
+        }
+      }
+      throw new IllegalArgumentException("Unexpected value '" + value + "'");
+    }
+
+    public static class Adapter extends TypeAdapter<ControlModeEnum> {
+      @Override
+      public void write(final JsonWriter jsonWriter, final ControlModeEnum enumeration) throws IOException {
+        jsonWriter.value(enumeration.getValue());
+      }
+
+      @Override
+      public ControlModeEnum read(final JsonReader jsonReader) throws IOException {
+        String value =  jsonReader.nextString();
+        return ControlModeEnum.fromValue(value);
+      }
+    }
+
+    public static void validateJsonElement(JsonElement jsonElement) throws IOException {
+      String value = jsonElement.getAsString();
+      ControlModeEnum.fromValue(value);
+    }
+  }
+
+  public static final String SERIALIZED_NAME_CONTROL_MODE = "control_mode";
+  @SerializedName(SERIALIZED_NAME_CONTROL_MODE)
+  @javax.annotation.Nullable
+  private ControlModeEnum controlMode;
+
   public static final String SERIALIZED_NAME_DEVICE_ID = "device_id";
   @SerializedName(SERIALIZED_NAME_DEVICE_ID)
   @javax.annotation.Nonnull
@@ -405,6 +462,25 @@ public class DeviceAccessPolicy {
   }
 
 
+  public DeviceAccessPolicy controlMode(@javax.annotation.Nullable ControlModeEnum controlMode) {
+    this.controlMode = controlMode;
+    return this;
+  }
+
+  /**
+   * How several controllers share control of the machine. &#x60;shared&#x60; (the default) lets every connected controller drive it, which is what a device with no policy row already does. &#x60;exclusive&#x60; gives control to one controller at a time - a new one takes over and the previous holder is sent a &#x60;control_revoked&#x60; frame on its signaling socket. Separate from &#x60;max_sessions&#x60;, which caps how many people may watch. Omitted or empty means &#x60;shared&#x60;, because the endpoint replaces the whole policy.
+   * @return controlMode
+   */
+  @javax.annotation.Nullable
+  public ControlModeEnum getControlMode() {
+    return controlMode;
+  }
+
+  public void setControlMode(@javax.annotation.Nullable ControlModeEnum controlMode) {
+    this.controlMode = controlMode;
+  }
+
+
   public DeviceAccessPolicy deviceId(@javax.annotation.Nonnull String deviceId) {
     this.deviceId = deviceId;
     return this;
@@ -463,6 +539,7 @@ public class DeviceAccessPolicy {
         Objects.equals(this.approvalRequired, deviceAccessPolicy.approvalRequired) &&
         Objects.equals(this.approvalMode, deviceAccessPolicy.approvalMode) &&
         Objects.equals(this.approvalTrustedIps, deviceAccessPolicy.approvalTrustedIps) &&
+        Objects.equals(this.controlMode, deviceAccessPolicy.controlMode) &&
         Objects.equals(this.deviceId, deviceAccessPolicy.deviceId) &&
         Objects.equals(this.updatedAt, deviceAccessPolicy.updatedAt);
   }
@@ -473,7 +550,7 @@ public class DeviceAccessPolicy {
 
   @Override
   public int hashCode() {
-    return Objects.hash(remoteDisabled, allowIps, denyIps, maxSessions, allowedWindows, timezone, exceptionDates, approvalRequired, approvalMode, approvalTrustedIps, deviceId, updatedAt);
+    return Objects.hash(remoteDisabled, allowIps, denyIps, maxSessions, allowedWindows, timezone, exceptionDates, approvalRequired, approvalMode, approvalTrustedIps, controlMode, deviceId, updatedAt);
   }
 
   private static <T> int hashCodeNullable(JsonNullable<T> a) {
@@ -497,6 +574,7 @@ public class DeviceAccessPolicy {
     sb.append("    approvalRequired: ").append(toIndentedString(approvalRequired)).append("\n");
     sb.append("    approvalMode: ").append(toIndentedString(approvalMode)).append("\n");
     sb.append("    approvalTrustedIps: ").append(toIndentedString(approvalTrustedIps)).append("\n");
+    sb.append("    controlMode: ").append(toIndentedString(controlMode)).append("\n");
     sb.append("    deviceId: ").append(toIndentedString(deviceId)).append("\n");
     sb.append("    updatedAt: ").append(toIndentedString(updatedAt)).append("\n");
     sb.append("}");
@@ -520,7 +598,7 @@ public class DeviceAccessPolicy {
 
   static {
     // a set of all properties/fields (JSON key names)
-    openapiFields = new HashSet<String>(Arrays.asList("remote_disabled", "allow_ips", "deny_ips", "max_sessions", "allowed_windows", "timezone", "exception_dates", "approval_required", "approval_mode", "approval_trusted_ips", "device_id", "updated_at"));
+    openapiFields = new HashSet<String>(Arrays.asList("remote_disabled", "allow_ips", "deny_ips", "max_sessions", "allowed_windows", "timezone", "exception_dates", "approval_required", "approval_mode", "approval_trusted_ips", "control_mode", "device_id", "updated_at"));
 
     // a set of required properties/fields (JSON key names)
     openapiRequiredFields = new HashSet<String>(Arrays.asList("device_id"));
@@ -593,6 +671,13 @@ public class DeviceAccessPolicy {
       // ensure the optional json data is an array if present
       if (jsonObj.get("approval_trusted_ips") != null && !jsonObj.get("approval_trusted_ips").isJsonNull() && !jsonObj.get("approval_trusted_ips").isJsonArray()) {
         throw new IllegalArgumentException(String.format("Expected the field `approval_trusted_ips` to be an array in the JSON string but got `%s`", jsonObj.get("approval_trusted_ips").toString()));
+      }
+      if ((jsonObj.get("control_mode") != null && !jsonObj.get("control_mode").isJsonNull()) && !jsonObj.get("control_mode").isJsonPrimitive()) {
+        throw new IllegalArgumentException(String.format("Expected the field `control_mode` to be a primitive type in the JSON string but got `%s`", jsonObj.get("control_mode").toString()));
+      }
+      // validate the optional field `control_mode`
+      if (jsonObj.get("control_mode") != null && !jsonObj.get("control_mode").isJsonNull()) {
+        ControlModeEnum.validateJsonElement(jsonObj.get("control_mode"));
       }
       if (!jsonObj.get("device_id").isJsonPrimitive()) {
         throw new IllegalArgumentException(String.format("Expected the field `device_id` to be a primitive type in the JSON string but got `%s`", jsonObj.get("device_id").toString()));

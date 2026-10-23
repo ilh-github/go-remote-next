@@ -39,6 +39,8 @@ type DeviceAccessPolicyInput struct {
 	ApprovalMode *string `json:"approval_mode,omitempty"`
 	// Sources exempted by `approval_mode: untrusted_ip`.
 	ApprovalTrustedIps []string `json:"approval_trusted_ips,omitempty"`
+	// How several controllers share control of the machine. `shared` (the default) lets every connected controller drive it, which is what a device with no policy row already does. `exclusive` gives control to one controller at a time - a new one takes over and the previous holder is sent a `control_revoked` frame on its signaling socket. Separate from `max_sessions`, which caps how many people may watch. Omitted or empty means `shared`, because the endpoint replaces the whole policy.
+	ControlMode *string `json:"control_mode,omitempty"`
 }
 
 // NewDeviceAccessPolicyInput instantiates a new DeviceAccessPolicyInput object
@@ -378,6 +380,38 @@ func (o *DeviceAccessPolicyInput) SetApprovalTrustedIps(v []string) {
 	o.ApprovalTrustedIps = v
 }
 
+// GetControlMode returns the ControlMode field value if set, zero value otherwise.
+func (o *DeviceAccessPolicyInput) GetControlMode() string {
+	if o == nil || IsNil(o.ControlMode) {
+		var ret string
+		return ret
+	}
+	return *o.ControlMode
+}
+
+// GetControlModeOk returns a tuple with the ControlMode field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *DeviceAccessPolicyInput) GetControlModeOk() (*string, bool) {
+	if o == nil || IsNil(o.ControlMode) {
+		return nil, false
+	}
+	return o.ControlMode, true
+}
+
+// HasControlMode returns a boolean if a field has been set.
+func (o *DeviceAccessPolicyInput) HasControlMode() bool {
+	if o != nil && !IsNil(o.ControlMode) {
+		return true
+	}
+
+	return false
+}
+
+// SetControlMode gets a reference to the given string and assigns it to the ControlMode field.
+func (o *DeviceAccessPolicyInput) SetControlMode(v string) {
+	o.ControlMode = &v
+}
+
 func (o DeviceAccessPolicyInput) MarshalJSON() ([]byte, error) {
 	toSerialize,err := o.ToMap()
 	if err != nil {
@@ -417,6 +451,9 @@ func (o DeviceAccessPolicyInput) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.ApprovalTrustedIps) {
 		toSerialize["approval_trusted_ips"] = o.ApprovalTrustedIps
+	}
+	if !IsNil(o.ControlMode) {
+		toSerialize["control_mode"] = o.ControlMode
 	}
 	return toSerialize, nil
 }

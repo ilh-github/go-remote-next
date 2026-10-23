@@ -42,6 +42,8 @@ type DeviceAccessPolicy struct {
 	ApprovalMode *string `json:"approval_mode,omitempty"`
 	// Sources exempted by `approval_mode: untrusted_ip`.
 	ApprovalTrustedIps []string `json:"approval_trusted_ips,omitempty"`
+	// How several controllers share control of the machine. `shared` (the default) lets every connected controller drive it, which is what a device with no policy row already does. `exclusive` gives control to one controller at a time - a new one takes over and the previous holder is sent a `control_revoked` frame on its signaling socket. Separate from `max_sessions`, which caps how many people may watch. Omitted or empty means `shared`, because the endpoint replaces the whole policy.
+	ControlMode *string `json:"control_mode,omitempty"`
 	DeviceId string `json:"device_id"`
 	// Omitted when the owner never saved a policy.
 	UpdatedAt NullableTime `json:"updated_at,omitempty"`
@@ -387,6 +389,38 @@ func (o *DeviceAccessPolicy) SetApprovalTrustedIps(v []string) {
 	o.ApprovalTrustedIps = v
 }
 
+// GetControlMode returns the ControlMode field value if set, zero value otherwise.
+func (o *DeviceAccessPolicy) GetControlMode() string {
+	if o == nil || IsNil(o.ControlMode) {
+		var ret string
+		return ret
+	}
+	return *o.ControlMode
+}
+
+// GetControlModeOk returns a tuple with the ControlMode field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *DeviceAccessPolicy) GetControlModeOk() (*string, bool) {
+	if o == nil || IsNil(o.ControlMode) {
+		return nil, false
+	}
+	return o.ControlMode, true
+}
+
+// HasControlMode returns a boolean if a field has been set.
+func (o *DeviceAccessPolicy) HasControlMode() bool {
+	if o != nil && !IsNil(o.ControlMode) {
+		return true
+	}
+
+	return false
+}
+
+// SetControlMode gets a reference to the given string and assigns it to the ControlMode field.
+func (o *DeviceAccessPolicy) SetControlMode(v string) {
+	o.ControlMode = &v
+}
+
 // GetDeviceId returns the DeviceId field value
 func (o *DeviceAccessPolicy) GetDeviceId() string {
 	if o == nil {
@@ -492,6 +526,9 @@ func (o DeviceAccessPolicy) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.ApprovalTrustedIps) {
 		toSerialize["approval_trusted_ips"] = o.ApprovalTrustedIps
+	}
+	if !IsNil(o.ControlMode) {
+		toSerialize["control_mode"] = o.ControlMode
 	}
 	toSerialize["device_id"] = o.DeviceId
 	if o.UpdatedAt.IsSet() {

@@ -3044,6 +3044,7 @@ components:
       example:
         approval_mode: "off"
         max_sessions: 0
+        control_mode: shared
         timezone: timezone
         allow_ips:
         - allow_ips
@@ -3134,6 +3135,18 @@ components:
           items:
             type: string
           type: array
+        control_mode:
+          description: "How several controllers share control of the machine. `shared`\
+            \ (the default) lets every connected controller drive it, which is what\
+            \ a device with no policy row already does. `exclusive` gives control\
+            \ to one controller at a time - a new one takes over and the previous\
+            \ holder is sent a `control_revoked` frame on its signaling socket. Separate\
+            \ from `max_sessions`, which caps how many people may watch. Omitted or\
+            \ empty means `shared`, because the endpoint replaces the whole policy."
+          enum:
+          - shared
+          - exclusive
+          type: string
     DeviceAccessPolicy:
       allOf:
       - $ref: "#/components/schemas/DeviceAccessPolicyInput"
@@ -3148,16 +3161,14 @@ components:
         required:
         - device_id
       example:
-        approval_mode: "off"
         device_id: device_id
-        updated_at: 2000-01-23T04:56:07.000+00:00
         max_sessions: 0
+        control_mode: shared
         timezone: timezone
         allow_ips:
         - allow_ips
         - allow_ips
         approval_required: true
-        remote_disabled: true
         allowed_windows:
         - start: start
           days:
@@ -3169,12 +3180,15 @@ components:
           - 3
           - 3
           end: end
-        approval_trusted_ips:
-        - approval_trusted_ips
-        - approval_trusted_ips
         deny_ips:
         - deny_ips
         - deny_ips
+        approval_mode: "off"
+        updated_at: 2000-01-23T04:56:07.000+00:00
+        remote_disabled: true
+        approval_trusted_ips:
+        - approval_trusted_ips
+        - approval_trusted_ips
         exception_dates:
         - date: date
           end_date: end_date

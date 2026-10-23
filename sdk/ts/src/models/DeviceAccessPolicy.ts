@@ -95,6 +95,12 @@ export interface DeviceAccessPolicy {
      */
     approvalTrustedIps?: Array<string>;
     /**
+     * How several controllers share control of the machine. `shared` (the default) lets every connected controller drive it, which is what a device with no policy row already does. `exclusive` gives control to one controller at a time - a new one takes over and the previous holder is sent a `control_revoked` frame on its signaling socket. Separate from `max_sessions`, which caps how many people may watch. Omitted or empty means `shared`, because the endpoint replaces the whole policy.
+     * @type {string}
+     * @memberof DeviceAccessPolicy
+     */
+    controlMode?: DeviceAccessPolicyControlModeEnum;
+    /**
      * 
      * @type {string}
      * @memberof DeviceAccessPolicy
@@ -119,6 +125,15 @@ export const DeviceAccessPolicyApprovalModeEnum = {
     UntrustedIp: 'untrusted_ip'
 } as const;
 export type DeviceAccessPolicyApprovalModeEnum = typeof DeviceAccessPolicyApprovalModeEnum[keyof typeof DeviceAccessPolicyApprovalModeEnum];
+
+/**
+ * @export
+ */
+export const DeviceAccessPolicyControlModeEnum = {
+    Shared: 'shared',
+    Exclusive: 'exclusive'
+} as const;
+export type DeviceAccessPolicyControlModeEnum = typeof DeviceAccessPolicyControlModeEnum[keyof typeof DeviceAccessPolicyControlModeEnum];
 
 
 /**
@@ -149,6 +164,7 @@ export function DeviceAccessPolicyFromJSONTyped(json: any, ignoreDiscriminator: 
         'approvalRequired': json['approval_required'] == null ? undefined : json['approval_required'],
         'approvalMode': json['approval_mode'] == null ? undefined : json['approval_mode'],
         'approvalTrustedIps': json['approval_trusted_ips'] == null ? undefined : json['approval_trusted_ips'],
+        'controlMode': json['control_mode'] == null ? undefined : json['control_mode'],
         'deviceId': json['device_id'],
         'updatedAt': json['updated_at'] == null ? undefined : (new Date(json['updated_at'])),
     };
@@ -175,6 +191,7 @@ export function DeviceAccessPolicyToJSONTyped(value?: DeviceAccessPolicy | null,
         'approval_required': value['approvalRequired'],
         'approval_mode': value['approvalMode'],
         'approval_trusted_ips': value['approvalTrustedIps'],
+        'control_mode': value['controlMode'],
         'device_id': value['deviceId'],
         'updated_at': value['updatedAt'] === null ? null : ((value['updatedAt'] as any)?.toISOString()),
     };

@@ -74,6 +74,9 @@ type UpsertDeviceAccessPolicyInput struct {
 	ApprovalRequired   bool
 	ApprovalMode       string
 	ApprovalTrustedIPs []string
+	// ControlMode is the shared/exclusive switch. Empty means shared, so a
+	// caller that does not know about the field leaves existing behaviour alone.
+	ControlMode string
 }
 
 // Get returns the device policy, or (nil, nil) when the device has none: a
@@ -129,6 +132,10 @@ func (s *DeviceAccessPolicyService) UpsertWithEvent(
 	if err := ValidateApprovalMode(mode, in.ApprovalTrustedIPs); err != nil {
 		return nil, err
 	}
+	controlMode := NormalizeControlMode(strings.TrimSpace(in.ControlMode))
+	if err := ValidateControlMode(controlMode); err != nil {
+		return nil, err
+	}
 	normalized := normalizeAllowIPs(in.AllowIPs)
 	encoded, err := json.Marshal(normalized)
 	if err != nil {
@@ -173,6 +180,7 @@ func (s *DeviceAccessPolicyService) UpsertWithEvent(
 		row.ApprovalMode = mode
 		row.ApprovalRequired = mode == ApprovalModeAlways
 		row.ApprovalTrustedIPs = string(trustedEncoded)
+		row.ControlMode = controlMode
 		if err := tx.Save(&row).Error; err != nil {
 			return err
 		}

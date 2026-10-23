@@ -42,6 +42,7 @@ type deviceAccessPolicyReq struct {
 	ApprovalRequired   bool                          `json:"approval_required"`
 	ApprovalMode       string                        `json:"approval_mode"`
 	ApprovalTrustedIPs []string                      `json:"approval_trusted_ips"`
+	ControlMode        string                        `json:"control_mode"`
 }
 
 type deviceAccessBanReq struct {
@@ -62,6 +63,7 @@ type deviceAccessPolicyView struct {
 	ApprovalRequired   bool                          `json:"approval_required"`
 	ApprovalMode       string                        `json:"approval_mode"`
 	ApprovalTrustedIPs []string                      `json:"approval_trusted_ips"`
+	ControlMode        string                        `json:"control_mode"`
 	UpdatedAt          *time.Time                    `json:"updated_at,omitempty"`
 }
 
@@ -101,6 +103,7 @@ func (h *DeviceAccessPolicyHandler) Put(c *gin.Context) {
 			ApprovalRequired:   req.ApprovalRequired,
 			ApprovalMode:       req.ApprovalMode,
 			ApprovalTrustedIPs: req.ApprovalTrustedIPs,
+			ControlMode:        req.ControlMode,
 		},
 		func(policy *models.DeviceAccessPolicy) service.Event {
 			return service.Event{
@@ -119,6 +122,7 @@ func (h *DeviceAccessPolicyHandler) Put(c *gin.Context) {
 					"approval_required":    policy.ApprovalRequired,
 					"approval_mode":        service.EffectiveApprovalMode(policy),
 					"approval_trusted_ips": decodeAllowIPsForEvent(policy.ApprovalTrustedIPs),
+					"control_mode":         service.NormalizeControlMode(policy.ControlMode),
 					"ip":                   c.ClientIP(),
 				},
 			}
@@ -258,6 +262,7 @@ func policyView(deviceID string, policy *models.DeviceAccessPolicy) deviceAccess
 		view.ExceptionDates = []service.AccessExceptionDate{}
 		view.ApprovalMode = service.ApprovalModeOff
 		view.ApprovalTrustedIPs = []string{}
+		view.ControlMode = service.ControlModeShared
 		return view
 	}
 	view.RemoteDisabled = policy.RemoteDisabled
@@ -268,6 +273,10 @@ func policyView(deviceID string, policy *models.DeviceAccessPolicy) deviceAccess
 	view.ApprovalRequired = policy.ApprovalRequired
 	view.ApprovalMode = service.EffectiveApprovalMode(policy)
 	view.ApprovalTrustedIPs = decodeAllowIPsForEvent(policy.ApprovalTrustedIPs)
+	// A row that predates the column reads as "" and must be reported as the
+	// shared mode it already behaves as, so a client rendering the form from
+	// this response does not show a blank it cannot round-trip.
+	view.ControlMode = service.NormalizeControlMode(policy.ControlMode)
 	if entries := decodeAllowIPsForEvent(policy.AllowIPs); len(entries) > 0 {
 		view.AllowIPs = entries
 	}

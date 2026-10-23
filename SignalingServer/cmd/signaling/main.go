@@ -567,6 +567,11 @@ func main() {
 	// code; the window is per device + observed source, so it cannot lock out
 	// anybody else. 0 leaves the historical behaviour (immediate reconnects).
 	realtimeHandler.WithRevokeCooldown(time.Duration(cfg.RemoteSession.RevokeCooldownSeconds) * time.Second)
+	// QD-314: exclusive control. The store is in-memory on purpose - the grant
+	// only has to be true for as long as the socket that holds it, and a socket
+	// cannot outlive the process that admitted it. A handler without one keeps
+	// the shared behaviour every existing install already has.
+	realtimeHandler.WithControlGrants(service.NewControlGrants())
 	if cfg.RemoteSession.RevokeCooldownSeconds > 0 {
 		log.Printf("Session revoke cooldown: %ds (a kicked source is refused for this long)",
 			cfg.RemoteSession.RevokeCooldownSeconds)

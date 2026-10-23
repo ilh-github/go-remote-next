@@ -17,6 +17,7 @@
 |**approvalRequired** | **Boolean** | Legacy switch kept for older clients; prefer &#x60;approval_mode&#x60;. |  [optional] |
 |**approvalMode** | [**ApprovalModeEnum**](#ApprovalModeEnum) | When the owner must approve a correct code before a session starts. |  [optional] |
 |**approvalTrustedIps** | **List&lt;String&gt;** | Sources exempted by &#x60;approval_mode: untrusted_ip&#x60;. |  [optional] |
+|**controlMode** | [**ControlModeEnum**](#ControlModeEnum) | How several controllers share control of the machine. &#x60;shared&#x60; (the default) lets every connected controller drive it, which is what a device with no policy row already does. &#x60;exclusive&#x60; gives control to one controller at a time - a new one takes over and the previous holder is sent a &#x60;control_revoked&#x60; frame on its signaling socket. Separate from &#x60;max_sessions&#x60;, which caps how many people may watch. Omitted or empty means &#x60;shared&#x60;, because the endpoint replaces the whole policy. |  [optional] |
 |**deviceId** | **String** |  |  |
 |**updatedAt** | **OffsetDateTime** | Omitted when the owner never saved a policy. |  [optional] |
 
@@ -30,6 +31,15 @@
 | ALWAYS | &quot;always&quot; |
 | GRANT | &quot;grant&quot; |
 | UNTRUSTED_IP | &quot;untrusted_ip&quot; |
+
+
+
+## Enum: ControlModeEnum
+
+| Name | Value |
+|---- | -----|
+| SHARED | &quot;shared&quot; |
+| EXCLUSIVE | &quot;exclusive&quot; |
 
 
 

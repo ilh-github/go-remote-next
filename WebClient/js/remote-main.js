@@ -17,6 +17,7 @@ import { addTrackOnce } from './protocol/media-stream.js';
 import { VideoStats } from './ui/video-stats.js';
 import { FloatingToolbar } from './ui/floating-toolbar.js';
 import { TabCoordinator } from './ui/tab-coordinator.js';
+import { ControlGrantState } from './ui/control-grant.js';
 import { IceConfigFetcher } from './ice-config-fetcher.js';
 import { t, applyI18n, getLocale, setLocale } from './i18n.js';
 import { userApi } from './api/user-api.js';
@@ -57,6 +58,7 @@ class RemoteDesktopApp {
         this.chatPanel = null;
         this._supportsChat = false;
         this.tabCoordinator = null;
+        this.controlGrant = null;
         this._recordingUploading = false;
         this._fileTransferAudit = new Map();
         this._connectionConfig = null;
@@ -298,6 +300,7 @@ class RemoteDesktopApp {
         this._connectStartTime = Date.now();
         this._connectionRecorded = false;
         this._setupTabCoordinator(deviceId);
+        this._setupControlGrant();
 
         // Set up userApi base URL for connection recording
         userApi.setBaseUrl(serverUrl);
@@ -608,6 +611,30 @@ class RemoteDesktopApp {
         }, { once: true });
     }
 
+    // QD-314: the server's answer on who may drive this machine. It is wired to
+    // the signaling socket rather than the DataChannel because that is the only
+    // place the answer can come from - the input itself is peer to peer, so no
+    // middlebox can drop it on this client's behalf.
+    _setupControlGrant() {
+        if (this.controlGrant) return;
+        this.controlGrant = new ControlGrantState();
+        this.controlGrant.addEventListener('revoked', (event) => {
+            this._onControlRevoked(event.detail);
+        });
+        this.session?.addEventListener('jsonMessage', (event) => {
+            this.controlGrant.handleMessage(event.detail);
+        });
+    }
+
+    // Losing control means this tab stops sending input, exactly as it already
+    // does when another same-origin tab takes over.
+    _onControlRevoked(detail) {
+        if (!detail) return;
+        this._cleanupInputHandlers();
+        this._log(t('log.controlTakenOver', { holder: detail.holder || '' }), 'warning');
+        this._showTabControlNotice();
+    }
+
     _setupSkillBridge() {
         if (this.skillBridge) return;
         this.skillBridge = new SkillBridgeClient(
@@ -889,6 +916,11 @@ class RemoteDesktopApp {
         const video = document.getElementById('remoteVideo');
         const videoContainer = document.getElementById('videoContainer');
         if (!video || !this.dcHandler) return;
+
+        // QD-314: exclusive control means this tab is not the one driving the
+        // machine. The answer arrives on the signaling socket, which can beat
+        // the media, so it is enforced here rather than only on revoke.
+        if (this.controlGrant && !this.controlGrant.canControl) return;
 
         this._cleanupInputHandlers();
 
