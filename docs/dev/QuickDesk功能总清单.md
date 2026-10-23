@@ -43,11 +43,11 @@
 
 - 仓库：`go-remote-next`
 - 本地主分支：`dev`、`master`
-- 本地代码基线：`HEAD`（QD-004 artifact 摘要校验：上传字节的 SHA-256 与声明值不符即拒绝且不落库；`2c3ca9b` 的 QD-005/QD-808 打包门禁：Release 默认强制公证，Debug 保持宽松；`2062b95` 的 QD-004 服务端半边补齐：一次性上传票据可实际用于上传，且绑 session 防跨会话写入；`f365e1b` 的一次性上传票据；`1ad0b85` 的 QD-511 人工接管：park 的 run 留下 resume point，operator 可查询、接管和清除；`97b8619` 的 QD-610 Owner 委托权限：Owner 可签发带 workflow/设备范围、步骤上限和禁权工具的委托 grant；`2848be5` 的公平调度：异步工作流按提交方轮转；`a1d34c5` 的账号会话撤销事件全部迁入事务 outbox；本轮之前的
+- 本地代码基线：`5b739a9`（QD-004 artifact 摘要校验：上传字节的 SHA-256 与声明值不符即拒绝且不落库；`2c3ca9b` 的 QD-005/QD-808 打包门禁：Release 默认强制公证，Debug 保持宽松；`2062b95` 的 QD-004 服务端半边补齐：一次性上传票据可实际用于上传，且绑 session 防跨会话写入；`f365e1b` 的一次性上传票据；`1ad0b85` 的 QD-511 人工接管：park 的 run 留下 resume point，operator 可查询、接管和清除；`97b8619` 的 QD-610 Owner 委托权限：Owner 可签发带 workflow/设备范围、步骤上限和禁权工具的委托 grant；`2848be5` 的公平调度：异步工作流按提交方轮转；`a1d34c5` 的账号会话撤销事件全部迁入事务 outbox；本轮之前的
   `314c73b` 先让改密码路径的 `session.revoked` 可恢复；更早的 `cddc0db` 为管理端设备、
   来源封禁与 TURN 配置事务 outbox 及在线状态离线事件迁移；QD-907 重连 Playwright E2E；
   QD-904 设备页、屏幕墙、文件管理器、真实多标签和真实自托管 SignalingServer E2E；
-  QD-908 多观看端 soak 门禁）；`origin/dev` 与 `origin/master` 已同步到 `HEAD`，
+  QD-908 多观看端 soak 门禁）；`origin/dev` 与 `origin/master` 已同步到 `5b739a9`，
   本地领先数量以 `git rev-list --count origin/dev..dev` 的实时值为准
 - 上游基线：`barry-ran/QuickDesk` 的 `dev` = `5db316c`，`master` = `f6651f0`
 - 上游维护口径：持续维护但暂缓更新，下一阶段重点偏 MCP；外部贡献从 `dev` 切分支，完成后合入 `dev`，维护者定期合入 `master`
