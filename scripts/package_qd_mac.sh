@@ -9,6 +9,9 @@
 old_cd=$(pwd)
 cd "$(dirname "$0")"
 
+# shellcheck source=lib/macos-notarize-gate.sh
+. "$script_path/lib/macos-notarize-gate.sh"
+
 build_mode=Release
 
 while [ $# -gt 0 ]; do
@@ -18,6 +21,13 @@ while [ $# -gt 0 ]; do
     esac
     shift
 done
+
+# A Release DMG is the artifact that reaches users, and a signed-but-unnotarized
+# package is exactly what Gatekeeper quarantines on their machine - so Release
+# is strict by default. A Debug package is a local build, and a developer
+# machine usually has no Developer ID at all, so that path stays permissive.
+# Both can be overridden explicitly.
+notarization_gate "$build_mode"
 
 publish_path="$script_path/../publish/$build_mode"
 app_path="$publish_path/QuickDesk.app"
@@ -67,6 +77,7 @@ fi
 
 if ! bash "$script_path/notarize_qd_mac.sh" "$dmg_path"; then
     echo "[!] DMG signing or notarization failed"
+    echo "[!] set QUICKDESK_REQUIRE_MACOS_NOTARIZATION=0 to skip (local builds only)"
     cd "$old_cd"
     exit 1
 fi

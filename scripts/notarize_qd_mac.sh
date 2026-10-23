@@ -12,6 +12,15 @@ sign_identity="${MACOS_SIGN_IDENTITY:-}"
 notary_profile="${MACOS_NOTARY_KEYCHAIN_PROFILE:-}"
 require_notarization="${QUICKDESK_REQUIRE_MACOS_NOTARIZATION:-0}"
 
+# The macOS toolchain commands are resolved through these variables so a test can
+# drive the script's decision paths on a machine that has neither a real signing
+# identity nor Apple credentials. Production runs leave them unset and get the
+# real tools.
+SECURITY_BIN="${QUICKDESK_SECURITY_BIN:-security}"
+CODESIGN_BIN="${QUICKDESK_CODESIGN_BIN:-codesign}"
+XCRUN_BIN="${QUICKDESK_XCRUN_BIN:-xcrun}"
+SPCTL_BIN="${QUICKDESK_SPCTL_BIN:-spctl}"
+
 if [ -z "$sign_identity" ]; then
     if [ "$require_notarization" = "1" ]; then
         echo "[!] MACOS_SIGN_IDENTITY is required for a notarized release" >&2
@@ -21,14 +30,14 @@ if [ -z "$sign_identity" ]; then
     exit 0
 fi
 
-if ! security find-identity -v -p codesigning |
+if ! "$SECURITY_BIN" find-identity -v -p codesigning |
     grep -F "$sign_identity" >/dev/null; then
     echo "[!] codesigning identity not found: $sign_identity" >&2
     exit 1
 fi
 
 echo "[*] signing DMG with: $sign_identity"
-codesign \
+"$CODESIGN_BIN" \
     --force \
     --sign "$sign_identity" \
     --timestamp \
@@ -58,14 +67,14 @@ else
 fi
 
 echo "[*] submitting DMG for Apple notarization"
-xcrun notarytool submit "$dmg_path" "${notary_args[@]}" --wait
+"$XCRUN_BIN" notarytool submit "$dmg_path" "${notary_args[@]}" --wait
 
 echo "[*] stapling notarization ticket"
-xcrun stapler staple "$dmg_path"
-xcrun stapler validate "$dmg_path"
+"$XCRUN_BIN" stapler staple "$dmg_path"
+"$XCRUN_BIN" stapler validate "$dmg_path"
 
 echo "[*] verifying Gatekeeper assessment"
-spctl \
+"$SPCTL_BIN" \
     --assess \
     --type open \
     --context context:primary-signature \
