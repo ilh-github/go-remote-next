@@ -4,7 +4,110 @@ All URIs are relative to *https://your-signaling-host*
 
 | Method | HTTP request | Description |
 |--------|--------------|-------------|
+| [**CreateClipboardAudit**](FileTransfersApi.md#createclipboardaudit) | **POST** /v1/me/clipboard-audits | Report a controller-observed clipboard sync for auditing |
 | [**CreateFileTransferAudit**](FileTransfersApi.md#createfiletransferaudit) | **POST** /v1/me/file-transfer-audits | Report a controller-observed file transfer for auditing |
+
+<a id="createclipboardaudit"></a>
+# **CreateClipboardAudit**
+> void CreateClipboardAudit (ClipboardAuditInput clipboardAuditInput)
+
+Report a controller-observed clipboard sync for auditing
+
+Clipboard bytes travel directly over the Remoting data channel and never pass through the signaling server. This endpoint lets an authenticated device owner report a clipboard sync after the fact so it appears in the audit trail.  The report carries **metadata only**: direction, MIME type and byte count. There is deliberately no field for the clipboard text. A clipboard is by definition whatever the user last copied - routinely a password, a recovery code or a private message - so a row that stored the text would turn the audit trail into a credential store every later reader of the database inherits. \"The operator copied 1.2 KB of text at 14:03\" answers the investigative question; the text answers nothing an investigator needs and costs everything if the database leaks.  Reports are idempotent by `transfer_id`, and the device must belong to the caller. This is an attributable controller report, not cryptographic proof from the host that a clipboard sync happened. 
+
+### Example
+```csharp
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Net.Http;
+using QuickDesk.Signaling.Client.Api;
+using QuickDesk.Signaling.Client.Client;
+using QuickDesk.Signaling.Client.Model;
+
+namespace Example
+{
+    public class CreateClipboardAuditExample
+    {
+        public static void Main()
+        {
+            Configuration config = new Configuration();
+            config.BasePath = "https://your-signaling-host";
+            // Configure API key authorization: ApiKeyAuth
+            config.AddApiKey("X-API-Key", "YOUR_API_KEY");
+            // Uncomment below to setup prefix (e.g. Bearer) for API key, if needed
+            // config.AddApiKeyPrefix("X-API-Key", "Bearer");
+            // Configure Bearer token for authorization: BearerAuth
+            config.AccessToken = "YOUR_BEARER_TOKEN";
+
+            // create instances of HttpClient, HttpClientHandler to be reused later with different Api classes
+            HttpClient httpClient = new HttpClient();
+            HttpClientHandler httpClientHandler = new HttpClientHandler();
+            var apiInstance = new FileTransfersApi(httpClient, config, httpClientHandler);
+            var clipboardAuditInput = new ClipboardAuditInput(); // ClipboardAuditInput | 
+
+            try
+            {
+                // Report a controller-observed clipboard sync for auditing
+                apiInstance.CreateClipboardAudit(clipboardAuditInput);
+            }
+            catch (ApiException  e)
+            {
+                Debug.Print("Exception when calling FileTransfersApi.CreateClipboardAudit: " + e.Message);
+                Debug.Print("Status Code: " + e.ErrorCode);
+                Debug.Print(e.StackTrace);
+            }
+        }
+    }
+}
+```
+
+#### Using the CreateClipboardAuditWithHttpInfo variant
+This returns an ApiResponse object which contains the response data, status code and headers.
+
+```csharp
+try
+{
+    // Report a controller-observed clipboard sync for auditing
+    apiInstance.CreateClipboardAuditWithHttpInfo(clipboardAuditInput);
+}
+catch (ApiException e)
+{
+    Debug.Print("Exception when calling FileTransfersApi.CreateClipboardAuditWithHttpInfo: " + e.Message);
+    Debug.Print("Status Code: " + e.ErrorCode);
+    Debug.Print(e.StackTrace);
+}
+```
+
+### Parameters
+
+| Name | Type | Description | Notes |
+|------|------|-------------|-------|
+| **clipboardAuditInput** | [**ClipboardAuditInput**](ClipboardAuditInput.md) |  |  |
+
+### Return type
+
+void (empty response body)
+
+### Authorization
+
+[ApiKeyAuth](../README.md#ApiKeyAuth), [BearerAuth](../README.md#BearerAuth)
+
+### HTTP request headers
+
+ - **Content-Type**: application/json
+ - **Accept**: application/problem+json
+
+
+### HTTP response details
+| Status code | Description | Response headers |
+|-------------|-------------|------------------|
+| **204** | The clipboard report is in the audit trail (or was already recorded). |  -  |
+| **400** | The request was malformed or failed validation. |  -  |
+| **401** | Missing or expired credentials. |  -  |
+| **403** | Authenticated but not allowed (includes a rejected access code). |  -  |
+| **404** | The addressed resource does not exist. |  -  |
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
 
 <a id="createfiletransferaudit"></a>
 # **CreateFileTransferAudit**

@@ -4,8 +4,73 @@ All URIs are relative to *https://your-signaling-host*
 
 Method | HTTP request | Description
 ------------- | ------------- | -------------
+[**CreateClipboardAudit**](FileTransfersAPI.md#CreateClipboardAudit) | **Post** /v1/me/clipboard-audits | Report a controller-observed clipboard sync for auditing
 [**CreateFileTransferAudit**](FileTransfersAPI.md#CreateFileTransferAudit) | **Post** /v1/me/file-transfer-audits | Report a controller-observed file transfer for auditing
 
+
+
+## CreateClipboardAudit
+
+> CreateClipboardAudit(ctx).ClipboardAuditInput(clipboardAuditInput).Execute()
+
+Report a controller-observed clipboard sync for auditing
+
+
+
+### Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	openapiclient "github.com/ilh-github/go-remote-next/signaling"
+)
+
+func main() {
+	clipboardAuditInput := *openapiclient.NewClipboardAuditInput("DeviceId_example", "TransferId_example", "Direction_example", "Status_example", "MimeType_example") // ClipboardAuditInput | 
+
+	configuration := openapiclient.NewConfiguration()
+	apiClient := openapiclient.NewAPIClient(configuration)
+	r, err := apiClient.FileTransfersAPI.CreateClipboardAudit(context.Background()).ClipboardAuditInput(clipboardAuditInput).Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error when calling `FileTransfersAPI.CreateClipboardAudit``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
+	}
+}
+```
+
+### Path Parameters
+
+
+
+### Other Parameters
+
+Other parameters are passed through a pointer to a apiCreateClipboardAuditRequest struct via the builder pattern
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **clipboardAuditInput** | [**ClipboardAuditInput**](ClipboardAuditInput.md) |  | 
+
+### Return type
+
+ (empty response body)
+
+### Authorization
+
+[ApiKeyAuth](../README.md#ApiKeyAuth), [BearerAuth](../README.md#BearerAuth)
+
+### HTTP request headers
+
+- **Content-Type**: application/json
+- **Accept**: application/problem+json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
+[[Back to Model list]](../README.md#documentation-for-models)
+[[Back to README]](../README.md)
 
 
 ## CreateFileTransferAudit

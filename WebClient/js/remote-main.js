@@ -940,7 +940,11 @@ class RemoteDesktopApp {
             this.keyboardHandler.enable();
         }
 
-        this.clipboardHandler = new ClipboardHandler(this.dcHandler);
+        // QD-909: the device id is what ties an audit row to a machine, so the
+        // handler needs it to report clipboard syncs at all.
+        this.clipboardHandler = new ClipboardHandler(this.dcHandler, {
+            deviceId: this._deviceId || '',
+        });
         this.clipboardHandler.enable();
 
         this.tabCoordinator?.claim('control');

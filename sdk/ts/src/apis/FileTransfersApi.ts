@@ -15,15 +15,22 @@
 
 import * as runtime from '../runtime';
 import type {
+  ClipboardAuditInput,
   FileTransferAuditInput,
   Problem,
 } from '../models/index';
 import {
+    ClipboardAuditInputFromJSON,
+    ClipboardAuditInputToJSON,
     FileTransferAuditInputFromJSON,
     FileTransferAuditInputToJSON,
     ProblemFromJSON,
     ProblemToJSON,
 } from '../models/index';
+
+export interface CreateClipboardAuditRequest {
+    clipboardAuditInput: ClipboardAuditInput;
+}
 
 export interface CreateFileTransferAuditRequest {
     fileTransferAuditInput: FileTransferAuditInput;
@@ -33,6 +40,58 @@ export interface CreateFileTransferAuditRequest {
  * 
  */
 export class FileTransfersApi extends runtime.BaseAPI {
+
+    /**
+     * Clipboard bytes travel directly over the Remoting data channel and never pass through the signaling server. This endpoint lets an authenticated device owner report a clipboard sync after the fact so it appears in the audit trail.  The report carries **metadata only**: direction, MIME type and byte count. There is deliberately no field for the clipboard text. A clipboard is by definition whatever the user last copied - routinely a password, a recovery code or a private message - so a row that stored the text would turn the audit trail into a credential store every later reader of the database inherits. \"The operator copied 1.2 KB of text at 14:03\" answers the investigative question; the text answers nothing an investigator needs and costs everything if the database leaks.  Reports are idempotent by `transfer_id`, and the device must belong to the caller. This is an attributable controller report, not cryptographic proof from the host that a clipboard sync happened. 
+     * Report a controller-observed clipboard sync for auditing
+     */
+    async createClipboardAuditRaw(requestParameters: CreateClipboardAuditRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<void>> {
+        if (requestParameters['clipboardAuditInput'] == null) {
+            throw new runtime.RequiredError(
+                'clipboardAuditInput',
+                'Required parameter "clipboardAuditInput" was null or undefined when calling createClipboardAudit().'
+            );
+        }
+
+        const queryParameters: any = {};
+
+        const headerParameters: runtime.HTTPHeaders = {};
+
+        headerParameters['Content-Type'] = 'application/json';
+
+        if (this.configuration && this.configuration.apiKey) {
+            headerParameters["X-API-Key"] = await this.configuration.apiKey("X-API-Key"); // ApiKeyAuth authentication
+        }
+
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("BearerAuth", []);
+
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+
+        let urlPath = `/v1/me/clipboard-audits`;
+
+        const response = await this.request({
+            path: urlPath,
+            method: 'POST',
+            headers: headerParameters,
+            query: queryParameters,
+            body: ClipboardAuditInputToJSON(requestParameters['clipboardAuditInput']),
+        }, initOverrides);
+
+        return new runtime.VoidApiResponse(response);
+    }
+
+    /**
+     * Clipboard bytes travel directly over the Remoting data channel and never pass through the signaling server. This endpoint lets an authenticated device owner report a clipboard sync after the fact so it appears in the audit trail.  The report carries **metadata only**: direction, MIME type and byte count. There is deliberately no field for the clipboard text. A clipboard is by definition whatever the user last copied - routinely a password, a recovery code or a private message - so a row that stored the text would turn the audit trail into a credential store every later reader of the database inherits. \"The operator copied 1.2 KB of text at 14:03\" answers the investigative question; the text answers nothing an investigator needs and costs everything if the database leaks.  Reports are idempotent by `transfer_id`, and the device must belong to the caller. This is an attributable controller report, not cryptographic proof from the host that a clipboard sync happened. 
+     * Report a controller-observed clipboard sync for auditing
+     */
+    async createClipboardAudit(requestParameters: CreateClipboardAuditRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<void> {
+        await this.createClipboardAuditRaw(requestParameters, initOverrides);
+    }
 
     /**
      * File bytes travel directly over the Remoting data channel and never pass through the signaling server. This endpoint lets an authenticated device owner report a completed or failed transfer after the fact so it appears in the audit trail.  Reports are idempotent by `(actor, direction, transfer_id)`: retrying the same event does not create another row. The device must belong to the caller. This is an attributable controller report, not cryptographic proof from the host that a file operation happened. 

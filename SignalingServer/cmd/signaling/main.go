@@ -561,6 +561,7 @@ func main() {
 			service.NewRecordingUploadTicketStore(redisClient, cfg.Recording.URLSecret))
 	}
 	fileTransferAuditHandler := handler.NewFileTransferAuditHandler(deviceService, auditService)
+	clipboardAuditHandler := handler.NewClipboardAuditHandler(deviceService, auditService)
 	hostHandler := handler.NewHostHandler(deviceService, tokenService, presenceService, settingsService, rateLimitService, deviceAccessService, deviceAccessPolicyService, deviceAccessGrantService, deviceAccessApprovalService, bus, cfg)
 	realtimeHandler := handler.NewRealtimeHandler(tokenService, bus, presenceService, db, deviceService, favoriteService, metricsService, deviceAccessService, deviceAccessPolicyService, remoteSessionService, redisClient)
 	// A revoked controller must not walk straight back in with the same access
@@ -779,6 +780,11 @@ func main() {
 			// report completion or failure here so the control plane can retain
 			// an attributable audit trail without proxying file bytes.
 			me.POST("/file-transfer-audits", fileTransferAuditHandler.Create)
+			// QD-909: the clipboard is the other data-channel payload, and the
+			// one whose contents are routinely a secret. The report carries
+			// direction, MIME type and byte count only - there is deliberately
+			// no field for the text.
+			me.POST("/clipboard-audits", clipboardAuditHandler.Create)
 
 			// Who is in the caller's machines right now (status=active) and who
 			// has been. Deliberately not /sessions, which is the caller's own

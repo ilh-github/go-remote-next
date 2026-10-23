@@ -18,6 +18,7 @@ export * from './ApprovalSummaryDeniedSourcesInner';
 export * from './ApproveAccessApprovalRequest';
 export * from './AuthSessionRequest';
 export * from './AuthSessionResponse';
+export * from './ClipboardAuditInput';
 export * from './DeleteMyDeviceGroup200Response';
 export * from './Device';
 export * from './DeviceAccessBanRequest';

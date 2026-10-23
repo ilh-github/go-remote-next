@@ -115,6 +115,7 @@ All URIs are relative to *https://your-signaling-host*
 | *DevicesApi* | [**revokeAccessGrant**](docs/DevicesApi.md#revokeaccessgrant) | **DELETE** /v1/me/devices/{device_id}/access-grants/{grant_id} | Revoke a guest access code |
 | *DevicesApi* | [**unbanDeviceAccessSource**](docs/DevicesApi.md#unbandeviceaccesssource) | **POST** /v1/me/devices/{device_id}/access-bans:remove | Remove one permanent source ban |
 | *DevicesApi* | [**verifyAccessCode**](docs/DevicesApi.md#verifyaccesscode) | **POST** /v1/devices/{device_id}/access-code:verify | Verify a device access code and mint a signal token |
+| *FileTransfersApi* | [**createClipboardAudit**](docs/FileTransfersApi.md#createclipboardaudit) | **POST** /v1/me/clipboard-audits | Report a controller-observed clipboard sync for auditing |
 | *FileTransfersApi* | [**createFileTransferAudit**](docs/FileTransfersApi.md#createfiletransferaudit) | **POST** /v1/me/file-transfer-audits | Report a controller-observed file transfer for auditing |
 | *MeApi* | [**getMe**](docs/MeApi.md#getme) | **GET** /v1/me | The authenticated user |
 | *NotificationsApi* | [**deleteMetricAlert**](docs/NotificationsApi.md#deletemetricalert) | **DELETE** /v1/me/devices/{device_id}/metric-alert | Delete the owner's metric alert rule |
@@ -167,6 +168,7 @@ All URIs are relative to *https://your-signaling-host*
  - [io.quickdesk.signaling.models.ApproveAccessApprovalRequest](docs/ApproveAccessApprovalRequest.md)
  - [io.quickdesk.signaling.models.AuthSessionRequest](docs/AuthSessionRequest.md)
  - [io.quickdesk.signaling.models.AuthSessionResponse](docs/AuthSessionResponse.md)
+ - [io.quickdesk.signaling.models.ClipboardAuditInput](docs/ClipboardAuditInput.md)
  - [io.quickdesk.signaling.models.DeleteMyDeviceGroup200Response](docs/DeleteMyDeviceGroup200Response.md)
  - [io.quickdesk.signaling.models.Device](docs/Device.md)
  - [io.quickdesk.signaling.models.DeviceAccessBanRequest](docs/DeviceAccessBanRequest.md)

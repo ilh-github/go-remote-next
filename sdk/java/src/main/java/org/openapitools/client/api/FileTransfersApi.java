@@ -27,6 +27,7 @@ import com.google.gson.reflect.TypeToken;
 import java.io.IOException;
 
 
+import org.openapitools.client.model.ClipboardAuditInput;
 import org.openapitools.client.model.FileTransferAuditInput;
 import org.openapitools.client.model.Problem;
 
@@ -73,6 +74,145 @@ public class FileTransfersApi {
         this.localCustomBaseUrl = customBaseUrl;
     }
 
+    /**
+     * Build call for createClipboardAudit
+     * @param clipboardAuditInput  (required)
+     * @param _callback Callback for upload/download progress
+     * @return Call to execute
+     * @throws ApiException If fail to serialize the request body object
+     * @http.response.details
+     <table border="1">
+       <caption>Response Details</caption>
+        <tr><td> Status Code </td><td> Description </td><td> Response Headers </td></tr>
+        <tr><td> 204 </td><td> The clipboard report is in the audit trail (or was already recorded). </td><td>  -  </td></tr>
+        <tr><td> 400 </td><td> The request was malformed or failed validation. </td><td>  -  </td></tr>
+        <tr><td> 401 </td><td> Missing or expired credentials. </td><td>  -  </td></tr>
+        <tr><td> 403 </td><td> Authenticated but not allowed (includes a rejected access code). </td><td>  -  </td></tr>
+        <tr><td> 404 </td><td> The addressed resource does not exist. </td><td>  -  </td></tr>
+     </table>
+     */
+    public okhttp3.Call createClipboardAuditCall(@javax.annotation.Nonnull ClipboardAuditInput clipboardAuditInput, final ApiCallback _callback) throws ApiException {
+        String basePath = null;
+        // Operation Servers
+        String[] localBasePaths = new String[] {  };
+
+        // Determine Base Path to Use
+        if (localCustomBaseUrl != null){
+            basePath = localCustomBaseUrl;
+        } else if ( localBasePaths.length > 0 ) {
+            basePath = localBasePaths[localHostIndex];
+        } else {
+            basePath = null;
+        }
+
+        Object localVarPostBody = clipboardAuditInput;
+
+        // create path and map variables
+        String localVarPath = "/v1/me/clipboard-audits";
+
+        List<Pair> localVarQueryParams = new ArrayList<Pair>();
+        List<Pair> localVarCollectionQueryParams = new ArrayList<Pair>();
+        Map<String, String> localVarHeaderParams = new HashMap<String, String>();
+        Map<String, String> localVarCookieParams = new HashMap<String, String>();
+        Map<String, Object> localVarFormParams = new HashMap<String, Object>();
+
+        final String[] localVarAccepts = {
+            "application/problem+json"
+        };
+        final String localVarAccept = localVarApiClient.selectHeaderAccept(localVarAccepts);
+        if (localVarAccept != null) {
+            localVarHeaderParams.put("Accept", localVarAccept);
+        }
+
+        final String[] localVarContentTypes = {
+            "application/json"
+        };
+        final String localVarContentType = localVarApiClient.selectHeaderContentType(localVarContentTypes);
+        if (localVarContentType != null) {
+            localVarHeaderParams.put("Content-Type", localVarContentType);
+        }
+
+        String[] localVarAuthNames = new String[] { "ApiKeyAuth", "BearerAuth" };
+        return localVarApiClient.buildCall(basePath, localVarPath, "POST", localVarQueryParams, localVarCollectionQueryParams, localVarPostBody, localVarHeaderParams, localVarCookieParams, localVarFormParams, localVarAuthNames, _callback);
+    }
+
+    @SuppressWarnings("rawtypes")
+    private okhttp3.Call createClipboardAuditValidateBeforeCall(@javax.annotation.Nonnull ClipboardAuditInput clipboardAuditInput, final ApiCallback _callback) throws ApiException {
+        // verify the required parameter 'clipboardAuditInput' is set
+        if (clipboardAuditInput == null) {
+            throw new ApiException("Missing the required parameter 'clipboardAuditInput' when calling createClipboardAudit(Async)");
+        }
+
+        return createClipboardAuditCall(clipboardAuditInput, _callback);
+
+    }
+
+    /**
+     * Report a controller-observed clipboard sync for auditing
+     * Clipboard bytes travel directly over the Remoting data channel and never pass through the signaling server. This endpoint lets an authenticated device owner report a clipboard sync after the fact so it appears in the audit trail.  The report carries **metadata only**: direction, MIME type and byte count. There is deliberately no field for the clipboard text. A clipboard is by definition whatever the user last copied - routinely a password, a recovery code or a private message - so a row that stored the text would turn the audit trail into a credential store every later reader of the database inherits. \&quot;The operator copied 1.2 KB of text at 14:03\&quot; answers the investigative question; the text answers nothing an investigator needs and costs everything if the database leaks.  Reports are idempotent by &#x60;transfer_id&#x60;, and the device must belong to the caller. This is an attributable controller report, not cryptographic proof from the host that a clipboard sync happened. 
+     * @param clipboardAuditInput  (required)
+     * @throws ApiException If fail to call the API, e.g. server error or cannot deserialize the response body
+     * @http.response.details
+     <table border="1">
+       <caption>Response Details</caption>
+        <tr><td> Status Code </td><td> Description </td><td> Response Headers </td></tr>
+        <tr><td> 204 </td><td> The clipboard report is in the audit trail (or was already recorded). </td><td>  -  </td></tr>
+        <tr><td> 400 </td><td> The request was malformed or failed validation. </td><td>  -  </td></tr>
+        <tr><td> 401 </td><td> Missing or expired credentials. </td><td>  -  </td></tr>
+        <tr><td> 403 </td><td> Authenticated but not allowed (includes a rejected access code). </td><td>  -  </td></tr>
+        <tr><td> 404 </td><td> The addressed resource does not exist. </td><td>  -  </td></tr>
+     </table>
+     */
+    public void createClipboardAudit(@javax.annotation.Nonnull ClipboardAuditInput clipboardAuditInput) throws ApiException {
+        createClipboardAuditWithHttpInfo(clipboardAuditInput);
+    }
+
+    /**
+     * Report a controller-observed clipboard sync for auditing
+     * Clipboard bytes travel directly over the Remoting data channel and never pass through the signaling server. This endpoint lets an authenticated device owner report a clipboard sync after the fact so it appears in the audit trail.  The report carries **metadata only**: direction, MIME type and byte count. There is deliberately no field for the clipboard text. A clipboard is by definition whatever the user last copied - routinely a password, a recovery code or a private message - so a row that stored the text would turn the audit trail into a credential store every later reader of the database inherits. \&quot;The operator copied 1.2 KB of text at 14:03\&quot; answers the investigative question; the text answers nothing an investigator needs and costs everything if the database leaks.  Reports are idempotent by &#x60;transfer_id&#x60;, and the device must belong to the caller. This is an attributable controller report, not cryptographic proof from the host that a clipboard sync happened. 
+     * @param clipboardAuditInput  (required)
+     * @return ApiResponse&lt;Void&gt;
+     * @throws ApiException If fail to call the API, e.g. server error or cannot deserialize the response body
+     * @http.response.details
+     <table border="1">
+       <caption>Response Details</caption>
+        <tr><td> Status Code </td><td> Description </td><td> Response Headers </td></tr>
+        <tr><td> 204 </td><td> The clipboard report is in the audit trail (or was already recorded). </td><td>  -  </td></tr>
+        <tr><td> 400 </td><td> The request was malformed or failed validation. </td><td>  -  </td></tr>
+        <tr><td> 401 </td><td> Missing or expired credentials. </td><td>  -  </td></tr>
+        <tr><td> 403 </td><td> Authenticated but not allowed (includes a rejected access code). </td><td>  -  </td></tr>
+        <tr><td> 404 </td><td> The addressed resource does not exist. </td><td>  -  </td></tr>
+     </table>
+     */
+    public ApiResponse<Void> createClipboardAuditWithHttpInfo(@javax.annotation.Nonnull ClipboardAuditInput clipboardAuditInput) throws ApiException {
+        okhttp3.Call localVarCall = createClipboardAuditValidateBeforeCall(clipboardAuditInput, null);
+        return localVarApiClient.execute(localVarCall);
+    }
+
+    /**
+     * Report a controller-observed clipboard sync for auditing (asynchronously)
+     * Clipboard bytes travel directly over the Remoting data channel and never pass through the signaling server. This endpoint lets an authenticated device owner report a clipboard sync after the fact so it appears in the audit trail.  The report carries **metadata only**: direction, MIME type and byte count. There is deliberately no field for the clipboard text. A clipboard is by definition whatever the user last copied - routinely a password, a recovery code or a private message - so a row that stored the text would turn the audit trail into a credential store every later reader of the database inherits. \&quot;The operator copied 1.2 KB of text at 14:03\&quot; answers the investigative question; the text answers nothing an investigator needs and costs everything if the database leaks.  Reports are idempotent by &#x60;transfer_id&#x60;, and the device must belong to the caller. This is an attributable controller report, not cryptographic proof from the host that a clipboard sync happened. 
+     * @param clipboardAuditInput  (required)
+     * @param _callback The callback to be executed when the API call finishes
+     * @return The request call
+     * @throws ApiException If fail to process the API call, e.g. serializing the request body object
+     * @http.response.details
+     <table border="1">
+       <caption>Response Details</caption>
+        <tr><td> Status Code </td><td> Description </td><td> Response Headers </td></tr>
+        <tr><td> 204 </td><td> The clipboard report is in the audit trail (or was already recorded). </td><td>  -  </td></tr>
+        <tr><td> 400 </td><td> The request was malformed or failed validation. </td><td>  -  </td></tr>
+        <tr><td> 401 </td><td> Missing or expired credentials. </td><td>  -  </td></tr>
+        <tr><td> 403 </td><td> Authenticated but not allowed (includes a rejected access code). </td><td>  -  </td></tr>
+        <tr><td> 404 </td><td> The addressed resource does not exist. </td><td>  -  </td></tr>
+     </table>
+     */
+    public okhttp3.Call createClipboardAuditAsync(@javax.annotation.Nonnull ClipboardAuditInput clipboardAuditInput, final ApiCallback<Void> _callback) throws ApiException {
+
+        okhttp3.Call localVarCall = createClipboardAuditValidateBeforeCall(clipboardAuditInput, _callback);
+        localVarApiClient.executeAsync(localVarCall, _callback);
+        return localVarCall;
+    }
     /**
      * Build call for createFileTransferAudit
      * @param fileTransferAuditInput  (required)

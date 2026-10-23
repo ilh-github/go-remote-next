@@ -475,6 +475,13 @@ class UserApi {
     return this._req('GET', `/v1/me/devices/${encodeURIComponent(deviceId)}/access-policy`)
   }
 
+  // QD-909: metadata only - direction, MIME type and byte count. The endpoint
+  // has no field for the clipboard text on purpose, and this client does not
+  // invent one.
+  recordClipboardAudit(body) {
+    return this._req('POST', '/v1/me/clipboard-audits', body)
+  }
+
   // Full replace, not a partial update: the server resets every field this body
   // omits. Callers therefore send the whole policy back - see
   // `api/controlModeModel.js`, which builds that body from the stored row so a

@@ -19,6 +19,7 @@ import java.io.IOException
 import okhttp3.Call
 import okhttp3.HttpUrl
 
+import io.quickdesk.signaling.models.ClipboardAuditInput
 import io.quickdesk.signaling.models.FileTransferAuditInput
 import io.quickdesk.signaling.models.Problem
 
@@ -44,6 +45,78 @@ class FileTransfersApi(basePath: kotlin.String = defaultBasePath, client: Call.F
         val defaultBasePath: String by lazy {
             System.getProperties().getProperty(ApiClient.baseUrlKey, "https://your-signaling-host")
         }
+    }
+
+    /**
+     * POST /v1/me/clipboard-audits
+     * Report a controller-observed clipboard sync for auditing
+     * Clipboard bytes travel directly over the Remoting data channel and never pass through the signaling server. This endpoint lets an authenticated device owner report a clipboard sync after the fact so it appears in the audit trail.  The report carries **metadata only**: direction, MIME type and byte count. There is deliberately no field for the clipboard text. A clipboard is by definition whatever the user last copied - routinely a password, a recovery code or a private message - so a row that stored the text would turn the audit trail into a credential store every later reader of the database inherits. \&quot;The operator copied 1.2 KB of text at 14:03\&quot; answers the investigative question; the text answers nothing an investigator needs and costs everything if the database leaks.  Reports are idempotent by &#x60;transfer_id&#x60;, and the device must belong to the caller. This is an attributable controller report, not cryptographic proof from the host that a clipboard sync happened. 
+     * @param clipboardAuditInput 
+     * @return void
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    fun createClipboardAudit(clipboardAuditInput: ClipboardAuditInput) : Unit {
+        val localVarResponse = createClipboardAuditWithHttpInfo(clipboardAuditInput = clipboardAuditInput)
+
+        return when (localVarResponse.responseType) {
+            ResponseType.Success -> Unit
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /v1/me/clipboard-audits
+     * Report a controller-observed clipboard sync for auditing
+     * Clipboard bytes travel directly over the Remoting data channel and never pass through the signaling server. This endpoint lets an authenticated device owner report a clipboard sync after the fact so it appears in the audit trail.  The report carries **metadata only**: direction, MIME type and byte count. There is deliberately no field for the clipboard text. A clipboard is by definition whatever the user last copied - routinely a password, a recovery code or a private message - so a row that stored the text would turn the audit trail into a credential store every later reader of the database inherits. \&quot;The operator copied 1.2 KB of text at 14:03\&quot; answers the investigative question; the text answers nothing an investigator needs and costs everything if the database leaks.  Reports are idempotent by &#x60;transfer_id&#x60;, and the device must belong to the caller. This is an attributable controller report, not cryptographic proof from the host that a clipboard sync happened. 
+     * @param clipboardAuditInput 
+     * @return ApiResponse<Unit?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Throws(IllegalStateException::class, IOException::class)
+    fun createClipboardAuditWithHttpInfo(clipboardAuditInput: ClipboardAuditInput) : ApiResponse<Unit?> {
+        val localVariableConfig = createClipboardAuditRequestConfig(clipboardAuditInput = clipboardAuditInput)
+
+        return request<ClipboardAuditInput, Unit>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation createClipboardAudit
+     *
+     * @param clipboardAuditInput 
+     * @return RequestConfig
+     */
+    fun createClipboardAuditRequestConfig(clipboardAuditInput: ClipboardAuditInput) : RequestConfig<ClipboardAuditInput> {
+        val localVariableBody = clipboardAuditInput
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/problem+json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/v1/me/clipboard-audits",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
     }
 
     /**

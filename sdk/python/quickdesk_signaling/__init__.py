@@ -54,6 +54,7 @@ __all__ = [
     "ApproveAccessApprovalRequest",
     "AuthSessionRequest",
     "AuthSessionResponse",
+    "ClipboardAuditInput",
     "DeleteMyDeviceGroup200Response",
     "Device",
     "DeviceAccessBanRequest",
@@ -142,6 +143,7 @@ from quickdesk_signaling.models.approval_summary_denied_sources_inner import App
 from quickdesk_signaling.models.approve_access_approval_request import ApproveAccessApprovalRequest as ApproveAccessApprovalRequest
 from quickdesk_signaling.models.auth_session_request import AuthSessionRequest as AuthSessionRequest
 from quickdesk_signaling.models.auth_session_response import AuthSessionResponse as AuthSessionResponse
+from quickdesk_signaling.models.clipboard_audit_input import ClipboardAuditInput as ClipboardAuditInput
 from quickdesk_signaling.models.delete_my_device_group200_response import DeleteMyDeviceGroup200Response as DeleteMyDeviceGroup200Response
 from quickdesk_signaling.models.device import Device as Device
 from quickdesk_signaling.models.device_access_ban_request import DeviceAccessBanRequest as DeviceAccessBanRequest

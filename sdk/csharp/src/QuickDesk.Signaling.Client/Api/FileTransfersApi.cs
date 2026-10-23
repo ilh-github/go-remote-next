@@ -28,6 +28,27 @@ namespace QuickDesk.Signaling.Client.Api
     {
         #region Synchronous Operations
         /// <summary>
+        /// Report a controller-observed clipboard sync for auditing
+        /// </summary>
+        /// <remarks>
+        /// Clipboard bytes travel directly over the Remoting data channel and never pass through the signaling server. This endpoint lets an authenticated device owner report a clipboard sync after the fact so it appears in the audit trail.  The report carries **metadata only**: direction, MIME type and byte count. There is deliberately no field for the clipboard text. A clipboard is by definition whatever the user last copied - routinely a password, a recovery code or a private message - so a row that stored the text would turn the audit trail into a credential store every later reader of the database inherits. \&quot;The operator copied 1.2 KB of text at 14:03\&quot; answers the investigative question; the text answers nothing an investigator needs and costs everything if the database leaks.  Reports are idempotent by &#x60;transfer_id&#x60;, and the device must belong to the caller. This is an attributable controller report, not cryptographic proof from the host that a clipboard sync happened. 
+        /// </remarks>
+        /// <exception cref="QuickDesk.Signaling.Client.Client.ApiException">Thrown when fails to make API call</exception>
+        /// <param name="clipboardAuditInput"></param>
+        /// <returns></returns>
+        void CreateClipboardAudit(ClipboardAuditInput clipboardAuditInput);
+
+        /// <summary>
+        /// Report a controller-observed clipboard sync for auditing
+        /// </summary>
+        /// <remarks>
+        /// Clipboard bytes travel directly over the Remoting data channel and never pass through the signaling server. This endpoint lets an authenticated device owner report a clipboard sync after the fact so it appears in the audit trail.  The report carries **metadata only**: direction, MIME type and byte count. There is deliberately no field for the clipboard text. A clipboard is by definition whatever the user last copied - routinely a password, a recovery code or a private message - so a row that stored the text would turn the audit trail into a credential store every later reader of the database inherits. \&quot;The operator copied 1.2 KB of text at 14:03\&quot; answers the investigative question; the text answers nothing an investigator needs and costs everything if the database leaks.  Reports are idempotent by &#x60;transfer_id&#x60;, and the device must belong to the caller. This is an attributable controller report, not cryptographic proof from the host that a clipboard sync happened. 
+        /// </remarks>
+        /// <exception cref="QuickDesk.Signaling.Client.Client.ApiException">Thrown when fails to make API call</exception>
+        /// <param name="clipboardAuditInput"></param>
+        /// <returns>ApiResponse of Object(void)</returns>
+        ApiResponse<Object> CreateClipboardAuditWithHttpInfo(ClipboardAuditInput clipboardAuditInput);
+        /// <summary>
         /// Report a controller-observed file transfer for auditing
         /// </summary>
         /// <remarks>
@@ -57,6 +78,29 @@ namespace QuickDesk.Signaling.Client.Api
     public interface IFileTransfersApiAsync : IApiAccessor
     {
         #region Asynchronous Operations
+        /// <summary>
+        /// Report a controller-observed clipboard sync for auditing
+        /// </summary>
+        /// <remarks>
+        /// Clipboard bytes travel directly over the Remoting data channel and never pass through the signaling server. This endpoint lets an authenticated device owner report a clipboard sync after the fact so it appears in the audit trail.  The report carries **metadata only**: direction, MIME type and byte count. There is deliberately no field for the clipboard text. A clipboard is by definition whatever the user last copied - routinely a password, a recovery code or a private message - so a row that stored the text would turn the audit trail into a credential store every later reader of the database inherits. \&quot;The operator copied 1.2 KB of text at 14:03\&quot; answers the investigative question; the text answers nothing an investigator needs and costs everything if the database leaks.  Reports are idempotent by &#x60;transfer_id&#x60;, and the device must belong to the caller. This is an attributable controller report, not cryptographic proof from the host that a clipboard sync happened. 
+        /// </remarks>
+        /// <exception cref="QuickDesk.Signaling.Client.Client.ApiException">Thrown when fails to make API call</exception>
+        /// <param name="clipboardAuditInput"></param>
+        /// <param name="cancellationToken">Cancellation Token to cancel the request.</param>
+        /// <returns>Task of void</returns>
+        System.Threading.Tasks.Task CreateClipboardAuditAsync(ClipboardAuditInput clipboardAuditInput, System.Threading.CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Report a controller-observed clipboard sync for auditing
+        /// </summary>
+        /// <remarks>
+        /// Clipboard bytes travel directly over the Remoting data channel and never pass through the signaling server. This endpoint lets an authenticated device owner report a clipboard sync after the fact so it appears in the audit trail.  The report carries **metadata only**: direction, MIME type and byte count. There is deliberately no field for the clipboard text. A clipboard is by definition whatever the user last copied - routinely a password, a recovery code or a private message - so a row that stored the text would turn the audit trail into a credential store every later reader of the database inherits. \&quot;The operator copied 1.2 KB of text at 14:03\&quot; answers the investigative question; the text answers nothing an investigator needs and costs everything if the database leaks.  Reports are idempotent by &#x60;transfer_id&#x60;, and the device must belong to the caller. This is an attributable controller report, not cryptographic proof from the host that a clipboard sync happened. 
+        /// </remarks>
+        /// <exception cref="QuickDesk.Signaling.Client.Client.ApiException">Thrown when fails to make API call</exception>
+        /// <param name="clipboardAuditInput"></param>
+        /// <param name="cancellationToken">Cancellation Token to cancel the request.</param>
+        /// <returns>Task of ApiResponse</returns>
+        System.Threading.Tasks.Task<ApiResponse<Object>> CreateClipboardAuditWithHttpInfoAsync(ClipboardAuditInput clipboardAuditInput, System.Threading.CancellationToken cancellationToken = default);
         /// <summary>
         /// Report a controller-observed file transfer for auditing
         /// </summary>
@@ -291,6 +335,143 @@ namespace QuickDesk.Signaling.Client.Api
                 return _exceptionFactory;
             }
             set { _exceptionFactory = value; }
+        }
+
+        /// <summary>
+        /// Report a controller-observed clipboard sync for auditing Clipboard bytes travel directly over the Remoting data channel and never pass through the signaling server. This endpoint lets an authenticated device owner report a clipboard sync after the fact so it appears in the audit trail.  The report carries **metadata only**: direction, MIME type and byte count. There is deliberately no field for the clipboard text. A clipboard is by definition whatever the user last copied - routinely a password, a recovery code or a private message - so a row that stored the text would turn the audit trail into a credential store every later reader of the database inherits. \&quot;The operator copied 1.2 KB of text at 14:03\&quot; answers the investigative question; the text answers nothing an investigator needs and costs everything if the database leaks.  Reports are idempotent by &#x60;transfer_id&#x60;, and the device must belong to the caller. This is an attributable controller report, not cryptographic proof from the host that a clipboard sync happened. 
+        /// </summary>
+        /// <exception cref="QuickDesk.Signaling.Client.Client.ApiException">Thrown when fails to make API call</exception>
+        /// <param name="clipboardAuditInput"></param>
+        /// <returns></returns>
+        public void CreateClipboardAudit(ClipboardAuditInput clipboardAuditInput)
+        {
+            CreateClipboardAuditWithHttpInfo(clipboardAuditInput);
+        }
+
+        /// <summary>
+        /// Report a controller-observed clipboard sync for auditing Clipboard bytes travel directly over the Remoting data channel and never pass through the signaling server. This endpoint lets an authenticated device owner report a clipboard sync after the fact so it appears in the audit trail.  The report carries **metadata only**: direction, MIME type and byte count. There is deliberately no field for the clipboard text. A clipboard is by definition whatever the user last copied - routinely a password, a recovery code or a private message - so a row that stored the text would turn the audit trail into a credential store every later reader of the database inherits. \&quot;The operator copied 1.2 KB of text at 14:03\&quot; answers the investigative question; the text answers nothing an investigator needs and costs everything if the database leaks.  Reports are idempotent by &#x60;transfer_id&#x60;, and the device must belong to the caller. This is an attributable controller report, not cryptographic proof from the host that a clipboard sync happened. 
+        /// </summary>
+        /// <exception cref="QuickDesk.Signaling.Client.Client.ApiException">Thrown when fails to make API call</exception>
+        /// <param name="clipboardAuditInput"></param>
+        /// <returns>ApiResponse of Object(void)</returns>
+        public QuickDesk.Signaling.Client.Client.ApiResponse<Object> CreateClipboardAuditWithHttpInfo(ClipboardAuditInput clipboardAuditInput)
+        {
+            // verify the required parameter 'clipboardAuditInput' is set
+            if (clipboardAuditInput == null)
+                throw new QuickDesk.Signaling.Client.Client.ApiException(400, "Missing required parameter 'clipboardAuditInput' when calling FileTransfersApi->CreateClipboardAudit");
+
+            QuickDesk.Signaling.Client.Client.RequestOptions localVarRequestOptions = new QuickDesk.Signaling.Client.Client.RequestOptions();
+
+            string[] _contentTypes = new string[] {
+                "application/json"
+            };
+
+            // to determine the Accept header
+            string[] _accepts = new string[] {
+                "application/problem+json"
+            };
+
+            var localVarContentType = QuickDesk.Signaling.Client.Client.ClientUtils.SelectHeaderContentType(_contentTypes);
+            if (localVarContentType != null) localVarRequestOptions.HeaderParameters.Add("Content-Type", localVarContentType);
+
+            var localVarAccept = QuickDesk.Signaling.Client.Client.ClientUtils.SelectHeaderAccept(_accepts);
+            if (localVarAccept != null) localVarRequestOptions.HeaderParameters.Add("Accept", localVarAccept);
+
+            localVarRequestOptions.Data = clipboardAuditInput;
+
+            // authentication (ApiKeyAuth) required
+            if (!string.IsNullOrEmpty(this.Configuration.GetApiKeyWithPrefix("X-API-Key")))
+            {
+                localVarRequestOptions.HeaderParameters.Add("X-API-Key", this.Configuration.GetApiKeyWithPrefix("X-API-Key"));
+            }
+            // authentication (BearerAuth) required
+            // bearer authentication required
+            if (!string.IsNullOrEmpty(this.Configuration.AccessToken) && !localVarRequestOptions.HeaderParameters.ContainsKey("Authorization"))
+            {
+                localVarRequestOptions.HeaderParameters.Add("Authorization", "Bearer " + this.Configuration.AccessToken);
+            }
+
+            // make the HTTP request
+            var localVarResponse = this.Client.Post<Object>("/v1/me/clipboard-audits", localVarRequestOptions, this.Configuration);
+
+            if (this.ExceptionFactory != null)
+            {
+                Exception _exception = this.ExceptionFactory("CreateClipboardAudit", localVarResponse);
+                if (_exception != null) throw _exception;
+            }
+
+            return localVarResponse;
+        }
+
+        /// <summary>
+        /// Report a controller-observed clipboard sync for auditing Clipboard bytes travel directly over the Remoting data channel and never pass through the signaling server. This endpoint lets an authenticated device owner report a clipboard sync after the fact so it appears in the audit trail.  The report carries **metadata only**: direction, MIME type and byte count. There is deliberately no field for the clipboard text. A clipboard is by definition whatever the user last copied - routinely a password, a recovery code or a private message - so a row that stored the text would turn the audit trail into a credential store every later reader of the database inherits. \&quot;The operator copied 1.2 KB of text at 14:03\&quot; answers the investigative question; the text answers nothing an investigator needs and costs everything if the database leaks.  Reports are idempotent by &#x60;transfer_id&#x60;, and the device must belong to the caller. This is an attributable controller report, not cryptographic proof from the host that a clipboard sync happened. 
+        /// </summary>
+        /// <exception cref="QuickDesk.Signaling.Client.Client.ApiException">Thrown when fails to make API call</exception>
+        /// <param name="clipboardAuditInput"></param>
+        /// <param name="cancellationToken">Cancellation Token to cancel the request.</param>
+        /// <returns>Task of void</returns>
+        public async System.Threading.Tasks.Task CreateClipboardAuditAsync(ClipboardAuditInput clipboardAuditInput, System.Threading.CancellationToken cancellationToken = default)
+        {
+            await CreateClipboardAuditWithHttpInfoAsync(clipboardAuditInput, cancellationToken).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Report a controller-observed clipboard sync for auditing Clipboard bytes travel directly over the Remoting data channel and never pass through the signaling server. This endpoint lets an authenticated device owner report a clipboard sync after the fact so it appears in the audit trail.  The report carries **metadata only**: direction, MIME type and byte count. There is deliberately no field for the clipboard text. A clipboard is by definition whatever the user last copied - routinely a password, a recovery code or a private message - so a row that stored the text would turn the audit trail into a credential store every later reader of the database inherits. \&quot;The operator copied 1.2 KB of text at 14:03\&quot; answers the investigative question; the text answers nothing an investigator needs and costs everything if the database leaks.  Reports are idempotent by &#x60;transfer_id&#x60;, and the device must belong to the caller. This is an attributable controller report, not cryptographic proof from the host that a clipboard sync happened. 
+        /// </summary>
+        /// <exception cref="QuickDesk.Signaling.Client.Client.ApiException">Thrown when fails to make API call</exception>
+        /// <param name="clipboardAuditInput"></param>
+        /// <param name="cancellationToken">Cancellation Token to cancel the request.</param>
+        /// <returns>Task of ApiResponse</returns>
+        public async System.Threading.Tasks.Task<QuickDesk.Signaling.Client.Client.ApiResponse<Object>> CreateClipboardAuditWithHttpInfoAsync(ClipboardAuditInput clipboardAuditInput, System.Threading.CancellationToken cancellationToken = default)
+        {
+            // verify the required parameter 'clipboardAuditInput' is set
+            if (clipboardAuditInput == null)
+                throw new QuickDesk.Signaling.Client.Client.ApiException(400, "Missing required parameter 'clipboardAuditInput' when calling FileTransfersApi->CreateClipboardAudit");
+
+
+            QuickDesk.Signaling.Client.Client.RequestOptions localVarRequestOptions = new QuickDesk.Signaling.Client.Client.RequestOptions();
+
+            string[] _contentTypes = new string[] {
+                "application/json"
+            };
+
+            // to determine the Accept header
+            string[] _accepts = new string[] {
+                "application/problem+json"
+            };
+
+
+            var localVarContentType = QuickDesk.Signaling.Client.Client.ClientUtils.SelectHeaderContentType(_contentTypes);
+            if (localVarContentType != null) localVarRequestOptions.HeaderParameters.Add("Content-Type", localVarContentType);
+
+            var localVarAccept = QuickDesk.Signaling.Client.Client.ClientUtils.SelectHeaderAccept(_accepts);
+            if (localVarAccept != null) localVarRequestOptions.HeaderParameters.Add("Accept", localVarAccept);
+
+            localVarRequestOptions.Data = clipboardAuditInput;
+
+            // authentication (ApiKeyAuth) required
+            if (!string.IsNullOrEmpty(this.Configuration.GetApiKeyWithPrefix("X-API-Key")))
+            {
+                localVarRequestOptions.HeaderParameters.Add("X-API-Key", this.Configuration.GetApiKeyWithPrefix("X-API-Key"));
+            }
+            // authentication (BearerAuth) required
+            // bearer authentication required
+            if (!string.IsNullOrEmpty(this.Configuration.AccessToken) && !localVarRequestOptions.HeaderParameters.ContainsKey("Authorization"))
+            {
+                localVarRequestOptions.HeaderParameters.Add("Authorization", "Bearer " + this.Configuration.AccessToken);
+            }
+
+            // make the HTTP request
+
+            var localVarResponse = await this.AsynchronousClient.PostAsync<Object>("/v1/me/clipboard-audits", localVarRequestOptions, this.Configuration, cancellationToken).ConfigureAwait(false);
+
+            if (this.ExceptionFactory != null)
+            {
+                Exception _exception = this.ExceptionFactory("CreateClipboardAudit", localVarResponse);
+                if (_exception != null) throw _exception;
+            }
+
+            return localVarResponse;
         }
 
         /// <summary>

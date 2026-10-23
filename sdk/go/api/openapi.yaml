@@ -157,6 +157,48 @@ paths:
       summary: Report a controller-observed file transfer for auditing
       tags:
       - fileTransfers
+  /v1/me/clipboard-audits:
+    post:
+      description: |
+        Clipboard bytes travel directly over the Remoting data channel and never
+        pass through the signaling server. This endpoint lets an authenticated
+        device owner report a clipboard sync after the fact so it appears in the
+        audit trail.
+
+        The report carries **metadata only**: direction, MIME type and byte
+        count. There is deliberately no field for the clipboard text. A clipboard
+        is by definition whatever the user last copied - routinely a password, a
+        recovery code or a private message - so a row that stored the text would
+        turn the audit trail into a credential store every later reader of the
+        database inherits. "The operator copied 1.2 KB of text at 14:03" answers
+        the investigative question; the text answers nothing an investigator
+        needs and costs everything if the database leaks.
+
+        Reports are idempotent by `transfer_id`, and the device must belong to
+        the caller. This is an attributable controller report, not cryptographic
+        proof from the host that a clipboard sync happened.
+      operationId: createClipboardAudit
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClipboardAuditInput"
+        required: true
+      responses:
+        "204":
+          description: The clipboard report is in the audit trail (or was already
+            recorded).
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+      summary: Report a controller-observed clipboard sync for auditing
+      tags:
+      - fileTransfers
   /v1/me/device-groups:
     get:
       description: |
@@ -4044,6 +4086,62 @@ components:
       required:
       - device_id
       - direction
+      - status
+      - transfer_id
+    ClipboardAuditInput:
+      description: |
+        A controller report about one clipboard sync that happened outside the
+        signaling data path. The server stores the action as
+        `clipboard.sync.upload` or `clipboard.sync.download`, the resource as
+        `clipboard_sync/{transfer_id}`, and the fields below as JSON details.
+
+        There is intentionally no field for the clipboard text. See the endpoint
+        description for why that is a property of the contract rather than an
+        omission from it.
+      example:
+        device_id: device_id
+        mime_type: mime_type
+        bytes: 0
+        transfer_id: transfer_id
+        direction: upload
+        status: completed
+      properties:
+        device_id:
+          description: A device owned by the authenticated caller.
+          maxLength: 20
+          minLength: 1
+          type: string
+        transfer_id:
+          description: Stable id used to make retries idempotent.
+          maxLength: 100
+          minLength: 1
+          type: string
+        direction:
+          description: "Which way the clipboard went: upload is controller to host,\
+            \ download is host to controller."
+          enum:
+          - upload
+          - download
+          type: string
+        status:
+          enum:
+          - completed
+          - failed
+          type: string
+        mime_type:
+          description: "The clipboard format, e.g. `text/plain`. Metadata only."
+          maxLength: 100
+          minLength: 1
+          type: string
+        bytes:
+          description: Size of the payload that crossed the data channel.
+          format: int64
+          minimum: 0
+          type: integer
+      required:
+      - device_id
+      - direction
+      - mime_type
       - status
       - transfer_id
     SessionRecordingInput:

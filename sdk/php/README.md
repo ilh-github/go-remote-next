@@ -147,6 +147,7 @@ Class | Method | HTTP request | Description
 *DevicesApi* | [**revokeAccessGrant**](docs/Api/DevicesApi.md#revokeaccessgrant) | **DELETE** /v1/me/devices/{device_id}/access-grants/{grant_id} | Revoke a guest access code
 *DevicesApi* | [**unbanDeviceAccessSource**](docs/Api/DevicesApi.md#unbandeviceaccesssource) | **POST** /v1/me/devices/{device_id}/access-bans:remove | Remove one permanent source ban
 *DevicesApi* | [**verifyAccessCode**](docs/Api/DevicesApi.md#verifyaccesscode) | **POST** /v1/devices/{device_id}/access-code:verify | Verify a device access code and mint a signal token
+*FileTransfersApi* | [**createClipboardAudit**](docs/Api/FileTransfersApi.md#createclipboardaudit) | **POST** /v1/me/clipboard-audits | Report a controller-observed clipboard sync for auditing
 *FileTransfersApi* | [**createFileTransferAudit**](docs/Api/FileTransfersApi.md#createfiletransferaudit) | **POST** /v1/me/file-transfer-audits | Report a controller-observed file transfer for auditing
 *MeApi* | [**getMe**](docs/Api/MeApi.md#getme) | **GET** /v1/me | The authenticated user
 *NotificationsApi* | [**deleteMetricAlert**](docs/Api/NotificationsApi.md#deletemetricalert) | **DELETE** /v1/me/devices/{device_id}/metric-alert | Delete the owner&#39;s metric alert rule
@@ -197,6 +198,7 @@ Class | Method | HTTP request | Description
 - [ApproveAccessApprovalRequest](docs/Model/ApproveAccessApprovalRequest.md)
 - [AuthSessionRequest](docs/Model/AuthSessionRequest.md)
 - [AuthSessionResponse](docs/Model/AuthSessionResponse.md)
+- [ClipboardAuditInput](docs/Model/ClipboardAuditInput.md)
 - [DeleteMyDeviceGroup200Response](docs/Model/DeleteMyDeviceGroup200Response.md)
 - [Device](docs/Model/Device.md)
 - [DeviceAccessBanRequest](docs/Model/DeviceAccessBanRequest.md)

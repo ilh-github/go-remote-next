@@ -22,6 +22,179 @@ import (
 // FileTransfersAPIService FileTransfersAPI service
 type FileTransfersAPIService service
 
+type ApiCreateClipboardAuditRequest struct {
+	ctx context.Context
+	ApiService *FileTransfersAPIService
+	clipboardAuditInput *ClipboardAuditInput
+}
+
+func (r ApiCreateClipboardAuditRequest) ClipboardAuditInput(clipboardAuditInput ClipboardAuditInput) ApiCreateClipboardAuditRequest {
+	r.clipboardAuditInput = &clipboardAuditInput
+	return r
+}
+
+func (r ApiCreateClipboardAuditRequest) Execute() (*http.Response, error) {
+	return r.ApiService.CreateClipboardAuditExecute(r)
+}
+
+/*
+CreateClipboardAudit Report a controller-observed clipboard sync for auditing
+
+Clipboard bytes travel directly over the Remoting data channel and never
+pass through the signaling server. This endpoint lets an authenticated
+device owner report a clipboard sync after the fact so it appears in the
+audit trail.
+
+The report carries **metadata only**: direction, MIME type and byte
+count. There is deliberately no field for the clipboard text. A clipboard
+is by definition whatever the user last copied - routinely a password, a
+recovery code or a private message - so a row that stored the text would
+turn the audit trail into a credential store every later reader of the
+database inherits. "The operator copied 1.2 KB of text at 14:03" answers
+the investigative question; the text answers nothing an investigator
+needs and costs everything if the database leaks.
+
+Reports are idempotent by `transfer_id`, and the device must belong to
+the caller. This is an attributable controller report, not cryptographic
+proof from the host that a clipboard sync happened.
+
+
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @return ApiCreateClipboardAuditRequest
+*/
+func (a *FileTransfersAPIService) CreateClipboardAudit(ctx context.Context) ApiCreateClipboardAuditRequest {
+	return ApiCreateClipboardAuditRequest{
+		ApiService: a,
+		ctx: ctx,
+	}
+}
+
+// Execute executes the request
+func (a *FileTransfersAPIService) CreateClipboardAuditExecute(r ApiCreateClipboardAuditRequest) (*http.Response, error) {
+	var (
+		localVarHTTPMethod   = http.MethodPost
+		localVarPostBody     interface{}
+		formFiles            []formFile
+	)
+
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "FileTransfersAPIService.CreateClipboardAudit")
+	if err != nil {
+		return nil, &GenericOpenAPIError{error: err.Error()}
+	}
+
+	localVarPath := localBasePath + "/v1/me/clipboard-audits"
+
+	localVarHeaderParams := make(map[string]string)
+	localVarQueryParams := url.Values{}
+	localVarFormParams := url.Values{}
+	if r.clipboardAuditInput == nil {
+		return nil, reportError("clipboardAuditInput is required and must be specified")
+	}
+
+	// to determine the Content-Type header
+	localVarHTTPContentTypes := []string{"application/json"}
+
+	// set Content-Type header
+	localVarHTTPContentType := selectHeaderContentType(localVarHTTPContentTypes)
+	if localVarHTTPContentType != "" {
+		localVarHeaderParams["Content-Type"] = localVarHTTPContentType
+	}
+
+	// to determine the Accept header
+	localVarHTTPHeaderAccepts := []string{"application/problem+json"}
+
+	// set Accept header
+	localVarHTTPHeaderAccept := selectHeaderAccept(localVarHTTPHeaderAccepts)
+	if localVarHTTPHeaderAccept != "" {
+		localVarHeaderParams["Accept"] = localVarHTTPHeaderAccept
+	}
+	// body params
+	localVarPostBody = r.clipboardAuditInput
+	if r.ctx != nil {
+		// API Key Authentication
+		if auth, ok := r.ctx.Value(ContextAPIKeys).(map[string]APIKey); ok {
+			if apiKey, ok := auth["ApiKeyAuth"]; ok {
+				var key string
+				if apiKey.Prefix != "" {
+					key = apiKey.Prefix + " " + apiKey.Key
+				} else {
+					key = apiKey.Key
+				}
+				localVarHeaderParams["X-API-Key"] = key
+			}
+		}
+	}
+	req, err := a.client.prepareRequest(r.ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, formFiles)
+	if err != nil {
+		return nil, err
+	}
+
+	localVarHTTPResponse, err := a.client.callAPI(req)
+	if err != nil || localVarHTTPResponse == nil {
+		return localVarHTTPResponse, err
+	}
+
+	localVarBody, err := io.ReadAll(localVarHTTPResponse.Body)
+	localVarHTTPResponse.Body.Close()
+	localVarHTTPResponse.Body = io.NopCloser(bytes.NewBuffer(localVarBody))
+	if err != nil {
+		return localVarHTTPResponse, err
+	}
+
+	if localVarHTTPResponse.StatusCode >= 300 {
+		newErr := &GenericOpenAPIError{
+			body:  localVarBody,
+			error: localVarHTTPResponse.Status,
+		}
+		if localVarHTTPResponse.StatusCode == 400 {
+			var v Problem
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+			return localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 401 {
+			var v Problem
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+			return localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 403 {
+			var v Problem
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+			return localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 404 {
+			var v Problem
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarHTTPResponse, newErr
+			}
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
+		}
+		return localVarHTTPResponse, newErr
+	}
+
+	return localVarHTTPResponse, nil
+}
+
 type ApiCreateFileTransferAuditRequest struct {
 	ctx context.Context
 	ApiService *FileTransfersAPIService
