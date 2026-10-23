@@ -82,6 +82,9 @@ struct RecordingState {
 pub struct WorkflowStore {
     storage_dir: PathBuf,
     runs_dir: PathBuf,
+    /// Where parked runs leave their handover. Sits beside the run reports so
+    /// a store and its resume points always move together.
+    resume_points: PathBuf,
     active_recordings: Arc<Mutex<HashMap<String, RecordingState>>>,
 }
 
@@ -96,10 +99,14 @@ impl WorkflowStore {
         let runs_dir = dir.with_file_name("workflow-runs");
         std::fs::create_dir_all(&runs_dir)
             .map_err(|e| format!("cannot create workflow run dir: {e}"))?;
+        let resume_dir = dir.with_file_name("workflow-resume");
+        std::fs::create_dir_all(&resume_dir)
+            .map_err(|e| format!("cannot create workflow resume dir: {e}"))?;
         info!("WorkflowStore at {}", dir.display());
         Ok(Self {
             storage_dir: dir,
             runs_dir,
+            resume_points: resume_dir.join("resume-points.json"),
             active_recordings: Arc::new(Mutex::new(HashMap::new())),
         })
     }
@@ -336,6 +343,57 @@ impl WorkflowStore {
             .map_err(|e| format!("serialize workflow run: {e}"))?;
         let path = self.runs_dir.join(format!("{}.json", report.run_id));
         std::fs::write(path, data).map_err(|e| format!("write workflow run: {e}"))
+    }
+
+    /// Leaves a handover for a parked run.
+    ///
+    /// Called when a replay parks on a screen mismatch. A failure here is not
+    /// fatal to the run - the report is already saved - but losing the
+    /// handover costs the operator their position, so it is reported.
+    pub fn record_resume_point(
+        &self,
+        point: &crate::recovery::ResumePoint,
+    ) -> Result<(), String> {
+        let mut points = self.load_resume_points()?;
+        points.retain(|existing| existing.run_id != point.run_id);
+        points.push(point.clone());
+        self.write_resume_points(&points)
+    }
+
+    /// The most recent handover, for an operator asking where a parked run
+    /// stopped.
+    pub fn latest_resume_point(&self) -> Option<crate::recovery::ResumePoint> {
+        let mut points = self.load_resume_points().ok()?;
+        points.sort_by(|left, right| left.run_id.cmp(&right.run_id));
+        points.pop()
+    }
+
+    /// Drops the handover for a run that has been resumed or abandoned.
+    pub fn clear_resume_point(&self, run_id: &str) {
+        let Ok(mut points) = self.load_resume_points() else {
+            return;
+        };
+        let before = points.len();
+        points.retain(|existing| existing.run_id != run_id);
+        if points.len() != before {
+            let _ = self.write_resume_points(&points);
+        }
+    }
+
+    fn load_resume_points(&self) -> Result<Vec<crate::recovery::ResumePoint>, String> {
+        if !self.resume_points.exists() {
+            return Ok(Vec::new());
+        }
+        let data = std::fs::read_to_string(&self.resume_points)
+            .map_err(|error| format!("read resume points: {error}"))?;
+        serde_json::from_str(&data).map_err(|error| format!("parse resume points: {error}"))
+    }
+
+    fn write_resume_points(&self, points: &[crate::recovery::ResumePoint]) -> Result<(), String> {
+        let json = serde_json::to_string_pretty(points)
+            .map_err(|error| format!("encode resume points: {error}"))?;
+        std::fs::write(&self.resume_points, json)
+            .map_err(|error| format!("write resume points: {error}"))
     }
 
     pub fn get_run_report(&self, run_id: &str) -> Option<WorkflowRunReport> {

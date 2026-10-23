@@ -6,6 +6,7 @@ mod event_bus;
 mod http_transport;
 mod idempotency;
 mod memory;
+mod recovery;
 mod server;
 mod trigger;
 mod trust;

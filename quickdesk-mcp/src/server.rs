@@ -832,6 +832,9 @@ impl QuickDeskMcpServer {
                     }
                 }
                 if let ExpectationOutcome::Mismatched { .. } = outcome {
+                    // Leave a handover before parking: the operator who fixes
+                    // the screen should continue from here rather than re-run
+                    // the whole workflow.
                     step_results.push(StepRunResult {
                         seq: step.seq,
                         tool_name: step.tool_name.clone(),
@@ -842,6 +845,20 @@ impl QuickDeskMcpServer {
                         error: expectation_mismatch_reason(step.seq, &outcome, retries, retries),
                         duration_ms: step_started.elapsed().as_millis() as u64,
                     });
+                    // Leave the handover after the step result is recorded, so
+                    // the point is derived from the same data the report shows
+                    // rather than duplicated here.
+                    if let Some(point) = crate::recovery::ResumePoint::from_report(
+                        &run_id,
+                        workflow_id,
+                        device_id,
+                        overrides.clone(),
+                        stop_on_failure,
+                        total,
+                        &step_results,
+                    ) {
+                        self.record_resume_point(&point);
+                    }
                     break;
                 }
             }
@@ -949,6 +966,20 @@ impl QuickDeskMcpServer {
         );
         self.state.workflow.save_run_report(&report)?;
         Ok(report)
+    }
+
+    /// Records where a parked run stopped so a human can take over from it.
+    ///
+    /// Best-effort by design: the run report is already saved by the time this
+    /// runs, and failing the replay because the handover could not be written
+    /// would turn a recoverable park into a lost run.
+    fn record_resume_point(&self, point: &crate::recovery::ResumePoint) {
+        if let Err(error) = self.state.workflow.record_resume_point(point) {
+            tracing::warn!(
+                run_id = %point.run_id,
+                "cannot record resume point for parked run: {error}"
+            );
+        }
     }
 }
 
@@ -2915,5 +2946,141 @@ mod tests {
                 observed: String::new(),
             },
         );
+    }
+}
+
+#[cfg(test)]
+mod resume_tests {
+    use super::*;
+    use crate::memory::MemoryStore;
+    use crate::trust::TrustEngine;
+    use crate::workflow::WorkflowStore;
+    use crate::ws_client::WsClient;
+
+    fn store_in_temp() -> (WorkflowStore, std::path::PathBuf) {
+        let temp = std::env::temp_dir().join(format!("quickdesk-resume-srv-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&temp).unwrap();
+        (WorkflowStore::with_storage_dir(temp.join("workflows")), temp)
+    }
+
+    // The core guarantee: a run that parks leaves a handover an operator can
+    // continue from, and it survives the store being reopened.
+    #[test]
+    fn a_parked_run_leaves_a_resumable_handover() {
+        let (store, temp) = store_in_temp();
+        let point = crate::recovery::ResumePoint {
+            run_id: "run-parked".to_string(),
+            workflow_id: "wf-1".to_string(),
+            device_id: "device-1".to_string(),
+            parked_step: 3,
+            total_steps: 6,
+            reason: "step 3 screen state did not match".to_string(),
+            overrides: HashMap::new(),
+            stop_on_failure: true,
+        };
+        store.record_resume_point(&point).unwrap();
+
+        let reopened = WorkflowStore::with_storage_dir(temp.join("workflows"));
+        let latest = reopened
+            .latest_resume_point()
+            .expect("a parked run must leave a handover");
+        assert_eq!(latest.run_id, "run-parked");
+        assert_eq!(latest.parked_step, 3);
+        assert!(latest.reason.contains("did not match"));
+
+        let _ = std::fs::remove_dir_all(temp);
+    }
+
+    // A run that was resumed must not keep offering its stale handover.
+    #[test]
+    fn a_resumed_run_drops_its_handover() {
+        let (store, temp) = store_in_temp();
+        let point = crate::recovery::ResumePoint {
+            run_id: "run-resumed".to_string(),
+            workflow_id: "wf-1".to_string(),
+            device_id: "device-1".to_string(),
+            parked_step: 2,
+            total_steps: 6,
+            reason: "screen state did not match".to_string(),
+            overrides: HashMap::new(),
+            stop_on_failure: true,
+        };
+        store.record_resume_point(&point).unwrap();
+        assert!(store.latest_resume_point().is_some());
+
+        store.clear_resume_point("run-resumed");
+        assert!(store.latest_resume_point().is_none());
+
+        let _ = std::fs::remove_dir_all(temp);
+    }
+
+    // The handover must not outlive the workflow it belongs to: re-parking the
+    // same run replaces the point instead of stacking a second one.
+    #[test]
+    fn reparking_the_same_run_replaces_its_handover() {
+        let (store, temp) = store_in_temp();
+        let base = crate::recovery::ResumePoint {
+            run_id: "run-repark".to_string(),
+            workflow_id: "wf-1".to_string(),
+            device_id: "device-1".to_string(),
+            parked_step: 2,
+            total_steps: 6,
+            reason: "first park".to_string(),
+            overrides: HashMap::new(),
+            stop_on_failure: true,
+        };
+        store.record_resume_point(&base).unwrap();
+        let moved = crate::recovery::ResumePoint {
+            parked_step: 5,
+            reason: "second park".to_string(),
+            ..base
+        };
+        store.record_resume_point(&moved).unwrap();
+
+        let latest = store.latest_resume_point().expect("handover should exist");
+        assert_eq!(latest.parked_step, 5);
+        assert_eq!(latest.reason, "second park");
+
+        let _ = std::fs::remove_dir_all(temp);
+    }
+
+    // A server built over a store with a handover can read it back, which is
+    // what a human-takeover tool would do.
+    #[tokio::test]
+    async fn a_server_can_read_back_a_parked_handover() {
+        let temp = std::env::temp_dir().join(format!("quickdesk-resume-srv-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&temp).unwrap();
+        let workflows = WorkflowStore::with_storage_dir(temp.join("workflows"));
+        workflows
+            .record_resume_point(&crate::recovery::ResumePoint {
+                run_id: "run-read".to_string(),
+                workflow_id: "wf-1".to_string(),
+                device_id: "device-1".to_string(),
+                parked_step: 4,
+                total_steps: 8,
+                reason: "screen state did not match".to_string(),
+                overrides: HashMap::new(),
+                stop_on_failure: true,
+            })
+            .unwrap();
+
+        let server = QuickDeskMcpServer::new(
+            WsClient::disconnected(),
+            Vec::new(),
+            Arc::new(SharedState {
+                memory: MemoryStore::with_db_path(temp.join("memory.db")).unwrap(),
+                workflow: workflows,
+                trust: TrustEngine::with_db_path(temp.join("trust.db")).unwrap(),
+            }),
+        );
+
+        let latest = server
+            .state
+            .workflow
+            .latest_resume_point()
+            .expect("the server should see the parked handover");
+        assert_eq!(latest.parked_step, 4);
+
+        let _ = std::fs::remove_dir_all(temp);
     }
 }

@@ -188,6 +188,10 @@ pub fn router(runtime: TriggerRuntime) -> Router {
             post(revoke_delegation),
         )
         .route(
+            "/v1/workflow-runs/resume-point",
+            get(get_resume_point).delete(clear_resume_point),
+        )
+        .route(
             "/v1/triggers/{trigger_id}",
             axum::routing::delete(delete_trigger),
         )
@@ -859,6 +863,61 @@ async fn revoke_delegation(
     }
 }
 
+/// Where the last parked run stopped, so an operator can take over from it.
+///
+/// 404 when nothing is parked: an operator polling this endpoint must be able
+/// to tell "no run is waiting for me" from "the server lost the handover".
+async fn get_resume_point(
+    State(state): State<TriggerState>,
+    headers: HeaderMap,
+) -> Response {
+    if let Err(error) = authorize_request(&state, &headers) {
+        return auth_error_response(error);
+    }
+    let Some(point) = state.shared_state.workflow.latest_resume_point() else {
+        return error_response(StatusCode::NOT_FOUND, "no parked workflow run");
+    };
+    // The run's own total wins: the workflow may have been edited or deleted
+    // since the run parked, and re-reading it would answer a different
+    // question than "could this run have continued".
+    let total = if point.total_steps > 0 {
+        point.total_steps
+    } else {
+        state
+            .shared_state
+            .workflow
+            .get_workflow(&point.workflow_id)
+            .map(|workflow| workflow.steps.len() as u32)
+            .unwrap_or(0)
+    };
+    Json(json!({
+        "resume_point": point,
+        // Whether resuming would run anything at all. A point parked on the
+        // final step has nothing left, and an operator should hear that here
+        // rather than discover it after accepting a resume that completes
+        // immediately.
+        "has_remaining_steps": point.has_remaining_steps(total),
+        "total_steps": total,
+    }))
+    .into_response()
+}
+
+/// Drops the handover once the operator has taken over, so a stale position is
+/// not offered again after the run has moved on.
+async fn clear_resume_point(
+    State(state): State<TriggerState>,
+    headers: HeaderMap,
+) -> Response {
+    if let Err(error) = authorize_request(&state, &headers) {
+        return auth_error_response(error);
+    }
+    let Some(point) = state.shared_state.workflow.latest_resume_point() else {
+        return error_response(StatusCode::NOT_FOUND, "no parked workflow run");
+    };
+    state.shared_state.workflow.clear_resume_point(&point.run_id);
+    StatusCode::NO_CONTENT.into_response()
+}
+
 /// The identity a saved trigger runs as.
 ///
 /// An explicitly bound subject wins; otherwise the trigger runs as itself so
@@ -1329,6 +1388,130 @@ mod tests {
             authorization.parse().unwrap(),
         );
         headers
+    }
+
+    // The operator-facing surface: a parked run is discoverable over HTTP, and
+    // taking over clears it so the stale position is not offered twice.
+    #[tokio::test]
+    async fn a_parked_run_is_discoverable_and_clearable_over_http() {
+        let temp = std::env::temp_dir().join(format!("quickdesk-trigger-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&temp).unwrap();
+        let workflows = WorkflowStore::with_storage_dir(temp.join("workflows"));
+        workflows
+            .record_resume_point(&crate::recovery::ResumePoint {
+                run_id: "run-http".to_string(),
+                workflow_id: "wf-1".to_string(),
+                device_id: "device-1".to_string(),
+                parked_step: 3,
+                total_steps: 6,
+                reason: "screen state did not match".to_string(),
+                overrides: HashMap::new(),
+                stop_on_failure: true,
+            })
+            .unwrap();
+
+        let shared = Arc::new(SharedState {
+            memory: MemoryStore::with_db_path(temp.join("memory.db")).unwrap(),
+            workflow: workflows,
+            trust: TrustEngine::with_db_path(temp.join("trust.db")).unwrap(),
+        });
+        let slots = Arc::new(Semaphore::new(1));
+        let jobs = test_jobs(
+            &temp,
+            WsClient::disconnected(),
+            shared.clone(),
+            slots.clone(),
+        );
+        let app = router(TriggerRuntime {
+            token: Some("business-secret".to_string()),
+            ws: WsClient::disconnected(),
+            shared_state: shared,
+            allowed_devices: Vec::new(),
+            run_slots: slots,
+            triggers: WorkflowTriggerStore::with_storage_dir(temp.join("triggers")),
+            idempotency: WorkflowIdempotencyStore::with_storage_path(temp.join("idempotency.json")),
+            delegation: DelegationStore::from_path(temp.join("delegation-grants.json")).unwrap(),
+            delegation_required: false,
+            jobs,
+        });
+
+        let request = Request::builder()
+            .uri("/v1/workflow-runs/resume-point")
+            .header("Authorization", "Bearer business-secret")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+        let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(payload["resume_point"]["run_id"], "run-http");
+        assert_eq!(payload["resume_point"]["parked_step"], 3);
+        // Parked on step 3 of 6, so there is something to resume and the
+        // endpoint says so.
+        assert_eq!(payload["has_remaining_steps"], true);
+        assert_eq!(payload["total_steps"], 6);
+
+        // Taking over clears the handover.
+        let request = Request::builder()
+            .method("DELETE")
+            .uri("/v1/workflow-runs/resume-point")
+            .header("Authorization", "Bearer business-secret")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+
+        let request = Request::builder()
+            .uri("/v1/workflow-runs/resume-point")
+            .header("Authorization", "Bearer business-secret")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+        let _ = std::fs::remove_dir_all(temp);
+    }
+
+    // With nothing parked the endpoint must say so rather than inventing a
+    // position an operator would resume from.
+    #[tokio::test]
+    async fn no_parked_run_reports_nothing_to_resume() {
+        let temp = std::env::temp_dir().join(format!("quickdesk-trigger-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&temp).unwrap();
+        let shared = Arc::new(SharedState {
+            memory: MemoryStore::with_db_path(temp.join("memory.db")).unwrap(),
+            workflow: WorkflowStore::with_storage_dir(temp.join("workflows")),
+            trust: TrustEngine::with_db_path(temp.join("trust.db")).unwrap(),
+        });
+        let slots = Arc::new(Semaphore::new(1));
+        let jobs = test_jobs(
+            &temp,
+            WsClient::disconnected(),
+            shared.clone(),
+            slots.clone(),
+        );
+        let app = router(TriggerRuntime {
+            token: Some("business-secret".to_string()),
+            ws: WsClient::disconnected(),
+            shared_state: shared,
+            allowed_devices: Vec::new(),
+            run_slots: slots,
+            triggers: WorkflowTriggerStore::with_storage_dir(temp.join("triggers")),
+            idempotency: WorkflowIdempotencyStore::with_storage_path(temp.join("idempotency.json")),
+            delegation: DelegationStore::from_path(temp.join("delegation-grants.json")).unwrap(),
+            delegation_required: false,
+            jobs,
+        });
+
+        let request = Request::builder()
+            .uri("/v1/workflow-runs/resume-point")
+            .header("Authorization", "Bearer business-secret")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+        let _ = std::fs::remove_dir_all(temp);
     }
 
     #[tokio::test]
