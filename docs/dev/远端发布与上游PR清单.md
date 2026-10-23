@@ -22,7 +22,7 @@
 - 2026-10-23 16:10 `git push origin dev master` 成功：远端 `dev` 与 `master` 均到达
   `1ad0b85`（QD-511 park 的 run 可被人工接管），本地 `dev` / `master` 已同步
 - 2026-10-24 08:20 `git push origin dev master` 成功：远端 `dev` 与 `master` 均到达
-  `HEAD`（QD-315 控制端画笔标注与观看端共享），本地 `dev` / `master` 已同步
+  `fce1bf5`（QD-315 控制端画笔标注与观看端共享），本地 `dev` / `master` 已同步
 - 2026-10-24 05:10 `git push origin dev master` 成功：远端 `dev` 与 `master` 均到达
   `5b739a9`（QD-610 跨机器分布式执行队列），本地 `dev` / `master`
   已同步（`git rev-list --left-right --count origin/dev...dev` = `0 0`）
