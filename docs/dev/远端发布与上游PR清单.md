@@ -17,10 +17,13 @@
   Playwright E2E 为 `830a469`、`2ab09d5`；领先数量和当前文档提交以
   `git rev-list --count origin/dev..dev`、`git rev-parse HEAD` 的实时值为准；
   QD-004 僵死录制显式终态补 `ended_at` 的提交为 `f19db63`
-- fork 远端：`origin/dev` 与 `origin/master` 当前均为 `b681083`
+- fork 远端：`origin/dev` 与 `origin/master` 当前均为 `3858f11`
 - 本地 `dev` / `master` 已同步，均领先各自远端；每次发布前重新核对实时数量
 - 2026-10-23 16:10 `git push origin dev master` 成功：远端 `dev` 与 `master` 均到达
   `1ad0b85`（QD-511 park 的 run 可被人工接管），本地 `dev` / `master` 已同步
+- 2026-10-24 00:20 `git push origin dev master` 成功：远端 `dev` 与 `master` 均到达
+  `3858f11`（QD-314 控制权设置入口与真机双控 E2E），本地 `dev` / `master`
+  已同步（`git rev-list --left-right --count origin/dev...dev` = `0 0`）
 - 2026-10-23 20:05 `git push origin dev master` 成功：远端 `dev` 与 `master` 均到达
   `d435c6f`（QD-314 多人同时控制的控制权模型与冲突策略），本地 `dev` / `master`
   已同步（`git rev-list --left-right --count origin/dev...dev` = `0 0`）

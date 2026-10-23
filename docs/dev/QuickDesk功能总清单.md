@@ -43,11 +43,11 @@
 
 - 仓库：`go-remote-next`
 - 本地主分支：`dev`、`master`
-- 本地代码基线：`d435c6f`（QD-004 artifact 摘要校验：上传字节的 SHA-256 与声明值不符即拒绝且不落库；`2c3ca9b` 的 QD-005/QD-808 打包门禁：Release 默认强制公证，Debug 保持宽松；`2062b95` 的 QD-004 服务端半边补齐：一次性上传票据可实际用于上传，且绑 session 防跨会话写入；`f365e1b` 的一次性上传票据；`1ad0b85` 的 QD-511 人工接管：park 的 run 留下 resume point，operator 可查询、接管和清除；`97b8619` 的 QD-610 Owner 委托权限：Owner 可签发带 workflow/设备范围、步骤上限和禁权工具的委托 grant；`2848be5` 的公平调度：异步工作流按提交方轮转；`a1d34c5` 的账号会话撤销事件全部迁入事务 outbox；本轮之前的
+- 本地代码基线：`3858f11`（QD-004 artifact 摘要校验：上传字节的 SHA-256 与声明值不符即拒绝且不落库；`2c3ca9b` 的 QD-005/QD-808 打包门禁：Release 默认强制公证，Debug 保持宽松；`2062b95` 的 QD-004 服务端半边补齐：一次性上传票据可实际用于上传，且绑 session 防跨会话写入；`f365e1b` 的一次性上传票据；`1ad0b85` 的 QD-511 人工接管：park 的 run 留下 resume point，operator 可查询、接管和清除；`97b8619` 的 QD-610 Owner 委托权限：Owner 可签发带 workflow/设备范围、步骤上限和禁权工具的委托 grant；`2848be5` 的公平调度：异步工作流按提交方轮转；`a1d34c5` 的账号会话撤销事件全部迁入事务 outbox；本轮之前的
   `314c73b` 先让改密码路径的 `session.revoked` 可恢复；更早的 `cddc0db` 为管理端设备、
   来源封禁与 TURN 配置事务 outbox 及在线状态离线事件迁移；QD-907 重连 Playwright E2E；
   QD-904 设备页、屏幕墙、文件管理器、真实多标签和真实自托管 SignalingServer E2E；
-  QD-908 多观看端 soak 门禁）；`origin/dev` 与 `origin/master` 已同步到 `d435c6f`，
+  QD-908 多观看端 soak 门禁）；`origin/dev` 与 `origin/master` 已同步到 `3858f11`，
   本地领先数量以 `git rev-list --count origin/dev..dev` 的实时值为准
 - 上游基线：`barry-ran/QuickDesk` 的 `dev` = `5db316c`，`master` = `f6651f0`
 - 上游维护口径：持续维护但暂缓更新，下一阶段重点偏 MCP；外部贡献从 `dev` 切分支，完成后合入 `dev`，维护者定期合入 `master`
@@ -823,7 +823,7 @@ fork 是否能继续开发，也不能因为 fork 自己有实现就再次向 up
 | QD-311 | 自适应帧率、码率和质量 | `[x]` | 已有画质/延迟指标 |
 | QD-312 | 远端音频播放和静音 | `[x]` | WebClient 和 Qt 已有 |
 | QD-313 | 多标签控制与音频抢占 | `[x]` | BroadcastChannel + localStorage fallback；浏览器双标签实测通过 |
-| QD-314 | 多人同时控制 | `[~]` | `d435c6f` 已落控制权模型与冲突策略：设备可设 `control_mode=exclusive`，信令服务器是唯一权威，持锁者收 `control_grant`、被抢占者收 `control_revoked`（含新持有者），WebClient 收到即停止注入输入；默认 `shared` 保持既有行为，`max_sessions` 仍独立管「能看」，`control_mode` 管「能控」。剩余：WebClient 策略设置入口、Qt 侧消费和真机双控 E2E |
+| QD-314 | 多人同时控制 | `[~]` | `d435c6f` 已落控制权模型与冲突策略：设备可设 `control_mode=exclusive`，信令服务器是唯一权威，持锁者收 `control_grant`、被抢占者收 `control_revoked`（含新持有者），WebClient 收到即停止注入输入；默认 `shared` 保持既有行为，`max_sessions` 仍独立管「能看」，`control_mode` 管「能控」。WebClient 策略设置入口已补：设备行的控制权对话框读真实策略、只在实际变更时启用保存，并经 `PUT /access-policy` 全量提交（该端点是整体替换，所以表单带回整份策略，否则一次单字段保存会把 IP 列表、会话上限、时间窗和审批设置一起清掉）；真机双控 E2E 已补：`control-mode.e2e.mjs` 走真实登录与 HTTP 断言其余字段存活，`control-grant.e2e.mjs` 开两个真实 client 信令 socket 观察线上抢占——第二个控制器收到 `control_grant`，第一个收到带新持有者的 `control_revoked`；shared 模式两人都发且谁都不通知；持有者断开后机器恢复可控。剩余：Qt 客户端不消费这两个帧（信令 WS 由预编译 Chromium Remoting 持有，改它需动 Remoting，与 QD-214 同边界） |
 | QD-315 | 画笔标注 | `[ ]` | 需要共享标注画布 |
 | QD-316 | 文字聊天 | `[x]` | 复用 `qd-skill-bridge` 的内建 `session_chat`；Qt/Web 支持双向短消息、ACK、未读和 4000 字边界，不持久化 |
 | QD-317 | 自定义采集/编码插件 | `[ ]` | 暂不优先 |
