@@ -485,6 +485,13 @@ func (h *SessionRecordingHandler) storeArtifact(c *gin.Context, uid uint) {
 			ProblemNotFound(c, ProblemCodeNotFound, "Recording not found")
 			return
 		}
+		// A refused digest is the caller's problem, not the server's: the bytes
+		// they sent do not hash to what they declared, so this is a 400.
+		if errors.Is(err, service.ErrArtifactDigestMismatch) ||
+			errors.Is(err, service.ErrArtifactDigestMalformed) {
+			ProblemBadRequest(c, ProblemCodeInvalidRequest, err.Error())
+			return
+		}
 		ProblemInternal(c, err.Error())
 		return
 	}
@@ -507,6 +514,14 @@ func (h *SessionRecordingHandler) finalizeArtifact(
 	ext string,
 	size int64,
 ) (*models.SessionRecording, error) {
+	// The digest is checked against the temporary file, before the rename: a
+	// refused upload leaves nothing behind, and the row is never touched. A Host
+	// is the only party that ever saw the media, so this is the server's one
+	// chance to notice a truncated or corrupted transfer.
+	if err := service.VerifyArtifactDigest(tmp, c.GetHeader("X-Artifact-Sha256")); err != nil {
+		os.Remove(tmp)
+		return nil, err
+	}
 	if err := os.Rename(tmp, dest); err != nil {
 		os.Remove(tmp)
 		return nil, err

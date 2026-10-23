@@ -3,6 +3,8 @@ package handler
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -278,5 +280,70 @@ func TestUploadTicketRefusesADifferentSessionsRecording(t *testing.T) {
 	}
 	if beta.ArtifactPath != "" {
 		t.Fatalf("beta recording gained an artifact path %q", beta.ArtifactPath)
+	}
+}
+// A Host that declares a digest and sends different bytes must be refused, and
+// the recording must stay unattached. The digest check is the server's only
+// chance to notice a corrupt transfer, because the Host is the only party that
+// ever saw the media.
+func TestTicketUploadRefusesADigestMismatch(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, _, store := newUploadTicketStack(t, "sess-alpha")
+
+	const userID = uint(9203)
+	if err := db.Create(&models.User{
+		ID:       userID,
+		Username: "upload-ticket-digest",
+		Password: "test-hash",
+	}).Error; err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	if err := db.Create(&models.SessionRecording{
+		ID:        6,
+		UserID:    userID,
+		DeviceID:  "900000006",
+		SessionID: "sess-alpha",
+		Status:    "recording",
+	}).Error; err != nil {
+		t.Fatalf("seed recording: %v", err)
+	}
+
+	handler := NewSessionRecordingHandler(
+		service.NewSessionRecordingService(db),
+		nil,
+		SessionRecordingStore{Dir: t.TempDir(), URLSecret: "test-secret"},
+		service.NewAuditService(db),
+	).WithUploadTickets(store)
+
+	ticket, _, err := store.IssueForSession(6, userID, "sess-alpha", 5*60*1_000_000_000)
+	if err != nil {
+		t.Fatalf("IssueForSession(): %v", err)
+	}
+
+	router := gin.New()
+	router.PUT("/v1/recordings/:id/artifact", handler.UploadArtifactByTicket)
+
+	declared := sha256.Sum256([]byte("declared-bytes"))
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(
+		http.MethodPut,
+		"/v1/recordings/6/artifact?t="+ticket+"&ext=.h264",
+		bytes.NewReader([]byte("actual-bytes")),
+	)
+	request.Header.Set("Content-Type", "application/octet-stream")
+	request.Header.Set("Upload-Offset", "0")
+	request.Header.Set("X-Artifact-Sha256", hex.EncodeToString(declared[:]))
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body = %s", recorder.Code, recorder.Body.String())
+	}
+
+	var row models.SessionRecording
+	if err := db.First(&row, 6).Error; err != nil {
+		t.Fatalf("load recording: %v", err)
+	}
+	if row.ArtifactPath != "" {
+		t.Fatalf("recording gained artifact_path %q despite the digest mismatch", row.ArtifactPath)
 	}
 }

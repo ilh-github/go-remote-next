@@ -2,7 +2,10 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -619,6 +622,72 @@ func formatUintID(v uint) string {
 	return string(buf[i:])
 }
 
+// ErrArtifactDigestMismatch means the bytes on disk do not hash to the digest
+// the uploader declared. Callers map it onto a 400, not a 500: the transfer is
+// what failed, not the server.
+var ErrArtifactDigestMismatch = errors.New("artifact digest does not match the uploaded bytes")
+
+// ErrArtifactDigestMalformed means the declared digest is not a hex-encoded
+// SHA-256. A caller that sends this is misbehaving, and treating it as "no
+// digest declared" would silently defeat the check.
+var ErrArtifactDigestMalformed = errors.New("artifact digest is not a hex-encoded SHA-256")
+
+// ArtifactDigest hashes a stored artifact and reports its size.
+//
+// QD-004 requires the server to verify what it received before attaching it: a
+// Host uploads media the server has never seen, so a truncated or corrupted
+// transfer must not become a playable recording. Hashing is streamed rather
+// than read whole, because a 4K recording is large enough that buffering it to
+// check it would be its own problem.
+func ArtifactDigest(path string) (string, int64, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", 0, err
+	}
+	defer file.Close()
+
+	hasher := sha256.New()
+	size, err := io.Copy(hasher, file)
+	if err != nil {
+		return "", 0, err
+	}
+	if size <= 0 {
+		return "", 0, ErrArtifactEmpty
+	}
+	return hex.EncodeToString(hasher.Sum(nil)), size, nil
+}
+
+// VerifyArtifactDigest checks a stored artifact against the digest the uploader
+// declared.
+//
+// An empty or blank declaration skips the check, because a caller that cannot
+// compute a digest - a browser upload, for instance - must not be locked out of
+// uploading. Anything else must be a well-formed SHA-256, so a malformed value
+// is refused rather than read as "no digest declared".
+func VerifyArtifactDigest(path, declared string) error {
+	declared = strings.TrimSpace(declared)
+	if declared == "" {
+		return nil
+	}
+	if len(declared) != sha256.Size*2 {
+		return ErrArtifactDigestMalformed
+	}
+	if _, err := hex.DecodeString(declared); err != nil {
+		return ErrArtifactDigestMalformed
+	}
+
+	actual, _, err := ArtifactDigest(path)
+	if err != nil {
+		return err
+	}
+	// Case-insensitive: a Host that upper-cases its hex encoding has not sent
+	// different bytes.
+	if !strings.EqualFold(actual, declared) {
+		return ErrArtifactDigestMismatch
+	}
+	return nil
+}
+
 // AttachArtifact records the stored media file on an existing row. The caller
 // has already written the bytes to disk; this only updates the index.
 func (s *SessionRecordingService) AttachArtifact(
@@ -630,6 +699,32 @@ func (s *SessionRecordingService) AttachArtifact(
 	sizeBytes int64,
 ) (*models.SessionRecording, error) {
 	return s.AttachArtifactWithEvent(ctx, userID, id, storedPath, ext, sizeBytes, nil)
+}
+
+// AttachArtifactVerified attaches an artifact only after its bytes hash to the
+// digest the uploader declared.
+//
+// This is the path a Host upload takes. QD-004 requires the server to verify
+// what it received before recording it, because the Host is the only party that
+// ever saw the media: a truncated or corrupted transfer that reached the index
+// would surface later as a recording that will not play. A mismatch leaves the
+// row untouched so the failure is visible on the recording rather than hidden.
+//
+// An empty digest skips verification and behaves exactly like AttachArtifact,
+// which is what a caller that cannot compute one - a browser upload - needs.
+func (s *SessionRecordingService) AttachArtifactVerified(
+	ctx context.Context,
+	userID uint,
+	id uint,
+	storedPath string,
+	ext string,
+	sizeBytes int64,
+	declaredDigest string,
+) (*models.SessionRecording, error) {
+	if err := VerifyArtifactDigest(storedPath, declaredDigest); err != nil {
+		return nil, err
+	}
+	return s.AttachArtifact(ctx, userID, id, storedPath, ext, sizeBytes)
 }
 
 func (s *SessionRecordingService) AttachArtifactWithEvent(
