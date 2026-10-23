@@ -43,7 +43,7 @@
 
 - 仓库：`go-remote-next`
 - 本地主分支：`dev`、`master`
-- 本地代码基线：`97b8619`（QD-610 Owner 委托权限：Owner 可签发带 workflow/设备范围、步骤上限和禁权工具的委托 grant；`2848be5` 的公平调度：异步工作流按提交方轮转；`a1d34c5` 的账号会话撤销事件全部迁入事务 outbox；本轮之前的
+- 本地代码基线：`1ad0b85`（QD-511 人工接管：park 的 run 留下 resume point，operator 可查询、接管和清除；`97b8619` 的 QD-610 Owner 委托权限：Owner 可签发带 workflow/设备范围、步骤上限和禁权工具的委托 grant；`2848be5` 的公平调度：异步工作流按提交方轮转；`a1d34c5` 的账号会话撤销事件全部迁入事务 outbox；本轮之前的
   `314c73b` 先让改密码路径的 `session.revoked` 可恢复；更早的 `cddc0db` 为管理端设备、
   来源封禁与 TURN 配置事务 outbox 及在线状态离线事件迁移；QD-907 重连 Playwright E2E；
   QD-904 设备页、屏幕墙、文件管理器、真实多标签和真实自托管 SignalingServer E2E；
@@ -744,8 +744,11 @@ Private Vulnerability Reporting，后者等协议实现。当前继续做不依�
    下一步做跨机器分布式队列。通用触发链路能从
    当前的 MCP
    trigger 候选继续 stacked 回贡，后几项若绑定 fork 业务数据库则留在 `Fork-only`。
-2. **QD-511 智能回放**：预录屏幕断言与状态不匹配暂停已完成；剩余 OCR 关键词、AI 介入和人工接管；
-   通用部分在 QD-510 候选合并后回贡。
+2. **QD-511 智能回放**：预录屏幕断言与状态不匹配暂停已完成；`screen_contains` 已由 Host
+   PP-OCRv4 `text_present` 实现，OCR 关键词不是缺口；`1ad0b85` 再补人工接管：park 的 run 会在报告
+   旁边留下 resume point（停在哪个步骤、原因、当时的 overrides、该 run 自己的步骤总数），
+   `GET /v1/workflow-runs/resume-point` 交给 operator，`DELETE` 在接管后清除，响应会说明恢复后
+   是否还有步骤可跑；剩余自动 AI 失败解释/决策，通用部分在 QD-510 候选合并后回贡。
 3. **QD-907 异常路径**：按“协议错误、权限拒绝、重连耗尽、上传失败、设备离线”补
    可重复的自动化或真机证据，避免把 Windows 上传根因误判成 WebClient 协议错误。
 4. **QD-904 / QD-908**：QD-904 已闭环，重连、文件管理器、多标签、屏幕墙、设备页和
@@ -854,7 +857,7 @@ fork 是否能继续开发，也不能因为 fork 自己有实现就再次向 up
 | QD-508 | Qt 录像回放页 | `[x]` | `74c7022` 已覆盖列表、分页、缩略图、应用内播放、外部打开、删除和实时刷新 |
 | QD-509 | 缩略图、保留期、孤儿回收 | `[x]` | 服务端生命周期已完成 |
 | QD-510 | 工作流录制与回放核心 | `[x]` | 远程 UI/skill-host 双通道录制回放、旧格式兼容、递归参数替换、失败策略、持久化报告和查询工具已完成；`cargo test` 19/19 通过 |
-| QD-511 | 工作流状态校验与智能回放 | `[~]` | 预录屏幕断言与状态不匹配暂停已完成：`screen_hash` / `screen_contains` 可挂到任一步骤，回放前经 host `assertScreenState` 校验，不匹配即 park 并写入原因，新增 `set_step_expectation` 工具；`screen_contains` 已由 Host PP-OCRv4 `text_present` 条件实现，OCR 关键词不是缺口；自动 AI 失败解释/决策和人工接管仍未实现 |
+| QD-511 | 工作流状态校验与智能回放 | `[~]` | 预录屏幕断言与状态不匹配暂停已完成：`screen_hash` / `screen_contains` 可挂到任一步骤，回放前经 host `assertScreenState` 校验，不匹配即 park 并写入原因，新增 `set_step_expectation` 工具；`screen_contains` 已由 Host PP-OCRv4 `text_present` 条件实现，OCR 关键词不是缺口；`1ad0b85` 补人工接管：park 的 run 留下 resume point 并可通过 HTTP 查询、接管和清除，只有 pending 步骤才产生 point，步骤总数取自 run 而非 workflow；剩余自动 AI 失败解释/决策 |
 
 ## 9. 通知、任务与集成
 
