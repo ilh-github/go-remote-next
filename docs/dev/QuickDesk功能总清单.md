@@ -43,11 +43,11 @@
 
 - 仓库：`go-remote-next`
 - 本地主分支：`dev`、`master`
-- 本地代码基线：`a390735`（QD-004 artifact 摘要校验：上传字节的 SHA-256 与声明值不符即拒绝且不落库；`2c3ca9b` 的 QD-005/QD-808 打包门禁：Release 默认强制公证，Debug 保持宽松；`2062b95` 的 QD-004 服务端半边补齐：一次性上传票据可实际用于上传，且绑 session 防跨会话写入；`f365e1b` 的一次性上传票据；`1ad0b85` 的 QD-511 人工接管：park 的 run 留下 resume point，operator 可查询、接管和清除；`97b8619` 的 QD-610 Owner 委托权限：Owner 可签发带 workflow/设备范围、步骤上限和禁权工具的委托 grant；`2848be5` 的公平调度：异步工作流按提交方轮转；`a1d34c5` 的账号会话撤销事件全部迁入事务 outbox；本轮之前的
+- 本地代码基线：`f19db63`（QD-004 artifact 摘要校验：上传字节的 SHA-256 与声明值不符即拒绝且不落库；`2c3ca9b` 的 QD-005/QD-808 打包门禁：Release 默认强制公证，Debug 保持宽松；`2062b95` 的 QD-004 服务端半边补齐：一次性上传票据可实际用于上传，且绑 session 防跨会话写入；`f365e1b` 的一次性上传票据；`1ad0b85` 的 QD-511 人工接管：park 的 run 留下 resume point，operator 可查询、接管和清除；`97b8619` 的 QD-610 Owner 委托权限：Owner 可签发带 workflow/设备范围、步骤上限和禁权工具的委托 grant；`2848be5` 的公平调度：异步工作流按提交方轮转；`a1d34c5` 的账号会话撤销事件全部迁入事务 outbox；本轮之前的
   `314c73b` 先让改密码路径的 `session.revoked` 可恢复；更早的 `cddc0db` 为管理端设备、
   来源封禁与 TURN 配置事务 outbox 及在线状态离线事件迁移；QD-907 重连 Playwright E2E；
   QD-904 设备页、屏幕墙、文件管理器、真实多标签和真实自托管 SignalingServer E2E；
-  QD-908 多观看端 soak 门禁）；`origin/dev` 与 `origin/master` 已同步到 `a1d34c5`，
+  QD-908 多观看端 soak 门禁）；`origin/dev` 与 `origin/master` 已同步到 `f19db63`，
   本地领先数量以 `git rev-list --count origin/dev..dev` 的实时值为准
 - 上游基线：`barry-ran/QuickDesk` 的 `dev` = `5db316c`，`master` = `f6651f0`
 - 上游维护口径：持续维护但暂缓更新，下一阶段重点偏 MCP；外部贡献从 `dev` 切分支，完成后合入 `dev`，维护者定期合入 `master`
@@ -180,7 +180,7 @@
 | QD-001 | P0 | 建立独立功能总清单 | `[x]` | Fork-only | 文件覆盖全部范围、状态、优先级和验收口径 |
 | QD-002 | P0 | Web 控制端完整文件管理器 | `[x]` | UP-Ready | 经 `qd-skill-bridge` 完成目录浏览、新建、重命名、版本保留软删除、文本预览、分块上传下载；62 项 WebClient 测试、生产构建和桌面/移动浏览器烟测通过 |
 | QD-003 | P0 | 多标签控制与音频抢占 | `[x]` | UP-Ready | 同一设备多个同源标签页只有一个控制者/音频播放者；新标签接管后旧标签立即释放；真实 Chrome 三标签 E2E 覆盖抢占、释放、音频独立撤销和设备隔离 |
-| QD-004 | P0 | Host/Relay 权威自动录制 | `[~]` | UP-Remoting | 被控端或中继自动录制，断线自动收尾并上传索引；断线收尾的控制端半边已由 QD-505 补齐；`f365e1b` + `2062b95` 补服务端半边：一次性上传票据可经 `PUT /v1/recordings/:id/artifact?t=` 实际使用（Redis 标记 nonce，满足验收第 5 条「票据过期、会话错配、recording ID 错配全部被拒绝」），且票据绑 recording 的 session，跨会话写入返回 403 而非落到错误行；`a390735` 再补 artifact 摘要校验：上传字节的 SHA-256 与 `X-Artifact-Sha256` 声明值不符即拒绝并删除临时文件，行不被标记；Host 侧采集与编码仍待 `docs/dev/Host权威录制Remoting需求.md` 的 Remoting 协议 |
+| QD-004 | P0 | Host/Relay 权威自动录制 | `[~]` | UP-Remoting | 被控端或中继自动录制，断线自动收尾并上传索引；断线收尾的控制端半边已由 QD-505 补齐；`f365e1b` + `2062b95` 补服务端半边：一次性上传票据可经 `PUT /v1/recordings/:id/artifact?t=` 实际使用（Redis 标记 nonce，满足验收第 5 条「票据过期、会话错配、recording ID 错配全部被拒绝」），且票据绑 recording 的 session，跨会话写入返回 403 而非落到错误行；`a390735` 再补 artifact 摘要校验：上传字节的 SHA-256 与 `X-Artifact-Sha256` 声明值不符即拒绝并删除临时文件，行不被标记；`f19db63` 收口需求第 4 节「不能留下永久 `recording`」的另一半——僵死行进 `failed` 时同时写入 `ended_at`（此前只改状态，详情页没有结束时间、保留清理只能按 `updated_at` 计龄，而 sweep 每次都刷新它），并删掉一份没有调用方的重复 sweep 方法；Host 侧采集与编码仍待 `docs/dev/Host权威录制Remoting需求.md` 的 Remoting 协议 |
 | QD-005 | P0 | 客户端自动更新消费 | `[~]` | UP-PR#25 + Upstream-Open | Windows 已通过检查、下载、SHA-256 校验、静默安装、自动重启、版本落盘和服务存活真机闭环；macOS 已实现受校验的 DMG 挂载、暂存替换、失败回退和重开，并通过 ad-hoc 真实 DMG E2E；`2c3ca9b` 补打包门禁：Release 现在默认强制公证（此前 `package_qd_mac.sh` 从不传该开关，「已签名未公证」的包会以退出码 0 通过），Debug 保持宽松，工具链命令可注入以便测试；剩余 Developer ID 签名、Apple 公证和公证后替换回归 |
 | QD-006 | P1 | SQLite 轻量服务端部署 | `[x]` | UP-PR#25 | 单进程、单文件 SQLite、默认进程内 Redis；`/health` 区分 sqlite，空目录启动和重启持久化 E2E 通过 |
 | QD-007 | P1 | 图片剪贴板 | `[ ]` | UP-Remoting | 双向图片格式协商、分片传输、权限和边界测试 |
