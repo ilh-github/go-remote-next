@@ -138,6 +138,18 @@ export const en = {
     loginRequired: 'Please login to view device list',
     connect: 'Connect',
     setRemark: 'Set Remark',
+    // QD-314: who may drive this machine. `max_sessions` caps how many people
+    // may watch; this decides who may control.
+    control: {
+      title: 'Control',
+      hint: 'Choose how this machine is driven. With exclusive control only one controller may operate it at a time; when a new one connects the previous holder is told and stops sending input.',
+      loading: 'Reading control settings…',
+      shared: 'Shared control',
+      sharedHint: 'Every connected controller may operate this machine',
+      exclusive: 'Exclusive control',
+      exclusiveHint: 'Only one controller at a time; a new one takes over',
+      saved: 'Control setting saved',
+    },
     device: 'Device',
     noAccessCode: 'No access code',
     removeFavorite: 'Remove Favorite',

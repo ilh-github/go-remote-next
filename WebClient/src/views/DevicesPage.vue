@@ -91,6 +91,12 @@
             </button>
             <button class="icon-btn" :title="$t('devices.setRemark')" @click="setRemark(d)">✏️</button>
             <button class="icon-btn danger" :title="$t('devices.unbind')" @click="unbindDevice(d.device_id)">🗑</button>
+            <button
+              class="icon-btn"
+              :title="$t('devices.control.title')"
+              :disabled="controlDialog.loading === d.device_id"
+              @click="openControlDialog(d)"
+            >🎛️</button>
           </div>
         </div>
       </div>
@@ -134,7 +140,7 @@
             <div class="device-name">{{ log.device_id }}</div>
             <div class="device-id">{{ formatTime(log.created_at) }}{{ log.duration ? ` · ${Math.floor(log.duration/60)}m${log.duration%60}s` : '' }}</div>
           </div>
-        </div>
+    </div>
       </div>
     </template>
 
@@ -151,6 +157,66 @@
         </div>
       </div>
     </div>
+
+    <!-- Control Mode Dialog -->
+    <div v-if="controlDialog.show" class="dialog-overlay" @click.self="closeControlDialog">
+      <div class="dialog">
+        <div class="card-title">{{ $t('devices.control.title') }}</div>
+        <p class="hint">{{ $t('devices.control.hint') }}</p>
+
+        <div v-if="controlDialog.loadError" class="form-error">{{ controlDialog.loadError }}</div>
+
+        <div v-if="controlDialog.loading" class="empty-state">
+          <div class="empty-icon">⏳</div>
+          <p>{{ $t('devices.control.loading') }}</p>
+        </div>
+
+        <template v-else>
+          <div class="form-group">
+            <label class="control-mode-option">
+              <input
+                v-model="controlDialog.mode"
+                type="radio"
+                :value="CONTROL_MODE_SHARED"
+                name="control-mode"
+              />
+              <span>
+                <strong>{{ $t('devices.control.shared') }}</strong>
+                <small>{{ $t('devices.control.sharedHint') }}</small>
+              </span>
+            </label>
+            <label class="control-mode-option">
+              <input
+                v-model="controlDialog.mode"
+                type="radio"
+                :value="CONTROL_MODE_EXCLUSIVE"
+                name="control-mode"
+              />
+              <span>
+                <strong>{{ $t('devices.control.exclusive') }}</strong>
+                <small>{{ $t('devices.control.exclusiveHint') }}</small>
+              </span>
+            </label>
+          </div>
+
+          <p v-if="controlDialog.saveError" class="form-error">{{ controlDialog.saveError }}</p>
+
+          <div style="display:flex;gap:8px;">
+            <button
+              class="btn btn-primary"
+              style="flex:1;"
+              :disabled="controlDialog.saving || !controlModeChanged(controlDialog.storedMode, controlDialog.mode)"
+              @click="saveControlMode"
+            >
+              {{ controlDialog.saving ? '...' : $t('account.save') }}
+            </button>
+            <button class="btn btn-secondary" style="flex:1;" @click="closeControlDialog">
+              {{ $t('user.cancel') }}
+            </button>
+          </div>
+        </template>
+      </div>
+     </div>
 
     <div v-if="groupDialog.show" class="dialog-overlay" @click.self="closeGroupDialog">
       <div class="dialog group-dialog">
@@ -362,6 +428,13 @@ import {
   normalizeDeviceGroupList,
   normalizeGroupDeviceIds,
 } from '../api/deviceGroupModels'
+import {
+  CONTROL_MODE_SHARED,
+  CONTROL_MODE_EXCLUSIVE,
+  readControlMode,
+  controlModeChanged,
+  buildAccessPolicyBody,
+} from '../api/controlModeModel'
 
 const { t } = useI18n()
 const showToast = inject('showToast')
@@ -392,6 +465,18 @@ const groupDialog = reactive({
   deleting: false,
   error: '',
   memberError: '',
+})
+// QD-314: which controller may drive the machine. `loading` is keyed by device
+// id so opening the dialog for one device does not blank another's row.
+const controlDialog = reactive({
+  show: false,
+  deviceId: '',
+  loading: '',
+  mode: CONTROL_MODE_SHARED,
+  storedMode: CONTROL_MODE_SHARED,
+  loadError: '',
+  saveError: '',
+  saving: false,
 })
 
 const selectedGroup = computed(() => (
@@ -676,6 +761,68 @@ async function unbindDevice(deviceId) {
   await loadDeviceGroups()
 }
 
+// QD-314: read the stored policy so the dialog opens on what the machine
+// actually does, not on an assumption. The GET returns documented defaults when
+// no row exists, so a device nobody configured still opens correctly.
+async function openControlDialog(device) {
+  const deviceId = device.device_id
+  controlDialog.show = true
+  controlDialog.deviceId = deviceId
+  controlDialog.loading = deviceId
+  controlDialog.loadError = ''
+  controlDialog.saveError = ''
+  controlDialog.saving = false
+
+  const r = await userApi.fetchAccessPolicy(deviceId)
+  controlDialog.loading = ''
+  if (!r.ok) {
+    controlDialog.loadError = r.error || t('toast.networkError')
+    return
+  }
+  const mode = readControlMode(r.data)
+  controlDialog.storedMode = mode
+  controlDialog.mode = mode
+}
+
+function closeControlDialog() {
+  controlDialog.show = false
+  controlDialog.loading = ''
+  controlDialog.saveError = ''
+  controlDialog.loadError = ''
+}
+
+// The endpoint replaces the whole policy, so the body is the stored row with the
+// one field the owner changed. Sending only `control_mode` would reset the IP
+// lists, the session cap, the windows and the approval settings in the same
+// request - which is exactly the failure mode that makes a one-field form
+// dangerous on a full-replace endpoint.
+async function saveControlMode() {
+  const deviceId = controlDialog.deviceId
+  if (!deviceId) return
+  controlDialog.saving = true
+  controlDialog.saveError = ''
+
+  const current = await userApi.fetchAccessPolicy(deviceId)
+  if (!current.ok) {
+    controlDialog.saving = false
+    controlDialog.saveError = current.error || t('toast.networkError')
+    return
+  }
+
+  const r = await userApi.saveAccessPolicy(
+    deviceId,
+    buildAccessPolicyBody(current.data, controlDialog.mode),
+  )
+  controlDialog.saving = false
+  if (!r.ok) {
+    controlDialog.saveError = r.error || t('toast.networkError')
+    return
+  }
+  controlDialog.storedMode = readControlMode(r.data)
+  showToast(t('devices.control.saved'), 'success')
+  closeControlDialog()
+}
+
 async function removeFav(deviceId) {
   await userApi.removeFavorite(deviceId)
   // Realtime favorite.removed will patch the cached list; mirror locally.
@@ -854,6 +1001,19 @@ onBeforeUnmount(() => {
   background: rgba(244,67,54,0.12); color: #ff9a93;
   font-size: 12px; line-height: 1.5; overflow-wrap: anywhere;
 }
+/* QD-314: the two control modes read as one choice, so the radio and its copy
+   stay on one line and the whole row is the hit target. */
+.control-mode-option {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 10px 12px; margin-bottom: 8px;
+  border: 1px solid var(--border); border-radius: 8px;
+  cursor: pointer;
+}
+.control-mode-option:hover { border-color: var(--accent, #e94560); }
+.control-mode-option input { margin-top: 3px; flex-shrink: 0; }
+.control-mode-option span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.control-mode-option strong { font-size: 13px; color: var(--text-primary); }
+.control-mode-option small { font-size: 11px; color: var(--text-secondary); line-height: 1.5; }
 .member-section {
   margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--border);
 }

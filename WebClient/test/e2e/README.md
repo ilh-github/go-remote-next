@@ -96,3 +96,32 @@ QD_WALL_DEVICES=200 QD_WALL_SOAK_SECONDS=7200 npm run test:e2e:wall-soak
 
 Set `QD_BROWSER_CHANNEL` to use a channel other than the locally installed
 Google Chrome.
+
+## Control Mode And Control Grant (QD-314)
+
+Two suites cover the owner-facing and the protocol halves of exclusive control.
+
+`control-mode.e2e.mjs` builds the Go SignalingServer, starts a temporary SQLite
+database and Redis, seeds an account and device, serves the production
+WebClient build, and drives Chrome through a real login. It then opens the
+control dialog on the device row and switches the mode, asserting the stored
+policy over HTTP. The point of the assertions is the full-replace endpoint: the
+test seeds a policy with real `allow_ips`, `max_sessions`, `timezone` and
+`approval_mode` values first, and checks every one of them survives the switch -
+a form that PUT only `control_mode` would wipe them in the same request.
+
+`control-grant.e2e.mjs` needs no browser. It starts the same temporary server
+and opens two real client signaling WebSockets against one device, so the
+takeover is observed on the wire rather than inferred: the second controller
+receives `control_grant`, and the first receives `control_revoked` naming the new
+holder. A shared device grants both and notifies neither, and a device whose
+holder disconnects becomes drivable again.
+
+```bash
+cd WebClient
+npm run test:e2e:control-mode
+npm run test:e2e:control-grant
+```
+
+Both need Go, `redis-server`, Node 22+ (built-in `WebSocket`), and a local
+Google Chrome for the first.

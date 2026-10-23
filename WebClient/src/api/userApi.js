@@ -475,6 +475,14 @@ class UserApi {
     return this._req('GET', `/v1/me/devices/${encodeURIComponent(deviceId)}/access-policy`)
   }
 
+  // Full replace, not a partial update: the server resets every field this body
+  // omits. Callers therefore send the whole policy back - see
+  // `api/controlModeModel.js`, which builds that body from the stored row so a
+  // one-field edit cannot wipe the rest.
+  saveAccessPolicy(deviceId, body) {
+    return this._req('PUT', `/v1/me/devices/${encodeURIComponent(deviceId)}/access-policy`, body)
+  }
+
   removeAccessBan(deviceId, source) {
     return this._req('POST', `/v1/me/devices/${encodeURIComponent(deviceId)}/access-bans:remove`, {
       source,

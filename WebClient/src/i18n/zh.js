@@ -138,6 +138,18 @@ export const zh = {
     loginRequired: '请先登录以查看设备列表',
     connect: '连接',
     setRemark: '设置备注',
+    // QD-314: who may drive this machine. `max_sessions` caps how many people
+    // may watch; this decides who may control.
+    control: {
+      title: '控制权',
+      hint: '选择这台机器的控制方式。独占模式下同一时刻只有一个控制器可以操作，新的控制器接入时上一个会被通知并停止输入。',
+      loading: '正在读取控制设置…',
+      shared: '共享控制',
+      sharedHint: '每个已连接的控制器都可以操作这台机器',
+      exclusive: '独占控制',
+      exclusiveHint: '同一时刻只有一个控制器可以操作，后来者会接管',
+      saved: '控制方式已保存',
+    },
     device: '设备',
     noAccessCode: '无访问码',
     removeFavorite: '移除收藏',
