@@ -26,12 +26,18 @@ type RecordingArtifactUsage struct {
 // Without this a client that crashes mid-recording leaves a row that claims a
 // capture is still in progress forever, and the UI offers neither a result nor
 // a retry.
+//
+// The row also gets an `ended_at`. Status alone was not enough: the detail view
+// reads that column to say when the capture stopped, and the retention pass
+// uses it to decide when the media ages out, so without it a failed recording
+// kept reading as "still running" and its files were dated by `updated_at`.
 func (s *SessionRecordingService) SweepStaleRecordings(ctx context.Context, cutoff time.Time) (int64, error) {
 	result := s.db.WithContext(ctx).
 		Model(&models.SessionRecording{}).
 		Where("status = ? AND updated_at < ?", "recording", cutoff.UTC()).
 		Updates(map[string]interface{}{
 			"status":     "failed",
+			"ended_at":   time.Now().UTC(),
 			"updated_at": time.Now().UTC(),
 		})
 	if result.Error != nil {
