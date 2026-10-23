@@ -17,7 +17,7 @@
   Playwright E2E 为 `830a469`、`2ab09d5`；领先数量和当前文档提交以
   `git rev-list --count origin/dev..dev`、`git rev-parse HEAD` 的实时值为准；
   QD-004 僵死录制显式终态补 `ended_at` 的提交为 `f19db63`
-- fork 远端：`origin/dev` 与 `origin/master` 当前均为 `65a5245`
+- fork 远端：`origin/dev` 与 `origin/master` 当前均为 `2e46e62`
 - 本地 `dev` / `master` 已同步，均领先各自远端；每次发布前重新核对实时数量
 - 2026-10-23 16:10 `git push origin dev master` 成功：远端 `dev` 与 `master` 均到达
   `1ad0b85`（QD-511 park 的 run 可被人工接管），本地 `dev` / `master` 已同步
