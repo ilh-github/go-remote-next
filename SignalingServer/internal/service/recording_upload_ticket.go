@@ -58,6 +58,10 @@ func (s *RecordingUploadTicketStore) SingleUse() bool {
 type RecordingUploadTicket struct {
 	RecordingID uint
 	UserID      uint
+	// SessionID is the session the recording belongs to. Empty when the
+	// recording was created without one, which is a recording the uploader
+	// may still write but which cannot be cross-checked against a session.
+	SessionID string
 	Nonce       string
 	ExpiresAt   time.Time
 }
@@ -66,9 +70,10 @@ func uploadTicketKey(nonce string) string {
 	return "qd:recording:upload-ticket:" + nonce
 }
 
-func uploadTicketPayload(recordingID, userID uint, nonce string, expUnix int64) string {
+func uploadTicketPayload(recordingID, userID uint, sessionID, nonce string, expUnix int64) string {
 	return "rid=" + formatUintID(recordingID) +
 		"&uid=" + formatUintID(userID) +
+		"&sid=" + sessionID +
 		"&n=" + nonce +
 		"&exp=" + strconv.FormatInt(expUnix, 10)
 }
@@ -79,6 +84,18 @@ func uploadTicketPayload(recordingID, userID uint, nonce string, expUnix int64) 
 func (s *RecordingUploadTicketStore) Issue(
 	recordingID, userID uint, ttl time.Duration,
 ) (string, time.Time, error) {
+	return s.IssueForSession(recordingID, userID, "", ttl)
+}
+
+// IssueForSession mints a ticket additionally bound to the recording's session.
+//
+// The session binding is what stops a Host from being handed a ticket for one
+// recording and pushing another session's media under it: the payload carries
+// the session, so a mismatch is detectable at redemption rather than after the
+// bytes have landed in the wrong row.
+func (s *RecordingUploadTicketStore) IssueForSession(
+	recordingID, userID uint, sessionID string, ttl time.Duration,
+) (string, time.Time, error) {
 	if s == nil || s.secret == "" {
 		return "", time.Time{}, errors.New("recording upload tickets are disabled: set RECORDING_URL_SECRET or API_KEY")
 	}
@@ -87,12 +104,37 @@ func (s *RecordingUploadTicketStore) Issue(
 	}
 	exp := time.Now().Add(ttl).UTC().Truncate(time.Second)
 	nonce := uuid.NewString()
-	payload := uploadTicketPayload(recordingID, userID, nonce, exp.Unix())
+	payload := uploadTicketPayload(recordingID, userID, sessionID, nonce, exp.Unix())
 	mac := hmac.New(sha256.New, []byte(s.secret))
 	mac.Write([]byte(payload))
 	sig := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 	body := base64.RawURLEncoding.EncodeToString([]byte(payload))
 	return body + "." + sig, exp, nil
+}
+
+// ErrUploadTicketSessionMismatch means the ticket was minted for one session
+// and presented for another recording. Callers map it onto 403: the credential
+// is valid, it just does not cover this target.
+var ErrUploadTicketSessionMismatch = errors.New("upload ticket session mismatch")
+
+// MatchesSession reports whether a redeemed ticket may be used for a recording
+// that belongs to `recordingSession`.
+//
+// A recording created without a session cannot be cross-checked, so a
+// session-bound ticket is still accepted for it - the alternative would be to
+// make those recordings permanently unuploadable. The dangerous direction is
+// the other one: a ticket minted for a session must never write a recording
+// that belongs to a different session.
+func (t *RecordingUploadTicket) MatchesSession(recordingSession string) bool {
+	if t == nil {
+		return false
+	}
+	bound := strings.TrimSpace(t.SessionID)
+	target := strings.TrimSpace(recordingSession)
+	if bound == "" || target == "" {
+		return true
+	}
+	return bound == target
 }
 
 // Consume redeems a ticket exactly once.
@@ -139,6 +181,7 @@ func (s *RecordingUploadTicketStore) Consume(
 	if err != nil || userID == 0 {
 		return nil, ErrInvalidRecordingTicket
 	}
+	sessionID := values["sid"]
 	nonce := values["n"]
 	if nonce == "" {
 		return nil, ErrInvalidRecordingTicket
@@ -167,6 +210,7 @@ func (s *RecordingUploadTicketStore) Consume(
 	return &RecordingUploadTicket{
 		RecordingID: uint(recordingID),
 		UserID:      uint(userID),
+		SessionID:   sessionID,
 		Nonce:       nonce,
 		ExpiresAt:   exp,
 	}, nil

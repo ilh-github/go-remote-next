@@ -817,6 +817,9 @@ func main() {
 			me.GET("/recordings/:id/artifact", sessionRecordingHandler.DownloadArtifact)
 			me.POST("/recordings/:id/artifact-ticket", sessionRecordingHandler.CreateArtifactTicket)
 			me.POST("/recordings/:id/upload-ticket", sessionRecordingHandler.CreateUploadTicket)
+			// QD-004: the Host uploads with a one-shot ticket instead of the
+			// user's Bearer token, so this route sits outside `me`.
+			router.PUT("/recordings/:id/artifact", sessionRecordingHandler.UploadArtifactByTicket)
 			me.POST("/recordings/:id/thumbnail", sessionRecordingHandler.UploadThumbnail)
 			me.GET("/recordings/:id/thumbnail", sessionRecordingHandler.DownloadThumbnail)
 			me.POST("/recordings/:id/thumbnail-ticket", sessionRecordingHandler.CreateThumbnailTicket)

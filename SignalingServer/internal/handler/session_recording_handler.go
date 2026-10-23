@@ -313,6 +313,65 @@ func (h *SessionRecordingHandler) Delete(c *gin.Context) {
 // headless/CLI producer can stream the raw body with `?ext=.mp4`.
 func (h *SessionRecordingHandler) UploadArtifact(c *gin.Context) {
 	uid := middleware.MustUserID(c)
+	h.storeArtifact(c, uid)
+}
+
+// UploadArtifactByTicket handles PUT /v1/recordings/:id/artifact?t=...
+//
+// The Host holds no user Bearer token - QD-004 forbids handing one over - so a
+// one-shot upload ticket is what authorises this write. Everything after the
+// authorization check is shared with the Bearer route: the quota maths, the
+// temporary file, the atomic rename and the row update must not be able to
+// disagree between the two callers.
+func (h *SessionRecordingHandler) UploadArtifactByTicket(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil || id == 0 {
+		ProblemBadRequest(c, ProblemCodeInvalidRequest, "invalid recording id")
+		return
+	}
+	if h.uploads == nil {
+		ProblemBadRequest(c, ProblemCodeInvalidRequest,
+			"upload tickets are not configured on this server")
+		return
+	}
+	ticket, err := h.uploads.Consume(c.Request.Context(), c.Query("t"))
+	if err != nil {
+		if errors.Is(err, service.ErrUploadTicketConsumed) {
+			ProblemConflict(c, "UPLOAD_TICKET_CONSUMED",
+				"this upload ticket was already used; request a new one")
+			return
+		}
+		ProblemUnauthorized(c, "UPLOAD_TICKET_INVALID", "invalid or expired upload ticket")
+		return
+	}
+	// The recording addressed by the path is loaded, not the one the ticket
+	// names. That distinction is what makes the cross-session case visible: a
+	// ticket minted for one recording and presented against another has to be
+	// answered with "this credential does not cover that recording", not with
+	// a not-found that hides the attempt.
+	row, err := h.recordings.Get(c.Request.Context(), ticket.UserID, uint(id))
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			ProblemNotFound(c, ProblemCodeNotFound, "Recording not found")
+			return
+		}
+		ProblemInternal(c, err.Error())
+		return
+	}
+	// Cross-session guard: a ticket minted for one session must not write a
+	// recording that belongs to another.
+	if !ticket.MatchesSession(row.SessionID) {
+		ProblemForbidden(c, "UPLOAD_TICKET_SESSION_MISMATCH",
+			"this upload ticket belongs to a different session")
+		return
+	}
+	h.storeArtifact(c, ticket.UserID)
+}
+
+// storeArtifact runs the shared upload path for an already-authorized caller.
+// `uid` is the owner the bytes will be recorded against: the Bearer caller's
+	// own id, or the user the upload ticket was minted for.
+func (h *SessionRecordingHandler) storeArtifact(c *gin.Context, uid uint) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil || id == 0 {
 		ProblemBadRequest(c, ProblemCodeInvalidRequest, "invalid recording id")
@@ -876,7 +935,8 @@ func (h *SessionRecordingHandler) CreateUploadTicket(c *gin.Context) {
 	// minted for it. `Get` rather than `ArtifactFor`: an upload ticket is issued
 	// precisely because there is no artifact yet, and demanding one would make
 	// the route unusable for its only purpose.
-	if _, err := h.recordings.Get(c.Request.Context(), uid, uint(id)); err != nil {
+	row, err := h.recordings.Get(c.Request.Context(), uid, uint(id))
+	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			ProblemNotFound(c, ProblemCodeNotFound, "Recording not found")
 			return
@@ -884,7 +944,9 @@ func (h *SessionRecordingHandler) CreateUploadTicket(c *gin.Context) {
 		ProblemInternal(c, err.Error())
 		return
 	}
-	ticket, exp, err := h.uploads.Issue(uint(id), uid, h.uploadTicketTTL())
+	// Bind the ticket to the recording's session so a Host handed a ticket for
+	// one recording cannot push another session's media under it.
+	ticket, exp, err := h.uploads.IssueForSession(uint(id), uid, row.SessionID, h.uploadTicketTTL())
 	if err != nil {
 		ProblemBadRequest(c, ProblemCodeInvalidRequest, err.Error())
 		return

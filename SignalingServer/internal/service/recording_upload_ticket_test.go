@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"strings"
 	"testing"
@@ -191,5 +192,87 @@ func TestUploadTicketRejectsUnboundIdentifiers(t *testing.T) {
 	}
 	if _, _, err := store.Issue(4242, 0, time.Minute); err == nil {
 		t.Fatal("Issue() succeeded without a user id")
+	}
+}
+// The session binding is what stops a Host from being handed a ticket for one
+// recording and pushing another session's media under it.
+func TestUploadTicketCarriesItsSessionBinding(t *testing.T) {
+	store := NewRecordingUploadTicketStore(nil, "unit-secret")
+	ticket, _, err := store.IssueForSession(4242, 7, "sess-alpha", time.Minute)
+	if err != nil {
+		t.Fatalf("IssueForSession(): %v", err)
+	}
+
+	redeemed, err := store.Consume(context.Background(), ticket)
+	if err != nil {
+		t.Fatalf("Consume(): %v", err)
+	}
+	if redeemed.SessionID != "sess-alpha" {
+		t.Fatalf("session = %q, want sess-alpha", redeemed.SessionID)
+	}
+	if !redeemed.MatchesSession("sess-alpha") {
+		t.Fatal("a ticket must match the session it was minted for")
+	}
+	if redeemed.MatchesSession("sess-beta") {
+		t.Fatal("a ticket must not match a different session")
+	}
+}
+
+// A recording created without a session cannot be cross-checked, so a
+// session-bound ticket is still accepted for it. Making those recordings
+// permanently unuploadable would be a worse outcome than the gap.
+func TestSessionBindingYieldsWhenEitherSideHasNoSession(t *testing.T) {
+	store := NewRecordingUploadTicketStore(nil, "unit-secret")
+	bound, _, err := store.IssueForSession(4242, 7, "sess-alpha", time.Minute)
+	if err != nil {
+		t.Fatalf("IssueForSession(bound): %v", err)
+	}
+	unbound, _, err := store.IssueForSession(4243, 7, "", time.Minute)
+	if err != nil {
+		t.Fatalf("IssueForSession(unbound): %v", err)
+	}
+
+	redeemedBound, err := store.Consume(context.Background(), bound)
+	if err != nil {
+		t.Fatalf("Consume(bound): %v", err)
+	}
+	redeemedUnbound, err := store.Consume(context.Background(), unbound)
+	if err != nil {
+		t.Fatalf("Consume(unbound): %v", err)
+	}
+
+	if !redeemedBound.MatchesSession("") {
+		t.Fatal("a session-bound ticket must still cover a session-less recording")
+	}
+	if !redeemedUnbound.MatchesSession("sess-alpha") {
+		t.Fatal("an unbound ticket must not be refused for a session-less recording")
+	}
+	// A nil ticket never matches.
+	var missing *RecordingUploadTicket
+	if missing.MatchesSession("sess-alpha") {
+		t.Fatal("a nil ticket must not match any session")
+	}
+}
+
+// A ticket signed for one session must not be replayable as another: the
+// session travels inside the signed payload, so editing it breaks the
+// signature rather than silently widening the ticket.
+func TestUploadTicketSessionCannotBeTamperedWith(t *testing.T) {
+	store := NewRecordingUploadTicketStore(nil, "unit-secret")
+	ticket, _, err := store.IssueForSession(4242, 7, "sess-alpha", time.Minute)
+	if err != nil {
+		t.Fatalf("IssueForSession(): %v", err)
+	}
+	parts := strings.SplitN(ticket, ".", 2)
+	raw, err := base64.RawURLEncoding.DecodeString(parts[0])
+	if err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	forged := base64.RawURLEncoding.EncodeToString(
+		[]byte(strings.Replace(string(raw), "sid=sess-alpha", "sid=sess-beta", 1)),
+	) + "." + parts[1]
+
+	if _, err := store.Consume(context.Background(), forged); err == nil {
+		t.Fatal("Consume() succeeded on a ticket whose session was edited")
 	}
 }
