@@ -43,7 +43,7 @@
 
 - 仓库：`go-remote-next`
 - 本地主分支：`dev`、`master`
-- 本地代码基线：`2062b95`（QD-004 服务端半边补齐：一次性上传票据可实际用于上传，且绑 session 防跨会话写入；`f365e1b` 的一次性上传票据；`1ad0b85` 的 QD-511 人工接管：park 的 run 留下 resume point，operator 可查询、接管和清除；`97b8619` 的 QD-610 Owner 委托权限：Owner 可签发带 workflow/设备范围、步骤上限和禁权工具的委托 grant；`2848be5` 的公平调度：异步工作流按提交方轮转；`a1d34c5` 的账号会话撤销事件全部迁入事务 outbox；本轮之前的
+- 本地代码基线：`2c3ca9b`（QD-005/QD-808 打包门禁：Release 默认强制公证，Debug 保持宽松；`2062b95` 的 QD-004 服务端半边补齐：一次性上传票据可实际用于上传，且绑 session 防跨会话写入；`f365e1b` 的一次性上传票据；`1ad0b85` 的 QD-511 人工接管：park 的 run 留下 resume point，operator 可查询、接管和清除；`97b8619` 的 QD-610 Owner 委托权限：Owner 可签发带 workflow/设备范围、步骤上限和禁权工具的委托 grant；`2848be5` 的公平调度：异步工作流按提交方轮转；`a1d34c5` 的账号会话撤销事件全部迁入事务 outbox；本轮之前的
   `314c73b` 先让改密码路径的 `session.revoked` 可恢复；更早的 `cddc0db` 为管理端设备、
   来源封禁与 TURN 配置事务 outbox 及在线状态离线事件迁移；QD-907 重连 Playwright E2E；
   QD-904 设备页、屏幕墙、文件管理器、真实多标签和真实自托管 SignalingServer E2E；
@@ -181,7 +181,7 @@
 | QD-002 | P0 | Web 控制端完整文件管理器 | `[x]` | UP-Ready | 经 `qd-skill-bridge` 完成目录浏览、新建、重命名、版本保留软删除、文本预览、分块上传下载；62 项 WebClient 测试、生产构建和桌面/移动浏览器烟测通过 |
 | QD-003 | P0 | 多标签控制与音频抢占 | `[x]` | UP-Ready | 同一设备多个同源标签页只有一个控制者/音频播放者；新标签接管后旧标签立即释放；真实 Chrome 三标签 E2E 覆盖抢占、释放、音频独立撤销和设备隔离 |
 | QD-004 | P0 | Host/Relay 权威自动录制 | `[~]` | UP-Remoting | 被控端或中继自动录制，断线自动收尾并上传索引；断线收尾的控制端半边已由 QD-505 补齐；`f365e1b` + `2062b95` 补服务端半边：一次性上传票据可经 `PUT /v1/recordings/:id/artifact?t=` 实际使用（Redis 标记 nonce，满足验收第 5 条「票据过期、会话错配、recording ID 错配全部被拒绝」），且票据绑 recording 的 session，跨会话写入返回 403 而非落到错误行；Host 侧采集与编码仍待 `docs/dev/Host权威录制Remoting需求.md` 的 Remoting 协议 |
-| QD-005 | P0 | 客户端自动更新消费 | `[~]` | UP-PR#25 + Upstream-Open | Windows 已通过检查、下载、SHA-256 校验、静默安装、自动重启、版本落盘和服务存活真机闭环；macOS 已实现受校验的 DMG 挂载、暂存替换、失败回退和重开，并通过 ad-hoc 真实 DMG E2E；剩余 Developer ID 签名、Apple 公证和公证后替换回归 |
+| QD-005 | P0 | 客户端自动更新消费 | `[~]` | UP-PR#25 + Upstream-Open | Windows 已通过检查、下载、SHA-256 校验、静默安装、自动重启、版本落盘和服务存活真机闭环；macOS 已实现受校验的 DMG 挂载、暂存替换、失败回退和重开，并通过 ad-hoc 真实 DMG E2E；`2c3ca9b` 补打包门禁：Release 现在默认强制公证（此前 `package_qd_mac.sh` 从不传该开关，「已签名未公证」的包会以退出码 0 通过），Debug 保持宽松，工具链命令可注入以便测试；剩余 Developer ID 签名、Apple 公证和公证后替换回归 |
 | QD-006 | P1 | SQLite 轻量服务端部署 | `[x]` | UP-PR#25 | 单进程、单文件 SQLite、默认进程内 Redis；`/health` 区分 sqlite，空目录启动和重启持久化 E2E 通过 |
 | QD-007 | P1 | 图片剪贴板 | `[ ]` | UP-Remoting | 双向图片格式协商、分片传输、权限和边界测试 |
 
@@ -908,7 +908,7 @@ rotation 的事件写入同一数据库事务，`6386a48` 又把 TURN/STUN setti
 | QD-805 | 日志检索和跨实例聚合 | `[x]` | 本地/聚合搜索 |
 | QD-806 | 多实例会话和租约 | `[~]` | 已有实例寻址；Redis 仍是单点 |
 | QD-807 | 安装包、升级发布服务端 | `[x]` | 上传、Range、断点续传、管理端 UI |
-| QD-808 | 客户端自动更新消费 | `[~]` | 当前迭代 QD-005；Windows 用 `/SILENT /CLOSEAPPLICATIONS /LAUNCHAPP` 启动安装器，已验证 4.2.8.0→4.2.9.0 全闭环。macOS 更新助手完成 DMG 挂载、bundle/version/签名校验、暂存替换、失败回退、重开和临时包清理，ad-hoc 真实 DMG E2E 通过。剩余：Developer ID 签名、Apple 公证和公证包升级回归 |
+| QD-808 | 客户端自动更新消费 | `[~]` | 当前迭代 QD-005；Windows 用 `/SILENT /CLOSEAPPLICATIONS /LAUNCHAPP` 启动安装器，已验证 4.2.8.0→4.2.9.0 全闭环。macOS 更新助手完成 DMG 挂载、bundle/version/签名校验、暂存替换、失败回退、重开和临时包清理，ad-hoc 真实 DMG E2E 通过。`2c3ca9b` 补 Release 打包默认强制公证的门禁。剩余：Developer ID 签名、Apple 公证和公证包升级回归 |
 | QD-809 | SQLite 轻量服务端 | `[x]` | QD-006 已收口；单文件 SQLite + 默认进程内 Redis，健康检查、启动和重启 E2E 通过；仅支持单进程，Redis 状态重启即失 |
 | QD-810 | 正式备份、恢复和容量配额 | `[x]` | `64ab93a`：SQLite 一致性归档与安全恢复、`-force` 旧副本和失败回滚；PostgreSQL `pg_dump` + 媒体目录运维路径；录像/安装包总配额、管理接口和升级通道页状态；真实备份恢复 E2E 通过 |
 
