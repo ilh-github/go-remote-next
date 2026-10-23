@@ -34,6 +34,7 @@ export class FloatingToolbar extends EventTarget {
         this._supportsFileTransfer = false;
         this._supportsFileManager = false;
         this._supportsChat = false;
+        this._annotating = false;
         this._chatUnread = 0;
         this._supportsPrivacyScreen = false;
         this._supportsVirtualDisplay = false;
@@ -134,6 +135,7 @@ export class FloatingToolbar extends EventTarget {
             { textKey: 'menu.transfers', icon: '📊', action: 'showTransfers', id: 'transfersMenuItem', hidden: true },
             { textKey: 'menu.fileManager', icon: '🗂', action: 'fileManager', id: 'fileManagerMenuItem', hidden: true },
             { textKey: 'menu.sessionChat', icon: '💬', action: 'sessionChat', id: 'sessionChatMenuItem', hidden: true },
+            { textKey: 'menu.annotate', icon: '🖍️', action: 'toggleAnnotate', id: 'annotateMenuItem' },
             { type: 'separator', id: 'vdSeparator', hidden: true },
             { textKey: 'menu.virtualDisplay', icon: '🖥️', hasSubmenu: true, action: 'submenu-virtualDisplay', id: 'vdMenuItem', hidden: true },
             { type: 'separator' },
@@ -700,6 +702,23 @@ export class FloatingToolbar extends EventTarget {
     setChatSupport(supported) {
         this._supportsChat = Boolean(supported);
         this._updateChatMenuItem();
+    }
+
+    /**
+     * Annotations are a control-side feature, so the item is always shown and
+     * this only records the on/off state for the label.
+     */
+    setAnnotating(active) {
+        this._annotating = Boolean(active);
+        const item = this._menuElement.querySelector('#annotateMenuItem');
+        if (!item) return;
+        item.classList.toggle('active', this._annotating);
+        const label = item.querySelector('.menu-text') || item;
+        if (label) {
+            label.textContent = this._annotating
+                ? `${t('menu.annotate')} · ${t('menu.annotateOn')}`
+                : t('menu.annotate');
+        }
     }
 
     updateChatUnread(count) {

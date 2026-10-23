@@ -111,6 +111,20 @@
             background: #000;
         }
 
+        /* QD-315: annotation canvas sits above the video and is transparent, so
+           the decoded frame shows through untouched. It only takes pointer
+           events while annotating is on. */
+        #annotationCanvas {
+            position: absolute;
+            inset: 0;
+            width: 100%; height: 100%;
+            pointer-events: none;
+        }
+        #annotationCanvas.active {
+            pointer-events: auto;
+            cursor: crosshair;
+        }
+
         #noVideo {
             position: absolute;
             top: 50%; left: 50%;

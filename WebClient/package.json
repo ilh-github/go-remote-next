@@ -17,7 +17,8 @@
     "test:e2e:wall-soak": "node --test test/e2e/wall-soak.e2e.mjs",
     "test:e2e:control-mode": "node --test test/e2e/control-mode.e2e.mjs",
     "test:e2e:control-grant": "node --test test/e2e/control-grant.e2e.mjs",
-    "test:e2e:clipboard-audit": "node --test test/e2e/clipboard-audit.e2e.mjs"
+    "test:e2e:clipboard-audit": "node --test test/e2e/clipboard-audit.e2e.mjs",
+    "test:e2e:annotation": "node --test test/e2e/annotation.e2e.mjs"
   },
   "dependencies": {
     "vue": "^3.4.0",

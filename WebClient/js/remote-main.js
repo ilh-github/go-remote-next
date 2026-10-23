@@ -17,6 +17,9 @@ import { addTrackOnce } from './protocol/media-stream.js';
 import { VideoStats } from './ui/video-stats.js';
 import { FloatingToolbar } from './ui/floating-toolbar.js';
 import { TabCoordinator } from './ui/tab-coordinator.js';
+import { AnnotationModel, ANNOTATION_TOOL_PEN } from './ui/annotationModel.js';
+import { AnnotationLayer } from './ui/annotationLayer.js';
+import { AnnotationChannel } from './ui/annotationChannel.js';
 import { ControlGrantState } from './ui/control-grant.js';
 import { IceConfigFetcher } from './ice-config-fetcher.js';
 import { t, applyI18n, getLocale, setLocale } from './i18n.js';
@@ -58,6 +61,14 @@ class RemoteDesktopApp {
         this.chatPanel = null;
         this._supportsChat = false;
         this.tabCoordinator = null;
+        // QD-315: annotations live beside the video, not inside it, so the
+        // decoder can keep redrawing without wiping them.
+        this.annotationModel = null;
+        this.annotationLayer = null;
+        this.annotationChannel = null;
+        this._annotating = false;
+        this._annotationTool = ANNOTATION_TOOL_PEN;
+        this._annotationPointerId = null;
         this.controlGrant = null;
         this._recordingUploading = false;
         this._fileTransferAudit = new Map();
@@ -597,6 +608,127 @@ class RemoteDesktopApp {
         }
     }
 
+    // QD-315: one canvas over the video, one model behind it, one channel to the
+    // other viewers of this device. All three are created once per session.
+    _setupAnnotations() {
+        if (this.annotationLayer) return;
+        const container = document.getElementById('videoContainer');
+        const video = document.getElementById('remoteVideo');
+        if (!container || !video) return;
+
+        const canvas = document.createElement('canvas');
+        canvas.id = 'annotationCanvas';
+        canvas.className = 'annotation-canvas';
+        container.appendChild(canvas);
+
+        this.annotationLayer = new AnnotationLayer(canvas);
+        this.annotationModel = new AnnotationModel();
+        this.annotationChannel = new AnnotationChannel({
+            deviceId: this._deviceId || '',
+            // The viewer identity is what makes "clear mine" possible, and the
+            // tab id keeps two tabs of the same account from colliding.
+            viewerId: this.tabCoordinator?.tabId || `viewer-${Math.random().toString(36).slice(2)}`,
+            onStroke: (stroke) => {
+                if (this.annotationModel.add(stroke)) this._renderAnnotations();
+            },
+            onRemoved: (id) => {
+                if (this.annotationModel.remove(id)) this._renderAnnotations();
+            },
+            onAuthorCleared: (authorId) => {
+                if (this.annotationModel.clearAuthor(authorId) > 0) this._renderAnnotations();
+            },
+        });
+        this.annotationChannel.start();
+
+        // Pointer events go to the canvas only while annotating, so the normal
+        // control path is untouched when the feature is off.
+        canvas.addEventListener('pointerdown', (e) => this._onAnnotationPointerDown(e));
+        canvas.addEventListener('pointermove', (e) => this._onAnnotationPointerMove(e));
+        canvas.addEventListener('pointerup', (e) => this._onAnnotationPointerUp(e));
+        canvas.addEventListener('pointercancel', (e) => this._onAnnotationPointerUp(e));
+        globalThis.addEventListener('resize', () => this._renderAnnotations());
+    }
+
+    _renderAnnotations() {
+        if (!this.annotationLayer) return;
+        this.annotationLayer.render(this.annotationModel.strokes);
+    }
+
+    _toggleAnnotations() {
+        this._annotating = !this._annotating;
+        const canvas = document.getElementById('annotationCanvas');
+        if (canvas) {
+            // `pointer-events` is what decides whether a drag reaches the canvas
+            // or falls through to the video and becomes remote input.
+            canvas.classList.toggle('active', this._annotating);
+        }
+        if (this.floatingToolbar) this.floatingToolbar.setAnnotating(this._annotating);
+        if (!this._annotating) {
+            this._annotationPointerId = null;
+            this.annotationModel.end();
+            this._renderAnnotations();
+        }
+        this._log(t(this._annotating ? 'log.annotateOn' : 'log.annotateOff'));
+    }
+
+    _annotationPoint(event) {
+        const canvas = document.getElementById('annotationCanvas');
+        if (!canvas) return null;
+        const rect = canvas.getBoundingClientRect();
+        const local = this.annotationLayer.toRemote(
+            event.clientX - rect.left,
+            event.clientY - rect.top,
+        );
+        return local;
+    }
+
+    _onAnnotationPointerDown(event) {
+        if (!this._annotating || this._annotationPointerId !== null) return;
+        this._annotationPointerId = event.pointerId;
+        const point = this._annotationPoint(event);
+        if (!point) return;
+        const id = this.annotationChannel.nextStrokeId();
+        this.annotationModel.begin({
+            id,
+            tool: this._annotationTool,
+            authorId: this.annotationChannel.viewerId,
+            x: point.x,
+            y: point.y,
+        });
+        this._renderAnnotations();
+        // Capturing the pointer is what keeps a stroke alive when the cursor
+        // leaves the canvas mid-drag.
+        event.currentTarget.setPointerCapture?.(event.pointerId);
+    }
+
+    _onAnnotationPointerMove(event) {
+        if (!this._annotating || event.pointerId !== this._annotationPointerId) return;
+        const point = this._annotationPoint(event);
+        if (!point) return;
+        this.annotationModel.extend(point.x, point.y);
+        this._renderAnnotations();
+    }
+
+    _onAnnotationPointerUp(event) {
+        if (event.pointerId !== this._annotationPointerId) return;
+        this._annotationPointerId = null;
+        const stroke = this.annotationModel.end();
+        if (!stroke) return;
+        // Only a finished stroke is shared. Publishing on every move would put a
+        // message on the channel per pointer event for a line nobody has
+        // finished drawing yet.
+        this.annotationChannel.publishAdd(stroke);
+        this._renderAnnotations();
+    }
+
+    /** Clears only this viewer's strokes, leaving everybody else's intact. */
+    _clearMyAnnotations() {
+        const removed = this.annotationModel.clearAuthor(this.annotationChannel.viewerId);
+        this.annotationChannel.publishClearAuthor();
+        this._renderAnnotations();
+        this._log(t('log.annotateCleared', { count: removed }));
+    }
+
     _setupTabCoordinator(deviceId) {
         if (this.tabCoordinator || !deviceId) return;
 
@@ -882,6 +1014,12 @@ class RemoteDesktopApp {
         this._log(t('log.selectMonitor', { width: selectedTrack.width, height: selectedTrack.height }));
         this._remoteWidth = selectedTrack.width;
         this._remoteHeight = selectedTrack.height;
+        // QD-315: strokes are stored in remote coordinates, so the layer needs
+        // the captured resolution before it can place any of them.
+        if (this.annotationLayer) {
+            this.annotationLayer.setRemoteResolution(selectedTrack.width, selectedTrack.height);
+            this._renderAnnotations();
+        }
         this._activeDisplayIndex = selectedIndex;
 
         const resEl = document.getElementById('connResolution');
@@ -1036,6 +1174,10 @@ class RemoteDesktopApp {
                 break;
             case 'sessionChat':
                 this._openSessionChat();
+                break;
+            case 'toggleAnnotate':
+                this._setupAnnotations();
+                this._toggleAnnotations();
                 break;
             case 'selectDisplay':
                 this._selectDisplay(detail.index);
