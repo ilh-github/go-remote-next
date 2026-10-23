@@ -629,13 +629,15 @@ class RemoteDesktopApp {
             // tab id keeps two tabs of the same account from colliding.
             viewerId: this.tabCoordinator?.tabId || `viewer-${Math.random().toString(36).slice(2)}`,
             onStroke: (stroke) => {
-                if (this.annotationModel.add(stroke)) this._renderAnnotations();
+                // The channel outlives a teardown by a message in flight, so
+                // every handler checks the stack is still there.
+                if (this.annotationModel?.add(stroke)) this._renderAnnotations();
             },
             onRemoved: (id) => {
-                if (this.annotationModel.remove(id)) this._renderAnnotations();
+                if (this.annotationModel?.remove(id)) this._renderAnnotations();
             },
             onAuthorCleared: (authorId) => {
-                if (this.annotationModel.clearAuthor(authorId) > 0) this._renderAnnotations();
+                if ((this.annotationModel?.clearAuthor(authorId) ?? 0) > 0) this._renderAnnotations();
             },
         });
         this.annotationChannel.start();
@@ -650,8 +652,21 @@ class RemoteDesktopApp {
     }
 
     _renderAnnotations() {
-        if (!this.annotationLayer) return;
+        if (!this.annotationLayer || !this.annotationModel) return;
         this.annotationLayer.render(this.annotationModel.strokes);
+    }
+
+    _teardownAnnotations() {
+        if (this.annotationChannel) {
+            this.annotationChannel.destroy();
+            this.annotationChannel = null;
+        }
+        this.annotationModel = null;
+        this.annotationLayer = null;
+        this._annotating = false;
+        this._annotationPointerId = null;
+        const canvas = document.getElementById('annotationCanvas');
+        canvas?.remove();
     }
 
     _toggleAnnotations() {
@@ -925,6 +940,15 @@ class RemoteDesktopApp {
             document.getElementById('noVideo')?.style.setProperty('display', 'none');
             if (this.floatingToolbar) {
                 this.floatingToolbar.setRemoteResolution(video.videoWidth, video.videoHeight);
+            }
+            // QD-315: strokes are stored in remote coordinates, so a change of
+            // captured resolution has to reach the layer too - otherwise every
+            // existing stroke is scaled by the old factor and lands in the wrong
+            // place on the desktop.
+            if (this.annotationLayer) {
+                this.annotationLayer.setRemoteResolution(video.videoWidth, video.videoHeight);
+                this.annotationLayer.resize();
+                this._renderAnnotations();
             }
             this._wallNotify('live', `${video.videoWidth}x${video.videoHeight}`);
             // Input stays off in wall mode: a tile is a monitor, not a console.
@@ -1708,6 +1732,11 @@ class RemoteDesktopApp {
         this.skillBridge?.close();
         this.chatPanel?.close();
         this.tabCoordinator?.releaseAll();
+        // QD-315: annotations belong to this session. Leaving the strokes on a
+        // canvas that outlives the connection would show marks over a screen
+        // that no longer exists - on the mobile path the window stays alive
+        // after `history.back()`.
+        this._teardownAnnotations();
         if (this.session) {
             this.session.disconnect();
         }

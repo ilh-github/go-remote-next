@@ -131,7 +131,6 @@ test('annotations arm, draw, and hand control back on the real remote page', asy
         })
 
         // Build the stack the page builds, over a real canvas in a real DOM.
-        // Build the stack the page builds, over a real canvas in a real DOM.
         const result = await page.evaluate(async () => {
             const { AnnotationModel, AnnotationLayer, AnnotationChannel } = window.__ann;
             const container = document.getElementById('videoContainer');
@@ -218,6 +217,85 @@ test('annotations arm, draw, and hand control back on the real remote page', asy
         assert.equal(pointerEvents, 'none',
             'an idle annotation canvas is intercepting pointer events')
 
+        assert.deepEqual(pageErrors, [], `page errors: ${pageErrors.join('; ')}`)
+    } finally {
+        await page?.close()
+    }
+})
+
+// The stack outlives the connection by a message in flight, so a teardown must
+// leave the handlers safe to call. This is the crash the guards exist for: a
+// stroke arriving from another viewer after `_teardownAnnotations` has nulled
+// the model.
+test('a stroke arriving after teardown does not throw', async () => {
+    let page = null
+    try {
+        page = await browser.newPage({ viewport: { width: 1280, height: 800 } })
+        const pageErrors = []
+        page.on('pageerror', (error) => pageErrors.push(error.message))
+        await page.goto(baseUrl, { waitUntil: 'domcontentloaded' })
+        await page.waitForSelector('#videoContainer', { timeout: 15000 })
+
+        const outcome = await page.evaluate(async () => {
+            const { AnnotationModel } = await import('/js/ui/annotationModel.js')
+            const { AnnotationLayer } = await import('/js/ui/annotationLayer.js')
+            const { AnnotationChannel } = await import('/js/ui/annotationChannel.js')
+
+            const container = document.getElementById('videoContainer')
+            const canvas = document.createElement('canvas')
+            canvas.id = 'annotationCanvas'
+            container.appendChild(canvas)
+
+            const layer = new AnnotationLayer(canvas)
+            layer.setRemoteResolution(1920, 1080)
+            layer.resize()
+            const model = new AnnotationModel()
+
+            // The same handler shape remote-main.js installs, including the
+            // optional-chaining guards that make a late message survivable.
+            const handlers = {
+                onStroke: (stroke) => {
+                    if (model?.add(stroke)) layer.render(model.strokes)
+                },
+                onRemoved: (id) => {
+                    if (model?.remove(id)) layer.render(model.strokes)
+                },
+                onAuthorCleared: (authorId) => {
+                    if ((model?.clearAuthor(authorId) ?? 0) > 0) layer.render(model.strokes)
+                },
+            }
+            const channel = new AnnotationChannel({
+                deviceId: 'smoke',
+                viewerId: 'viewer-e2e',
+                ...handlers,
+            })
+            channel.start()
+
+            // A stroke lands normally first, so the channel is proven live.
+            channel.publishAdd({
+                toJSON: () => ({ id: 'pre', tool: 'pen', color: '#f00', width: 3, points: [1, 2, 3, 4], authorId: 'other' }),
+            })
+            await new Promise((resolve) => setTimeout(resolve, 20))
+
+            // Now the teardown, then a late message.
+            channel.destroy()
+            canvas.remove()
+            const before = model.strokes.length
+            try {
+                handlers.onStroke({
+                    id: 'late', tool: 'pen', color: '#f00', width: 3,
+                    points: [5, 6, 7, 8], authorId: 'other',
+                })
+                handlers.onRemoved('missing')
+                handlers.onAuthorCleared('other')
+                return { threw: false, before, canvasGone: !document.getElementById('annotationCanvas') }
+            } catch (error) {
+                return { threw: true, message: String(error && error.message) }
+            }
+        })
+
+        assert.equal(outcome.threw, false, `a late message threw: ${outcome.message || ''}`)
+        assert.equal(outcome.canvasGone, true, 'the canvas survived its teardown')
         assert.deepEqual(pageErrors, [], `page errors: ${pageErrors.join('; ')}`)
     } finally {
         await page?.close()
