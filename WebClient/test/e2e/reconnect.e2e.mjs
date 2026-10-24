@@ -47,6 +47,98 @@ after(async () => {
   await browser?.close()
 })
 
+// QD-907 asks for evidence on a genuinely bad link, not only a socket that is
+// told to close. The peer connection here is faked because WebRTC is not what
+// this test is about, but the signaling WebSocket is a real browser socket
+// speaking the real protocol, so the client opens it, sends auth and waits for
+// a reply that may or may not arrive.
+//
+// The failure mode worth guarding is the one where a bad link is mistaken for a
+// dead one. Losing the auth reply makes the transport reject the connection as
+// "closed before auth", and that rejection has to stay on the retryable path:
+// if it were treated as final, an operator on a lossy connection would be told
+// the session is over while the server is still reachable.
+test('keeps retrying when the auth reply is lost on a lossy link', async (t) => {
+  // Deterministic, not random: a reproducible run is what makes a failure
+  // actionable. The first reply is lost, which is the case that matters - it is
+  // the difference between "retry again" and "give up now".
+  const dropPattern = [true, false]
+  for (const latencyMs of [0, 150]) {
+    await t.test(`first reply lost, ${latencyMs}ms latency`, async () => {
+      const harness = await createHarness()
+      try {
+        await harness.openRemote()
+        await harness.waitForConnected()
+
+        harness.state.signalLoss = { latencyMs, dropPattern, attempts: 0 }
+        await harness.closeCurrentSocket()
+
+        // The lost reply costs one attempt; the next one lands. Four is the
+        // whole budget, so this proves the loss was survivable rather than
+        // terminal.
+        await until(
+          () => harness.state.authFrames.length >= 2,
+          { timeoutMs: 25000, label: 'a second auth attempt after the lost reply' },
+        )
+        await harness.waitForConnected({ expectedSignalConnections: 3 })
+
+        assert.equal(
+          await harness.reconnectTaskActive(),
+          false,
+          'the client must settle once the link answers, not keep retrying',
+        )
+        assert.equal(
+          await harness.statusText(),
+          'Connected',
+          'the session must come back rather than surface the exhausted message',
+        )
+        assert.ok(
+          !harness.state.connections.some((entry) => entry.error_msg === 'reconnect_exhausted'),
+          'a lost auth reply must not be reported as an exhausted reconnect',
+        )
+      } finally {
+        await harness.close()
+      }
+    })
+  }
+})
+
+// The other side of the same boundary: loss that never lets up must still end
+// in the exhausted state, with the retries it is supposed to have made. Without
+// this the test above could pass by the client giving up early and calling it a
+// recovery.
+test('still reports exhaustion when the link never answers', async () => {
+  const harness = await createHarness()
+  try {
+    await harness.openRemote()
+    await harness.waitForConnected()
+
+    // Every reply is lost, so the four attempts all fail the same way.
+    harness.state.signalLoss = { latencyMs: 0, dropPattern: [true], attempts: 0 }
+    await harness.closeCurrentSocket()
+
+    await until(
+      () => harness.state.authFrames.length >= 4,
+      { timeoutMs: 30000, label: 'four attempts against a link that never answers' },
+    )
+    await harness.page.waitForFunction(
+      () => document.querySelector('#connStatus')?.textContent
+        === 'Connection could not be restored after multiple attempts. Please reconnect.',
+      null,
+      { timeout: 15000 },
+    )
+    await until(
+      () => harness.state.connections.some((entry) => entry.error_msg === 'reconnect_exhausted'),
+      { timeoutMs: 5000, label: 'exhausted connection audit row' },
+    )
+
+    assert.equal(await harness.reconnectTaskActive(), false)
+    assert.equal(await harness.dotClass(), 'conn-dot failed')
+  } finally {
+    await harness.close()
+  }
+})
+
 test('recovers on the first three reconnect attempts and ignores stale session events', async (t) => {
   for (const successAt of [1, 2, 3]) {
     await t.test(`attempt ${successAt}`, async () => {
@@ -208,6 +300,7 @@ async function createHarness() {
     authFrames: [],
     connections: [],
     signalFailuresRemaining: 0,
+    signalLoss: null,
     secondArtifactStarted: deferred(),
     releaseArtifact: deferred(),
   }
@@ -318,6 +411,23 @@ async function createHarness() {
         if (frame?.type === 'auth') {
           entry.auth = frame
           state.authFrames.push(frame)
+          // A lossy link, decided per auth attempt rather than per socket: the
+          // browser opens a real WebSocket either way, so what a bad link
+          // changes is whether the reply comes back and how late it is. A
+          // deterministic sequence keeps the run reproducible, which a random
+          // drop rate would not.
+          const loss = state.signalLoss
+          if (loss) {
+            const attempt = loss.attempts
+            loss.attempts += 1
+            const shouldDrop = loss.dropPattern[attempt % loss.dropPattern.length]
+            if (shouldDrop) {
+              if (loss.latencyMs > 0) await sleep(loss.latencyMs)
+              await socket.close({ code: 1006, reason: 'injected packet loss' })
+              return
+            }
+            if (loss.latencyMs > 0) await sleep(loss.latencyMs)
+          }
           if (state.signalFailuresRemaining > 0) {
             state.signalFailuresRemaining -= 1
             await socket.close({ code: 1012, reason: 'injected signaling failure' })
@@ -555,6 +665,10 @@ function deferred() {
     reject = rej
   })
   return { promise, resolve, reject }
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 async function until(predicate, { timeoutMs = 5000, intervalMs = 25, label = 'condition' } = {}) {
