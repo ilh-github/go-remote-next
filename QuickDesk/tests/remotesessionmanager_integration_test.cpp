@@ -157,10 +157,31 @@ int main(int argc, char** argv) {
     manager.revokeSession(QStringLiteral("session/with space"));
     Expect(WaitUntil([&]() { return revokedSpy.count() > 0; }, 5000),
            QStringLiteral("revoke with a special id completes"));
-    Expect(g_last_request.url.path()
-               == QStringLiteral("/v1/me/remote-sessions/"
-                                 "session%2Fwith%20space/revoke"),
-           QStringLiteral("revoke percent-encodes the session id"));
+    // Assert on the encoded form, not on path(). QUrl::path() returns the decoded
+    // path, so a %2F comes back as a literal slash and the very defect being
+    // tested for becomes invisible - the first version of this check compared
+    // path() and could not have caught it.
+    const QString actualPath =
+        QString::fromLatin1(g_last_request.url.toEncoded());
+    const QStringList segments =
+        actualPath.split('/', Qt::SkipEmptyParts);
+    // v1 / me / remote-sessions / <id> / revoke. Five, not six: the id must not
+    // contribute an extra segment.
+    Expect(segments.size() == 5,
+           QStringLiteral("an id containing a slash stays one path segment "
+                          "(path %1 split into %2)")
+               .arg(actualPath, QString::number(segments.size())));
+    if (segments.size() == 5) {
+        Expect(segments.at(0) == QStringLiteral("v1")
+                   && segments.at(1) == QStringLiteral("me")
+                   && segments.at(2) == QStringLiteral("remote-sessions")
+                   && segments.at(4) == QStringLiteral("revoke"),
+               QStringLiteral("the prefix and suffix are intact (path %1)")
+                   .arg(actualPath));
+        Expect(!segments.contains(QStringLiteral("with space")),
+               QStringLiteral("the space is encoded, not left literal "
+                              "(path %1)").arg(actualPath));
+    }
 
     // A non-200 must surface as a failure with the server's own words, not as a
     // silent success. Clearing a session that is already gone is a real case.
