@@ -157,13 +157,26 @@ jobs:
       - name: Build and run the test suite
         run: |
           cmake --build build-tests --parallel
-          cd build-tests && ctest --output-on-failure
+          # The value is not decorative: with a multi-config generator, ctest
+          # without -C resolves no test executable and every test is reported
+          # "***Not Run", which fails the job without testing anything. Passing
+          # the configuration that was just built is what makes the run real.
+          # Single-config generators ignore the flag, so this stays correct on
+          # both shapes.
+          cd build-tests && ctest -C Release --output-on-failure
 
       # The targets that need nothing beyond the standard library are checked
       # here too, in a container that has cmake but no Qt, so a mistake in their
       # CMake definitions is caught even where the full suite cannot configure.
       - name: Verify the non-Qt cmake test targets
         run: bash scripts/e2e/test-quickdesk-cmake-test-targets.sh
+
+      # The Windows job's ctest came back "***Not Run" for all 16 tests because
+      # no configuration was passed. Docker is unavailable there, so the
+      # regression check for that shape runs here instead, using the
+      # multi-config Ninja generator.
+      - name: Verify ctest is given a configuration
+        run: bash scripts/e2e/test-quickdesk-cmake-ctest-config.sh
 
       # A source file that only the test target compiles links nothing into the
       # app, which is how recordinglifecycle.cpp broke the x64 build.

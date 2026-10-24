@@ -185,7 +185,12 @@ jobs:
         shell: bash
         run: |
           cmake --build build-tests --parallel
-          cd build-tests && ctest --output-on-failure
+          # -C is required, not optional. The default generator here is Visual
+          # Studio, which is multi-config, and ctest without a configuration
+          # cannot resolve the test executables: every test comes back
+          # "***Not Run - Test not available without configuration". The job
+          # then fails having asserted nothing at all.
+          cd build-tests && ctest -C Release --output-on-failure
 
       # Docker is not available on the Windows runner, so the container check
       # runs on macOS instead; this job covers the Qt-linked targets.
