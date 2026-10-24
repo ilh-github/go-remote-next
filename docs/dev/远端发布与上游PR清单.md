@@ -55,7 +55,8 @@
   白费一轮 CI）。`git push origin dev master` 成功，远端均到达 `d8be923`，
   `git rev-list --left-right --count origin/dev...dev` = `0 0`。
 - QD-216 状态：第 1、3、4 条有 CI 证据（run `40133964841`，18/18），
-  第 2 条已实现，第 5、6 条未验证，保持 `[~]`。
+  第 2 条已实现且有 CI 证据（run `40137597030`，19/19，含新增的
+  `quickdesk_server_status_detail_test`）；第 5、6 条未验证，保持 `[~]`。
 - 本轮改动属 fork 自有 UI/状态语义，不构成上游产品行为变更，不建 PR。
 
 ## 当前本地基线
