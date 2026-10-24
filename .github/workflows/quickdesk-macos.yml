@@ -121,3 +121,46 @@ jobs:
           asset_name: QuickDesk-mac-${{ matrix.arch }}-${{ steps.version.outputs.ref-name }}.dmg
           tag: ${{ github.ref }}
           overwrite: true
+
+  # The unit tests are behind QUICKDESK_BUILD_TESTS, which the release scripts
+  # deliberately leave off, so nothing in this workflow ran them - including the
+  # CTest set that came in with the upstream trust-handler merge. This job is the
+  # only path that turns them on. It does not package or upload anything, so a
+  # test failure cannot hold back a release artifact.
+  test:
+    name: Unit tests (arm64)
+    runs-on: macos-14
+    env:
+      QT_VERSION: '6.8.3'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          cache: true
+          modules: 'qtmultimedia qtwebsockets'
+
+      - name: Set Qt path
+        run: echo "ENV_QT_PATH=$(dirname "$QT_ROOT_DIR")" >> $GITHUB_ENV
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Configure with tests enabled
+        run: |
+          cmake -S . -B build-tests \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DQUICKDESK_BUILD_TESTS=ON
+
+      - name: Build and run the test suite
+        run: |
+          cmake --build build-tests --parallel
+          cd build-tests && ctest --output-on-failure
+
+      # The targets that need nothing beyond the standard library are checked
+      # here too, in a container that has cmake but no Qt, so a mistake in their
+      # CMake definitions is caught even where the full suite cannot configure.
+      - name: Verify the non-Qt cmake test targets
+        run: bash scripts/e2e/test-quickdesk-cmake-test-targets.sh

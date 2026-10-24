@@ -147,3 +147,48 @@ jobs:
           asset_name: QuickDesk-WebClient-${{ steps.version.outputs.ref-name }}.zip
           tag: ${{ github.ref }}
           overwrite: true
+
+  # Same reason as the macOS one: QUICKDESK_BUILD_TESTS defaults to OFF and the
+  # release scripts leave it off, so nothing ran the unit tests. Windows matters
+  # more here, because the trust-handler and host-readiness work is Windows-side.
+  test:
+    name: Unit tests
+    runs-on: windows-2022
+    env:
+      QT_VERSION: '6.8.3'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          arch: win64_msvc2022_64
+          cache: true
+          modules: 'qtmultimedia qtwebsockets'
+
+      - name: Set Qt path
+        shell: bash
+        run: echo "ENV_QT_PATH=$(dirname "$QT_ROOT_DIR")" >> $GITHUB_ENV
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Configure with tests enabled
+        shell: bash
+        run: |
+          cmake -S . -B build-tests \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DQUICKDESK_BUILD_TESTS=ON
+
+      - name: Build and run the test suite
+        shell: bash
+        run: |
+          cmake --build build-tests --parallel
+          cd build-tests && ctest --output-on-failure
+
+      # Docker is not available on the Windows runner, so the container check
+      # runs on macOS instead; this job covers the Qt-linked targets.
+      - name: Verify the Windows release guard
+        shell: pwsh
+        run: pwsh -NoProfile -File scripts/e2e/test-qd215-qt-version-agreement.ps1
