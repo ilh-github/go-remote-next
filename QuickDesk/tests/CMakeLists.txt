@@ -63,6 +63,28 @@ add_test(
     COMMAND quickdesk_control_plane_event_test
 )
 
+# The detail mapping returns an enum from ProcessStatus.h, so this target links
+# Qt6::Core for the Q_OBJECT machinery rather than being a plain C++ binary.
+add_executable(quickdesk_server_status_detail_test
+    serverstatusdetail_test.cpp
+    ../src/core/serverstatusdetail.cpp
+)
+
+target_include_directories(quickdesk_server_status_detail_test
+    PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src
+)
+
+target_link_libraries(quickdesk_server_status_detail_test
+    PRIVATE
+    Qt6::Core
+)
+
+add_test(
+    NAME quickdesk_server_status_detail_test
+    COMMAND quickdesk_server_status_detail_test
+)
+
 add_executable(quickdesk_recording_lifecycle_test
     recordinglifecycle_test.cpp
     ../src/core/recordinglifecycle.cpp

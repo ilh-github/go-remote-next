@@ -72,6 +72,9 @@ class MainController : public QObject {
     // Host status
     Q_PROPERTY(ProcessStatus::Status hostProcessStatus READ hostProcessStatus NOTIFY hostProcessStatusChanged)
     Q_PROPERTY(ServerStatus::Status hostServerStatus READ hostServerStatus NOTIFY hostServerStatusChanged)
+    // Why hostServerStatus is what it is. An enum, not a sentence, so QML can
+    // translate it: a string built here would be English in every locale.
+    Q_PROPERTY(ServerStatusDetail::Detail hostServerStatusDetail READ hostServerStatusDetail NOTIFY hostServerStatusChanged)
     Q_PROPERTY(HostLaunchMode::Mode hostLaunchMode READ hostLaunchMode NOTIFY hostLaunchModeChanged)
     
     // Client status
@@ -193,6 +196,7 @@ public:
     // Status getters
     ProcessStatus::Status hostProcessStatus() const;
     ServerStatus::Status hostServerStatus() const;
+    ServerStatusDetail::Detail hostServerStatusDetail() const;
     ProcessStatus::Status clientProcessStatus() const;
     ServerStatus::Status clientServerStatus() const;
     HostLaunchMode::Mode hostLaunchMode() const;
@@ -276,6 +280,12 @@ signals:
     void trustEmergencyStopDeactivated();
 
 private slots:
+    // Single place that changes the Host server status, so the detail text
+    // cannot drift out of step with the status it explains. A detail is only
+    // meaningful while the status is Failed; leaving one behind after a
+    // successful reconnect would show a reason for a state that no longer
+    // has that reason.
+    void setHostServerStatus(ServerStatus::Status status);
     void onHostProcessStarted();
     void onHostProcessStopped(int exitCode);
     void onHostProcessError(const QString& error);
@@ -333,6 +343,8 @@ private:
     
     // Server status (managed by MainController)
     ServerStatus::Status m_hostServerStatus = ServerStatus::Disconnected;
+    ServerStatusDetail::Detail m_hostServerStatusDetail =
+        ServerStatusDetail::None;
     ServerStatus::Status m_clientServerStatus = ServerStatus::Disconnected;
     QString m_primaryDeviceId;  // Track primary device for client signaling status
     QHash<QString, FileTransferAuditState> m_fileTransferAuditStates;

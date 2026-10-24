@@ -830,10 +830,27 @@ ApplicationWindow {
                         else if (launchMode === HostLaunchMode.ChildProcess)
                             modeTag = " [Process]"
 
+                        // The reason, when there is one, is the part the user can act on.
+                        // "Connection Failed" on its own is what this issue was about.
+                        // Translated here rather than in C++ so the .ts files reach it.
+                        var detail = root.mainController.hostServerStatusDetail
+                        if (serverStatus === ServerStatus.Failed && detail !== ServerStatusDetail.None) {
+                            var detailText = ""
+                            if (detail === ServerStatusDetail.HostNeverAnsweredHello)
+                                detailText = qsTr("the Host did not respond to the startup handshake")
+                            else if (detail === ServerStatusDetail.HostNeverAcceptedConnect)
+                                detailText = qsTr("the Host did not accept the connection")
+                            if (detailText !== "")
+                                statusText = statusText + " - " + detailText
+                        }
+
                         return qsTr("Host") + ": " + statusText + modeTag
                     }
                     font.pixelSize: Theme.fontSizeSmall
                     color: Theme.textSecondary
+                    // A reason can be longer than the status word, and a clipped
+                    // status bar is no better than a terse one.
+                    elide: Text.ElideRight
                     anchors.verticalCenter: parent.verticalCenter
                 }
             }

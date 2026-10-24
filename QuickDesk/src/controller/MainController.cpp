@@ -15,6 +15,7 @@
 #include "infra/env/applicationcontext.h"
 #include "infra/log/log.h"
 #include "core/controlplaneevent.h"
+#include "core/serverstatusdetail.h"
 #include "core/localconfigcenter.h"
 #include <QAbstractSocket>
 #include <QTimer>
@@ -257,17 +258,20 @@ MainController::MainController(QObject* parent)
             this, [this]() {
         QString state = m_hostManager->signalingState();
         if (state == "connected") {
-            m_hostServerStatus = ServerStatus::Connected;
+            setHostServerStatus(ServerStatus::Connected);
         } else if (state == "connecting") {
-            m_hostServerStatus = ServerStatus::Connecting;
+            setHostServerStatus(ServerStatus::Connecting);
         } else if (state == "disconnected") {
-            m_hostServerStatus = ServerStatus::Disconnected;
+            setHostServerStatus(ServerStatus::Disconnected);
         } else if (state == "failed") {
-            m_hostServerStatus = ServerStatus::Failed;
+            // The signaling layer reports its own failure. It does not say why,
+            // and inventing a reason here would be worse than showing none.
+            setHostServerStatus(ServerStatus::Failed);
         } else if (state == "reconnecting") {
-            m_hostServerStatus = ServerStatus::Reconnecting;
+            setHostServerStatus(ServerStatus::Reconnecting);
+        } else {
+            return;
         }
-        emit hostServerStatusChanged();
 
         // §2.4 new state machine: `logged_in_intent` is a DB column that
         // only flips on explicit bind/unbind/session-clear. A host-WS
@@ -868,6 +872,28 @@ ServerStatus::Status MainController::hostServerStatus() const
     return m_hostServerStatus;
 }
 
+ServerStatusDetail::Detail MainController::hostServerStatusDetail() const
+{
+    return m_hostServerStatusDetail;
+}
+
+void MainController::setHostServerStatus(ServerStatus::Status status)
+{
+    if (m_hostServerStatus == status && m_hostServerStatusDetail == ServerStatusDetail::None) {
+        // Nothing changed, so nothing to notify about. The detail check matters:
+        // a status can return to a value it already had while a reason from an
+        // earlier failure is still being displayed, and that must clear.
+        return;
+    }
+    m_hostServerStatus = status;
+    // A reason belongs to the failure that produced it. Any status other than
+    // Failed means either the problem is gone or it is a different one, and a
+    // stale reason is worse than none because it sends the reader after a cause
+    // that no longer applies.
+    m_hostServerStatusDetail = ServerStatusDetail::None;
+    emit hostServerStatusChanged();
+}
+
 ProcessStatus::Status MainController::clientProcessStatus() const
 {
     return m_processManager->clientProcessStatus();
@@ -970,7 +996,12 @@ void MainController::scheduleHostConnectAttempt(int attempt)
         LOG_WARN("Host did not accept the signaling connect after {} attempts; "
                  "device ID and access code will stay empty",
                  m_hostConnectPolicy.max_attempts());
-        m_hostServerStatus = ServerStatus::Failed;
+        // The status enum says "failed"; the detail says which failure. Without it
+        // the user sees one word and has to guess whether the Host process, the
+        // handshake or the signaling path is what broke.
+        setHostServerStatus(ServerStatus::Failed);
+        m_hostServerStatusDetail = core::ServerStatusDetailForExhaustedAttempts(
+            m_hostConnectSequence.hello_seen());
         emit hostServerStatusChanged();
         return;
     }
@@ -985,8 +1016,7 @@ void MainController::scheduleHostConnectAttempt(int attempt)
         }
 
         // Update server status to Connecting
-        m_hostServerStatus = ServerStatus::Connecting;
-        emit hostServerStatusChanged();
+        setHostServerStatus(ServerStatus::Connecting);
 
         QString savedAccessCode;
         int interval = core::LocalConfigCenter::instance().accessCodeRefreshInterval();
@@ -1035,8 +1065,7 @@ void MainController::onHostProcessStopped(int exitCode)
     }
 
     // Update server status
-    m_hostServerStatus = ServerStatus::Disconnected;
-    emit hostServerStatusChanged();
+    setHostServerStatus(ServerStatus::Disconnected);
     
     if (m_hostManager) {
         m_hostManager->setMessaging(nullptr);

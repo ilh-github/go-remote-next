@@ -106,6 +106,8 @@ int main(int argc, char *argv[])
         "ServerStatus is an enum container");
     qmlRegisterUncreatableType<quickdesk::RtcStatus>("QuickDesk", 1, 0, "RtcStatus",
         "RtcStatus is an enum container");
+    qmlRegisterUncreatableType<quickdesk::ServerStatusDetail>("QuickDesk", 1, 0, "ServerStatusDetail",
+        "ServerStatusDetail is an enum container");
     qmlRegisterUncreatableType<quickdesk::HostLaunchMode>("QuickDesk", 1, 0, "HostLaunchMode",
         "HostLaunchMode is an enum container");
     

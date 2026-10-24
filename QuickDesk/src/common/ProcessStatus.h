@@ -49,6 +49,33 @@ private:
 };
 
 /**
+ * @brief Why the Host server status is what it is
+ *
+ * The status enum says "failed"; this says which failure. A Host that never
+ * answered hello, one that answered and refused every connect, and one whose
+ * process ended mid-handshake are three different problems, and collapsing
+ * them into one word sends the reader looking in the wrong place.
+ *
+ * Kept as a QObject enum container so QML can switch on the value and translate
+ * it. The C++ side deliberately does not render the words: a string produced in
+ * C++ would bypass the translation files and show English to a Chinese user.
+ */
+class ServerStatusDetail : public QObject {
+    Q_OBJECT
+
+public:
+    enum Detail {
+        None,                       // Nothing to explain yet
+        HostNeverAnsweredHello,     // The Host process never answered hello
+        HostNeverAcceptedConnect,   // hello arrived, but no connect was accepted
+    };
+    Q_ENUM(Detail)
+
+private:
+    ServerStatusDetail() = delete;
+};
+
+/**
  * @brief WebRTC P2P connection status enum
  */
 class RtcStatus : public QObject {
