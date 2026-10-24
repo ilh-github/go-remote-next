@@ -204,7 +204,7 @@
 - 清单统计：117 个唯一 QD ID；86 个 `[x]`、22 个 `[~]`、5 个 `[ ]`、
   1 个 `[!]`、2 个 `[>]`、1 个 `[-]`。上一轮手写的 84/20/9 与实际标记不符，
   本轮按表格逐行重新统计后更正。
-- 上游待办已全部映射到本清单：10 个 open issue、5 个 open PR、3 个未完成 Roadmap
+- 上游待办已全部映射到本清单：11 个 open issue、7 个 open PR、3 个未完成 Roadmap
   项均有对应 QD、处理边界和上游贡献方式；上游已完成的 Roadmap 项只作为继承基线，
   不重复开发。
 - 本次合并后的实施结论：上游没有新增必须立即重复开发的 issue；`QD-608`
@@ -678,7 +678,7 @@
 
 ### 3.2 合并后的执行队列
 
-这张表把 fork 自己的未完成项与上游 10 个 open issue、4 个 open PR、3 个未完成
+这张表把 fork 自己的未完成项与上游 11 个 open issue、7 个 open PR、3 个未完成
 Roadmap 项放到同一条实施路径中。详细追溯仍以第 16 节为准。
 
 | 顺序 | 队列 | 包含工作 | 为什么现在放这里 | 完成条件 |
@@ -1002,11 +1002,16 @@ rotation 的事件写入同一数据库事务，`6386a48` 又把 TURN/STUN setti
   QD-911、QD-115、QD-212/213/214、QD-114 的交付队列。#17 已不在 open 列表——维护者在
   PR #22 合并后关闭了它，QD-113 随之满足「上游已修且已回灌」。新增的 #29（信令服务器 WSS）
   与 #30（与 Local Commander 配合的说明）尚未拆解，属 `Upstream-Open`。
-- 当前 5 个 open PR：#23 录像与回放、#25 自托管控制面/OpenAPI/SDK、#26 file-ops 分块与
-  版本化回收、#27 WebClient 远程文件管理器（后四者 base `dev`），#28 意大利语翻译与永久
-  访问密码（base `master`，上游维护者自己的提交）。#22 和 #24 已分别合并为 `5969ae3` 和
-  `5db316c`。其中 #26 与 #27 是本 fork 回贡的 QD-002/QD-403。
-- 2026-10-17 23:04 复核：上游两个分支仍为 `f6651f0`，10 个 open issue、4 个 open PR
+- 当前 7 个 open PR：#23 录像与回放、#25 自托管控制面/OpenAPI/SDK、#26 file-ops 分块与
+  版本化回收、#27 WebClient 远程文件管理器、#31 MCP 存储锁自死锁、#32 Windows 发布依赖校验
+  （均 base `dev`），#28 意大利语翻译与永久访问密码（base `master`，上游维护者自己的提交）。
+  #22 和 #24 已分别合并为 `5969ae3` 和 `5db316c`。
+  其中 #26、#27、#31、#32 是本 fork 回贡的 QD-002/QD-403、MCP 死锁与 QD-215。
+- 2026-10-25 00:40 复核：上游 `dev` 为 `5db316c`，11 个 open issue、7 个 open PR。
+  新增 #29（WSS 何时支持，与 #20 同一诉求）与 #30（Local Commander "Works with" 互链请求，
+  第三方项目，属文档决策）。远端写入已确认可用：PR #31 与 #32 均创建成功，
+  此前记录"push/PR 被策略阻塞"不再成立。
+- 历史记录 2026-10-17 23:04：上游两个分支为 `f6651f0`，10 个 open issue、4 个 open PR
   无漂移；四个 PR 均为 `mergeable=true`、`mergeable_state=unstable`，不能把
   “可合并”写成 CI 已通过。上游待办与本 fork 的统一拆解以 3.3 为执行入口。
 - QD-006 是通用自托管增强，但当前上游没有对应 open issue/PR；候选
@@ -1025,14 +1030,16 @@ Remoting 或协议改造；`不重复` 表示上游已经具备，只需验证�
 | 上游项 | 本 fork 对应项 | 当前决定 | 交付方式 | 下一步 |
 |---|---|---|---|---|
 | #21 维护计划与参与方式 | QD-001、QD-910 | 立即执行 | `Upstream-Open` | 所有新功能从 `upstream/dev` 切最小分支；持续同步清单 |
-| #20 自托管 WSS 失败 | QD-114 | 双轨推进 | `UP-Ready` + `UP-Remoting` | Qt/Windows SPKI 先做独立 PR；真实 CertVerifier 交 Remoting |
+| #20 自托管 WSS 失败 | QD-114 | 双轨推进 | `UP-Ready` + `UP-Remoting` | Qt/Windows SPKI 已落地；真实 CertVerifier 需求单已成文（`docs/dev/自托管TLS真实CertVerifier需求.md`），交 Remoting 实现 |
+| #29 WSS 何时支持 | QD-114 | 与 #20 合并 | `Upstream-Open` | 与 #20 是同一诉求的第二次提问，说明自托管 TLS 是真实阻塞；根因同上，不单独立项 |
+| #30 "Works with" 互链请求 | QD-910 | 待维护者决定 | `Upstream-Open` | 第三方项目（Local Commander，MIT）请求 README/docs 互链；属文档决策，不涉及代码，等维护者表态 |
 | #19 设备列表问题 | QD-212、QD-213、QD-214 | 拆分处理 | `UP-Ready` + `UP-Remoting` | 本机标识、访问码回源分别提；上传错误诊断可独立提，Windows 用户上下文根因交 Host/Remoting |
 | #18 连接历史 | QD-206 | 不重复实现 | `Upstream-Open` | 核验现有 WebClient/Qt 入口，整理版本证据后回复 issue |
 | #17 Auto Approve 失效 | QD-113 | 已合并，待补跑测试 | `UP-PR#22` | `5969ae3` 已进 `upstream/master`，fork `3d44dfc` 已回灌；补跑 `trust_handler_test` 后转 `[x]`，不在 fork 重写第二套线程亲和性修复 |
 | #13 Linux 支持 | QD-318 | 暂缓 | `Upstream-Open` | 保留跨平台接口，不承诺当前迭代实现 |
 | #10 信令服务设备密钥信任 | QD-115 | 设计完成，待协议 | `UP-Ready` + `Upstream-Open` | 安全边界候选 `1ca2543` 可直接提 PR；实现侧需要 Host 身份密钥、Owner 签名 grant 和 Host 本地验证 |
 | #9 主机连接失败 | QD-216 | 先排障 | `Upstream-Open` | 收集 host/signaling/TLS 日志，确认可复现 bug 后再提单 |
-| #7 Windows Qt 插件启动失败 | QD-215 | 本地回归完成 | `UP-Ready` | 候选 `f449b87` 已包含 x64/VC Runtime/Qt 插件/直接依赖校验和失败关闭；远端写入恢复后推送并开 PR |
+| #7 Windows Qt 插件启动失败 | QD-215 | PR 已提 | `UP-Ready` | 候选 rebase 到 `upstream/dev@5db316c` 成为 `8385856`，已创建上游 PR #32；仍未取得原始坏包 |
 | #6 私密安全披露入口 | QD-911 | 候选已准备 | `UP-Ready` | `codex/upstream-qd-911-security@9862717` 只新增 `SECURITY.md`；推送后开 PR，并请维护者启用 Private Vulnerability Reporting |
 | PR #22 自动审批线程亲和性 | QD-113 | 已合并并回灌 | `UP-PR#22` | `5969ae3` 已于 2026-10-21 合并；fork 经 `3d44dfc` 合入 `upstream/master`，与上游零差异；剩 Qt/CMake 下的 CTest 补跑 |
 | PR #23 会话录像与回放 | QD-501~509 | 等待同步 | `UP-PR#23` | 不重复提交；合并后回灌，Host 权威录制另走 Remoting |
