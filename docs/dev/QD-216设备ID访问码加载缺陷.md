@@ -142,8 +142,10 @@ if (!m_messaging || !m_messaging->isReady()) {
     回答 `hello` 的假 Host，走真实 native-messaging 二进制帧；
     `hoststartup_integration_test.cpp` 用真实 `HostManager` 驱动它，
     `quickdesk_host_startup_integration_test` 已通过（1.74 秒）。
-  - 第 2 条只到状态层：预算用尽推 `ServerStatus::Failed`，状态栏显示
-    「Connection Failed」，但还没有说明原因的具体文案。
-  - 第 5、6 条未覆盖：现有 `HostManager` 相关测试未单独跑一遍回归，
+  - 第 2 条已实现（`af57353`）：新增 `ServerStatusDetail` 枚举与
+    `hostServerStatusDetail` 属性，所有状态写入收敛到 `setHostServerStatus()`，
+    预算耗尽时按「有没有见过 hello」给出两种不同理由；
+    `MainWindow.qml` 把理由拼进状态栏，走 `.ts` 翻译。
+  - 第 5、6 条仍未覆盖：现有 `HostManager` 相关测试未单独跑一遍回归，
     macOS 侧也未实跑。
-  - 因此该项保持 `[~]`，不因「编译过了」就写成完成。
+  - 因此该项保持 `[~]`：三条用例有证据、一条已实现、两条未验证。

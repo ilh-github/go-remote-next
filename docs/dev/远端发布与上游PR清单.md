@@ -47,6 +47,17 @@
   实跑。不因编译通过或部分用例转绿就写成完成。
 - 本轮改动属 fork 自有测试，不构成上游产品行为变更，不建 PR。
 
+## 本轮推送（2026-10-25 06:20 CST）
+
+- QD-216 第 2 条（可读失败原因）已落地并推送：`af57353`（ServerStatusDetail
+  枚举 + 属性 + QML 翻译）、`c24fbdb`（去掉多余的 `core::` 前缀）、
+  `d8be923`（把 `serverstatusdetail.cpp` 补进 app target——改动做了却没 stage，
+  白费一轮 CI）。`git push origin dev master` 成功，远端均到达 `d8be923`，
+  `git rev-list --left-right --count origin/dev...dev` = `0 0`。
+- QD-216 状态：第 1、3、4 条有 CI 证据（run `40133964841`，18/18），
+  第 2 条已实现，第 5、6 条未验证，保持 `[~]`。
+- 本轮改动属 fork 自有 UI/状态语义，不构成上游产品行为变更，不建 PR。
+
 ## 当前本地基线
 
 - fork 本地主线：`dev` / `master` 已同步；QD-907 功能提交为 `33e9851`、`fd92cdd`，
