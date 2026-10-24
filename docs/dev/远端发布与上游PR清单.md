@@ -33,6 +33,20 @@
   （同源自 `5969ae3`），若上游愿意收「把该工程接进 `QUICKDESK_BUILD_TESTS`」
   这一行，可作为独立最小候选，本轮未创建。
 
+## 本轮推送（2026-10-25 05:00 CST）
+
+- QD-216 时序验收的测试已落地并推送：`af814a6`（假 Host 与集成测试）、
+  `306f5c1`（修 MSVC 上 `QCommandLineOption` 歧义）、`cc37e00`（fixture 改为
+  QObject）、`2be3f03`（补 config 源文件）、`cbfcbe9`（修自己写错的断言）。
+  `git push origin dev master` 成功，`origin/dev` 与 `origin/master` 均到达
+  `cbfcbe9`，`git rev-list --left-right --count origin/dev...dev` = `0 0`。
+- CI 实跑（run `40133964841`，head `cbfcbe9`，Windows `Unit tests` job）：
+  18/18 通过，`quickdesk_host_startup_integration_test` `Passed 1.74 sec`。
+  这是 QD-216 第 1、3、4 条验收用例的第一份自动化证据。
+- QD-216 保持 `[~]`：第 2 条只到状态层、第 5 条未单独回归、第 6 条需 macOS
+  实跑。不因编译通过或部分用例转绿就写成完成。
+- 本轮改动属 fork 自有测试，不构成上游产品行为变更，不建 PR。
+
 ## 当前本地基线
 
 - fork 本地主线：`dev` / `master` 已同步；QD-907 功能提交为 `33e9851`、`fd92cdd`，
