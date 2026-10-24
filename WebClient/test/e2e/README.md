@@ -94,6 +94,16 @@ npm run test:e2e:wall-soak
 QD_WALL_DEVICES=200 QD_WALL_SOAK_SECONDS=7200 npm run test:e2e:wall-soak
 ```
 
+The release run needs a `node:test` timeout longer than the soak itself, because
+the wrapper also has to cover waiting for 200 tiles to go live and the final CDP
+sampling. The default headroom is two hours; set it explicitly when running a
+longer soak:
+
+```bash
+QD_WALL_DEVICES=200 QD_WALL_SOAK_SECONDS=7200 QD_WALL_TIMEOUT_HEADROOM_MS=10800000 \
+  npm run test:e2e:wall-soak
+```
+
 Set `QD_BROWSER_CHANNEL` to use a channel other than the locally installed
 Google Chrome.
 

@@ -13,7 +13,15 @@ const MAX_HEAP_GROWTH_MB = positiveNumber(process.env.QD_WALL_MAX_HEAP_GROWTH_MB
 // Startup for hundreds of animated iframes plus the final sampling pass takes
 // minutes under load, so the node:test timeout needs headroom beyond the soak
 // window itself.
-const SOAK_TIMEOUT_HEADROOM_MS = positiveNumber(process.env.QD_WALL_TIMEOUT_HEADROOM_MS, 60 * 60 * 1000)
+//
+// Two hours, not one. The documented release run is 200 viewers for 7200
+// seconds and does not set this variable, so the default is what the gate
+// actually gets: 7200s of soak plus only 3600s for setup and sampling. Waiting
+// for 200 tiles to go live, then sampling three frames through the CDP, takes
+// far longer under a two-hour load than it does during the 30-second smoke
+// run this default was sized against. When the wrapper times out, node:test
+// fails the whole thing — including the two hours that already passed.
+const SOAK_TIMEOUT_HEADROOM_MS = positiveNumber(process.env.QD_WALL_TIMEOUT_HEADROOM_MS, 2 * 60 * 60 * 1000)
 const DEVICES = Array.from({ length: DEVICE_COUNT }, (_, index) => {
   const suffix = String(index + 1).padStart(3, '0')
   return {
