@@ -604,6 +604,21 @@ PR 描述至少写明：
 - 处理：不调阈值，作为待定位的稳定性缺陷跟踪，详见联调记录第 224 节；
 - 该跑为本地门禁，不涉及上游 PR。
 
+## 跨机器队列候选评估（2026-10-25）
+
+- 结论：**不可作为最小 PR 回贡**。上游 `barry-ran/QuickDesk:dev` 的
+  `quickdesk-mcp/src/` 下没有 `workflow_job.rs`（只有 config、event_bus、
+  http_transport、main、memory、server、trust、workflow、ws_client）。
+  `workflow_job.rs`、`fair_queue.rs`、`distributed_claim.rs`、`callback.rs`、
+  `idempotency.rs`、`trigger.rs`、`workflow_trigger.rs`、`delegation.rs`、
+  `recovery.rs` 整个是 fork 自有模块。
+- 因此 `93a0d13` 的 peer 目录发现能力依赖 fork 独有的 job 存储格式、
+  `FairQueue` 和 `DistributedClaimStore`，单独摘出来上游无法编译。
+- 处理：该功能留在 fork 主干（`Fork-only`），与 QD-610 其余部分一致。
+  已在 `QuickDesk功能总清单.md` 的 QD-610 条目中记录本轮内容。
+- 教训：判断能否回贡的第一步是 `git ls-tree --name-only upstream/dev <路径>`，
+  确认上游存在同一文件；不要先写代码再找基线。
+
 ## MCP 自死锁修复候选（2026-10-25）
 
 - 缺陷：`quickdesk-mcp` 的 `MemoryStore::log_operation` 持着连接互斥锁调用

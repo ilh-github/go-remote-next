@@ -201,8 +201,9 @@
   `dev` 切分支贡献、Remoting 改动由维护者处理”；不能再把“暂缓”理解成停止维护。
 - 上游 PR：#22、#23、#25、#27 为 OPEN / `UNSTABLE`，#26 为 OPEN / `CLEAN`；
   多数仍没有 reported checks，不能把 MERGEABLE 或 CLEAN 写成 CI 已通过。
-- 清单统计：117 个唯一 QD ID；84 个 `[x]`、20 个 `[~]`、9 个 `[ ]`、
-  1 个 `[!]`、2 个 `[>]`、1 个 `[-]`。
+- 清单统计：117 个唯一 QD ID；86 个 `[x]`、22 个 `[~]`、5 个 `[ ]`、
+  1 个 `[!]`、2 个 `[>]`、1 个 `[-]`。上一轮手写的 84/20/9 与实际标记不符，
+  本轮按表格逐行重新统计后更正。
 - 上游待办已全部映射到本清单：10 个 open issue、5 个 open PR、3 个未完成 Roadmap
   项均有对应 QD、处理边界和上游贡献方式；上游已完成的 Roadmap 项只作为继承基线，
   不重复开发。
@@ -741,9 +742,12 @@ Private Vulnerability Reporting，后者等协议实现。当前继续做不依�
    workflow、打任意设备；现在 Owner 可签发 `DelegationGrant`，按 subject 限定 workflow 与设备范围、
    步骤上限和禁权工具，可撤销可过期并落盘，`QUICKDESK_DELEGATION_REQUIRED` 默认关闭以保持既有行为，
    启用后无 grant 的调用方在碰到 workflow 之前就拿到 403；grant id 随 run 进入回调和审计。
-   下一步做跨机器分布式队列。通用触发链路能从
-   当前的 MCP
-   trigger 候选继续 stacked 回贡，后几项若绑定 fork 业务数据库则留在 `Fork-only`。
+   本轮 `93a0d13` 完成跨机器分布式队列：worker 通过
+   `QUICKDESK_WORKFLOW_PEER_JOB_DIRS` 监视 peer 提交目录，认领、`get` 和重启恢复都跨目录
+   解析；必须与 `QUICKDESK_WORKFLOW_CLAIM_DB` 成对设置，后者才是防重复执行的机制。
+   因上游 `quickdesk-mcp` 没有 `workflow_job.rs` 等 fork 自有模块，该项无法摘成最小 PR，
+   归入 `Fork-only`。通用触发链路能从当前的 MCP trigger 候选继续 stacked 回贡，
+   后几项若绑定 fork 业务数据库则留在 `Fork-only`。
 2. **QD-511 智能回放**：预录屏幕断言与状态不匹配暂停已完成；`screen_contains` 已由 Host
    PP-OCRv4 `text_present` 实现，OCR 关键词不是缺口；`1ad0b85` 再补人工接管：park 的 run 会在报告
    旁边留下 resume point（停在哪个步骤、原因、当时的 overrides、该 run 自己的步骤总数），
@@ -880,7 +884,7 @@ fork 是否能继续开发，也不能因为 fork 自己有实现就再次向 up
 | QD-607 | 计划任务 | `[~]` | 服务端、WebClient、Qt 管理页和重试已完成；`revoke_all_remote_sessions` 已补齐控制面批量清场（最多 200 台）。定时连接、广义批量 agent 指令及回执仍未做 |
 | QD-608 | OpenAPI 与生成 SDK | `[x]` | TypeScript/Go/Python/Java/C#/PHP/Kotlin 七套客户端已提交，生成器、freshness 门禁和 CI 编译覆盖全部语言；C# `dotnet build`、PHP Composer/lint、Kotlin Gradle build 通过 |
 | QD-609 | MCP / AI 自动化 | `[x]` | QuickDesk 原生能力；也是上游维护者当前最优先方向 |
-| QD-610 | 业务系统集成与自定义工作流 | `[~]` | `bca8149` + `3f94911` + `e518194` + `e8ce807` + `9f7be0f` + `2e09d5b` 已提供同步/异步 HTTP trigger、持久化 trigger CRUD、60 秒~365 天 interval worker、next_run_at at-most-once、运行结果回写、Idempotency-Key 持久化重放、异步 job 状态/取消、HMAC 结果回调、白名单控制面事件订阅、事件过滤/幂等 claim、设备白名单、trust/emergency、单并发和 429；`1176a92`~`a94bba1` 补持久回调 outbox、重试、死信、人工重放和幂等 ack；`d3dc4cf` 补 queued job 重启恢复；`3c31d9a` 补 UTC cron；`20d02cc` 补 IANA 时区和 DST；`47d5e19` 补批量 ack；`af8653f` 补 MCP 事件重连；`5a4ff4a` 补按用户持久事件 replay；本轮补法定节假日跳过、年度日历扩展、默认 2048/可配置 replay 容量、cron 漏跑补跑、`5f24ff7` 的同目录多进程回调/job claim 协调、`cd730d1` 的回调操作者归属、`c39443c` 的服务端 replay retention 配置、`2d211c1` 的 retry claim 崩溃恢复、`6c71f97` 的数据库事务 event outbox 基础设施/`scheduled_task.failed` 迁移、`f2534ec` 的设备访问 granted/denied 迁移、`6bdc057` 的策略变更迁移、`3bbc175` 的远端会话生命周期迁移、`cd08a0f` 的录像生命周期迁移、`c650d3d` 的访问审批生命周期迁移、`5e2542c` 的共享访问码生命周期迁移、`b6855cc` 的离线告警迁移、`c4a28ee` 的指标阈值告警迁移、`0c621ef` 的设备控制面变更迁移、`0b746b9` 的收藏设备迁移、`cddc0db` 的在线状态离线事件迁移，以及 `314c73b` + `a1d34c5` 的账号会话撤销事件（改密码、短信改密、refresh 家族断裂、管理端改密/删用户/强制下线/批量禁用/批量删除、本人登出、按 id 删会话和计划任务全局登出共 8 个生产者）迁移，上游候选继续推进；`2848be5` 补公平调度，`97b8619` 补 Owner 委托权限，本轮再修一个会冻结 MCP 服务的自死锁：`log_operation` 持着 `db` 锁调用 `record_failure`，后者抢同一把非重入锁，任何一次失败的工具调用都会让服务端永久挂起；已改为先 `drop(db)` 再记录失败，并用带看门狗的测试把回归固定成失败而不是无限挂起（`cargo test --bin quickdesk-mcp` 113 项全过）。剩余：跨机器分布式队列 |
+| QD-610 | 业务系统集成与自定义工作流 | `[x]` | `bca8149` + `3f94911` + `e518194` + `e8ce807` + `9f7be0f` + `2e09d5b` 已提供同步/异步 HTTP trigger、持久化 trigger CRUD、60 秒~365 天 interval worker、next_run_at at-most-once、运行结果回写、Idempotency-Key 持久化重放、异步 job 状态/取消、HMAC 结果回调、白名单控制面事件订阅、事件过滤/幂等 claim、设备白名单、trust/emergency、单并发和 429；`1176a92`~`a94bba1` 补持久回调 outbox、重试、死信、人工重放和幂等 ack；`d3dc4cf` 补 queued job 重启恢复；`3c31d9a` 补 UTC cron；`20d02cc` 补 IANA 时区和 DST；`47d5e19` 补批量 ack；`af8653f` 补 MCP 事件重连；`5a4ff4a` 补按用户持久事件 replay；本轮补法定节假日跳过、年度日历扩展、默认 2048/可配置 replay 容量、cron 漏跑补跑、`5f24ff7` 的同目录多进程回调/job claim 协调、`cd730d1` 的回调操作者归属、`c39443c` 的服务端 replay retention 配置、`2d211c1` 的 retry claim 崩溃恢复、`6c71f97` 的数据库事务 event outbox 基础设施/`scheduled_task.failed` 迁移、`f2534ec` 的设备访问 granted/denied 迁移、`6bdc057` 的策略变更迁移、`3bbc175` 的远端会话生命周期迁移、`cd08a0f` 的录像生命周期迁移、`c650d3d` 的访问审批生命周期迁移、`5e2542c` 的共享访问码生命周期迁移、`b6855cc` 的离线告警迁移、`c4a28ee` 的指标阈值告警迁移、`0c621ef` 的设备控制面变更迁移、`0b746b9` 的收藏设备迁移、`cddc0db` 的在线状态离线事件迁移，以及 `314c73b` + `a1d34c5` 的账号会话撤销事件（改密码、短信改密、refresh 家族断裂、管理端改密/删用户/强制下线/批量禁用/批量删除、本人登出、按 id 删会话和计划任务全局登出共 8 个生产者）迁移，上游候选继续推进；`2848be5` 补公平调度，`97b8619` 补 Owner 委托权限，本轮再修一个会冻结 MCP 服务的自死锁：`log_operation` 持着 `db` 锁调用 `record_failure`，后者抢同一把非重入锁，任何一次失败的工具调用都会让服务端永久挂起；已改为先 `drop(db)` 再记录失败，并用带看门狗的测试把回归固定成失败而不是无限挂起（`cargo test --bin quickdesk-mcp` 113 项全过）。`93a0d13` 再补跨机器分布式队列：worker 可用 `QUICKDESK_WORKFLOW_PEER_JOB_DIRS` 监视其他机器提交 run 的目录，`list`/`get`/认领都跨目录解析，重启恢复因此也能接管 peer 那里 claim 已过期的 `Running` run；配对的 `QUICKDESK_WORKFLOW_CLAIM_DB` 才是防止两台机器同时执行同一个 run 的机制，两者必须一起设置。该能力依赖 fork 自有的 `workflow_job.rs` / `FairQueue` / `DistributedClaimStore`，上游没有同名文件，无法摘成最小 PR，留在 `Fork-only`（详见 `docs/dev/远端发布与上游PR清单.md`）。本轮同时让 `get_failure_memory` 真正返回 resolution：该列自建表起从未写入，而工具描述一直承诺它；按读解释会让读变成写，因此未变化的行跳过 UPDATE，轮询失败内存的客户端不会反复重写数据库（`cargo test --bin quickdesk-mcp` 117 项全过，含看门狗死锁回归与幂等写回归，均做过双向验证）。QD-610 至此在 fork 侧收口 |
 
 QD-610 当前增量：`b2a0a98` 已把 admin force-unbind、单条/批量设备硬删除和 secret
 rotation 的事件写入同一数据库事务，`6386a48` 又把 TURN/STUN settings 与
