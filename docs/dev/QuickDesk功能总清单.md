@@ -645,7 +645,7 @@
 
 | 队列 | 工作项 | 来源 | 当前判断 | 下一步 |
 |---|---|---|---|---|
-| 上游同步 | PR #22 自动审批线程亲和性 | `Upstream` / QD-113 | 上游 PR 已覆盖 issue #17，目标分支为 `master`；本 fork 不重复实现 | 等 PR #22 合并后先同步上游 `master`，再按 `master <= dev` 的线序回灌 |
+| 上游同步 | PR #22 自动审批线程亲和性 | `Upstream` / QD-113 | 上游 PR 已覆盖 issue #17；`5969ae3` 已合并进 `upstream/master`，fork `3d44dfc` 已回灌且与上游无差异；本 fork 未重复实现 | 上游自带的 `test/trust/trust_handler_test.cpp` 需 Qt/CMake 环境才能跑，本机无该工具链；补跑后转 `[x]` |
 | 上游同步 | PR #23 会话录像与回放 | `Upstream` / QD-501~507 | 已覆盖服务端索引、Web/Qt 手动录制、预览、生命周期；Host 权威录制不在其中 | 不重复提交；合并后回灌 fork，再单独推进 Host 录制 |
 | 上游同步 | PR #24 skill-host Windows 运行库 | `Upstream` / QD-402、QD-609 | 修复技能进程找不到 MSVC runtime；与 fork 同向 | 合并后同步，不维护第二套 PATH/stderr 逻辑 |
 | 上游同步 | PR #25 自托管控制面、OpenAPI、SDK | `Upstream` / QD-101~110、201~211、501、601~608、801~808 | 当前控制面总集；维护者可接受继续拆 PR | 等审查；若维护者要求，按 access / alerting / recording / operations / update 拆 |
@@ -785,7 +785,7 @@ fork 是否能继续开发，也不能因为 fork 自己有实现就再次向 up
 | QD-110 | 审计、归档、导出、保留策略 | `[x]` | 管理端和用户侧事件已覆盖 |
 | QD-111 | 文件传输审计 | `[x]` | 控制端完成/失败上报；设备归属校验、按 transfer ID 幂等；Web/Qt、OpenAPI 和七套 SDK 已同步；边界是控制端可信上报而非 Host 签名证明 |
 | QD-112 | SSO、多租户、计费 | `[-]` | 当前不做 |
-| QD-113 | Trust 自动审批线程亲和性 | `[~]` | 上游 issue #17 / PR #22 已有修复；本 fork 未重复实现，PR 合并后同步 |
+| QD-113 | Trust 自动审批线程亲和性 | `[~]` | 上游 issue #17 / PR #22 的修复 `5969ae3` 已合并进 `upstream/master`，fork `3d44dfc` 已同步且 `QuickDesk/src/api/TrustHandler.cpp` 与上游零差异；本 fork 未重复实现。上游自带的 `test/trust/trust_handler_test.cpp` 与 `test/trust/CMakeLists.txt` 随合并进入仓库，但本机无 CMake/Qt 工具链，该 CTest 尚未执行，因此保持 `[~]` |
 | QD-114 | 自托管 HTTPS/WSS 证书校验 | `[~]` | 上游 issue #20；Qt 子进程支持 SPKI 列表，Windows 服务安装支持 `QUICKDESK_SPKI`；彻底修复仍需 Remoting 接入真实 CertVerifier，Qt/Windows 实机构建待补 |
 | QD-115 | 信令服务器持有设备密钥的信任边界 | `[~]` | `3474203` 已明确当前服务器仍是信任方：device_secret 只有 Argon2id 哈希，但 access_code 明文、signal token/审批/归属由服务器控制。目标方案为 Host 身份密钥 + Owner 签名授权 + Host 本地验证；协议验收项尚未实现 |
 
@@ -981,15 +981,21 @@ rotation 的事件写入同一数据库事务，`6386a48` 又把 TURN/STUN setti
 ### 16.1 上游来源
 
 - 上游仓库：<https://github.com/barry-ran/QuickDesk>
-- 上游基线：`dev` / `master` = `f6651f0`
+- 上游基线（2026-10-24 复核）：`master` = `5969ae3`（PR #22 的线程亲和性修复）、
+  `dev` = `5db316c`（PR #24 的 skill-host 运行库修复）。两个分支已不同线，
+  `master` 领先 `f6651f0` 一个提交。
 - 上游 Roadmap：Windows、macOS、P2P/TURN、MCP、虚拟屏、隐私屏、文件传输、音频、无人值守已完成；Linux、iOS/Android、Address book & device groups 未完成
 - `Multi-tab multi-connection` 在上游已勾选；QD-003 补的是同一设备多个标签的控制/音频互斥，不重复“多连接”能力
 - 维护计划：issue #21，维护者明确“持续维护、暂缓更新、重点偏 MCP、欢迎从 dev 切分支贡献、Remoting 改动由维护者处理”
-- 当前 10 个 open issue：#6、#7、#9、#10、#13、#17、#18、#19、#20、#21；其中
-  #13、#18、#19、#20 是用户问题或 Roadmap 入口，#6、#10、#17、#19、#20 已经拆入
-  QD-911、QD-115、QD-113、QD-212/213/214、QD-114 的交付队列。
-- 当前 4 个 open PR：#22 自动审批线程亲和性（base `master`）、#23 录像与回放、
-  #24 skill-host Windows 运行库、#25 自托管控制面/OpenAPI/SDK（后三者 base `dev`）。
+- 当前 11 个 open issue：#6、#7、#9、#10、#13、#18、#19、#20、#21、#29、#30；其中
+  #13、#18、#19、#20、#29、#30 是用户问题或 Roadmap 入口，#6、#10、#19、#20 已经拆入
+  QD-911、QD-115、QD-212/213/214、QD-114 的交付队列。#17 已不在 open 列表——维护者在
+  PR #22 合并后关闭了它，QD-113 随之满足「上游已修且已回灌」。新增的 #29（信令服务器 WSS）
+  与 #30（与 Local Commander 配合的说明）尚未拆解，属 `Upstream-Open`。
+- 当前 5 个 open PR：#23 录像与回放、#25 自托管控制面/OpenAPI/SDK、#26 file-ops 分块与
+  版本化回收、#27 WebClient 远程文件管理器（后四者 base `dev`），#28 意大利语翻译与永久
+  访问密码（base `master`，上游维护者自己的提交）。#22 和 #24 已分别合并为 `5969ae3` 和
+  `5db316c`。其中 #26 与 #27 是本 fork 回贡的 QD-002/QD-403。
 - 2026-10-17 23:04 复核：上游两个分支仍为 `f6651f0`，10 个 open issue、4 个 open PR
   无漂移；四个 PR 均为 `mergeable=true`、`mergeable_state=unstable`，不能把
   “可合并”写成 CI 已通过。上游待办与本 fork 的统一拆解以 3.3 为执行入口。
@@ -1012,13 +1018,13 @@ Remoting 或协议改造；`不重复` 表示上游已经具备，只需验证�
 | #20 自托管 WSS 失败 | QD-114 | 双轨推进 | `UP-Ready` + `UP-Remoting` | Qt/Windows SPKI 先做独立 PR；真实 CertVerifier 交 Remoting |
 | #19 设备列表问题 | QD-212、QD-213、QD-214 | 拆分处理 | `UP-Ready` + `UP-Remoting` | 本机标识、访问码回源分别提；上传错误诊断可独立提，Windows 用户上下文根因交 Host/Remoting |
 | #18 连接历史 | QD-206 | 不重复实现 | `Upstream-Open` | 核验现有 WebClient/Qt 入口，整理版本证据后回复 issue |
-| #17 Auto Approve 失效 | QD-113 | 等待上游 | `UP-PR#22` | #22 合并后同步；不在 fork 重写第二套线程亲和性修复 |
+| #17 Auto Approve 失效 | QD-113 | 已合并，待补跑测试 | `UP-PR#22` | `5969ae3` 已进 `upstream/master`，fork `3d44dfc` 已回灌；补跑 `trust_handler_test` 后转 `[x]`，不在 fork 重写第二套线程亲和性修复 |
 | #13 Linux 支持 | QD-318 | 暂缓 | `Upstream-Open` | 保留跨平台接口，不承诺当前迭代实现 |
 | #10 信令服务设备密钥信任 | QD-115 | 设计完成，待协议 | `UP-Ready` + `Upstream-Open` | 安全边界候选 `1ca2543` 可直接提 PR；实现侧需要 Host 身份密钥、Owner 签名 grant 和 Host 本地验证 |
 | #9 主机连接失败 | QD-216 | 先排障 | `Upstream-Open` | 收集 host/signaling/TLS 日志，确认可复现 bug 后再提单 |
 | #7 Windows Qt 插件启动失败 | QD-215 | 本地回归完成 | `UP-Ready` | 候选 `f449b87` 已包含 x64/VC Runtime/Qt 插件/直接依赖校验和失败关闭；远端写入恢复后推送并开 PR |
 | #6 私密安全披露入口 | QD-911 | 候选已准备 | `UP-Ready` | `codex/upstream-qd-911-security@9862717` 只新增 `SECURITY.md`；推送后开 PR，并请维护者启用 Private Vulnerability Reporting |
-| PR #22 自动审批线程亲和性 | QD-113 | 等待同步 | `UP-PR#22` | 合并后 cherry-pick，确认 base 是 `master` 时的回灌顺序 |
+| PR #22 自动审批线程亲和性 | QD-113 | 已合并并回灌 | `UP-PR#22` | `5969ae3` 已于 2026-10-21 合并；fork 经 `3d44dfc` 合入 `upstream/master`，与上游零差异；剩 Qt/CMake 下的 CTest 补跑 |
 | PR #23 会话录像与回放 | QD-501~509 | 等待同步 | `UP-PR#23` | 不重复提交；合并后回灌，Host 权威录制另走 Remoting |
 | PR #24 skill-host Windows 运行库 | QD-402、QD-609 | 等待同步 | `UP-PR#24` | 合并后同步，避免维护第二套 PATH/stderr 逻辑 |
 | PR #25 自托管控制面/OpenAPI/SDK | QD-101~110、201~211、501、601~608、801~808 | 等待审查 | `UP-PR#25` | 维护者要求时按 access/alerting/recording/ops/update 拆分 |
@@ -1059,7 +1065,7 @@ Remoting 或协议改造；`不重复` 表示上游已经具备，只需验证�
 | PR #25 self-hosted control plane | OPEN，MERGEABLE / UNSTABLE，无 reported checks | QD-101~110、QD-201~211、QD-501、QD-601~608、QD-801~808 | 服务端、契约、SDK、smoke 和 Qt 更新消费已在本 fork；本地不重复造一套 | 等维护者审查；若要求拆分，按 access / alerting / recording / ops / update 拆 |
 | PR #23 session recordings | OPEN，MERGEABLE / UNSTABLE，无 reported checks | QD-501~507 | 控制端手动录制、索引、回放、生命周期已具备 | 先等 PR #23；Host 权威录制另走 `UP-Remoting` |
 | PR #24 skill-host runtime path | OPEN，MERGEABLE / UNSTABLE，无 reported checks | QD-402、QD-609 | 本 fork 已包含 PATH/stderr 修复，和上游补丁同向 | 上游合并后同步回 fork，避免二套实现 |
-| PR #22 auto-approve thread affinity | OPEN，MERGEABLE / UNSTABLE，无 reported checks，基于 master | QD-113 | 本 fork 尚未重复实现 | 等 PR #22 合并后 cherry-pick；不要重复提交 issue #17 |
+| PR #22 auto-approve thread affinity | MERGED 2026-10-21 为 `5969ae3`，基于 master | QD-113 | fork `3d44dfc` 已回灌，与上游零差异 | 不要重复提交 issue #17；补跑 `test/trust` CTest |
 
 ### 16.6 上游 issue / Roadmap 映射
 
@@ -1069,7 +1075,7 @@ Remoting 或协议改造；`不重复` 表示上游已经具备，只需验证�
 | #20 自托管 HTTPS/WSS 失败 | Bug / 自托管 | QD-114 | 证书验证器在 Remoting 内未绑定；Qt-only SPKI 已支持子进程和服务安装参数 | 推送候选并补 Windows/Qt 回归；长期向 Remoting 提 CertVerifier 修复 |
 | #18 连接历史列表 | Feature | QD-206 | WebClient 已有 `ConnectionHistory`，Qt 已有 `RemoteDeviceManager` 历史下拉、删除和重连；issue 仍开放 | 在 issue 回复现有入口和版本证据，建议关闭；不再重复实现 |
 | #19 设备列表相关问题 | Bug cluster | QD-212、QD-213、QD-214 | 本机标识和访问码回源已完成；上传日志确认 Windows Host 无法取得交互用户 token，普通用户为 `0x522/type=2`，SYSTEM/session 0 为 `type=7` | 推送三个独立诊断候选；QD-214 根因按 Host 服务或 Remoting 用户上下文单独提交，不混成一个“设备列表”大修 |
-| #17 自动审批被忽略 | Bug | QD-113 | 已由 PR #22 覆盖 | 跟踪 PR #22，不重复实现 |
+| #17 自动审批被忽略 | Bug | QD-113 | 已由 PR #22 覆盖；`5969ae3` 已合并进 `upstream/master`，fork `3d44dfc` 已回灌且与上游零差异 | 不再重复实现；补跑上游 `test/trust` CTest 后可建议关闭 issue |
 | #13 Linux 支持 | Roadmap | QD-318 | 上游 Roadmap 已列出，本 fork 暂缓 | 保持跨平台接口，不在当前迭代投入 Linux 被控端 |
 | #10 信令服务器设备密钥信任 | Security | QD-115 | device_secret 只有哈希；但明文 access_code + server token/审批意味着被攻陷服务器仍可冒充 Controller | 推送 `signal-trust-model` 候选并在 issue 讨论协议升级；不能把哈希化 device_secret 当作已修复 |
 | #9 主机连接失败 | Support / Bug | QD-216 | 需要真实环境日志，不宜直接猜实现 | 收集 host/signaling/TLS 日志后再拆 bug |
