@@ -22,6 +22,17 @@ if(QUICKDESK_BUILD_TESTS)
     enable_testing()
 endif()
 
+# test/trust came in with the upstream thread-affinity fix and is a standalone
+# project, so it was never in any build tree: QUICKDESK_BUILD_TESTS builds
+# QuickDesk/tests, which knows nothing about this directory. Its CTest therefore
+# could not have run on any path, which is the actual reason QD-113 stayed open.
+#
+# Guarded on the file existing, because test/ also holds directories that are
+# plain HTML pages with no CMakeLists - add_subdirectory would fail on those.
+if(QUICKDESK_BUILD_TESTS AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/test/trust/CMakeLists.txt")
+    add_subdirectory(test/trust)
+endif()
+
 add_compile_definitions(
     APP_VERSION_MAJOR=${PROJECT_VERSION_MAJOR}
     APP_VERSION_MINOR=${PROJECT_VERSION_MINOR}

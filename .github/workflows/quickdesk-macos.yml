@@ -178,6 +178,12 @@ jobs:
       - name: Verify ctest is given a configuration
         run: bash scripts/e2e/test-quickdesk-cmake-ctest-config.sh
 
+      # Being in the build tree is a separate fact from the suite passing: the
+      # trust-handler CTest sat in test/trust/ with nothing pointing at it, so
+      # the 16/16 green run did not include it.
+      - name: Verify the trust-handler CTest is wired in
+        run: bash scripts/e2e/test-quickdesk-trust-test-wiring.sh
+
       # A source file that only the test target compiles links nothing into the
       # app, which is how recordinglifecycle.cpp broke the x64 build.
       - name: Check no source file is test-only
