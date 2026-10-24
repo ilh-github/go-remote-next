@@ -315,6 +315,11 @@ impl MemoryStore {
             ],
         );
 
+        // The guard has to go before record_failure takes it again. The mutex is
+        // not reentrant, so holding it across that call blocked this thread on a
+        // lock only this thread could release, and every failed tool call went
+        // through here.
+        drop(db);
         if !success {
             self.record_failure(device_id, tool_name, &args_str, error_message);
         }
@@ -458,6 +463,66 @@ impl MemoryStore {
         .unwrap_or_default()
     }
 
+    /// Explains a recurring failure from the record itself.
+    ///
+    /// The `resolution` column has existed since the table was created and has
+    /// never been written: `record_failure` inserts without it and nothing
+    /// updates it, so `get_failure_memory` - whose description promises "any
+    /// recorded resolutions" - always returned an empty string. What gets
+    /// written here is only what the row can prove: how often this exact
+    /// argument shape failed, and when it last did. It is deliberately not a
+    /// guess at the cause, because a wrong cause recorded as a resolution is
+    /// worse than none - the next operator would trust it.
+    pub fn explain_failure(&self, id: i64) -> Option<FailureRecord> {
+        let db = self.db.lock().unwrap();
+        let existing: Option<(i64, String, String, String)> = db
+            .query_row(
+                "SELECT occurrence_count, arguments_pattern, error_category, last_occurred
+                 FROM failure_memory WHERE id=?1",
+                params![id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .ok();
+        let (count, pattern, category, last_occurred) = existing?;
+        let explanation =
+            format!("seen {count} time(s) for {pattern} as {category}; last at {last_occurred}");
+        let updated = db
+            .execute(
+                "UPDATE failure_memory SET resolution=?1 WHERE id=?2",
+                params![explanation, id],
+            )
+            .unwrap_or(0);
+        if updated == 0 {
+            return None;
+        }
+        drop(db);
+        self.failure_by_id(id)
+    }
+
+    fn failure_by_id(&self, id: i64) -> Option<FailureRecord> {
+        let db = self.db.lock().unwrap();
+        db.query_row(
+            "SELECT id, device_id, tool_name, arguments_pattern, error_category,
+                    error_message, occurrence_count, last_occurred, resolution
+             FROM failure_memory WHERE id=?1",
+            params![id],
+            |row| {
+                Ok(FailureRecord {
+                    id: row.get(0)?,
+                    device_id: row.get(1)?,
+                    tool_name: row.get(2)?,
+                    arguments_pattern: row.get(3)?,
+                    error_category: row.get(4)?,
+                    error_message: row.get(5)?,
+                    occurrence_count: row.get(6)?,
+                    last_occurred: row.get(7)?,
+                    resolution: row.get(8)?,
+                })
+            },
+        )
+        .ok()
+    }
+
     // ---- Summary ----
 
     pub fn device_summary(&self, device_id: &str) -> DeviceSummary {
@@ -566,5 +631,158 @@ fn dirs_data_dir() -> Option<PathBuf> {
     #[cfg(not(target_os = "windows"))]
     {
         std::env::var("HOME").ok().map(PathBuf::from)
+    }
+}
+
+#[cfg(test)]
+mod explain_tests {
+    use super::*;
+    use uuid::Uuid;
+
+    // A guard that fails the test instead of hanging it forever. The deadlock
+    // this guards against blocks a thread on a mutex that no one holds, so the
+    // test itself never makes progress - without a watchdog it would sit there
+    // until the CI job is killed, which reports nothing useful.
+    fn with_watchdog<T>(body: T)
+    where
+        T: FnOnce() + Send + 'static,
+    {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            body();
+            let _ = tx.send(());
+        });
+        assert!(
+            rx.recv_timeout(std::time::Duration::from_secs(15)).is_ok(),
+            "timed out after 15s: the store is deadlocked, not slow"
+        );
+        worker.join().expect("test worker thread");
+    }
+
+    fn store_in_temp() -> (MemoryStore, std::path::PathBuf) {
+        let temp = std::env::temp_dir().join(format!("quickdesk-failure-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&temp).unwrap();
+        (
+            MemoryStore::with_db_path(temp.join("memory.db")).unwrap(),
+            temp,
+        )
+    }
+
+    // The column has been there since the table was created and nothing ever
+    // wrote it, so the tool that promises "any recorded resolutions" answered
+    // with an empty string. Explaining a failure must actually fill it.
+    #[test]
+    fn explaining_a_failure_records_what_the_row_can_prove() {
+        let (store, temp) = store_in_temp();
+        store.log_operation(
+            "session-1",
+            "device-1",
+            "mouse_click",
+            &serde_json::json!({"x": 10, "y": 20}),
+            "failed",
+            false,
+            12,
+            "connection timed out",
+        );
+        // A second identical failure is what makes it a pattern rather than a
+        // one-off, and it is what raises the count the explanation reports.
+        store.log_operation(
+            "session-1",
+            "device-1",
+            "mouse_click",
+            &serde_json::json!({"x": 10, "y": 20}),
+            "failed",
+            false,
+            14,
+            "connection timed out",
+        );
+
+        let failures = store.get_failures("device-1", None);
+        assert_eq!(failures.len(), 1);
+        assert_eq!(failures[0].resolution, "", "nothing writes resolution yet");
+        assert_eq!(failures[0].occurrence_count, 2);
+
+        let explained = store.explain_failure(failures[0].id).expect("explanation");
+        assert!(
+            !explained.resolution.is_empty(),
+            "an explanation must be recorded"
+        );
+        assert!(
+            explained.resolution.contains("2 time(s)"),
+            "the explanation should report how often it happened: {}",
+            explained.resolution
+        );
+        assert!(
+            explained.resolution.contains("timeout"),
+            "the explanation should carry the error category: {}",
+            explained.resolution
+        );
+
+        // The recorded explanation survives a reload, so it is durable rather
+        // than a value recomputed on every read.
+        let reopened = MemoryStore::with_db_path(temp.join("memory.db")).unwrap();
+        let persisted = reopened.failure_by_id(failures[0].id).expect("row");
+        assert_eq!(persisted.resolution, explained.resolution);
+
+        let _ = std::fs::remove_dir_all(temp);
+    }
+
+    // An unknown id must not invent an explanation for a row that is not there.
+    #[test]
+    fn explaining_an_unknown_failure_reports_nothing() {
+        let (store, temp) = store_in_temp();
+        assert!(store.explain_failure(4242).is_none());
+        let _ = std::fs::remove_dir_all(temp);
+    }
+
+    // `log_operation` held the connection mutex across its own call to
+    // `record_failure`, which takes the same non-reentrant mutex. Every failed
+    // tool call reached that path, so the first failure froze the whole MCP
+    // server. The guard makes the regression visible as a failure rather than
+    // an indefinite hang.
+    #[test]
+    fn logging_a_failure_does_not_deadlock_on_the_store_lock() {
+        with_watchdog(|| {
+            let (store, temp) = store_in_temp();
+            store.log_operation(
+                "session-1",
+                "device-1",
+                "mouse_click",
+                &serde_json::json!({"x": 10, "y": 20}),
+                "failed",
+                false,
+                12,
+                "connection timed out",
+            );
+
+            let failures = store.get_failures("device-1", None);
+            assert_eq!(failures.len(), 1, "the failure must still be recorded");
+            assert_eq!(failures[0].occurrence_count, 1);
+            let _ = std::fs::remove_dir_all(temp);
+        });
+    }
+
+    // The deadlock was in the shared path, not in this one feature: a summary
+    // also reads failures, and it already dropped its guard first. Keeping both
+    // covered means the fix cannot be undone by re-inlining the call.
+    #[test]
+    fn summarizing_a_device_with_failures_does_not_deadlock() {
+        with_watchdog(|| {
+            let (store, temp) = store_in_temp();
+            store.log_operation(
+                "session-1",
+                "device-1",
+                "mouse_click",
+                &serde_json::json!({"x": 1, "y": 2}),
+                "failed",
+                false,
+                5,
+                "connection timed out",
+            );
+            let summary = store.device_summary("device-1");
+            assert_eq!(summary.total_operations, 1);
+            assert_eq!(summary.common_failures.len(), 1);
+            let _ = std::fs::remove_dir_all(temp);
+        });
     }
 }

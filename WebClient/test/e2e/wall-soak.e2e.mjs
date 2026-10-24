@@ -158,6 +158,16 @@ test(
       const startedAt = Date.now()
       const startedFrames = await page.evaluate(() => window.__wallSoakMainFrames)
       const samples = []
+      // Time series behind the two numbers that gate the run. `mainFps` is an
+      // average over the whole soak, so 0.77 cannot distinguish "slow from the
+      // first second" from "fine until it collapsed"; a per-sample series can,
+      // and that is the difference between a capacity limit and a leak.
+      // The first sample is not a point: the window that precedes it covers
+      // `Start rotation` and the first CDP read, during which frames advance
+      // for reasons that have nothing to do with the soak. Counting it would
+      // report a fake 0 and pin `worst` to second zero forever.
+      let previousFrames = startedFrames
+      let previousSampleAt = 0
       let index = 0
 
       while (Date.now() - startedAt < SOAK_SECONDS * 1000) {
@@ -183,6 +193,21 @@ test(
           live: dom.live,
           audio: dom.audio,
         })
+        const now = Date.now()
+        const frames = await page.evaluate(() => window.__wallSoakMainFrames)
+        const metrics = await performanceMetrics(cdp)
+        if (previousSampleAt > 0) {
+          const elapsedSincePrevious = (now - previousSampleAt) / 1000
+          samples[samples.length - 1].fps = elapsedSincePrevious > 0
+            ? Number(((frames - previousFrames) / elapsedSincePrevious).toFixed(2))
+            : 0
+        }
+        samples[samples.length - 1].heapMb = Number(
+          (((metrics.JSHeapUsedSize || 0) / 1024 / 1024)).toFixed(1),
+        )
+        samples[samples.length - 1].nodes = metrics.Nodes || 0
+        previousFrames = frames
+        previousSampleAt = now
         index += 1
         const remaining = SAMPLE_MS - (Date.now() - sampleStarted)
         if (remaining > 0) await new Promise((resolve) => setTimeout(resolve, remaining))
@@ -237,6 +262,11 @@ test(
         nodesEnd: finalMetrics.Nodes || 0,
         sampledFrames,
         pageErrors,
+        // The series is what tells a gradual slide from a step change: the
+        // average above cannot. Kept coarse on purpose - one point per sample
+        // interval - so a two-hour run produces a readable trace rather than
+        // thousands of points.
+        trace: soakTrace(samples),
       }))
 
       assert.ok(elapsedMs >= SOAK_SECONDS * 1000)
@@ -258,6 +288,38 @@ test(
 async function performanceMetrics(cdp) {
   const result = await cdp.send('Performance.getMetrics')
   return Object.fromEntries(result.metrics.map((metric) => [metric.name, metric.value]))
+}
+
+// Reduces the per-sample series to a trace a human can read: one point per
+// bucket, plus the first, last and worst points. A run that degrades steadily
+// shows a falling `fps` line with a rising `heapMb` one; a step change shows a
+// flat line that drops once, which is a different bug.
+function soakTrace(samples) {
+  const withMetrics = samples.filter((sample) => typeof sample.fps === 'number')
+  if (withMetrics.length === 0) return []
+  const buckets = 12
+  const perBucket = Math.max(1, Math.floor(withMetrics.length / buckets))
+  const points = []
+  for (let start = 0; start < withMetrics.length; start += perBucket) {
+    const bucket = withMetrics.slice(start, start + perBucket)
+    points.push({
+      atSeconds: Math.round(bucket[bucket.length - 1].elapsedMs / 1000),
+      fps: Number((bucket.reduce((sum, s) => sum + s.fps, 0) / bucket.length).toFixed(2)),
+      heapMb: Number((bucket[bucket.length - 1].heapMb || 0).toFixed(1)),
+      nodes: bucket[bucket.length - 1].nodes || 0,
+    })
+  }
+  const worst = withMetrics.reduce((low, s) => (s.fps < low.fps ? s : low), withMetrics[0])
+  return {
+    points,
+    worst: {
+      atSeconds: Math.round(worst.elapsedMs / 1000),
+      fps: worst.fps,
+      heapMb: worst.heapMb,
+    },
+    firstFps: withMetrics[0].fps,
+    lastFps: withMetrics[withMetrics.length - 1].fps,
+  }
 }
 
 // A wall with hundreds of iframes makes Playwright's locator engine slow enough

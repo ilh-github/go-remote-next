@@ -758,9 +758,10 @@ Private Vulnerability Reporting，后者等协议实现。当前继续做不依�
 4. **QD-904 / QD-908**：QD-904 已闭环，重连、文件管理器、多标签、屏幕墙、设备页和
    真实自托管 SignalingServer 均有浏览器 E2E；QD-908 的 200 路 7200 秒正式跑已于
    2026-10-24 跑完（headroom 从 1 小时提到 2 小时后不再被 `node:test` 掐断），
-   结果抓到真实退化：`mainFps` 0.77、`heapGrowthMb` 554 MiB，而同参数 42 秒短跑为
-   9.17 FPS 和 -118 MiB，说明劣化随运行时间累积而非 200 路固有代价。不调阈值，
-   下一阶段按时间采样定位劣化形状（渐进或阶跃）。
+   并已加按采样打点的时间序列。劣化形状确定：FPS 在 267~681 秒**阶跃**崩塌而非渐进，
+   DOM 节点数在 267 秒见顶后不再增长（不是原因），heap 增长与 FPS 崩塌是两条独立劣化
+   （FPS 归零后 heap 仍线性涨，分配源不依赖主线程帧循环）。不调阈值，下一阶段在
+   267~681 秒窗口内加密采样抓住阶跃时刻，并查周期性分配源。
 5. **Remoting 需求单**：QD-004（已形成 `docs/dev/Host权威录制Remoting需求.md`）、QD-007、QD-114 根因和 QD-214 用户上下文
    分别写清协议、权限、兼容性和验收标准，交给上游维护者评估。QD-002 已由现有
    `qd-skill-bridge` 解除阻塞，不再列入 Remoting 需求。
@@ -879,7 +880,7 @@ fork 是否能继续开发，也不能因为 fork 自己有实现就再次向 up
 | QD-607 | 计划任务 | `[~]` | 服务端、WebClient、Qt 管理页和重试已完成；`revoke_all_remote_sessions` 已补齐控制面批量清场（最多 200 台）。定时连接、广义批量 agent 指令及回执仍未做 |
 | QD-608 | OpenAPI 与生成 SDK | `[x]` | TypeScript/Go/Python/Java/C#/PHP/Kotlin 七套客户端已提交，生成器、freshness 门禁和 CI 编译覆盖全部语言；C# `dotnet build`、PHP Composer/lint、Kotlin Gradle build 通过 |
 | QD-609 | MCP / AI 自动化 | `[x]` | QuickDesk 原生能力；也是上游维护者当前最优先方向 |
-| QD-610 | 业务系统集成与自定义工作流 | `[~]` | `bca8149` + `3f94911` + `e518194` + `e8ce807` + `9f7be0f` + `2e09d5b` 已提供同步/异步 HTTP trigger、持久化 trigger CRUD、60 秒~365 天 interval worker、next_run_at at-most-once、运行结果回写、Idempotency-Key 持久化重放、异步 job 状态/取消、HMAC 结果回调、白名单控制面事件订阅、事件过滤/幂等 claim、设备白名单、trust/emergency、单并发和 429；`1176a92`~`a94bba1` 补持久回调 outbox、重试、死信、人工重放和幂等 ack；`d3dc4cf` 补 queued job 重启恢复；`3c31d9a` 补 UTC cron；`20d02cc` 补 IANA 时区和 DST；`47d5e19` 补批量 ack；`af8653f` 补 MCP 事件重连；`5a4ff4a` 补按用户持久事件 replay；本轮补法定节假日跳过、年度日历扩展、默认 2048/可配置 replay 容量、cron 漏跑补跑、`5f24ff7` 的同目录多进程回调/job claim 协调、`cd730d1` 的回调操作者归属、`c39443c` 的服务端 replay retention 配置、`2d211c1` 的 retry claim 崩溃恢复、`6c71f97` 的数据库事务 event outbox 基础设施/`scheduled_task.failed` 迁移、`f2534ec` 的设备访问 granted/denied 迁移、`6bdc057` 的策略变更迁移、`3bbc175` 的远端会话生命周期迁移、`cd08a0f` 的录像生命周期迁移、`c650d3d` 的访问审批生命周期迁移、`5e2542c` 的共享访问码生命周期迁移、`b6855cc` 的离线告警迁移、`c4a28ee` 的指标阈值告警迁移、`0c621ef` 的设备控制面变更迁移、`0b746b9` 的收藏设备迁移、`cddc0db` 的在线状态离线事件迁移，以及 `314c73b` + `a1d34c5` 的账号会话撤销事件（改密码、短信改密、refresh 家族断裂、管理端改密/删用户/强制下线/批量禁用/批量删除、本人登出、按 id 删会话和计划任务全局登出共 8 个生产者）迁移，上游候选继续推进；其余跨机器分布式队列、公平调度和 Owner 委托权限仍未完成 |
+| QD-610 | 业务系统集成与自定义工作流 | `[~]` | `bca8149` + `3f94911` + `e518194` + `e8ce807` + `9f7be0f` + `2e09d5b` 已提供同步/异步 HTTP trigger、持久化 trigger CRUD、60 秒~365 天 interval worker、next_run_at at-most-once、运行结果回写、Idempotency-Key 持久化重放、异步 job 状态/取消、HMAC 结果回调、白名单控制面事件订阅、事件过滤/幂等 claim、设备白名单、trust/emergency、单并发和 429；`1176a92`~`a94bba1` 补持久回调 outbox、重试、死信、人工重放和幂等 ack；`d3dc4cf` 补 queued job 重启恢复；`3c31d9a` 补 UTC cron；`20d02cc` 补 IANA 时区和 DST；`47d5e19` 补批量 ack；`af8653f` 补 MCP 事件重连；`5a4ff4a` 补按用户持久事件 replay；本轮补法定节假日跳过、年度日历扩展、默认 2048/可配置 replay 容量、cron 漏跑补跑、`5f24ff7` 的同目录多进程回调/job claim 协调、`cd730d1` 的回调操作者归属、`c39443c` 的服务端 replay retention 配置、`2d211c1` 的 retry claim 崩溃恢复、`6c71f97` 的数据库事务 event outbox 基础设施/`scheduled_task.failed` 迁移、`f2534ec` 的设备访问 granted/denied 迁移、`6bdc057` 的策略变更迁移、`3bbc175` 的远端会话生命周期迁移、`cd08a0f` 的录像生命周期迁移、`c650d3d` 的访问审批生命周期迁移、`5e2542c` 的共享访问码生命周期迁移、`b6855cc` 的离线告警迁移、`c4a28ee` 的指标阈值告警迁移、`0c621ef` 的设备控制面变更迁移、`0b746b9` 的收藏设备迁移、`cddc0db` 的在线状态离线事件迁移，以及 `314c73b` + `a1d34c5` 的账号会话撤销事件（改密码、短信改密、refresh 家族断裂、管理端改密/删用户/强制下线/批量禁用/批量删除、本人登出、按 id 删会话和计划任务全局登出共 8 个生产者）迁移，上游候选继续推进；`2848be5` 补公平调度，`97b8619` 补 Owner 委托权限，本轮再修一个会冻结 MCP 服务的自死锁：`log_operation` 持着 `db` 锁调用 `record_failure`，后者抢同一把非重入锁，任何一次失败的工具调用都会让服务端永久挂起；已改为先 `drop(db)` 再记录失败，并用带看门狗的测试把回归固定成失败而不是无限挂起（`cargo test --bin quickdesk-mcp` 113 项全过）。剩余：跨机器分布式队列 |
 
 QD-610 当前增量：`b2a0a98` 已把 admin force-unbind、单条/批量设备硬删除和 secret
 rotation 的事件写入同一数据库事务，`6386a48` 又把 TURN/STUN settings 与
@@ -930,7 +931,7 @@ rotation 的事件写入同一数据库事务，`6386a48` 又把 TURN/STUN setti
 | QD-905 | 信令、TURN 并发压测 | `[x]` | 已有负载和 soak 脚本 |
 | QD-906 | Windows/macOS 真机矩阵 | `[~]` | Windows 主链已验证；输入、音频、剪贴板边界待补 |
 | QD-907 | 协议异常、权限异常、重连耗尽 | `[~]` | 已补信令 auth_ok 超时、认证前 payload/send 门禁、访问策略/错误访问码/排队/签名失败分类、上传 transport/503 重试耗尽，以及 WebSocket 断线后重新签发 token 的有界 `0/1/3/7s` 重连与耗尽状态。Playwright E2E 已覆盖第 1~3 次恢复、四次耗尽、不可重试策略拒绝、上传中断与信令重连并行、旧 Session 迟到事件隔离；真实弱网/代理切换、进程级断网和长时间抖动仍未验证 |
-| QD-908 | 2h+ 桌面长稳和几百路观看 | `[~]` | 200 路 7200 秒正式跑已于 2026-10-24 执行完毕并拿到 `WALL_SOAK_SUMMARY`：时长 8155 秒、118 次采样、三个采样 iframe 帧持续推进（6612/6756/6930）、零页面错误均通过；`mainFps` 0.77（阈值 1）与 `heapGrowthMb` 554.46 MiB（阈值 256）未过。同参数 42 秒短跑对照为 `mainFps` 9.17、heap 增长 -118.76 MiB，证明劣化随运行时间累积而非 200 路固有代价；headroom 已从 1 小时提到 2 小时使跑完不被 `node:test` 掐断。**不调阈值**，把该退化作为待定位缺陷跟踪：需按时间采样主线程 FPS 与 heap 判断渐进或阶跃，并核对轮巡切换、瓦片重连与 DOM 节点增长（`nodesEnd` 9094） |
+| QD-908 | 2h+ 桌面长稳和几百路观看 | `[~]` | 200 路 7200 秒正式跑已两次执行完毕并拿到带时间序列的 `WALL_SOAK_SUMMARY`：时长、118 次采样、三个采样 iframe 帧持续推进、零页面错误均通过；`mainFps` 0.71~0.77（阈值 1）与 `heapGrowthMb` 535~554 MiB（阈值 256）未过；同参数 42 秒短跑对照为 9.17 FPS 和 -118 MiB。按采样打点后退化形状确定：**FPS 在 267~681 秒之间阶跃崩塌**（前 267 秒稳定 7~8.7 FPS，681 秒已跌到 3.51，之后贴 0.4），不是渐进；**DOM 节点数在 267 秒见顶 9241 后不再增长**，稳定在 9132~9137，因此节点增长不是原因（上一轮的猜测被推翻）；**heap 增长与 FPS 崩塌是两条独立劣化**——FPS 归零后 heap 仍以约每分钟 3 MB 线性增长，说明分配源不依赖主线程帧循环。headroom 已从 1 小时提到 2 小时使跑完不被 `node:test` 掐断。**不调阈值**：调松会把 QD-908 要抓的退化藏掉。下一步是在 267~681 秒窗口内加密采样抓住阶跃时刻，并查不依赖主线程的周期性分配源（轮巡 2 秒周期、瓦片重连、事件订阅均在候选范围） |
 | QD-909 | 安全审计：文件、剪贴板、权限 | `[~]` | 访问、会话和文件传输已有 attributable 上报；`e04451c` 补剪贴板：`POST /v1/me/clipboard-audits` 记方向、MIME 类型和字节数，**契约里没有存放文本的字段**——剪贴板内容照例是密码、恢复码或私信，「14:03 拷走 1.2 KB 文本」足以回答调查问题，而存文本会把审计链变成每个后来读库者都继承的凭据库；客户端 builder 只取文本用于测量，从构造上就没有内容进入审计行的路径；真机 E2E 直接回读 SQLite 文件，断言行存在、带字节数、且既不含文本也不含片段；本地写入失败也按 failed 上报（字节确实过了数据通道）。剩余：权限侧边界随 QD-115 收口 |
 | QD-910 | 需求、上游与实现持续对账 | `[~]` | 每次上游合并、issue/PR 变化或功能完成时，同步本清单、状态证据和上游贡献决策 |
 | QD-911 | 上游私密安全披露入口 | `[~]` | fork 提交 `3021ca9` 与上游候选 `9862717` 已新增 `SECURITY.md`，覆盖私密邮箱兜底、公开 issue 禁令、范围、协调披露和 maintainer 检查项；issue #6 仍 OPEN，GitHub Private Vulnerability Reporting 仍 disabled |
