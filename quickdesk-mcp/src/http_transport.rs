@@ -16,7 +16,7 @@ use crate::distributed_claim::DistributedClaimStore;
 use crate::idempotency::WorkflowIdempotencyStore;
 use crate::server::{QuickDeskMcpServer, SharedState};
 use crate::trigger::TriggerRuntime;
-use crate::workflow_job::WorkflowJobManager;
+use crate::workflow_job::{parse_peer_dirs, WorkflowJobManager};
 use crate::workflow_trigger::WorkflowTriggerStore;
 use crate::ws_client::WsClient;
 
@@ -60,6 +60,30 @@ pub async fn start_http(
             jobs.with_distributed_claims(claims, worker_id)
         }
         _ => jobs,
+    };
+    // Peer directories turn a set of independent workers into a fleet: without
+    // them a run sits in the queue of whichever process accepted it, so that
+    // process being down strands the run. The claim store configured above is
+    // what keeps watching a peer from turning into executing it twice, which is
+    // why this is only worth setting together with it.
+    let jobs = match config
+        .workflow_peer_job_dirs
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        Some(list) => {
+            let dirs = parse_peer_dirs(list);
+            tracing::info!(
+                "workflow job directories watched for peers: {}",
+                dirs.iter()
+                    .map(|dir| dir.display().to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+            jobs.with_peer_job_dirs(dirs)
+        }
+        None => jobs,
     };
 
     let mcp_service: StreamableHttpService<QuickDeskMcpServer, LocalSessionManager> =

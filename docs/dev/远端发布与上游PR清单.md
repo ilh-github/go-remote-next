@@ -603,3 +603,21 @@ PR 描述至少写明：
   劣化，不是 200 路固有代价；
 - 处理：不调阈值，作为待定位的稳定性缺陷跟踪，详见联调记录第 224 节；
 - 该跑为本地门禁，不涉及上游 PR。
+
+## MCP 自死锁修复候选（2026-10-25）
+
+- 缺陷：`quickdesk-mcp` 的 `MemoryStore::log_operation` 持着连接互斥锁调用
+  `record_failure`，后者再抢同一把非重入锁。任何一次 `success=false` 的工具调用都会
+  把 MCP 服务端永久挂死。上游 `barry-ran/QuickDesk:dev@5db316c` 的
+  `src/memory.rs` 第 290 行与第 310 字字相同，缺陷同样存在。
+- 候选分支：`codex/upstream-mcp-failure-lock` = `c0202f1`，基于
+  `upstream/dev@5db316c`，只含 1 个提交、1 个文件（+116 行：修复 + 3 个回归测试 +
+  测试用 `open_at` 入口）。
+- 验证：修复前 3 个测试全部以看门狗超时失败（`timed out: the store is deadlocked,
+  not slow`），修复后全部通过。双向验证过，不是只跑绿。
+- 已推送到 fork 并创建上游 PR #31：
+  https://github.com/barry-ran/QuickDesk/pull/31
+- PR 说明中已声明上游 `dev` 的 `cargo test` 当前编不过（`src/event_bus.rs:253` 与
+  `:274` 调用 `wait_for` 缺第 4 个参数 `check_history`），与本次改动无关；是在本地
+  临时打补丁跑通测试后还原的，未包含在候选内。
+- fork 侧同一修复提交为 `33c6fcb`，`dev` 与 `master` 已同步并推送。

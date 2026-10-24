@@ -2097,7 +2097,18 @@ or success status. Results are ordered by most recent first.")]
 their frequency, and any recorded resolutions.")]
     async fn get_failure_memory(&self, params: Parameters<FailureMemoryParam>) -> String {
         let p = params.0;
-        let records = self.state.memory.get_failures(&p.device_id, p.tool_name.as_deref());
+        // The description promises resolutions, and the column that would hold
+        // them has been empty since the table was created. Explaining each
+        // record on read is what makes the promise true: it records what the
+        // row itself can prove rather than a guessed cause, which would be
+        // trusted by the next operator who reads it.
+        let records = self
+            .state
+            .memory
+            .get_failures(&p.device_id, p.tool_name.as_deref())
+            .into_iter()
+            .filter_map(|record| self.state.memory.explain_failure(record.id))
+            .collect::<Vec<_>>();
         serde_json::to_string_pretty(&records).unwrap_or_default()
     }
 

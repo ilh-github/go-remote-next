@@ -94,6 +94,11 @@ fn default_stop_on_failure() -> bool {
 #[derive(Clone)]
 pub struct WorkflowJobStore {
     storage_dir: PathBuf,
+    /// Directories other machines submit into. A worker that shares no
+    /// filesystem with its peers can leave this empty; a fleet on shared
+    /// storage lists the peers so a run is picked up whichever machine it was
+    /// submitted on.
+    peer_dirs: Arc<Mutex<Vec<PathBuf>>>,
 }
 
 struct WorkflowJobExecutionClaim {
@@ -122,7 +127,10 @@ impl WorkflowJobStore {
     fn from_storage_dir(storage_dir: PathBuf) -> Result<Self, String> {
         std::fs::create_dir_all(&storage_dir)
             .map_err(|error| format!("cannot create workflow job dir: {error}"))?;
-        Ok(Self { storage_dir })
+        Ok(Self {
+            storage_dir,
+            peer_dirs: Arc::new(Mutex::new(Vec::new())),
+        })
     }
 
     #[cfg(test)]
@@ -157,48 +165,68 @@ impl WorkflowJobStore {
     }
 
     pub fn get(&self, run_id: &str) -> Option<WorkflowRunJob> {
-        let path = self.job_path(run_id)?;
+        let path = self.job_path_anywhere(run_id)?;
         let data = std::fs::read_to_string(path).ok()?;
         serde_json::from_str(&data).ok()
     }
 
     fn get_request(&self, run_id: &str) -> Option<WorkflowJobRequestSpec> {
-        let path = self.request_path(run_id)?;
+        // The request file sits beside the job file, so it has to be looked up
+        // in the same directory the run was found in.
+        let path = self.request_path_anywhere(run_id)?;
         let data = std::fs::read_to_string(path).ok()?;
         serde_json::from_str(&data).ok()
     }
 
+    /// Every run this worker can see, in any state, oldest first.
+    ///
+    /// Covers the peer directories as well, because restart recovery has to
+    /// reconcile runs that were submitted on another machine: a `Running` row
+    /// from a peer whose claim has lapsed is exactly the run this worker should
+    /// take over rather than leave stuck.
     fn list(&self) -> Result<Vec<WorkflowRunJob>, String> {
-        let entries = std::fs::read_dir(&self.storage_dir)
-            .map_err(|error| format!("read workflow job dir: {error}"))?;
+        let peers = match self.peer_dirs.lock() {
+            Ok(peers) => peers.clone(),
+            Err(poisoned) => poisoned.into_inner().clone(),
+        };
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
         let mut jobs: Vec<WorkflowRunJob> = Vec::new();
-        for entry in entries {
-            let entry = entry.map_err(|error| format!("read workflow job entry: {error}"))?;
-            let path = entry.path();
-            if path.extension().and_then(|value| value.to_str()) != Some("json")
-                || path
-                    .file_name()
-                    .and_then(|value| value.to_str())
-                    .is_some_and(|name| name.ends_with(".request.json"))
-            {
-                continue;
-            }
-            let data = match std::fs::read_to_string(&path) {
-                Ok(data) => data,
-                Err(error) => {
-                    tracing::warn!("cannot read workflow job {}: {error}", path.display());
-                    continue;
-                }
-            };
-            match serde_json::from_str(&data) {
-                Ok(job) => jobs.push(job),
-                Err(error) => {
-                    tracing::warn!("cannot parse workflow job {}: {error}", path.display());
-                }
+        for job in scan_job_dir(&self.storage_dir)
+            .into_iter()
+            .chain(peers.iter().flat_map(|dir| scan_job_dir(dir)))
+        {
+            if seen.insert(job.run_id.clone()) {
+                jobs.push(job);
             }
         }
-        jobs.sort_by(|left, right| left.created_at.cmp(&right.created_at));
+        jobs.sort_by(|left, right| {
+            left.created_at
+                .cmp(&right.created_at)
+                .then_with(|| left.run_id.cmp(&right.run_id))
+        });
         Ok(jobs)
+    }
+
+    /// Adds a directory another machine submits into, so this worker can see
+    /// runs it did not create.
+    ///
+    /// This is the piece that turns a set of independent single-machine workers
+    /// into a fleet: without it a run lives in the queue of whichever process
+    /// accepted it, and that process being down strands the run. The shared
+    /// claim store still decides who actually executes it, so watching a peer
+    /// makes the work visible, not duplicated.
+    pub fn watch_peer_dir(&self, dir: impl AsRef<std::path::Path>) {
+        let dir = dir.as_ref().to_path_buf();
+        let mut peers = match self.peer_dirs.lock() {
+            Ok(peers) => peers,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        // The same directory can be configured twice (a ring of peers, or a
+        // restart that re-adds it), and listing it twice would show its runs
+        // twice.
+        if !peers.contains(&dir) {
+            peers.push(dir);
+        }
     }
 
     pub fn mark_running(&self, run_id: &str) -> Result<(), String> {
@@ -378,15 +406,113 @@ impl WorkflowJobStore {
         Some(self.storage_dir.join(format!("{run_id}.json")))
     }
 
+    /// The job file for a run, wherever it lives.
+    ///
+    /// A run this worker did not submit only exists in a peer directory, so
+    /// resolving it against `storage_dir` alone would read nothing and the
+    /// claim would be dropped as "not queued".
+    fn job_path_anywhere(&self, run_id: &str) -> Option<PathBuf> {
+        let local = self.job_path(run_id)?;
+        if local.exists() {
+            return Some(local);
+        }
+        let peers = match self.peer_dirs.lock() {
+            Ok(peers) => peers.clone(),
+            Err(poisoned) => poisoned.into_inner().clone(),
+        };
+        peers
+            .into_iter()
+            .map(|dir| dir.join(format!("{run_id}.json")))
+            .find(|path| path.exists())
+    }
+
     fn request_path(&self, run_id: &str) -> Option<PathBuf> {
         Uuid::parse_str(run_id).ok()?;
         Some(self.storage_dir.join(format!("{run_id}.request.json")))
+    }
+
+    fn request_path_anywhere(&self, run_id: &str) -> Option<PathBuf> {
+        let local = self.request_path(run_id)?;
+        if local.exists() {
+            return Some(local);
+        }
+        let peers = match self.peer_dirs.lock() {
+            Ok(peers) => peers.clone(),
+            Err(poisoned) => poisoned.into_inner().clone(),
+        };
+        peers
+            .into_iter()
+            .map(|dir| dir.join(format!("{run_id}.request.json")))
+            .find(|path| path.exists())
     }
 
     fn claim_path(&self, run_id: &str) -> Option<PathBuf> {
         Uuid::parse_str(run_id).ok()?;
         Some(self.storage_dir.join(format!("{run_id}.claim")))
     }
+}
+
+/// Reads every job file in one directory, oldest first.
+///
+/// A directory that does not exist or cannot be read yields nothing rather than
+/// an error: a peer that is simply not mounted yet must not stop this worker
+/// from serving the runs it can see.
+fn scan_job_dir(dir: &std::path::Path) -> Vec<WorkflowRunJob> {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(error) => {
+            tracing::debug!("cannot read workflow job dir {}: {error}", dir.display());
+            return Vec::new();
+        }
+    };
+    let mut jobs: Vec<WorkflowRunJob> = Vec::new();
+    for entry in entries {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(error) => {
+                tracing::warn!("cannot read workflow job entry: {error}");
+                continue;
+            }
+        };
+        let path = entry.path();
+        if path.extension().and_then(|value| value.to_str()) != Some("json")
+            || path
+                .file_name()
+                .and_then(|value| value.to_str())
+                .is_some_and(|name| name.ends_with(".request.json"))
+        {
+            continue;
+        }
+        let data = match std::fs::read_to_string(&path) {
+            Ok(data) => data,
+            Err(error) => {
+                tracing::warn!("cannot read workflow job {}: {error}", path.display());
+                continue;
+            }
+        };
+        match serde_json::from_str(&data) {
+            Ok(job) => jobs.push(job),
+            Err(error) => {
+                tracing::warn!("cannot parse workflow job {}: {error}", path.display());
+            }
+        }
+    }
+    jobs.sort_by(|left, right| left.created_at.cmp(&right.created_at));
+    jobs
+}
+
+/// Turns the comma-separated `QUICKDESK_WORKFLOW_PEER_JOB_DIRS` value into
+/// directories.
+///
+/// Blank entries are dropped rather than turned into empty paths: a trailing
+/// comma is a normal thing to type, and an empty path would resolve to the
+/// current directory, which is never what the operator meant.
+pub(crate) fn parse_peer_dirs(list: &str) -> Vec<PathBuf> {
+    list.split(',')
+        .map(str::trim)
+        .filter(|entry| !entry.is_empty())
+        .map(PathBuf::from)
+        .collect()
 }
 
 #[derive(Clone)]
@@ -482,6 +608,21 @@ impl WorkflowJobManager {
     pub fn with_distributed_claims(mut self, claims: DistributedClaimStore, worker_id: String) -> Self {
         self.distributed_claims = Some(claims);
         self.worker_id = worker_id;
+        self
+    }
+
+    /// Names the directories other machines submit workflow runs into, so this
+    /// worker picks up runs it did not accept itself.
+    ///
+    /// Pairs with `with_distributed_claims`: watching a peer makes the run
+    /// visible, the shared claim decides which machine executes it. Setting the
+    /// peers without a shared claim store would let every machine that can see
+    /// the directory drive the run, so the claim is what makes this safe rather
+    /// than merely load-balanced.
+    pub fn with_peer_job_dirs(self, dirs: Vec<PathBuf>) -> Self {
+        for dir in dirs {
+            self.store.watch_peer_dir(dir);
+        }
         self
     }
 
@@ -999,6 +1140,19 @@ fn dirs_data_dir() -> Option<PathBuf> {
 mod tests {
     use super::*;
 
+    // What the worker acts on: the queued runs it can see, in the order it will
+    // see them. Recovery reads the same list, so the helper exercises the
+    // production path rather than a test-only shortcut.
+    fn queued_ids(store: &WorkflowJobStore) -> Vec<String> {
+        store
+            .list()
+            .unwrap()
+            .into_iter()
+            .filter(|job| job.status == WorkflowJobStatus::Queued)
+            .map(|job| job.run_id)
+            .collect()
+    }
+
     // The single execution slot makes queue order the fairness question. A
     // busy submitter with several queued runs must not push a one-run
     // submitter behind all of them: with round-robin the quiet submitter's
@@ -1164,5 +1318,98 @@ mod tests {
         drop(recovered);
 
         let _ = std::fs::remove_dir_all(temp);
+    }
+
+    // A fleet of workers is the whole point of the distributed queue: one
+    // machine submits, another picks the run up. Submission writes into the
+    // submitting machine's own directory, so the worker on the second machine
+    // has to be able to name that directory - without it, every run sits in the
+    // submitter's queue forever unless that one process happens to be up.
+    #[test]
+    fn a_worker_can_claim_a_run_submitted_on_another_machine() {
+        let root = std::env::temp_dir().join(format!("quickdesk-fleet-{}", Uuid::new_v4()));
+        let submitter = WorkflowJobStore::with_storage_dir(root.join("machine-a").join("jobs"));
+        let worker = WorkflowJobStore::with_storage_dir(root.join("machine-b").join("jobs"));
+        let job = submitter
+            .create("workflow-1", "device-1", &WorkflowJobRequestSpec::default())
+            .unwrap();
+
+        // The second machine watches the submitter's directory as well as its
+        // own, so the run is visible there even though nothing wrote it locally.
+        worker.watch_peer_dir(root.join("machine-a").join("jobs"));
+        assert_eq!(
+            worker
+                .list()
+                .unwrap()
+                .into_iter()
+                .filter(|row| row.status == WorkflowJobStatus::Queued)
+                .map(|row| row.run_id)
+                .collect::<Vec<_>>(),
+            vec![job.run_id.clone()],
+            "a run submitted elsewhere must be visible to the worker"
+        );
+
+        // The shared claim is what stops the submitter's own worker and this one
+        // from both driving the same run.
+        let claims = DistributedClaimStore::open(root.join("shared").join("claims.db"))
+            .expect("open shared claims");
+        let taken = worker.claim_execution_for(&job.run_id, "machine-b", Some(&claims));
+        assert!(
+            taken.is_some(),
+            "the watching worker must be able to claim it"
+        );
+        assert!(
+            submitter
+                .claim_execution_for(&job.run_id, "machine-a", Some(&claims))
+                .is_none(),
+            "the submitter must not drive a run the other machine already holds"
+        );
+        drop(taken);
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    // The value comes from an environment variable, so trailing commas and
+    // stray spaces are ordinary. An empty path would resolve to the current
+    // directory, which is not what the operator asked for.
+    #[test]
+    fn peer_dirs_are_parsed_from_a_comma_separated_list() {
+        assert_eq!(parse_peer_dirs(""), Vec::<PathBuf>::new());
+        assert_eq!(parse_peer_dirs("   "), Vec::<PathBuf>::new());
+        assert_eq!(parse_peer_dirs(","), Vec::<PathBuf>::new());
+        assert_eq!(
+            parse_peer_dirs(" /srv/a , /srv/b ,"),
+            vec![PathBuf::from("/srv/a"), PathBuf::from("/srv/b")]
+        );
+    }
+
+    // A run that is queued in a peer directory must not be listed twice when
+    // that same directory is also watched by name, or when two peers both hold
+    // a copy of it.
+    #[test]
+    fn a_run_seen_in_two_directories_is_listed_once() {
+        let root = std::env::temp_dir().join(format!("quickdesk-dedupe-{}", Uuid::new_v4()));
+        let submitter = WorkflowJobStore::with_storage_dir(root.join("jobs"));
+        let worker = WorkflowJobStore::with_storage_dir(root.join("worker-jobs"));
+        let job = submitter
+            .create("workflow-1", "device-1", &WorkflowJobRequestSpec::default())
+            .unwrap();
+
+        // The same directory twice, which a ring of peers produces.
+        worker.watch_peer_dir(root.join("jobs"));
+        worker.watch_peer_dir(root.join("jobs"));
+        assert_eq!(queued_ids(&worker).len(), 1, "the same run must not repeat");
+
+        // And a peer that holds its own copy of the run.
+        let other = WorkflowJobStore::with_storage_dir(root.join("other-jobs"));
+        other.save(&job).expect("peer holds a copy");
+        worker.watch_peer_dir(root.join("other-jobs"));
+        assert_eq!(
+            queued_ids(&worker).len(),
+            1,
+            "two copies of one run are still one run"
+        );
+
+        let _ = std::fs::remove_dir_all(root);
     }
 }

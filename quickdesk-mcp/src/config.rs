@@ -92,6 +92,14 @@ pub struct AppConfig {
     /// own claim file and both would drive the same run.
     #[arg(long, env = "QUICKDESK_WORKFLOW_CLAIM_DB")]
     pub workflow_claim_db: Option<String>,
+
+    /// Comma-separated directories other machines submit workflow runs into.
+    /// Empty keeps this worker watching only its own directory, so a run is
+    /// executed by the process that accepted it. Watching a peer makes the run
+    /// visible here; `workflow_claim_db` is what stops two machines that can
+    /// both see it from driving it at once, so set that too.
+    #[arg(long, env = "QUICKDESK_WORKFLOW_PEER_JOB_DIRS")]
+    pub workflow_peer_job_dirs: Option<String>,
 }
 
 impl AppConfig {

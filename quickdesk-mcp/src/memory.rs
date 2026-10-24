@@ -486,6 +486,20 @@ impl MemoryStore {
         let (count, pattern, category, last_occurred) = existing?;
         let explanation =
             format!("seen {count} time(s) for {pattern} as {category}; last at {last_occurred}");
+        // Skip the write when the row already says exactly this. The MCP tool
+        // explains every record it returns, so without this a read is a write
+        // and a client that polls failure memory keeps rewriting the database.
+        let already_said: String = db
+            .query_row(
+                "SELECT resolution FROM failure_memory WHERE id=?1",
+                params![id],
+                |row| row.get(0),
+            )
+            .unwrap_or_default();
+        if already_said == explanation {
+            drop(db);
+            return self.failure_by_id(id);
+        }
         let updated = db
             .execute(
                 "UPDATE failure_memory SET resolution=?1 WHERE id=?2",
@@ -497,6 +511,18 @@ impl MemoryStore {
         }
         drop(db);
         self.failure_by_id(id)
+    }
+
+    /// How many row changes this connection has written, ever.
+    ///
+    /// `PRAGMA data_version` cannot answer "did that write happen": SQLite
+    /// skips the page when the new value equals the old one, so the counter
+    /// does not move even though the statement ran. This one counts statements,
+    /// which is what a test needs to tell a real write from a skipped one.
+    #[cfg(test)]
+    pub(crate) fn writes_so_far(&self) -> u64 {
+        let db = self.db.lock().unwrap();
+        db.total_changes()
     }
 
     fn failure_by_id(&self, id: i64) -> Option<FailureRecord> {
@@ -784,5 +810,39 @@ mod explain_tests {
             assert_eq!(summary.common_failures.len(), 1);
             let _ = std::fs::remove_dir_all(temp);
         });
+    }
+
+    // The MCP tool explains every record it returns, so a read became a write.
+    // Re-reading an unchanged row must not keep writing it, or a deployment
+    // that polls failure memory rewrites the database on every poll.
+    #[test]
+    fn re_explaining_an_unchanged_failure_does_not_write_again() {
+        let (store, temp) = store_in_temp();
+        store.log_operation(
+            "session-1",
+            "device-1",
+            "mouse_click",
+            &serde_json::json!({"x": 10, "y": 20}),
+            "failed",
+            false,
+            12,
+            "connection timed out",
+        );
+        let id = store.get_failures("device-1", None)[0].id;
+
+        let explained = store.explain_failure(id).expect("explanation");
+        let after_first = store.writes_so_far();
+
+        // The row has not changed, so the explanation is the same sentence. The
+        // write counter is what proves it was not rewritten to say it.
+        let again = store.explain_failure(id).expect("explanation again");
+        assert_eq!(again.resolution, explained.resolution);
+        assert_eq!(
+            store.writes_so_far(),
+            after_first,
+            "explaining a row that has not changed must not write again"
+        );
+
+        let _ = std::fs::remove_dir_all(temp);
     }
 }
