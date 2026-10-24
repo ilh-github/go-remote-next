@@ -102,8 +102,12 @@ target_link_libraries(quickdesk_fake_host
     Qt6::Core
 )
 
+# HostManager reaches LocalConfigCenter for the API key, so those sources come
+# along - the same set the skill-host test needs, and for the same reason.
 add_executable(quickdesk_host_startup_integration_test
     hoststartup_integration_test.cpp
+    ../src/core/db/appconfigdatabase.cpp
+    ../src/core/localconfigcenter.cpp
     ../src/manager/HostManager.cpp
     ../src/manager/NativeMessaging.cpp
 )
