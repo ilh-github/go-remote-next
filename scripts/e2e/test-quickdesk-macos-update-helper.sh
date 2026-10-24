@@ -57,9 +57,12 @@ EOF
 
 make_dmg() {
     dmg_path="$1"
-    source_app="$2"
+    # Named apart from the global `source_app`: without `local` (this is /bin/sh)
+    # this assignment would overwrite it, and every later scenario would pack the
+    # bundle from whichever app was passed most recently.
+    dmg_source_app="$2"
     staging="$(mktemp -d "$root/dmg-stage.XXXXXX")"
-    cp -R "$source_app" "$staging/QuickDesk.app"
+    cp -R "$dmg_source_app" "$staging/QuickDesk.app"
     ln -s /Applications "$staging/Applications"
     mkdir -p "$(dirname "$dmg_path")"
     hdiutil create \
@@ -89,6 +92,15 @@ run_helper() {
         --remove-dmg
 }
 
+# The suite signs its bundles ad-hoc, because a Developer ID is not something a
+# test run can have. That is exactly what the trust check refuses, so the
+# scenarios that are not about trust opt out explicitly - and the one that is
+# about trust deliberately does not.
+run_helper_allowing_unnotarized() {
+    QUICKDESK_ALLOW_UNNOTARIZED_UPDATE=1 \
+        run_helper "$@"
+}
+
 sh -n "$helper"
 bash -n "$notarize_script"
 
@@ -114,7 +126,7 @@ make_dmg "$dmg_path" "$source_app"
 
 work_dir="$root/QuickDesk/updates/install-success"
 log_file="$root/QuickDesk/updates/install.log"
-run_helper "$target_app" "$dmg_path" "$work_dir" "$log_file"
+run_helper_allowing_unnotarized "$target_app" "$dmg_path" "$work_dir" "$log_file"
 
 [ "$(cat "$target_app/Contents/Resources/variant.txt")" = "new" ] ||
     fail "updated app was not installed"
@@ -130,7 +142,9 @@ make_app "$wrong_target" "com.quickdesk.update.test" "4.2.8.0" "old"
 wrong_dmg="$root/QuickDesk/updates/4.2.9.0/QuickDesk-wrong.dmg"
 make_dmg "$wrong_dmg" "$wrong_app"
 
-if run_helper "$wrong_target" "$wrong_dmg" \
+# Same ad-hoc signature as the success case, so the bundle identifier is the
+# only thing under test here; trust is opted out of, as above.
+if run_helper_allowing_unnotarized "$wrong_target" "$wrong_dmg" \
     "$root/QuickDesk/updates/install-mismatch" \
     "$root/QuickDesk/updates/install-mismatch.log"; then
     fail "mismatched bundle identifier was accepted"
@@ -141,5 +155,33 @@ fi
 [ -e "$wrong_dmg" ] || fail "failed update unexpectedly removed its DMG"
 [ -f "$root/QuickDesk/updates/install-mismatch.log" ] ||
     fail "failed update did not write a diagnostic log"
+
+# A bundle that carries a signature but no notarization is exactly what
+# Gatekeeper quarantines on a user's Mac. `codesign --verify` accepts it and
+# TeamIdentifier is empty on both sides, so the checks above let it through -
+# which means the updater would install an app that refuses to open, and the
+# operator would find out from the user rather than from the log.
+# Its own target bundle, so "the installed app was not disturbed" is a real
+# observation: the success case above has already moved the shared target to
+# the new version, which would make the same assertion pass either way.
+unnotarized_target="$root/unnotarized-target/QuickDesk.app"
+make_app "$unnotarized_target" "com.quickdesk.update.test" "4.2.8.0" "old"
+unnotarized_dmg="$root/QuickDesk/updates/4.2.9.0/QuickDesk-unnotarized.dmg"
+make_dmg "$unnotarized_dmg" "$source_app"
+
+if run_helper "$unnotarized_target" "$unnotarized_dmg" \
+    "$root/QuickDesk/updates/install-unnotarized" \
+    "$root/QuickDesk/updates/install-unnotarized.log"; then
+    fail "an update that Gatekeeper would reject was installed anyway"
+fi
+
+[ "$(cat "$unnotarized_target/Contents/Resources/variant.txt")" = "old" ] ||
+    fail "rejected update disturbed the installed app"
+[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' \
+    "$unnotarized_target/Contents/Info.plist")" = "4.2.8.0" ] ||
+    fail "rejected update changed the installed version"
+[ -e "$unnotarized_dmg" ] || fail "rejected update unexpectedly removed its DMG"
+[ -f "$root/QuickDesk/updates/install-unnotarized.log" ] ||
+    fail "rejected update did not write a diagnostic log"
 
 echo "macOS update helper E2E passed"

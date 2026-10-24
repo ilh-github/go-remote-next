@@ -163,6 +163,14 @@ int main(int argc, char** argv) {
            QStringLiteral("macOS update helper is a shell script"));
     Expect(updateHelper.contains("--expected-version"),
            QStringLiteral("macOS update helper validates the target version"));
+    // The helper refuses a bundle Gatekeeper would quarantine. If the embedded
+    // copy ever drifts from the one in scripts/, the updater goes back to
+    // installing apps the user cannot open - which is invisible until a user
+    // reports it, because `codesign --verify` alone accepts such a bundle.
+    Expect(updateHelper.contains("gatekeeper_rejects"),
+           QStringLiteral("macOS update helper checks Gatekeeper trust"));
+    Expect(updateHelper.contains("QUICKDESK_ALLOW_UNNOTARIZED_UPDATE"),
+           QStringLiteral("macOS update helper keeps an explicit opt-out"));
 
     const QDir updateRoot(
         QDir(QStandardPaths::writableLocation(

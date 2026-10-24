@@ -11,6 +11,14 @@ LOG_FILE=""
 SKIP_LAUNCH=0
 ALLOW_ELEVATION=1
 REMOVE_DMG=0
+# Refuse a bundle macOS itself would refuse to open. On by default: the
+# alternative is installing an app that Gatekeeper quarantines, which the
+# operator learns about from the user. Local builds and the E2E suite sign
+# ad-hoc, so they set QUICKDESK_ALLOW_UNNOTARIZED_UPDATE=1 - an explicit
+# choice, the same shape as QUICKDESK_REQUIRE_MACOS_NOTARIZATION.
+# Only the variable, because a second way to say it through argv is another
+# surface to keep working with no caller behind it.
+REQUIRE_GATEKEEPER_TRUST=1
 
 MOUNT_DIR=""
 STAGED_APP=""
@@ -107,6 +115,44 @@ team_identifier() {
         identifier=""
     fi
     printf '%s\n' "$identifier"
+}
+
+# Rejects a bundle the user's Mac would refuse to open.
+#
+# `codesign --verify` only proves the bytes are intact and were signed by the
+# identity that signed them. It says nothing about whether Gatekeeper trusts
+# that identity, so a bundle signed ad-hoc passes verification and is then
+# quarantined on first launch - the updater would report success for an app the
+# user cannot run.
+#
+# Two independent signals, because either alone has a hole:
+#   - an ad-hoc signature can never carry a notarization ticket, and it is
+#     readable without consulting system policy;
+#   - `spctl --assess` asks the real policy engine, but answers "allowed" for
+#     everything when Gatekeeper is switched off, so it is only trusted when
+#     assessments are actually enabled.
+gatekeeper_rejects() {
+    app_path="$1"
+    details="$(
+        /usr/bin/codesign -dv --verbose=4 "$app_path" 2>&1
+    )"
+    signature="$(printf '%s\n' "$details" |
+        awk -F= '/^Signature=/{print $2; exit}')"
+    team="$(printf '%s\n' "$details" |
+        awk -F= '/^TeamIdentifier=/{print $2; exit}')"
+    if [ "$signature" = "adhoc" ] || [ -z "$team" ] || [ "$team" = "not set" ]; then
+        log "bundle is signed ad-hoc and cannot be notarized: $app_path"
+        return 0
+    fi
+    if /usr/sbin/spctl --status 2>/dev/null |
+        grep -qi "assessments enabled"; then
+        if ! /usr/sbin/spctl --assess --type execute "$app_path" \
+            >>"$LOG_FILE" 2>&1; then
+            log "Gatekeeper rejected the bundle: $app_path"
+            return 0
+        fi
+    fi
+    return 1
 }
 
 validate_bundle() {
@@ -246,6 +292,16 @@ done
 [ -n "$WORK_DIR" ] || { usage; exit 64; }
 [ -n "$LOG_FILE" ] || { usage; exit 64; }
 
+# An explicit setting always wins over the default, in either direction, so a
+# deployment cannot be left in strict mode by an inherited blank value.
+if [ -n "${QUICKDESK_ALLOW_UNNOTARIZED_UPDATE:-}" ]; then
+    case "$QUICKDESK_ALLOW_UNNOTARIZED_UPDATE" in
+        1|true|TRUE|yes|YES|on|ON) REQUIRE_GATEKEEPER_TRUST=0 ;;
+        *) REQUIRE_GATEKEEPER_TRUST=1 ;;
+    esac
+fi
+log "gatekeeper trust required: $REQUIRE_GATEKEEPER_TRUST"
+
 mkdir -p "$(dirname "$LOG_FILE")" "$WORK_DIR" || exit 1
 trap cleanup EXIT
 trap 'exit 130' INT
@@ -331,6 +387,10 @@ if [ -n "$TARGET_TEAM_ID" ] && [ "$SOURCE_TEAM_ID" != "$TARGET_TEAM_ID" ]; then
 fi
 if [ -n "$EXPECTED_VERSION" ] && [ "$SOURCE_VERSION" != "$EXPECTED_VERSION" ]; then
     fail "update bundle version $SOURCE_VERSION does not match $EXPECTED_VERSION"
+fi
+if [ "$REQUIRE_GATEKEEPER_TRUST" -eq 1 ] &&
+   gatekeeper_rejects "$SOURCE_APP"; then
+    fail "update application is signed in a way macOS will refuse to open"
 fi
 
 STAGED_APP="$WORK_DIR/staged/$(basename "$TARGET_APP")"

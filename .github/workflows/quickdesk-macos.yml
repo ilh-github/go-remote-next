@@ -89,6 +89,17 @@ jobs:
       - name: Package DMG
         run: bash scripts/package_qd_mac.sh Release
 
+      # Both gates run before anything is uploaded. The notarization gate is
+      # what stops a signed-but-unnotarized DMG from reaching a release, and
+      # the update-helper gate is what stops the updater from installing one:
+      # the same defect on the other side of the handoff, which no test covered
+      # until now.
+      - name: Notarization gate E2E
+        run: bash scripts/e2e/test-quickdesk-macos-notarize-gate.sh
+
+      - name: Update helper E2E
+        run: bash scripts/e2e/test-quickdesk-macos-update-helper.sh
+
       - name: Get version
         id: version
         run: |
