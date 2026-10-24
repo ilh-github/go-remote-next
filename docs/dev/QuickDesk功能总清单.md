@@ -794,7 +794,7 @@ fork 是否能继续开发，也不能因为 fork 自己有实现就再次向 up
 | QD-111 | 文件传输审计 | `[x]` | 控制端完成/失败上报；设备归属校验、按 transfer ID 幂等；Web/Qt、OpenAPI 和七套 SDK 已同步；边界是控制端可信上报而非 Host 签名证明 |
 | QD-112 | SSO、多租户、计费 | `[-]` | 当前不做 |
 | QD-113 | Trust 自动审批线程亲和性 | `[~]` | 上游 issue #17 / PR #22 的修复 `5969ae3` 已合并进 `upstream/master`，fork `3d44dfc` 已同步且 `QuickDesk/src/api/TrustHandler.cpp` 与上游零差异；本 fork 未重复实现。上游自带的 `test/trust/trust_handler_test.cpp` 与 `test/trust/CMakeLists.txt` 随合并进入仓库，但本机无 CMake/Qt 工具链，该 CTest 尚未执行，因此保持 `[~]` |
-| QD-114 | 自托管 HTTPS/WSS 证书校验 | `[~]` | 上游 issue #20；Qt 子进程支持 SPKI 列表，Windows 服务安装支持 `QUICKDESK_SPKI`；彻底修复仍需 Remoting 接入真实 CertVerifier，Qt/Windows 实机构建待补 |
+| QD-114 | 自托管 HTTPS/WSS 证书校验 | `[~]` | 上游 issue #20；Qt 子进程支持 SPKI 列表，Windows 服务安装支持 `QUICKDESK_SPKI`；需求单已形成 `docs/dev/自托管TLS真实CertVerifier需求.md`：缺陷定位到 `quickdesk_network_service.cc` 第 86-99 行的 `dangling_remote`（只为绕过 DCHECK、接收端从未绑定），推荐在 network 线程接真实 `CertVerifierService`，明确不接受 `SetCertVerifierForTesting` 关闭校验，附 8 条验收用例；仍需 Remoting 侧实现与 Qt/Windows 实机构建 |
 | QD-115 | 信令服务器持有设备密钥的信任边界 | `[~]` | `3474203` 已明确当前服务器仍是信任方：device_secret 只有 Argon2id 哈希，但 access_code 明文、signal token/审批/归属由服务器控制。目标方案为 Host 身份密钥 + Owner 签名授权 + Host 本地验证；协议验收项尚未实现 |
 
 ## 5. 设备与会话
@@ -963,7 +963,9 @@ rotation 的事件写入同一数据库事务，`6386a48` 又把 TURN/STUN setti
    批量 agent 指令/回执，补 QD-005 / QD-808 Windows 与 macOS 安装、重启、签名和
    公证验证。QD-215 已补发布依赖校验、正负向回归和上游候选 `f449b87`，剩余原始坏包复现与远端 PR。
 4. **准备 Remoting 需求单**：QD-004 Host 权威录制、
-   QD-007 图片剪贴板、QD-114 真实 CertVerifier。每项写清协议、宿主生命周期、权限、
+   QD-114 真实 CertVerifier 均已有需求单（`docs/dev/Host权威录制Remoting需求.md`、
+   `docs/dev/自托管TLS真实CertVerifier需求.md`）；QD-007 图片剪贴板仍待写。
+   每项写清协议、宿主生命周期、权限、
    兼容性和验收用例，先交上游维护者评估。
 5. **安全与可观测性**：QD-911 候选等上游启用 Private Vulnerability Reporting；
    QD-115 威胁模型已完成，下一阶段是 Host 身份密钥和 Owner 签名授权；之后补 QD-909
