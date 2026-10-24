@@ -213,6 +213,33 @@ MainController::MainController(QObject* parent)
     // Connect HostManager signals
     connect(m_hostManager.get(), &HostManager::hostReady,
             this, &MainController::onHostReady);
+    // The Host answering hello is what proves it can take a connect. Until this
+    // fires, sending one is what dropped the message on a slow-starting Host.
+    connect(m_hostManager.get(), &HostManager::helloResponseReceived,
+            this, [this]() {
+        if (m_hostHelloSeen) {
+            return;
+        }
+        m_hostHelloSeen = true;
+        LOG_INFO("Host answered hello; sending the signaling connect");
+        // Restart from the top: the attempts spent while waiting were not
+        // refusals, and a Host that answers late has not earned a backoff.
+        scheduleHostConnectAttempt(0);
+    });
+    // A refusal has to move the sequence forward. Without this the NOT_READY
+    // that HostManager emits reached nobody, which is why the old failure was
+    // invisible: the UI just showed two empty fields.
+    connect(m_hostManager.get(), &HostManager::errorOccurred,
+            this, [this](const QString& code, const QString& message) {
+        if (code != QLatin1String("NOT_READY")) {
+            return;
+        }
+        LOG_WARN("Host was not ready for the connect ({}); will retry", message.toStdString());
+        m_lastHostConnectOutcome = quickdesk::AttemptOutcome::NotReady;
+        // The attempt that just failed is the one already in flight, so the
+        // next one is the following index.
+        scheduleHostConnectAttempt(m_hostConnectAttempt + 1);
+    });
     connect(m_hostManager.get(), &HostManager::deviceIdChanged,
             this, &MainController::deviceIdChanged);
     connect(m_hostManager.get(), &HostManager::accessCodeChanged,
@@ -897,43 +924,88 @@ void MainController::onHostProcessStarted()
         LOG_INFO("AI Agent disabled in settings, skipping agent start");
     }
     
-    // Send hello to verify communication and connect to signaling server
+    // Send hello to verify communication and connect to signaling server.
+    //
+    // The connect used to be sent on a fixed 1000ms timer. The readiness check
+    // in front of it only proves the process is running and the sockets are
+    // attached, so a Host slower than the timer dropped the message and nothing
+    // retried it - the device ID and access code then never arrived and the UI
+    // showed two empty fields, which is upstream issue #9. The gate is now the
+    // Host's own answer to hello, and a refusal is retried within a finite
+    // budget instead of ending the attempt.
     QTimer::singleShot(500, this, [this]() {
         m_hostManager->sendHello();
-        
-        // Auto-connect to signaling server
-        QTimer::singleShot(500, this, [this]() {
-            // Update server status to Connecting
-            m_hostServerStatus = ServerStatus::Connecting;
-            emit hostServerStatusChanged();
-            
-            QString savedAccessCode;
-            int interval = core::LocalConfigCenter::instance().accessCodeRefreshInterval();
-            if (interval == -1) {
-                // "Never refresh" mode: always use saved access code
+        scheduleHostConnectAttempt(0);
+    });
+}
+
+void MainController::scheduleHostConnectAttempt(int attempt)
+{
+    if (m_isShutdown) {
+        return;
+    }
+
+    using quickdesk::NextAction;
+
+    const quickdesk::NextAction action = m_hostConnectPolicy.evaluate(
+        /*hello_seen=*/m_hostHelloSeen, attempt, m_lastHostConnectOutcome);
+
+    if (action == NextAction::Wait) {
+        // Nothing to do until the Host answers hello; helloResponseReceived
+        // restarts the sequence from the top.
+        return;
+    }
+    if (action == NextAction::GiveUp) {
+        LOG_WARN("Host did not accept the signaling connect after {} attempts; "
+                 "device ID and access code will stay empty",
+                 m_hostConnectPolicy.max_attempts());
+        m_hostServerStatus = ServerStatus::Failed;
+        emit hostServerStatusChanged();
+        return;
+    }
+    if (action != NextAction::SendConnect && action != NextAction::RetryLater) {
+        return;
+    }
+
+    const int delay_ms = m_hostConnectPolicy.delay_before_attempt_ms(attempt);
+    m_hostConnectAttempt = attempt;
+    QTimer::singleShot(delay_ms, this, [this, attempt]() {
+        if (m_isShutdown) {
+            return;
+        }
+
+        // Update server status to Connecting
+        m_hostServerStatus = ServerStatus::Connecting;
+        emit hostServerStatusChanged();
+
+        QString savedAccessCode;
+        int interval = core::LocalConfigCenter::instance().accessCodeRefreshInterval();
+        if (interval == -1) {
+            // "Never refresh" mode: always use saved access code
+            savedAccessCode = core::LocalConfigCenter::instance().savedAccessCode();
+            if (!savedAccessCode.isEmpty()) {
+                LOG_INFO("Using saved access code for 'never refresh' mode: {}", savedAccessCode.toStdString());
+            }
+        } else if (interval > 0) {
+            // Timed refresh mode: use saved access code if next refresh time hasn't expired
+            QString nextRefreshTimeStr = core::LocalConfigCenter::instance().accessCodeNextRefreshTime();
+            QDateTime nextRefreshTime = QDateTime::fromString(nextRefreshTimeStr, Qt::ISODate);
+            if (nextRefreshTime.isValid() && nextRefreshTime > QDateTime::currentDateTime()) {
                 savedAccessCode = core::LocalConfigCenter::instance().savedAccessCode();
                 if (!savedAccessCode.isEmpty()) {
-                    LOG_INFO("Using saved access code for 'never refresh' mode: {}", savedAccessCode.toStdString());
+                    int remainingSecs = QDateTime::currentDateTime().secsTo(nextRefreshTime);
+                    LOG_INFO("Resuming saved access code, remaining {}s until next refresh", remainingSecs);
                 }
-            } else if (interval > 0) {
-                // Timed refresh mode: use saved access code if next refresh time hasn't expired
-                QString nextRefreshTimeStr = core::LocalConfigCenter::instance().accessCodeNextRefreshTime();
-                QDateTime nextRefreshTime = QDateTime::fromString(nextRefreshTimeStr, Qt::ISODate);
-                if (nextRefreshTime.isValid() && nextRefreshTime > QDateTime::currentDateTime()) {
-                    savedAccessCode = core::LocalConfigCenter::instance().savedAccessCode();
-                    if (!savedAccessCode.isEmpty()) {
-                        int remainingSecs = QDateTime::currentDateTime().secsTo(nextRefreshTime);
-                        LOG_INFO("Resuming saved access code, remaining {}s until next refresh", remainingSecs);
-                    }
-                } else {
-                    LOG_INFO("Saved refresh time expired or not set, will generate new access code");
-                }
+            } else {
+                LOG_INFO("Saved refresh time expired or not set, will generate new access code");
             }
+        }
 
-            QString serverUrl = getDefaultServerUrl();
-            LOG_INFO("Auto-connecting to signaling server: {}", serverUrl.toStdString());
-            m_hostManager->connectToServer(serverUrl, savedAccessCode);
-        });
+        QString serverUrl = getDefaultServerUrl();
+        LOG_INFO("Auto-connecting to signaling server (attempt {}): {}",
+                 attempt + 1, serverUrl.toStdString());
+        m_lastHostConnectOutcome = quickdesk::AttemptOutcome::None;
+        m_hostManager->connectToServer(serverUrl, savedAccessCode);
     });
 }
 
@@ -945,6 +1017,11 @@ void MainController::onHostProcessStopped(int exitCode)
     m_hostReady = false;
     m_deviceSecretReady = false;
     m_metricsRequestInFlight = false;
+    // A restarted Host has not answered hello yet, so the next connect has to be
+    // gated again rather than trusting the previous process's handshake.
+    m_hostHelloSeen = false;
+    m_hostConnectAttempt = 0;
+    m_lastHostConnectOutcome = quickdesk::AttemptOutcome::None;
 
     if (m_skillHostManager) {
         m_skillHostManager->stopSkillHost();
@@ -1103,6 +1180,9 @@ void MainController::onHostReady(const QString& deviceId, const QString& accessC
     m_deviceId = deviceId;
     m_accessCode = accessCode;
     m_hostReady = true;
+    // The connect landed. Recording it keeps a later restart of the sequence
+    // from treating this session's attempts as an unfinished retry chain.
+    m_lastHostConnectOutcome = quickdesk::AttemptOutcome::Accepted;
     maybeStartHostMetricsReporter();
 
     // §2.11 / scenario §5 #19: persist the last known device_id so that

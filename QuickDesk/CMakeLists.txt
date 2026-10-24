@@ -115,6 +115,8 @@ set(CORE_SOURCES
     src/core/controlplaneevent.cpp
     src/core/updatesupport.h
     src/core/updatesupport.cpp
+    src/core/hostreadiness.h
+    src/core/hostreadiness.cpp
     src/core/common/commontype.h
     src/core/db/appconfigdatabase.h
     src/core/db/appconfigdatabase.cpp

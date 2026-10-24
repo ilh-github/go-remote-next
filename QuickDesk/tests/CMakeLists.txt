@@ -28,6 +28,21 @@ add_test(
     COMMAND quickdesk_update_support_test
 )
 
+add_executable(quickdesk_host_readiness_test
+    hostreadiness_test.cpp
+    ../src/core/hostreadiness.cpp
+)
+
+target_include_directories(quickdesk_host_readiness_test
+    PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src
+)
+
+add_test(
+    NAME quickdesk_host_readiness_test
+    COMMAND quickdesk_host_readiness_test
+)
+
 add_executable(quickdesk_control_plane_event_test
     controlplaneevent_test.cpp
     ../src/core/controlplaneevent.cpp

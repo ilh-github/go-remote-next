@@ -14,6 +14,7 @@
 #include <QTimer>
 #include <memory>
 
+#include "../core/hostreadiness.h"
 #include "../manager/ServerManager.h"
 #include "../manager/HostManager.h"
 #include "../manager/ClientManager.h"
@@ -292,6 +293,11 @@ private slots:
     
     void onHostReady(const QString& deviceId, const QString& accessCode);
 
+    // Drives one turn of the auto-connect sequence. `attempt` is 0-based and
+    // only advances on a refusal, so a Host that answers hello late still gets
+    // its first connect without having spent any of the retry budget.
+    void scheduleHostConnectAttempt(int attempt);
+
 private:
     struct FileTransferAuditState {
         QString filename;
@@ -339,6 +345,17 @@ private:
     bool m_hostReady = false;
     bool m_deviceSecretReady = false;
     bool m_metricsRequestInFlight = false;
+    // Upstream issue #9: the auto-connect used to fire on a fixed timer and a
+    // Host that was not ready yet silently dropped it. These track what has
+    // actually been observed, so the connect is gated on the Host's own answer
+    // and a refusal is retried within a finite budget.
+    bool m_hostHelloSeen = false;
+    // Index of the connect attempt currently in flight, so a refusal knows
+    // which attempt it is answering for.
+    int m_hostConnectAttempt = 0;
+    quickdesk::AttemptOutcome m_lastHostConnectOutcome =
+        quickdesk::AttemptOutcome::None;
+    quickdesk::HostConnectPolicy m_hostConnectPolicy;
     QTimer m_metricsTimer;
     
     // Access code auto-refresh timer

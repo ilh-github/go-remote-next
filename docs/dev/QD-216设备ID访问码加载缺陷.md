@@ -1,6 +1,6 @@
 # QD-216：设备 ID 与访问码加载不出来（issue #9）
 
-**状态**：2026-10-25，根因已定位到代码，修复待 Qt 工具链编译验证后落地。
+**状态**：2026-10-25，根因已定位，修复已落地；纯逻辑层本机编译并双向验证，Qt 侧接线待 CMake/Qt6 构建。
 
 **对应清单**：QD-216；上游 issue #9「主机一直连接不上」，正文只有一句
 「设备ID和访问码加载不出来」。
@@ -98,9 +98,35 @@ if (!m_messaging || !m_messaging->isReady()) {
 5. 正常启动路径不受影响，现有 HostManager 相关测试保持通过；
 6. Windows 与 macOS 各验证一遍（issue #9 的报告环境是 Windows）。
 
-## 7. 为什么修复没有在本轮落地
+## 7. 修复已如何落地
 
-修复落在 `MainController` / `HostManager`，需要 Qt6 与 CMake 才能编译，
-本机两者都没有（与 QD-113 的 CTest 补跑是同一环境限制）。
-在无法编译的情况下提交 C++ 改动，等于把未验证的代码标成修复，
-因此本轮只交付根因定位、修复形状与验收用例，实现留到有工具链的一侧。
+门控与退避的**决策**被抽成不依赖 Qt 的纯逻辑 `QuickDesk/src/core/hostreadiness.{h,cpp}`
+（`HostConnectPolicy`：给定「hello 是否见过、第几次尝试、上次结果」，回答「等/发/重试/放弃/完成」）。
+抽得出来是因为它本来就不依赖 Qt——它是「根据已观测到的状态，现在该做什么」。
+模式与同目录的 `updatesupport` / `certificatepin` 一致：纯 cpp + 独立测试 target，
+不链 Qt。
+
+`QuickDesk/src/controller/MainController.cpp` 的启动路径改为消费该策略：
+
+- `connect` 从固定 `singleShot(500)` 里挪到 `scheduleHostConnectAttempt()`，
+  由策略决定下一刻做什么；
+- `HostManager::helloResponseReceived` 接进 MainController（此前从未被连接），
+  置 `m_hostHelloSeen` 并从 attempt 0 重启序列——Host 答得晚不应消耗重试预算；
+- `HostManager::errorOccurred` 也接进来（此前同样从未被连接），
+  收到 `NOT_READY` 时把结果记为 `NotReady` 并按预算推进下一次；
+- 预算用尽时把状态推到 `Failed` 并打 WARN，而不是静默留在两个空白字段；
+- `onHostReady` 记 `Accepted`，Host 进程重启时重置 `m_hostHelloSeen` 与尝试计数，
+  不让上一个进程的握手替下一个进程作保。
+
+### 验证边界（如实说明）
+
+- **纯逻辑层已在本机验证**：`g++ -std=c++17 -Wall -Wextra` 编译零警告，
+  测试通过；并做了双向验证——把 `!hello_seen` 改成放行后
+  「before the Host answers hello...」失败，把 `NotReady` 改成直接放弃后
+  「a not-ready refusal must schedule another attempt」失败，恢复后全绿。
+- **Qt 侧接线未编译**：`MainController.cpp` 的改动需要 Qt6 与 CMake，
+  本机两者都没有（与 QD-113 的 CTest 补跑同一环境限制）。
+  已做的检查是括号配平、`errorOccurred` 信号签名匹配
+  （`HostManager.h:133` 两个 `const QString&`）、`QLatin1String` 在本文件已有使用
+  （`MainController.cpp:582`），以及新测试 target 与主 target 的源码列表都已登记。
+  **这不等于编译通过**，第 6 节的验收用例仍需在有工具链的一侧跑。
