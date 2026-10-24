@@ -17,7 +17,13 @@ constexpr int kListLimit = 50;
 
 QString encodedPathSegment(const QString& value)
 {
-    return QString::fromLatin1(QUrl::toPercentEncoding(value));
+    // '/' has to be encoded too. The second argument is the set of characters to
+    // *leave alone*, and it defaults to "/", which is right for a whole path and
+    // wrong for a single segment of one: an id containing a slash would silently
+    // become a different path, so the request would hit the wrong endpoint and
+    // the failure would look like a missing session rather than a malformed id.
+    return QString::fromLatin1(
+        QUrl::toPercentEncoding(value, QString()));
 }
 }
 
