@@ -16,6 +16,23 @@
 - 上游候选分支本轮无变化；`codex/upstream-qd-215-win-runtime-check` 的
   `7892a7b` 与 `8385856` 仍对应 PR #32，两端 workflow 均 success。
 
+## 本轮推送（2026-10-25 04:20 CST）
+
+- `f956d17`（build: put the trust-handler CTest in a build tree at all）已推送：
+  `git push origin dev master` 成功，`origin/dev` 与 `origin/master` 均前进到
+  `f956d17`，`git rev-list --left-right --count origin/dev...dev` = `0 0`。
+  该提交含根 `CMakeLists.txt` 的 `add_subdirectory(test/trust)` 接线与
+  `scripts/e2e/test-quickdesk-trust-test-wiring.sh`。
+- CI 实跑结果（run `40128304387`，head `f956d17`，Windows `Unit tests` job）：
+  17/17 通过，其中 `1/17 trust_handler_thread_affinity ... Passed 1.25 sec`。
+  这是该测试首次真正参与构建并执行，QD-113 据此转 `[x]`。
+- 同轮前一提交 `270b7d3`（ctest `-C`）对应 run `40126751594`，同为 success，
+  16/16。两次合起来才是完整的「测试真的在跑」证据。
+- 本轮改动属 fork 自有 CI/构建描述，不构成上游产品行为变更，不建 PR。
+  上游 `barry-ran/QuickDesk` 的 `test/trust/CMakeLists.txt` 与 fork 一致
+  （同源自 `5969ae3`），若上游愿意收「把该工程接进 `QUICKDESK_BUILD_TESTS`」
+  这一行，可作为独立最小候选，本轮未创建。
+
 ## 当前本地基线
 
 - fork 本地主线：`dev` / `master` 已同步；QD-907 功能提交为 `33e9851`、`fd92cdd`，
