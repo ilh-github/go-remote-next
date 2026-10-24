@@ -1000,7 +1000,8 @@ void MainController::scheduleHostConnectAttempt(int attempt)
         // the user sees one word and has to guess whether the Host process, the
         // handshake or the signaling path is what broke.
         setHostServerStatus(ServerStatus::Failed);
-        m_hostServerStatusDetail = core::ServerStatusDetailForExhaustedAttempts(
+        // Already inside namespace quickdesk, so no core:: prefix.
+        m_hostServerStatusDetail = ServerStatusDetailForExhaustedAttempts(
             m_hostConnectSequence.hello_seen());
         emit hostServerStatusChanged();
         return;
