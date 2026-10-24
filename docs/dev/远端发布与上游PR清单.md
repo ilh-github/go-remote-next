@@ -5,6 +5,17 @@
 这份清单记录本地验证完成后的远端写入与 PR 状态。远端状态必须以实际
 `origin/*` ref、push 结果和 GitHub PR 为准，不能把本地候选写成已共享。
 
+## 本轮推送（2026-10-25 03:50 CST）
+
+- `270b7d3`（ci: give ctest the configuration it needs to run anything）已推送：
+  `git push origin dev master` 成功，`origin/dev` 与 `origin/master` 均从
+  `17db717` 前进到 `270b7d3`，`git rev-list --left-right --count origin/dev...dev`
+  = `0 0`。该提交含两个 workflow 的 `ctest -C Release` 与新检查脚本
+  `scripts/e2e/test-quickdesk-cmake-ctest-config.sh`。
+- 该修复属于 fork 自有 CI，不构成上游改动，不建 PR。
+- 上游候选分支本轮无变化；`codex/upstream-qd-215-win-runtime-check` 的
+  `7892a7b` 与 `8385856` 仍对应 PR #32，两端 workflow 均 success。
+
 ## 当前本地基线
 
 - fork 本地主线：`dev` / `master` 已同步；QD-907 功能提交为 `33e9851`、`fd92cdd`，
