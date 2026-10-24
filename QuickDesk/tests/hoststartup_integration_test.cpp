@@ -24,6 +24,7 @@
 #include <QElapsedTimer>
 #include <QEventLoop>
 #include <QJsonObject>
+#include <QObject>
 #include <QProcess>
 #include <QStringList>
 #include <QSignalSpy>
@@ -57,14 +58,24 @@ bool WaitUntil(const std::function<bool()>& predicate, int timeoutMs)
 }
 
 // Drives the real HostManager against the fake Host on the real wire format.
-class HostFixture {
+//
+// A QObject so the NativeMessaging and QProcess it owns can be parented to it:
+// NativeMessaging's constructor takes a QObject parent, and passing something
+// that is not one does not compile. Parenting rather than raw ownership also
+// means a test that fails midway still tears the process down.
+//
+// No Q_OBJECT: this class adds no signals or slots of its own, and the moc step
+// for a test target that has never needed one is an extra moving part for no
+// gain. QObject alone is enough to be a valid parent.
+class HostFixture : public QObject {
   public:
-    explicit HostFixture(const QString& program)
-        : m_program(program)
+    explicit HostFixture(const QString& program, QObject* parent = nullptr)
+        : QObject(parent)
+        , m_program(program)
     {
     }
 
-    ~HostFixture()
+    ~HostFixture() override
     {
         if (m_process) {
             m_process->disconnect();
