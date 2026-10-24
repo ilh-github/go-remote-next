@@ -204,7 +204,7 @@
 - 清单统计：117 个唯一 QD ID；86 个 `[x]`、22 个 `[~]`、5 个 `[ ]`、
   1 个 `[!]`、2 个 `[>]`、1 个 `[-]`。上一轮手写的 84/20/9 与实际标记不符，
   本轮按表格逐行重新统计后更正。
-- 上游待办已全部映射到本清单：11 个 open issue、7 个 open PR、3 个未完成 Roadmap
+- 上游待办已全部映射到本清单：11 个 open issue、8 个 open PR、3 个未完成 Roadmap
   项均有对应 QD、处理边界和上游贡献方式；上游已完成的 Roadmap 项只作为继承基线，
   不重复开发。
 - 本次合并后的实施结论：上游没有新增必须立即重复开发的 issue；`QD-608`
@@ -678,7 +678,7 @@
 
 ### 3.2 合并后的执行队列
 
-这张表把 fork 自己的未完成项与上游 11 个 open issue、7 个 open PR、3 个未完成
+这张表把 fork 自己的未完成项与上游 11 个 open issue、8 个 open PR、3 个未完成
 Roadmap 项放到同一条实施路径中。详细追溯仍以第 16 节为准。
 
 | 顺序 | 队列 | 包含工作 | 为什么现在放这里 | 完成条件 |
@@ -938,7 +938,7 @@ rotation 的事件写入同一数据库事务，`6386a48` 又把 TURN/STUN setti
 | QD-908 | 2h+ 桌面长稳和几百路观看 | `[~]` | 200 路 7200 秒正式跑已两次执行完毕并拿到带时间序列的 `WALL_SOAK_SUMMARY`：时长、118 次采样、三个采样 iframe 帧持续推进、零页面错误均通过；`mainFps` 0.71~0.77（阈值 1）与 `heapGrowthMb` 535~554 MiB（阈值 256）未过；同参数 42 秒短跑对照为 9.17 FPS 和 -118 MiB。按采样打点后退化形状确定：**FPS 在 267~681 秒之间阶跃崩塌**（前 267 秒稳定 7~8.7 FPS，681 秒已跌到 3.51，之后贴 0.4），不是渐进；**DOM 节点数在 267 秒见顶 9241 后不再增长**，稳定在 9132~9137，因此节点增长不是原因（上一轮的猜测被推翻）；**heap 增长与 FPS 崩塌是两条独立劣化**——FPS 归零后 heap 仍以约每分钟 3 MB 线性增长，说明分配源不依赖主线程帧循环。headroom 已从 1 小时提到 2 小时使跑完不被 `node:test` 掐断。**不调阈值**：调松会把 QD-908 要抓的退化藏掉。下一步是在 267~681 秒窗口内加密采样抓住阶跃时刻，并查不依赖主线程的周期性分配源（轮巡 2 秒周期、瓦片重连、事件订阅均在候选范围） |
 | QD-909 | 安全审计：文件、剪贴板、权限 | `[~]` | 访问、会话和文件传输已有 attributable 上报；`e04451c` 补剪贴板：`POST /v1/me/clipboard-audits` 记方向、MIME 类型和字节数，**契约里没有存放文本的字段**——剪贴板内容照例是密码、恢复码或私信，「14:03 拷走 1.2 KB 文本」足以回答调查问题，而存文本会把审计链变成每个后来读库者都继承的凭据库；客户端 builder 只取文本用于测量，从构造上就没有内容进入审计行的路径；真机 E2E 直接回读 SQLite 文件，断言行存在、带字节数、且既不含文本也不含片段；本地写入失败也按 failed 上报（字节确实过了数据通道）。剩余：权限侧边界随 QD-115 收口 |
 | QD-910 | 需求、上游与实现持续对账 | `[~]` | 每次上游合并、issue/PR 变化或功能完成时，同步本清单、状态证据和上游贡献决策 |
-| QD-911 | 上游私密安全披露入口 | `[~]` | fork 提交 `3021ca9` 与上游候选 `9862717` 已新增 `SECURITY.md`，覆盖私密邮箱兜底、公开 issue 禁令、范围、协调披露和 maintainer 检查项；issue #6 仍 OPEN，GitHub Private Vulnerability Reporting 仍 disabled |
+| QD-911 | 上游私密安全披露入口 | `[~]` | fork 提交 `3021ca9` 与上游候选（已 rebase 到 `upstream/dev@5db316c` 成为 `68d4a38`）新增 `SECURITY.md`，覆盖私密邮箱兜底、公开 issue 禁令、范围、协调披露和 maintainer 检查项；已创建上游 PR #33（OPEN）。PR 说明已明确：加文件不会启用 GitHub Private Vulnerability Reporting，那是只有维护者能开的仓库设置，开启前兜底邮箱是唯一私密路径；issue #6 仍 OPEN，该设置仍 disabled |
 
 ## 13. 明确不做
 
@@ -1002,12 +1002,13 @@ rotation 的事件写入同一数据库事务，`6386a48` 又把 TURN/STUN setti
   QD-911、QD-115、QD-212/213/214、QD-114 的交付队列。#17 已不在 open 列表——维护者在
   PR #22 合并后关闭了它，QD-113 随之满足「上游已修且已回灌」。新增的 #29（信令服务器 WSS）
   与 #30（与 Local Commander 配合的说明）尚未拆解，属 `Upstream-Open`。
-- 当前 7 个 open PR：#23 录像与回放、#25 自托管控制面/OpenAPI/SDK、#26 file-ops 分块与
-  版本化回收、#27 WebClient 远程文件管理器、#31 MCP 存储锁自死锁、#32 Windows 发布依赖校验
+- 当前 8 个 open PR：#23 录像与回放、#25 自托管控制面/OpenAPI/SDK、#26 file-ops 分块与
+  版本化回收、#27 WebClient 远程文件管理器、#31 MCP 存储锁自死锁、#32 Windows 发布依赖校验、
+  #33 私密安全披露策略
   （均 base `dev`），#28 意大利语翻译与永久访问密码（base `master`，上游维护者自己的提交）。
   #22 和 #24 已分别合并为 `5969ae3` 和 `5db316c`。
-  其中 #26、#27、#31、#32 是本 fork 回贡的 QD-002/QD-403、MCP 死锁与 QD-215。
-- 2026-10-25 00:40 复核：上游 `dev` 为 `5db316c`，11 个 open issue、7 个 open PR。
+  其中 #26、#27、#31、#32、#33 是本 fork 回贡的 QD-002/QD-403、MCP 死锁、QD-215 与 QD-911。
+- 2026-10-25 00:40 复核：上游 `dev` 为 `5db316c`，11 个 open issue、8 个 open PR。
   新增 #29（WSS 何时支持，与 #20 同一诉求）与 #30（Local Commander "Works with" 互链请求，
   第三方项目，属文档决策）。远端写入已确认可用：PR #31 与 #32 均创建成功，
   此前记录"push/PR 被策略阻塞"不再成立。
@@ -1040,7 +1041,7 @@ Remoting 或协议改造；`不重复` 表示上游已经具备，只需验证�
 | #10 信令服务设备密钥信任 | QD-115 | 设计完成，待协议 | `UP-Ready` + `Upstream-Open` | 安全边界候选 `1ca2543` 可直接提 PR；实现侧需要 Host 身份密钥、Owner 签名 grant 和 Host 本地验证 |
 | #9 主机连接失败 | QD-216 | 先排障 | `Upstream-Open` | 收集 host/signaling/TLS 日志，确认可复现 bug 后再提单 |
 | #7 Windows Qt 插件启动失败 | QD-215 | PR 已提 | `UP-Ready` | 候选 rebase 到 `upstream/dev@5db316c` 成为 `8385856`，已创建上游 PR #32；仍未取得原始坏包 |
-| #6 私密安全披露入口 | QD-911 | 候选已准备 | `UP-Ready` | `codex/upstream-qd-911-security@9862717` 只新增 `SECURITY.md`；推送后开 PR，并请维护者启用 Private Vulnerability Reporting |
+| #6 私密安全披露入口 | QD-911 | PR 已提 | `UP-Ready` | `codex/upstream-qd-911-security@68d4a38` 只新增 `SECURITY.md`，已创建上游 PR #33；仍需维护者启用 Private Vulnerability Reporting，否则兜底邮箱是唯一私密路径 |
 | PR #22 自动审批线程亲和性 | QD-113 | 已合并并回灌 | `UP-PR#22` | `5969ae3` 已于 2026-10-21 合并；fork 经 `3d44dfc` 合入 `upstream/master`，与上游零差异；剩 Qt/CMake 下的 CTest 补跑 |
 | PR #23 会话录像与回放 | QD-501~509 | 等待同步 | `UP-PR#23` | 不重复提交；合并后回灌，Host 权威录制另走 Remoting |
 | PR #24 skill-host Windows 运行库 | QD-402、QD-609 | 等待同步 | `UP-PR#24` | 合并后同步，避免维护第二套 PATH/stderr 逻辑 |
@@ -1097,7 +1098,7 @@ Remoting 或协议改造；`不重复` 表示上游已经具备，只需验证�
 | #10 信令服务器设备密钥信任 | Security | QD-115 | device_secret 只有哈希；但明文 access_code + server token/审批意味着被攻陷服务器仍可冒充 Controller | 推送 `signal-trust-model` 候选并在 issue 讨论协议升级；不能把哈希化 device_secret 当作已修复 |
 | #9 主机连接失败 | Support / Bug | QD-216 | 需要真实环境日志，不宜直接猜实现 | 收集 host/signaling/TLS 日志后再拆 bug |
 | #7 Windows 启动 Qt platform plugin 错误 | Packaging | QD-215 | Qt 插件/运行库打包问题；Windows publish/package 与缺 DLL 负向测试已通过，候选 `f449b87` 仅 3 个文件 | 推送候选并开 issue #7 PR；取得原始坏包后做直接复现 |
-| #6 私密安全披露入口 | Process | QD-911 | 候选 `9862717` 已新增根目录 `SECURITY.md`；上游仍无该文件且 Private Vulnerability Reporting 关闭 | 推送 fork 分支并开 PR；请维护者启用 GitHub 私密报告，不在公开 issue 贴利用细节 |
+| #6 私密安全披露入口 | Process | QD-911 | 候选已 rebase 为 `68d4a38` 并创建上游 PR #33；上游仍无该文件且 Private Vulnerability Reporting 关闭 | 请维护者合并 PR #33 并启用 GitHub 私密报告；不在公开 issue 贴利用细节 |
 
 ### 16.7 上游 Roadmap 映射
 
