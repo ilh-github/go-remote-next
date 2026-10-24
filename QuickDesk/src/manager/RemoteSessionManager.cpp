@@ -22,8 +22,9 @@ QString encodedPathSegment(const QString& value)
     // wrong for a single segment of one: an id containing a slash would silently
     // become a different path, so the request would hit the wrong endpoint and
     // the failure would look like a missing session rather than a malformed id.
+    // An empty set therefore encodes everything that needs encoding.
     return QString::fromLatin1(
-        QUrl::toPercentEncoding(value, QString()));
+        QUrl::toPercentEncoding(value, QByteArray()));
 }
 }
 
