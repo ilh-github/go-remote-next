@@ -217,10 +217,10 @@ MainController::MainController(QObject* parent)
     // fires, sending one is what dropped the message on a slow-starting Host.
     connect(m_hostManager.get(), &HostManager::helloResponseReceived,
             this, [this]() {
-        if (m_hostHelloSeen) {
+        if (m_hostConnectSequence.note_hello()
+            != quickdesk::HostConnectPolicy::ConnectSequence::HelloResult::Started) {
             return;
         }
-        m_hostHelloSeen = true;
         LOG_INFO("Host answered hello; sending the signaling connect");
         // Restart from the top: the attempts spent while waiting were not
         // refusals, and a Host that answers late has not earned a backoff.
@@ -235,10 +235,13 @@ MainController::MainController(QObject* parent)
             return;
         }
         LOG_WARN("Host was not ready for the connect ({}); will retry", message.toStdString());
-        m_lastHostConnectOutcome = quickdesk::AttemptOutcome::NotReady;
         // The attempt that just failed is the one already in flight, so the
         // next one is the following index.
-        scheduleHostConnectAttempt(m_hostConnectAttempt + 1);
+        const auto next = m_hostConnectSequence.note_refusal();
+        if (!next.has_value()) {
+            return;
+        }
+        scheduleHostConnectAttempt(*next);
     });
     connect(m_hostManager.get(), &HostManager::deviceIdChanged,
             this, &MainController::deviceIdChanged);
@@ -947,8 +950,16 @@ void MainController::scheduleHostConnectAttempt(int attempt)
 
     using quickdesk::NextAction;
 
+    // The sequence owns "is there work left"; the policy owns "is the Host ready
+    // for it". A finished sequence short-circuits here so a late stray signal
+    // cannot schedule anything after the Host already accepted.
+    const auto next_attempt = m_hostConnectSequence.next_attempt();
+    if (!next_attempt.has_value() || attempt != *next_attempt) {
+        return;
+    }
+
     const quickdesk::NextAction action = m_hostConnectPolicy.evaluate(
-        /*hello_seen=*/m_hostHelloSeen, attempt, m_lastHostConnectOutcome);
+        /*hello_seen=*/m_hostConnectSequence.hello_seen(), attempt);
 
     if (action == NextAction::Wait) {
         // Nothing to do until the Host answers hello; helloResponseReceived
@@ -968,7 +979,6 @@ void MainController::scheduleHostConnectAttempt(int attempt)
     }
 
     const int delay_ms = m_hostConnectPolicy.delay_before_attempt_ms(attempt);
-    m_hostConnectAttempt = attempt;
     QTimer::singleShot(delay_ms, this, [this, attempt]() {
         if (m_isShutdown) {
             return;
@@ -1004,7 +1014,6 @@ void MainController::scheduleHostConnectAttempt(int attempt)
         QString serverUrl = getDefaultServerUrl();
         LOG_INFO("Auto-connecting to signaling server (attempt {}): {}",
                  attempt + 1, serverUrl.toStdString());
-        m_lastHostConnectOutcome = quickdesk::AttemptOutcome::None;
         m_hostManager->connectToServer(serverUrl, savedAccessCode);
     });
 }
@@ -1019,9 +1028,7 @@ void MainController::onHostProcessStopped(int exitCode)
     m_metricsRequestInFlight = false;
     // A restarted Host has not answered hello yet, so the next connect has to be
     // gated again rather than trusting the previous process's handshake.
-    m_hostHelloSeen = false;
-    m_hostConnectAttempt = 0;
-    m_lastHostConnectOutcome = quickdesk::AttemptOutcome::None;
+    m_hostConnectSequence.reset();
 
     if (m_skillHostManager) {
         m_skillHostManager->stopSkillHost();
@@ -1180,9 +1187,9 @@ void MainController::onHostReady(const QString& deviceId, const QString& accessC
     m_deviceId = deviceId;
     m_accessCode = accessCode;
     m_hostReady = true;
-    // The connect landed. Recording it keeps a later restart of the sequence
-    // from treating this session's attempts as an unfinished retry chain.
-    m_lastHostConnectOutcome = quickdesk::AttemptOutcome::Accepted;
+    // The connect landed. Recording it keeps a later stray signal from treating
+    // this session's attempts as an unfinished retry chain.
+    m_hostConnectSequence.note_accepted();
     maybeStartHostMetricsReporter();
 
     // §2.11 / scenario §5 #19: persist the last known device_id so that

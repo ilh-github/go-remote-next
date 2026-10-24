@@ -121,9 +121,17 @@ if (!m_messaging || !m_messaging->isReady()) {
 ### 验证边界（如实说明）
 
 - **纯逻辑层已在本机验证**：`g++ -std=c++17 -Wall -Wextra` 编译零警告，
-  测试通过；并做了双向验证——把 `!hello_seen` 改成放行后
-  「before the Host answers hello...」失败，把 `NotReady` 改成直接放弃后
-  「a not-ready refusal must schedule another attempt」失败，恢复后全绿。
+  测试通过；并做了四项双向验证——`!hello_seen` 改成放行后
+  「before the Host answers hello...」失败、`NotReady` 改成直接放弃后
+  「a not-ready refusal must schedule another attempt」失败、
+  去掉 hello 去重后「a second hello is a no-op」失败、
+  去掉 acceptance 保护后「a refusal after acceptance is ignored」失败；恢复后全绿。
+- **序号簿记也收进了纯逻辑**：`MainController` 原先手写三个字段
+  （`m_hostHelloSeen` / `m_hostConnectAttempt` / `m_lastHostConnectOutcome`），
+  五处各自更新，正是容易写错的地方。现改为单个
+  `HostConnectPolicy::ConnectSequence`，把去重、+1 推进、接受即终态、
+  重启清零四条规则变成可测的；`MainController` 退化成薄翻译层。
+  上限用 `constexpr` + `static_assert` 与策略绑定，防止两处数字漂移。
 - **Qt 侧接线未编译**：`MainController.cpp` 的改动需要 Qt6 与 CMake，
   本机两者都没有（与 QD-113 的 CTest 补跑同一环境限制）。
   已做的检查是括号配平、`errorOccurred` 信号签名匹配

@@ -3,6 +3,8 @@
 #ifndef QUICKDESK_CORE_HOSTREADINESS_H
 #define QUICKDESK_CORE_HOSTREADINESS_H
 
+#include <optional>
+
 namespace quickdesk {
 
 // What the Host did with the last connect attempt.
@@ -46,8 +48,9 @@ class HostConnectPolicy {
     HostConnectPolicy() = default;
 
     // Enough attempts to cover a Host that is slow to start without being an
-    // unbounded retry loop.
-    int max_attempts() const { return 8; }
+    // unbounded retry loop. constexpr so the sequence's copy of the bound can
+    // be checked against it at compile time.
+    static constexpr int max_attempts() { return 8; }
 
     // Ceiling on any single wait, so a wedged Host is reported rather than
     // waited on indefinitely.
@@ -58,6 +61,50 @@ class HostConnectPolicy {
     NextAction evaluate(bool hello_seen,
                         int attempt,
                         AttemptOutcome last_outcome = AttemptOutcome::None) const;
+
+    // Which attempt should be scheduled next, or nothing when the sequence is
+    // finished. `nullopt` means "there is no work", not "wait": a caller that
+    // treats it as a wait will spin.
+    //
+    // This exists because the bookkeeping - dedupe a repeated hello, advance by
+    // exactly one on a refusal, stop after acceptance, clear everything on a
+    // Host restart - lives in MainController, which needs Qt to compile and so
+    // cannot be exercised directly here. Stating the rules against a type makes
+    // them testable, and MainController becomes a thin translation layer.
+    class ConnectSequence {
+      public:
+        enum class HelloResult {
+            // First hello seen; the sequence may begin.
+            Started,
+            // Already seen; nothing changed.
+            AlreadySeen,
+        };
+
+        HelloResult note_hello();
+
+        // Records a refusal and returns the attempt to schedule next.
+        std::optional<int> note_refusal();
+
+        // Records that the Host took the connect.
+        void note_accepted();
+
+        // Clears the handshake flag and the attempt count, for a Host restart.
+        void reset();
+
+        bool hello_seen() const { return hello_seen_; }
+        int attempts_used() const { return attempts_used_; }
+        bool finished() const { return accepted_; }
+
+        // The attempt to schedule next, or nothing when there is no work left.
+        // `nullopt` means finished, not "wait": a caller that treats it as a
+        // wait will spin.
+        std::optional<int> next_attempt() const;
+
+      private:
+        bool hello_seen_ = false;
+        int attempts_used_ = 0;
+        bool accepted_ = false;
+    };
 };
 
 }  // namespace quickdesk

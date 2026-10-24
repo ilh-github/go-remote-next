@@ -3,6 +3,7 @@
 #include "core/hostreadiness.h"
 
 #include <cstdlib>
+#include <optional>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -78,6 +79,47 @@ int main() {
     Expect(policy.evaluate(/*hello_seen=*/true, /*attempt=*/1,
                           AttemptOutcome::Accepted) == NextAction::Done,
            "an accepted connect is not followed by another attempt");
+
+    // The sequence bookkeeping lives in MainController, which cannot be compiled
+    // here, so the rules it has to obey are stated against the policy directly.
+    // These are the ones easy to get wrong when wiring signals by hand.
+    using Seq = quickdesk::HostConnectPolicy::ConnectSequence;
+
+    Seq sequence;
+    Expect(sequence.next_attempt() == 0,
+           "the sequence starts at the first attempt");
+
+    // hello arriving twice must not restart the count, or a chatty Host would
+    // reset a retry chain forever and the budget would never be spent.
+    Expect(sequence.note_hello() == Seq::HelloResult::Started,
+           "the first hello starts the sequence");
+    Expect(sequence.note_hello() == Seq::HelloResult::AlreadySeen,
+           "a second hello is a no-op rather than a restart");
+    Expect(sequence.next_attempt() == 0,
+           "a repeated hello does not rewind the attempt counter");
+
+    // A refusal advances by exactly one, so the attempt that failed is not
+    // retried immediately and the budget is consumed one at a time.
+    Expect(sequence.note_refusal() == 1,
+           "a refusal moves to the following attempt");
+    Expect(sequence.note_refusal() == 2,
+           "each refusal consumes exactly one attempt");
+
+    // Acceptance ends the sequence, and a later refusal must not resurrect it.
+    sequence.note_accepted();
+    Expect(sequence.next_attempt() == std::nullopt,
+           "an accepted connect leaves no attempt to schedule");
+    Expect(sequence.note_refusal() == std::nullopt,
+           "a refusal after acceptance is ignored, not retried");
+
+    // A restart resets the handshake state, because the next Host process has
+    // not answered anything yet and the previous one's hello proves nothing.
+    Seq restarted;
+    (void)restarted.note_hello();
+    restarted.note_refusal();
+    restarted.reset();
+    Expect(restarted.next_attempt() == 0 && !restarted.hello_seen(),
+           "a restart clears both the handshake flag and the attempt count");
 
     std::cout << "host readiness tests passed\n";
     return 0;

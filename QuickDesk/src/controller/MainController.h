@@ -346,15 +346,12 @@ private:
     bool m_deviceSecretReady = false;
     bool m_metricsRequestInFlight = false;
     // Upstream issue #9: the auto-connect used to fire on a fixed timer and a
-    // Host that was not ready yet silently dropped it. These track what has
-    // actually been observed, so the connect is gated on the Host's own answer
-    // and a refusal is retried within a finite budget.
-    bool m_hostHelloSeen = false;
-    // Index of the connect attempt currently in flight, so a refusal knows
-    // which attempt it is answering for.
-    int m_hostConnectAttempt = 0;
-    quickdesk::AttemptOutcome m_lastHostConnectOutcome =
-        quickdesk::AttemptOutcome::None;
+    // Host that was not ready yet silently dropped it. The sequence tracks what
+    // has actually been observed, so the connect is gated on the Host's own
+    // answer and a refusal is retried within a finite budget. It is a value
+    // type rather than three loose fields because the dedupe, the advance-by-one
+    // and the reset are exactly the parts that go wrong when written by hand.
+    quickdesk::HostConnectPolicy::ConnectSequence m_hostConnectSequence;
     quickdesk::HostConnectPolicy m_hostConnectPolicy;
     QTimer m_metricsTimer;
     
