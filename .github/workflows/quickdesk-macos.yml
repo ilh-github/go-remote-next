@@ -164,3 +164,8 @@ jobs:
       # CMake definitions is caught even where the full suite cannot configure.
       - name: Verify the non-Qt cmake test targets
         run: bash scripts/e2e/test-quickdesk-cmake-test-targets.sh
+
+      # A source file that only the test target compiles links nothing into the
+      # app, which is how recordinglifecycle.cpp broke the x64 build.
+      - name: Check no source file is test-only
+        run: bash scripts/e2e/test-quickdesk-cmake-source-coverage.sh
