@@ -187,14 +187,24 @@ int main(int argc, char** argv)
                QStringLiteral("case 3: fake Host stops"));
 
         fixture.hostManager()->connectToServer("wss://example.invalid", QString());
-        Expect(errorSpy.count() > 0,
+        Expect(WaitUntil([&]() { return errorSpy.count() > 0; }, 5000),
                QStringLiteral("case 3: connecting while the Host is not ready "
-                              "reports NOT_READY instead of failing silently"));
-        if (errorSpy.count() > 0) {
-            const QList<QVariant> args = errorSpy.first();
-            Expect(args.at(0).toString() == QStringLiteral("NOT_READY"),
-                   QStringLiteral("case 3: the reported code is NOT_READY"));
+                              "reports an error instead of failing silently"));
+
+        // Look for the code among the reports rather than assuming it is the
+        // first one. Killing the process makes NativeMessaging emit its own
+        // "Process crashed" first, and the order is not something this test
+        // should be asserting on.
+        bool sawNotReady = false;
+        for (const auto& args : errorSpy) {
+            if (args.at(0).toString() == QStringLiteral("NOT_READY")) {
+                sawNotReady = true;
+                break;
+            }
         }
+        Expect(sawNotReady,
+               QStringLiteral("case 3: the reported code includes NOT_READY, "
+                              "so the controller can act on it"));
     }
 
     // --- Case 1: a Host that is slow to answer hello still yields its IDs ---
