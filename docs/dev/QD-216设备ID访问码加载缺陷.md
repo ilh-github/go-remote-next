@@ -1,0 +1,106 @@
+# QD-216：设备 ID 与访问码加载不出来（issue #9）
+
+**状态**：2026-10-25，根因已定位到代码，修复待 Qt 工具链编译验证后落地。
+
+**对应清单**：QD-216；上游 issue #9「主机一直连接不上」，正文只有一句
+「设备ID和访问码加载不出来」。
+
+**本节只记录可从当前代码证明的事实。**
+
+## 1. 数据是怎么到达 UI 的
+
+`HostManager` 用两个 QML 属性把值暴露给界面（`QuickDesk/src/manager/HostManager.h:37-38`）：
+
+```cpp
+Q_PROPERTY(QString deviceId READ deviceId NOTIFY deviceIdChanged)
+Q_PROPERTY(QString accessCode READ accessCode NOTIFY accessCodeChanged)
+```
+
+两者初始为空（`HostManager.cpp:42-43` 在构造路径上 `clear()`），
+并且只在收到 Host 的 native message 时被赋值（`HostManager.cpp:333-346`）：
+从消息里取 `device_id`/`deviceId` 与 `access_code`/`accessCode`，非空且变化才写入并发信号。
+
+最终来源是 `MainController::onHostReady(deviceId, accessCode)`
+（`MainController.cpp:1100-1105`），它同时把 `m_hostReady` 置真。
+
+**也就是说：UI 上的设备 ID 和访问码，完全依赖 Host 回传一次。**
+
+## 2. 触发回传的那条消息，可能根本发不出去
+
+启动时的自动连接是两段固定延迟（`MainController.cpp:901-935`）：
+
+```cpp
+QTimer::singleShot(500, this, [this]() {
+    m_hostManager->sendHello();
+    QTimer::singleShot(500, this, [this]() {
+        m_hostServerStatus = ServerStatus::Connecting;
+        ...
+        m_hostManager->connectToServer(serverUrl, savedAccessCode);
+    });
+});
+```
+
+而 `connectToServer` 的第一件事是就绪检查（`HostManager.cpp:68-71`）：
+
+```cpp
+if (!m_messaging || !m_messaging->isReady()) {
+    emit errorOccurred("NOT_READY", "Host process is not ready");
+    return;
+}
+```
+
+`NativeMessaging::isReady()`（`NativeMessaging.cpp:71-79`）只判断
+**进程在跑、两个 socket 已连接**，不判断握手是否完成、能否处理 `connect`。
+
+于是：Host 进程启动慢于 1000ms（Windows 上磁盘、杀软扫描、服务启动都容易造成），
+`connect` 就在 Host 还没准备好时被丢弃。此后：
+
+- 没有任何重试——`HostManager` 里的 `signalingRetryCount` 是 Host 侧信令重试，
+  与这条 `connect` 消息能否送达无关；
+- Host 也不会主动补发，协议里没有这个方向；
+- `onHostReady` 因此永不到达，`deviceId`/`accessCode` 永远是空字符串。
+
+## 3. 失败还被静音了
+
+`HostManager::errorOccurred` 在 `MainController` 里**没有连接**
+（全文只有 `ClientManager::errorOccurred` 被转发，`MainController.cpp:589`）。
+所以上面那个 `NOT_READY` 发出来没有人接，用户既看不到重试，也看不到原因——
+界面就是两个空白字段，与 issue #9 描述完全一致。
+
+## 4. 已有的就绪信号没有被用上
+
+`HostManager` 已经有正确的信号，只是自动连接没用：
+
+- `helloResponseReceived(QString version)`（`HostManager.cpp:370` emit，`:125` 声明）——
+  Host 对 `hello` 的回应，才是"可以发 connect 了"的真实时刻；
+- `helloResponse` 消息本身**可能直接携带** `device_id` / `device_secret` /
+  `access_code`（`HostManager.cpp:328` 注释明确写了这一点）。
+
+## 5. 建议修复
+
+按代价从低到高，前两条建议一起做：
+
+1. **用就绪信号代替固定延迟**：把 `connectToServer` 从 `singleShot(500)` 里挪到
+   `helloResponseReceived` 之后发起；`hello` 本身保留一个短超时重发，
+   因为 `hello` 也可能撞上同样的未就绪窗口。
+2. **有限重试 + 可见失败**：`connectToServer` 在 `NOT_READY` 时不要只 emit 就返回，
+   按有界退避重试若干次；仍失败则把状态推到 `Failed` 并把错误接到 UI，
+   让"加载不出来"至少有一个原因可读。
+3. **接住 `errorOccurred`**：`MainController` 连接 `HostManager::errorOccurred`，
+   至少记日志并反映到连接状态，不要静默丢弃。
+
+## 6. 验收用例
+
+1. Host 进程延迟 3 秒才就绪，设备 ID 与访问码仍能加载并显示；
+2. Host 始终不就绪时，界面显示可读的失败原因，而不是两个空白字段；
+3. `hello` 首次因未就绪丢弃后，重发最终成功；
+4. `helloResponse` 直接携带 `device_id`/`access_code` 时，UI 立即得到值；
+5. 正常启动路径不受影响，现有 HostManager 相关测试保持通过；
+6. Windows 与 macOS 各验证一遍（issue #9 的报告环境是 Windows）。
+
+## 7. 为什么修复没有在本轮落地
+
+修复落在 `MainController` / `HostManager`，需要 Qt6 与 CMake 才能编译，
+本机两者都没有（与 QD-113 的 CTest 补跑是同一环境限制）。
+在无法编译的情况下提交 C++ 改动，等于把未验证的代码标成修复，
+因此本轮只交付根因定位、修复形状与验收用例，实现留到有工具链的一侧。
