@@ -117,6 +117,8 @@ set(CORE_SOURCES
     src/core/updatesupport.cpp
     src/core/hostreadiness.h
     src/core/hostreadiness.cpp
+    src/core/serverstatusdetail.h
+    src/core/serverstatusdetail.cpp
     src/core/recordinglifecycle.h
     src/core/recordinglifecycle.cpp
     src/core/common/commontype.h
