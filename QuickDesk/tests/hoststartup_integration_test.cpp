@@ -25,6 +25,7 @@
 #include <QEventLoop>
 #include <QJsonObject>
 #include <QProcess>
+#include <QStringList>
 #include <QSignalSpy>
 #include <QThread>
 
@@ -78,14 +79,17 @@ class HostFixture {
     {
         m_process = new QProcess();
         m_process->setProgram(m_program);
-        m_process->setArguments({
-            QStringLiteral("--hello-delay-ms"),
-            QString::number(helloDelayMs),
-        });
+        // Explicit QStringList rather than a braced list: the same brace form is
+        // ambiguous for QCommandLineOption's constructors, and being explicit
+        // here keeps the two files from diverging on a subtlety that only shows
+        // up on one compiler.
+        QStringList arguments;
+        arguments << QStringLiteral("--hello-delay-ms")
+                  << QString::number(helloDelayMs);
         if (carryIds) {
-            m_process->setArguments(m_process->arguments()
-                                    << QStringLiteral("--carry-ids"));
+            arguments << QStringLiteral("--carry-ids");
         }
+        m_process->setArguments(arguments);
         m_process->start();
         Expect(WaitUntil([&]() { return m_process->state() == QProcess::Running; }, 5000),
                QStringLiteral("fake Host starts"));

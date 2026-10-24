@@ -18,6 +18,7 @@
 #include <QCoreApplication>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QStringList>
 #include <QThread>
 
 #include <cstdio>
@@ -69,9 +70,13 @@ int main(int argc, char** argv)
     QCommandLineParser parser;
     parser.setApplicationDescription("fake Host for the startup handshake test");
     QCommandLineOption helloDelayOption(
-        {"hello-delay-ms"}, "Delay before answering hello.", "ms", "0");
+        QStringList{QStringLiteral("hello-delay-ms")},
+        QStringLiteral("Delay before answering hello."),
+        QStringLiteral("ms"),
+        QStringLiteral("0"));
     QCommandLineOption carryIdsOption(
-        {"carry-ids"}, "helloResponse also carries device_id and access_code.");
+        QStringList{QStringLiteral("carry-ids")},
+        QStringLiteral("helloResponse also carries device_id and access_code."));
     parser.addOption(helloDelayOption);
     parser.addOption(carryIdsOption);
     parser.process(app);
