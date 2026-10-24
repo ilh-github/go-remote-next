@@ -183,7 +183,7 @@
 | QD-004 | P0 | Host/Relay 权威自动录制 | `[~]` | UP-Remoting | 被控端或中继自动录制，断线自动收尾并上传索引；断线收尾的控制端半边已由 QD-505 补齐；`f365e1b` + `2062b95` 补服务端半边：一次性上传票据可经 `PUT /v1/recordings/:id/artifact?t=` 实际使用（Redis 标记 nonce，满足验收第 5 条「票据过期、会话错配、recording ID 错配全部被拒绝」），且票据绑 recording 的 session，跨会话写入返回 403 而非落到错误行；`a390735` 再补 artifact 摘要校验：上传字节的 SHA-256 与 `X-Artifact-Sha256` 声明值不符即拒绝并删除临时文件，行不被标记；`f19db63` 收口需求第 4 节「不能留下永久 `recording`」的另一半——僵死行进 `failed` 时同时写入 `ended_at`（此前只改状态，详情页没有结束时间、保留清理只能按 `updated_at` 计龄，而 sweep 每次都刷新它），并删掉一份没有调用方的重复 sweep 方法；Host 侧采集与编码仍待 `docs/dev/Host权威录制Remoting需求.md` 的 Remoting 协议 |
 | QD-005 | P0 | 客户端自动更新消费 | `[~]` | UP-PR#25 + Upstream-Open | Windows 已通过检查、下载、SHA-256 校验、静默安装、自动重启、版本落盘和服务存活真机闭环；macOS 已实现受校验的 DMG 挂载、暂存替换、失败回退和重开，并通过 ad-hoc 真实 DMG E2E；`2c3ca9b` 补打包门禁：Release 现在默认强制公证（此前 `package_qd_mac.sh` 从不传该开关，「已签名未公证」的包会以退出码 0 通过），Debug 保持宽松，工具链命令可注入以便测试；`e702a19` 补消费端最后一道：helper 此前只跑 `codesign --verify`（只证明字节完好、由签名者签押），ad-hoc 签名没有 TeamIdentifier 因而绕过匹配检查，结果是更新器为 Gatekeeper 必拦的包报告成功；现在按「ad-hoc 签名永不可能带公证票据」与「`spctl --assess` 只在 Gatekeeper 启用时采信」两条独立信号判定，默认严格，`QUICKDESK_ALLOW_UNNOTARIZED_UPDATE` 显式放宽。E2E 修掉一个掩盖这一切的自身 bug：`make_dmg` 未加 `local`（/bin/sh 没有）赋值给全局 `source_app`，最后一次传入的 bundle 覆盖了所有后续场景。两个 macOS E2E 已接入 CI，Qt 资源测试断言内嵌 helper 仍带该检查。剩余：Apple Developer ID 签名与 Apple 公证凭据，以及用真实公证包做一次升级回归 |
 | QD-006 | P1 | SQLite 轻量服务端部署 | `[x]` | UP-PR#25 | 单进程、单文件 SQLite、默认进程内 Redis；`/health` 区分 sqlite，空目录启动和重启持久化 E2E 通过 |
-| QD-007 | P1 | 图片剪贴板 | `[ ]` | UP-Remoting | 双向图片格式协商、分片传输、权限和边界测试 |
+| QD-007 | P1 | 图片剪贴板 | `[ ]` | UP-Remoting | 需求单已成文 `docs/dev/图片剪贴板Remoting需求.md`：双向图片格式协商、独立 DataChannel 分片传输（沿用文件传输的 8 KB 分片与 `bufferedAmount` 背压）、权限与 10 条边界验收；实现待 Remoting |
 
 最近验证：
 
@@ -851,7 +851,7 @@ fork 是否能继续开发，也不能因为 fork 自己有实现就再次向 up
 | QD-403 | Web 完整文件管理器 | `[x]` | QD-002 已完成；`SkillBridgeClient` + `RemoteFileManager` + `FileManagerPanel` 经 `qd-skill-bridge` 调用 host `file-ops` |
 | QD-404 | 文件传输进度、取消、重试 | `[x]` | WebClient 和 Qt 已有基础 |
 | QD-405 | 双向文本剪贴板 | `[x]` | UTF-8 文本 |
-| QD-406 | 双向图片剪贴板 | `[ ]` | 当前迭代 QD-007，需要 Remoting 协议扩展 |
+| QD-406 | 双向图片剪贴板 | `[ ]` | 需求单见 `docs/dev/图片剪贴板Remoting需求.md`；关键约束是图片不能走控制通道（文本剪贴板走 `controlChannel`，一条 4K 截图就有数 MB，会挤占同通道的输入事件）；实现待 Remoting |
 | QD-407 | 系统级文件剪贴板 | `[ ]` | 当前不做主链路承诺 |
 | QD-408 | 文件传输审计 | `[x]` | 同 QD-111 |
 
@@ -964,7 +964,8 @@ rotation 的事件写入同一数据库事务，`6386a48` 又把 TURN/STUN setti
    公证验证。QD-215 已补发布依赖校验、正负向回归和上游候选 `f449b87`，剩余原始坏包复现与远端 PR。
 4. **准备 Remoting 需求单**：QD-004 Host 权威录制、
    QD-114 真实 CertVerifier 均已有需求单（`docs/dev/Host权威录制Remoting需求.md`、
-   `docs/dev/自托管TLS真实CertVerifier需求.md`）；QD-007 图片剪贴板仍待写。
+   `docs/dev/自托管TLS真实CertVerifier需求.md`、`docs/dev/图片剪贴板Remoting需求.md`）。
+   至此第 4 项列出的 Remoting 需求单已全部成文。
    每项写清协议、宿主生命周期、权限、
    兼容性和验收用例，先交上游维护者评估。
 5. **安全与可观测性**：QD-911 候选等上游启用 Private Vulnerability Reporting；
