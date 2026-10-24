@@ -188,3 +188,9 @@ jobs:
       # app, which is how recordinglifecycle.cpp broke the x64 build.
       - name: Check no source file is test-only
         run: bash scripts/e2e/test-quickdesk-cmake-source-coverage.sh
+
+      # The mirror of the above for the tests directory, where a .cpp that no
+      # target compiles is invisible: nothing else in the tree would try to build
+      # it, so it reads as coverage while asserting nothing.
+      - name: Check every test source file is built
+        run: bash scripts/e2e/test-quickdesk-tests-source-coverage.sh

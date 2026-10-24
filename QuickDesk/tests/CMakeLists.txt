@@ -93,6 +93,49 @@ target_link_libraries(quickdesk_fake_skill_host
     Qt6::Core
 )
 
+add_executable(quickdesk_fake_host
+    fake_host.cpp
+)
+
+target_link_libraries(quickdesk_fake_host
+    PRIVATE
+    Qt6::Core
+)
+
+add_executable(quickdesk_host_startup_integration_test
+    hoststartup_integration_test.cpp
+    ../src/manager/HostManager.cpp
+    ../src/manager/NativeMessaging.cpp
+)
+
+# The fake Host is spawned as a separate process, so it has to exist by the time
+# this test runs. add_dependencies orders the build; the path is passed on the
+# command line below.
+add_dependencies(quickdesk_host_startup_integration_test quickdesk_fake_host)
+
+target_include_directories(quickdesk_host_startup_integration_test
+    PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src
+)
+
+target_link_libraries(quickdesk_host_startup_integration_test
+    PRIVATE
+    base
+    infra
+    Qt6::Core
+    Qt6::Test
+)
+
+if(APPLE)
+    target_link_libraries(quickdesk_host_startup_integration_test PRIVATE "-framework Foundation")
+endif()
+
+add_test(
+    NAME quickdesk_host_startup_integration_test
+    COMMAND quickdesk_host_startup_integration_test
+            $<TARGET_FILE:quickdesk_fake_host>
+)
+
 add_executable(quickdesk_skill_host_manager_test
     skillhostmanager_integration_test.cpp
     ../src/core/db/appconfigdatabase.cpp
