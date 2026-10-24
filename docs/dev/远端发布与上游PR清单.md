@@ -636,3 +636,17 @@ PR 描述至少写明：
   `:274` 调用 `wait_for` 缺第 4 个参数 `check_history`），与本次改动无关；是在本地
   临时打补丁跑通测试后还原的，未包含在候选内。
 - fork 侧同一修复提交为 `33c6fcb`，`dev` 与 `master` 已同步并推送。
+
+## QD-215 Windows 发布依赖校验候选（2026-10-25）
+
+- 候选分支：`codex/upstream-qd-215-win-runtime-check`，已从 `upstream/dev@5db316c`
+  rebase 成为 `8385856`（原 `f449b87` 基于 `f6651f0`，落后一个提交）。
+  只含 3 个文件：`scripts/verify_qd_win_release.ps1`（新增）、
+  `scripts/publish_qd_win.bat` 与 `scripts/package_qd_win.bat`（接入校验并失败即中断）。
+- 已推送到 fork 并创建上游 PR #32：
+  https://github.com/barry-ran/QuickDesk/pull/32
+- PR 说明中已声明：本机（macOS）没有 `pwsh`，该校验器未从当前 checkout 执行过；
+  Windows 上的 publish/package 通过与负向用例证据来自当时的 Windows 运行。
+- 仍未取得 issue #7 的原始坏安装包，因此这是对该类失败的防护，不是对那个具体包的确认修复。
+- 此前记录「push/PR 被策略阻塞」已不成立：PR #31 与本次 PR #32 均成功创建，
+  远端写入可用。后续候选直接推送并开 PR，不必再按阻塞处理。

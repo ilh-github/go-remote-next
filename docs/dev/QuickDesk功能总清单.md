@@ -815,7 +815,7 @@ fork 是否能继续开发，也不能因为 fork 自己有实现就再次向 up
 | QD-212 | 设备列表标识本机 | `[x]` | 上游 issue #19；Qt 我的设备/收藏已标记“本机”，候选 `f1ce096` 已独立验证 |
 | QD-213 | 访问码不可用回归 | `[x]` | 上游 issue #19；Qt 缺失/过期访问码会按单设备回源并自动继续连接，候选 `6928d24` 已独立验证 |
 | QD-214 | Windows 文件上传用户上下文 | `[!]` | 上游 issue #19；SPAKE2 已修通，macOS 上传成功；Windows 普通用户为 `type=2`（`0x522`），SYSTEM/session 0 为 `type=7 NOT_LOGGED_IN`，根因是 Host 服务未在可解析的交互用户上下文运行 |
-| QD-215 | Windows 启动 Qt platform plugin 错误 | `[~]` | 上游 issue #7；发布链新增 x64、VC Runtime、`qwindows.dll` 和 Qt 直接依赖校验，Windows 正负向测试通过；上游候选 `f449b87` 已准备，原始坏安装包未复现，push/PR 被策略阻塞 |
+| QD-215 | Windows 启动 Qt platform plugin 错误 | `[~]` | 上游 issue #7；发布链新增 x64、VC Runtime、`qwindows.dll` 和 Qt 直接依赖校验，Windows 正负向测试通过；上游候选已 rebase 到 `upstream/dev@5db316c` 成为 `8385856`，并创建上游 PR #32（OPEN）；原始坏安装包仍未复现，因此这是对该类失败的防护而非对那个具体包的确认修复 |
 | QD-216 | 主机连接与设备 ID/访问码加载失败 | `[~]` | 上游 issue #9；作为支持 triage 跟踪，不直接等同产品需求 |
 
 ## 6. 远程控制核心
