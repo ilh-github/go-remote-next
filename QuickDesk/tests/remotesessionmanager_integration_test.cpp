@@ -33,6 +33,12 @@ namespace {
 // request and not only about how the response was handled. A wrong method or a
 // wrong URL passes every response-side assertion while doing nothing on the
 // server.
+struct CapturedRequest {
+    QString method;
+    QUrl url;
+    QString body;
+};
+
 CapturedRequest g_last_request;
 
 // What the next response should be. Defaults to the empty success the refresh
