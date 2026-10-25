@@ -77,12 +77,31 @@ int main(int argc, char** argv)
     QCommandLineOption carryIdsOption(
         QStringList{QStringLiteral("carry-ids")},
         QStringLiteral("helloResponse also carries device_id and access_code."));
+    // How long after answering hello to send the standalone hostReady. This is
+    // the normal path: hello only proves the process is alive, and the IDs
+    // arrive separately once provisioning has finished.
+    QCommandLineOption hostReadyDelayOption(
+        QStringList{QStringLiteral("host-ready-delay-ms")},
+        QStringLiteral("Delay after hello before sending hostReady."),
+        QStringLiteral("ms"),
+        QStringLiteral("-1"));
+    // Which spelling the hostReady uses. The real Host has used both, and
+    // HostManager accepts either, so a test that only exercises one of them
+    // would pass while the other name was broken.
+    QCommandLineOption snakeCaseOption(
+        QStringList{QStringLiteral("snake-case-ids")},
+        QStringLiteral("hostReady uses device_id/access_code instead of "
+                       "deviceId/accessCode."));
     parser.addOption(helloDelayOption);
     parser.addOption(carryIdsOption);
+    parser.addOption(hostReadyDelayOption);
+    parser.addOption(snakeCaseOption);
     parser.process(app);
 
     const int helloDelayMs = parser.value(helloDelayOption).toInt();
     const bool carryIds = parser.isSet(carryIdsOption);
+    const int hostReadyDelayMs = parser.value(hostReadyDelayOption).toInt();
+    const bool snakeCaseIds = parser.isSet(snakeCaseOption);
 
     QJsonObject message;
     while (ReadFrame(&message)) {
@@ -104,6 +123,23 @@ int main(int argc, char** argv)
                 response["access_code"] = "ABC-123";
             }
             WriteFrame(response);
+
+            if (hostReadyDelayMs >= 0) {
+                if (hostReadyDelayMs > 0) {
+                    QThread::msleep(static_cast<unsigned long>(hostReadyDelayMs));
+                }
+                QJsonObject ready;
+                ready["type"] = "hostReady";
+                // Both spellings appear in the wild; pick one per run.
+                if (snakeCaseIds) {
+                    ready["device_id"] = "987654321";
+                    ready["access_code"] = "XYZ-789";
+                } else {
+                    ready["deviceId"] = "987654321";
+                    ready["accessCode"] = "XYZ-789";
+                }
+                WriteFrame(ready);
+            }
         } else if (type == "connect") {
             // The Host reports it took the connect. Whether it was ready to is
             // the controller's question, not this one's.

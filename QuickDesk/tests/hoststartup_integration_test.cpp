@@ -86,7 +86,12 @@ class HostFixture : public QObject {
 
     // helloDelayMs: how long the fake Host sits on hello before answering.
     // carryIds: whether helloResponse also carries the device ID and access code.
-    void Start(int helloDelayMs, bool carryIds)
+    // hostReadyDelayMs: whether to send a standalone hostReady afterwards, and
+    //     how long after. Negative means never - that is the path where the IDs
+    //     ride along with helloResponse instead.
+    // snakeCaseIds: which field spelling the hostReady uses.
+    void Start(int helloDelayMs, bool carryIds, int hostReadyDelayMs = -1,
+               bool snakeCaseIds = false)
     {
         m_process = new QProcess();
         m_process->setProgram(m_program);
@@ -99,6 +104,13 @@ class HostFixture : public QObject {
                   << QString::number(helloDelayMs);
         if (carryIds) {
             arguments << QStringLiteral("--carry-ids");
+        }
+        if (hostReadyDelayMs >= 0) {
+            arguments << QStringLiteral("--host-ready-delay-ms")
+                      << QString::number(hostReadyDelayMs);
+        }
+        if (snakeCaseIds) {
+            arguments << QStringLiteral("--snake-case-ids");
         }
         m_process->setArguments(arguments);
         m_process->start();
@@ -205,6 +217,50 @@ int main(int argc, char** argv)
         Expect(sawNotReady,
                QStringLiteral("case 3: the reported code includes NOT_READY, "
                               "so the controller can act on it"));
+    }
+
+    // --- Case 5: the ordinary path, where hostReady carries the IDs ---
+    //
+    // helloResponse only proves the process is alive. In a normal startup the
+    // IDs arrive on a separate hostReady, after provisioning has finished, so
+    // this is the path nearly every real session takes. Case 4 above covers the
+    // shortcut where the IDs ride along with hello; without this one, a
+    // regression in handleHostReady would go unnoticed while the tests stayed
+    // green.
+    //
+    // Run twice, once per field spelling, because HostManager accepts both and a
+    // change that dropped one would break whichever Host uses it while the other
+    // case kept passing.
+    for (int spelling = 0; spelling < 2; ++spelling) {
+        const bool snakeCase = (spelling == 1);
+        const QString label = snakeCase ? QStringLiteral("snake_case")
+                                        : QStringLiteral("camelCase");
+        HostFixture fixture(fakeHost);
+        fixture.Start(/*helloDelayMs=*/0, /*carryIds=*/false,
+                      /*hostReadyDelayMs=*/0, /*snakeCaseIds=*/snakeCase);
+
+        QSignalSpy readySpy(fixture.hostManager(),
+                            &quickdesk::HostManager::hostReady);
+        fixture.hostManager()->sendHello();
+        Expect(WaitUntil([&]() { return readySpy.count() > 0; }, 5000),
+               QStringLiteral("case 5 (%1): the standalone hostReady arrives")
+                   .arg(label));
+
+        Expect(fixture.hostManager()->deviceId() == QStringLiteral("987654321"),
+               QStringLiteral("case 5 (%1): the device ID arrives on hostReady")
+                   .arg(label));
+        Expect(fixture.hostManager()->accessCode() == QStringLiteral("XYZ-789"),
+               QStringLiteral("case 5 (%1): the access code arrives on hostReady")
+                   .arg(label));
+        if (readySpy.count() > 0) {
+            const QList<QVariant> args = readySpy.first();
+            Expect(args.at(0).toString() == QStringLiteral("987654321"),
+                   QStringLiteral("case 5 (%1): hostReady carries the device ID")
+                       .arg(label));
+            Expect(args.at(1).toString() == QStringLiteral("XYZ-789"),
+                   QStringLiteral("case 5 (%1): hostReady carries the access code")
+                       .arg(label));
+        }
     }
 
     // --- Case 1: a Host that is slow to answer hello still yields its IDs ---
