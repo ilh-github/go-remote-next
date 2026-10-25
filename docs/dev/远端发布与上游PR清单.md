@@ -59,6 +59,21 @@
   `quickdesk_server_status_detail_test`）；第 5、6 条未验证，保持 `[~]`。
 - 本轮改动属 fork 自有 UI/状态语义，不构成上游产品行为变更，不建 PR。
 
+## 本轮推送（2026-10-25 07:40 CST）
+
+- QD-209 的 Qt 撤销路径测试与真实缺陷修复已推送：`a0fc422`（测试）、
+  `cfd09c9`（补上被漏掉的 struct 定义）、`874336b`（修 `/` 未编码）、
+  `1b78bdd`（第二参类型）、`b9d72fa`（改用 `toEncoded`）、`409deba`（按路径段断言）。
+  `git push origin dev master` 成功，远端均到达 `409deba`，
+  `git rev-list --left-right --count origin/dev...dev` = `0 0`。
+- CI 实跑（run `40145248663`，head `409deba`，Windows `Unit tests` job）：
+  19/19 通过，`quickdesk_remote_session_manager_test` 在列。
+- QD-209 的 Qt 侧请求/响应契约已有自动化证据；真机踢人与批量清场效果仍待补，
+  保持 `[~]`。
+- `874336b` 是产品缺陷修复，值得考虑单独拆上游候选：`encodedPathSegment`
+  的写法在 `QuickDesk/src` 下多个 manager 重复，上游同样受益。
+  本轮未创建，留待下一轮按最小分支切出。
+
 ## 当前本地基线
 
 - fork 本地主线：`dev` / `master` 已同步；QD-907 功能提交为 `33e9851`、`fd92cdd`，
