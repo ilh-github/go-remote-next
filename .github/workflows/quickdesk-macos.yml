@@ -31,6 +31,11 @@ jobs:
   build:
     name: Build (${{ matrix.arch }})
     strategy:
+      # Without this, one arch's failure cancels the other. The x64 build fails
+      # at Package DMG for want of signing credentials, which has nothing to do
+      # with the arm64 build, and cancelling it throws away evidence that was
+      # already earned.
+      fail-fast: false
       matrix:
         include:
           - runner: macos-14
