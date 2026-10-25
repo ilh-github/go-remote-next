@@ -98,6 +98,11 @@
 - `28b7b9b` 另外把 macOS `build` strategy 改成 `fail-fast: false`：
   x64 的 `Package DMG` 因缺签名凭据失败是长期已知的外部阻塞，
   默认的 fail-fast 会连带取消 arm64 build，把已经拿到的证据一起扔掉。
+- 实跑确认：macOS run `40201665718`（head `28b7b9b`）`Unit tests (arm64)`
+  十个步骤全部 success，20/20；Windows run `40196394078`（head `550afca`）
+  亦 success。两个平台均恢复健康。
+- macOS `Build (x64)` / `Build (arm64)` 仍因缺 `MACOS_SIGN_IDENTITY` 失败，
+  属 QD-005 已知外部阻塞；`fail-fast: false` 后不再污染测试证据。
 - **覆盖缺口（未修复）**：这两个 cmake 容器检查现在 CI 里没有、只在本地跑。
   不是被修好的问题，是没有假装它还在。补上需要一个带容器的 job，
   或换一种不依赖"无 Qt 环境"的验证思路。
