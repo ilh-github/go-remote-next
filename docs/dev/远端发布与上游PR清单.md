@@ -95,6 +95,9 @@
 - QD-216 第 6 条的两个平台证据均已具备：Windows run `40137597030`（19/19）、
   macOS arm64 run `40146772765`（20/20，host startup 集成测试在列）。
   此前只记 Windows 是因为整个 macOS run 是红的，没往下看一层。
+- `28b7b9b` 另外把 macOS `build` strategy 改成 `fail-fast: false`：
+  x64 的 `Package DMG` 因缺签名凭据失败是长期已知的外部阻塞，
+  默认的 fail-fast 会连带取消 arm64 build，把已经拿到的证据一起扔掉。
 - **覆盖缺口（未修复）**：这两个 cmake 容器检查现在 CI 里没有、只在本地跑。
   不是被修好的问题，是没有假装它还在。补上需要一个带容器的 job，
   或换一种不依赖"无 Qt 环境"的验证思路。
