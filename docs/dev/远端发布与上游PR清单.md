@@ -74,6 +74,17 @@
   的写法在 `QuickDesk/src` 下多个 manager 重复，上游同样受益。
   本轮未创建，留待下一轮按最小分支切出。
 
+## 本轮推送（2026-10-25 08:50 CST）
+
+- `6a9324a`（refactor: one percent-encoder for a path segment, not three copies）
+  已推送，`origin/dev` 与 `origin/master` 均到达该提交，
+  `git rev-list --left-right --count origin/dev...dev` = `0 0`。
+- CI 实跑（run `40146772610`，head `6a9324a`，Windows `Unit tests` job）：
+  20/20 通过，`quickdesk_urlencode_test` 在列。
+- 上游候选更新：`874336b` 的 `/` 编码修复现已扩展为 `6a9324a` 的单一实现重构。
+  切上游最小分支时应从 `upstream/dev` 重新取，只带 `common/urlencode.h`、
+  `urlencode_test.cpp` 与被改的 CMake 片段，不带 fork 的会话撤销业务代码。
+
 ## 当前本地基线
 
 - fork 本地主线：`dev` / `master` 已同步；QD-907 功能提交为 `33e9851`、`fd92cdd`，
