@@ -90,6 +90,7 @@ set(API_HEADERS
 
 set(COMMON_HEADERS
     src/common/ProcessStatus.h
+    src/common/urlencode.h
 )
 
 set(COMPONENT_SOURCES

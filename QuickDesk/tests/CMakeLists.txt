@@ -85,6 +85,27 @@ add_test(
     COMMAND quickdesk_server_status_detail_test
 )
 
+# Header-only, so this target links nothing extra: the function is inline and the
+# point is the encoding rules, not the build.
+add_executable(quickdesk_urlencode_test
+    urlencode_test.cpp
+)
+
+target_include_directories(quickdesk_urlencode_test
+    PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src
+)
+
+target_link_libraries(quickdesk_urlencode_test
+    PRIVATE
+    Qt6::Core
+)
+
+add_test(
+    NAME quickdesk_urlencode_test
+    COMMAND quickdesk_urlencode_test
+)
+
 add_executable(quickdesk_recording_lifecycle_test
     recordinglifecycle_test.cpp
     ../src/core/recordinglifecycle.cpp

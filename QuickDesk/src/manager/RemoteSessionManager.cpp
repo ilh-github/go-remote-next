@@ -1,6 +1,8 @@
 // Copyright 2026 QuickDesk Authors
 #include "RemoteSessionManager.h"
 
+#include "common/urlencode.h"
+
 #include "AuthManager.h"
 #include "infra/log/log.h"
 
@@ -15,17 +17,6 @@ namespace quickdesk {
 namespace {
 constexpr int kListLimit = 50;
 
-QString encodedPathSegment(const QString& value)
-{
-    // '/' has to be encoded too. The second argument is the set of characters to
-    // *leave alone*, and it defaults to "/", which is right for a whole path and
-    // wrong for a single segment of one: an id containing a slash would silently
-    // become a different path, so the request would hit the wrong endpoint and
-    // the failure would look like a missing session rather than a malformed id.
-    // An empty set therefore encodes everything that needs encoding.
-    return QString::fromLatin1(
-        QUrl::toPercentEncoding(value, QByteArray()));
-}
 }
 
 RemoteSessionManager::RemoteSessionManager(AuthManager* authManager, QObject* parent)
@@ -159,7 +150,7 @@ void RemoteSessionManager::fetchDetail(const QString& sessionId)
     const QUrl url(
         m_authManager->httpBaseUrl()
         + QStringLiteral("v1/me/remote-sessions/")
-        + encodedPathSegment(sessionId));
+        + EncodeUrlPathSegment(sessionId));
     beginRequest();
     m_authManager->request(
         QStringLiteral("GET"), url, QString(),
@@ -211,7 +202,7 @@ void RemoteSessionManager::revokeSession(const QString& sessionId)
     const QUrl url(
         m_authManager->httpBaseUrl()
         + QStringLiteral("v1/me/remote-sessions/")
-        + encodedPathSegment(sessionId)
+        + EncodeUrlPathSegment(sessionId)
         + QStringLiteral("/revoke"));
     beginRequest();
     m_authManager->request(
@@ -247,7 +238,7 @@ void RemoteSessionManager::revokeDeviceSessions(const QString& deviceId)
     const QUrl url(
         m_authManager->httpBaseUrl()
         + QStringLiteral("v1/me/devices/")
-        + encodedPathSegment(deviceId)
+        + EncodeUrlPathSegment(deviceId)
         + QStringLiteral("/sessions:revoke"));
     beginRequest();
     m_authManager->request(
@@ -293,7 +284,7 @@ void RemoteSessionManager::banSource(const QString& deviceId, const QString& sou
     const QUrl url(
         m_authManager->httpBaseUrl()
         + QStringLiteral("v1/me/devices/")
-        + encodedPathSegment(normalizedDeviceId)
+        + EncodeUrlPathSegment(normalizedDeviceId)
         + QStringLiteral("/access-bans"));
     const QJsonObject body{
         {QStringLiteral("source"), normalizedSource},
@@ -337,7 +328,7 @@ void RemoteSessionManager::fetchDeniedSources(const QString& deviceId)
     const QUrl url(
         m_authManager->httpBaseUrl()
         + QStringLiteral("v1/me/devices/")
-        + encodedPathSegment(normalizedDeviceId)
+        + EncodeUrlPathSegment(normalizedDeviceId)
         + QStringLiteral("/access-policy"));
     m_deniedSources.clear();
     emit deniedSourcesChanged();
@@ -384,7 +375,7 @@ void RemoteSessionManager::removeDeniedSource(const QString& deviceId, const QSt
     const QUrl url(
         m_authManager->httpBaseUrl()
         + QStringLiteral("v1/me/devices/")
-        + encodedPathSegment(normalizedDeviceId)
+        + EncodeUrlPathSegment(normalizedDeviceId)
         + QStringLiteral("/access-bans:remove"));
     const QJsonObject body{
         {QStringLiteral("source"), normalizedSource},

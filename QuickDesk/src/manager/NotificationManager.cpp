@@ -2,6 +2,8 @@
 
 #include "NotificationManager.h"
 
+#include "common/urlencode.h"
+
 #include "AuthManager.h"
 #include "infra/log/log.h"
 
@@ -424,8 +426,7 @@ void NotificationManager::loadOfflineAlert(const QString& deviceId)
     const QUrl url(
         m_authManager->httpBaseUrl()
         + QStringLiteral("v1/me/devices/")
-        + QString::fromLatin1(
-            QUrl::toPercentEncoding(normalizedDeviceId))
+        + EncodeUrlPathSegment(normalizedDeviceId)
         + QStringLiteral("/offline-alert"));
     beginRequest();
     m_authManager->request(
@@ -483,8 +484,7 @@ void NotificationManager::saveOfflineAlert(
     const QUrl url(
         m_authManager->httpBaseUrl()
         + QStringLiteral("v1/me/devices/")
-        + QString::fromLatin1(
-            QUrl::toPercentEncoding(m_offlineDeviceId))
+        + EncodeUrlPathSegment(m_offlineDeviceId)
         + QStringLiteral("/offline-alert"));
     beginRequest();
     m_authManager->request(
@@ -529,8 +529,7 @@ void NotificationManager::removeOfflineAlert()
     const QUrl url(
         m_authManager->httpBaseUrl()
         + QStringLiteral("v1/me/devices/")
-        + QString::fromLatin1(
-            QUrl::toPercentEncoding(m_offlineDeviceId))
+        + EncodeUrlPathSegment(m_offlineDeviceId)
         + QStringLiteral("/offline-alert"));
     beginRequest();
     m_authManager->request(
@@ -593,7 +592,7 @@ void NotificationManager::loadMetricAlert(const QString& deviceId)
     const QUrl url(
         m_authManager->httpBaseUrl()
         + QStringLiteral("v1/me/devices/")
-        + QString::fromLatin1(QUrl::toPercentEncoding(normalizedDeviceId))
+        + EncodeUrlPathSegment(normalizedDeviceId)
         + QStringLiteral("/metric-alert"));
     beginRequest();
     m_authManager->request(
@@ -675,8 +674,7 @@ void NotificationManager::saveMetricAlert(
     const QUrl url(
         m_authManager->httpBaseUrl()
         + QStringLiteral("v1/me/devices/")
-        + QString::fromLatin1(
-            QUrl::toPercentEncoding(m_metricAlertDeviceId))
+        + EncodeUrlPathSegment(m_metricAlertDeviceId)
         + QStringLiteral("/metric-alert"));
     beginRequest();
     m_authManager->request(
@@ -728,8 +726,7 @@ void NotificationManager::removeMetricAlert()
     const QUrl url(
         m_authManager->httpBaseUrl()
         + QStringLiteral("v1/me/devices/")
-        + QString::fromLatin1(
-            QUrl::toPercentEncoding(m_metricAlertDeviceId))
+        + EncodeUrlPathSegment(m_metricAlertDeviceId)
         + QStringLiteral("/metric-alert"));
     beginRequest();
     m_authManager->request(

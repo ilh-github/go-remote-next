@@ -1,5 +1,7 @@
 // Copyright 2026 QuickDesk Authors
 #include "CloudDeviceManager.h"
+
+#include "common/urlencode.h"
 #include "ServerManager.h"
 #include "AuthManager.h"
 #include "HostManager.h"
@@ -168,8 +170,7 @@ void CloudDeviceManager::reportHostMetrics(
         return;
     }
 
-    const QString encodedDeviceId =
-        QString::fromLatin1(QUrl::toPercentEncoding(normalizedDeviceId));
+    const QString encodedDeviceId = EncodeUrlPathSegment(normalizedDeviceId);
     const QUrl url(
         httpBaseUrl() + QStringLiteral("v1/devices/")
         + encodedDeviceId + QStringLiteral("/metrics"));

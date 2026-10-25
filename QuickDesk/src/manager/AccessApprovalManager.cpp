@@ -2,6 +2,8 @@
 
 #include "AccessApprovalManager.h"
 
+#include "common/urlencode.h"
+
 #include "AuthManager.h"
 #include "infra/log/log.h"
 
@@ -24,11 +26,6 @@ const QStringList kApprovalStatuses = {
     QStringLiteral("expired"),
     QStringLiteral("consumed"),
 };
-
-QString encodedPathSegment(const QString& value)
-{
-    return QString::fromLatin1(QUrl::toPercentEncoding(value));
-}
 
 }  // namespace
 
@@ -78,7 +75,7 @@ void AccessApprovalManager::requestList(int generation)
 {
     QUrl url(m_authManager->httpBaseUrl()
              + QStringLiteral("v1/me/devices/")
-             + encodedPathSegment(m_deviceId)
+             + EncodeUrlPathSegment(m_deviceId)
              + QStringLiteral("/access-approvals"));
     QUrlQuery query;
     query.addQueryItem(QStringLiteral("status"), m_statusFilter);
@@ -127,7 +124,7 @@ void AccessApprovalManager::requestSummary(int generation)
 {
     QUrl url(m_authManager->httpBaseUrl()
              + QStringLiteral("v1/me/devices/")
-             + encodedPathSegment(m_deviceId)
+             + EncodeUrlPathSegment(m_deviceId)
              + QStringLiteral("/access-approvals:summary"));
     QUrlQuery query;
     query.addQueryItem(QStringLiteral("limit"),
@@ -183,7 +180,7 @@ void AccessApprovalManager::decide(int approvalId, bool approve,
 
     const QUrl url(m_authManager->httpBaseUrl()
                    + QStringLiteral("v1/me/devices/")
-                   + encodedPathSegment(m_deviceId)
+                   + EncodeUrlPathSegment(m_deviceId)
                    + QStringLiteral("/access-approvals/")
                    + QString::number(approvalId)
                    + (approve ? QStringLiteral("/approve")
