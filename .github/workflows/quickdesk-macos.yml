@@ -165,24 +165,25 @@ jobs:
           # both shapes.
           cd build-tests && ctest -C Release --output-on-failure
 
-      # The targets that need nothing beyond the standard library are checked
-      # here too, in a container that has cmake but no Qt, so a mistake in their
-      # CMake definitions is caught even where the full suite cannot configure.
-      - name: Verify the non-Qt cmake test targets
-        run: bash scripts/e2e/test-quickdesk-cmake-test-targets.sh
-
-      # The Windows job's ctest came back "***Not Run" for all 16 tests because
-      # no configuration was passed. Docker is unavailable there, so the
-      # regression check for that shape runs here instead, using the
-      # multi-config Ninja generator.
-      - name: Verify ctest is given a configuration
-        run: bash scripts/e2e/test-quickdesk-cmake-ctest-config.sh
-
       # Being in the build tree is a separate fact from the suite passing: the
       # trust-handler CTest sat in test/trust/ with nothing pointing at it, so
       # the 16/16 green run did not include it.
       - name: Verify the trust-handler CTest is wired in
         run: bash scripts/e2e/test-quickdesk-trust-test-wiring.sh
+
+      # The two cmake checks below need an environment that has cmake and a
+      # compiler but no Qt, which only a container provides. Neither hosted
+      # runner has Docker - not Windows, and not this one, where they ran for
+      # twelve rounds and failed every time with "docker: command not found"
+      # while the job was assumed to be covering them.
+      #
+      # They are deliberately not wired in here. Running them in a tree that has
+      # Qt on the path would change what they prove, and a green tick for a
+      # check that could not run is worse than no tick. Both now skip loudly
+      # when Docker is absent, so wiring them back in somewhere is safe and
+      # honest. Run them by hand, or in a job with a container.
+      #   scripts/e2e/test-quickdesk-cmake-test-targets.sh
+      #   scripts/e2e/test-quickdesk-cmake-ctest-config.sh
 
       # A source file that only the test target compiles links nothing into the
       # app, which is how recordinglifecycle.cpp broke the x64 build.

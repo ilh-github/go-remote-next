@@ -50,6 +50,16 @@ if(QUICKDESK_BUILD_TESTS)
 endif()
 EOF
 
+# Same reasoning as the sibling script: the container supplies the multi-config
+# generator without a Qt install, and neither GitHub-hosted runner has Docker.
+# Skipping with an explanation beats failing with "docker: command not found",
+# which is what this did on macOS for twelve rounds while the job was assumed to
+# be checking something.
+if ! command -v docker >/dev/null 2>&1; then
+    echo "[*] docker is not available here; this check needs a container and is skipped" >&2
+    exit 0
+fi
+
 echo "[*] checking ctest configuration handling in $image"
 docker run --rm -v "$work/project:/project" -w /project "$image" sh -c "
     set -e

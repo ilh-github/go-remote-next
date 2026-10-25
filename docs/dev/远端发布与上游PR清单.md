@@ -85,6 +85,20 @@
   切上游最小分支时应从 `upstream/dev` 重新取，只带 `common/urlencode.h`、
   `urlencode_test.cpp` 与被改的 CMake 片段，不带 fork 的会话撤销业务代码。
 
+## 本轮推送（2026-10-25 21:10 CST）
+
+- macOS run 长期失败的根因已处理：`test-quickdesk-cmake-test-targets.sh` 与
+  `test-quickdesk-cmake-ctest-config.sh` 都需要「有 cmake/编译器但没有 Qt」的环境，
+  只有容器能给，而 macOS 与 Windows 两个 hosted runner 都没有 Docker。
+  两脚本已加 `command -v docker` 守卫（缺失时说明原因并退出 0），
+  并从 macOS job 摘掉，真实情况写入 workflow 注释。
+- QD-216 第 6 条的两个平台证据均已具备：Windows run `40137597030`（19/19）、
+  macOS arm64 run `40146772765`（20/20，host startup 集成测试在列）。
+  此前只记 Windows 是因为整个 macOS run 是红的，没往下看一层。
+- **覆盖缺口（未修复）**：这两个 cmake 容器检查现在 CI 里没有、只在本地跑。
+  不是被修好的问题，是没有假装它还在。补上需要一个带容器的 job，
+  或换一种不依赖"无 Qt 环境"的验证思路。
+
 ## 当前本地基线
 
 - fork 本地主线：`dev` / `master` 已同步；QD-907 功能提交为 `33e9851`、`fd92cdd`，
