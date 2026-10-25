@@ -107,6 +107,19 @@
   不是被修好的问题，是没有假装它还在。补上需要一个带容器的 job，
   或换一种不依赖"无 Qt 环境"的验证思路。
 
+## 本轮推送（2026-10-26 02:30 CST）
+
+- QD-216 已收口并转 `[x]`：`a9c8261`（hostReady 主路径用例 + 两种字段拼写）、
+  `cb2da01`（红绿验证用的故意破坏，已恢复）、`af7052d`（恢复）。
+  `git push origin dev master` 成功，远端均到达 `af7052d`，
+  `git rev-list --left-right --count origin/dev...dev` = `0 0`。
+- 两个平台、且都是含新用例的提交：Windows run `40209985101`（head `a9c8261`）20/20；
+  macOS arm64 run `40211749988`（head `af7052d`）20/20、十个步骤全部 success。
+  早先的 macOS 证据 `28b7b9b` 早于 `a9c8261`，不覆盖新用例，已重新取。
+- 清单统计：88 `[x]`、20 `[~]`、5 `[ ]`、1 `[!]`、2 `[>]`、1 `[-]`（共 117）。
+- 上游候选：QD-216 属上游 issue #9 的修复，`hostreadiness` 纯逻辑层可独立切出；
+  Qt 接线依赖 fork 的 MainController 结构，留 fork。
+
 ## 当前本地基线
 
 - fork 本地主线：`dev` / `master` 已同步；QD-907 功能提交为 `33e9851`、`fd92cdd`，

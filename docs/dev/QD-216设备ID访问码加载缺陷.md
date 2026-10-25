@@ -146,6 +146,12 @@ if (!m_messaging || !m_messaging->isReady()) {
     `hostServerStatusDetail` 属性，所有状态写入收敛到 `setHostServerStatus()`，
     预算耗尽时按「有没有见过 hello」给出两种不同理由；
     `MainWindow.qml` 把理由拼进状态栏，走 `.ts` 翻译。
-  - 第 5、6 条仍未覆盖：现有 `HostManager` 相关测试未单独跑一遍回归，
-    macOS 侧也未实跑。
-  - 因此该项保持 `[~]`：三条用例有证据、一条已实现、两条未验证。
+  - 第 5 条已补（`a9c8261`）：假 Host 可发独立 `hostReady`，新增用例走这条
+    正常启动主路径，并按 `deviceId` / `device_id` 两种字段拼写各跑一遍。
+    红绿双向验证：把 snake_case 半边的期望值改错（`cb2da01`），CI 回报且仅回报
+    `FAIL: case 5 (snake_case): the device ID arrives on hostReady`（20 个测试中
+    1 个失败），`af7052d` 恢复。
+  - 第 6 条两个平台、且都是含 `a9c8261` 新用例的提交：
+    Windows run `40209985101`（20/20）、macOS arm64 run `40211749988`（20/20，
+    十个步骤全部 success）。
+  - 六条验收至此全部完成，符合第 15 节完成定义，QD-216 转 `[x]`。
