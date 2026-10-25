@@ -246,9 +246,7 @@ int main(int argc, char** argv)
                QStringLiteral("case 5 (%1): the standalone hostReady arrives")
                    .arg(label));
 
-        const QString expectId =
-            snakeCase ? QStringLiteral("000000000") : QStringLiteral("987654321");
-        Expect(fixture.hostManager()->deviceId() == expectId,
+        Expect(fixture.hostManager()->deviceId() == QStringLiteral("987654321"),
                QStringLiteral("case 5 (%1): the device ID arrives on hostReady")
                    .arg(label));
         Expect(fixture.hostManager()->accessCode() == QStringLiteral("XYZ-789"),
