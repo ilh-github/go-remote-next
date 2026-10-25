@@ -163,24 +163,35 @@ int main(int argc, char** argv) {
     // path() and could not have caught it.
     const QString actualPath =
         QString::fromLatin1(g_last_request.url.toEncoded());
-    const QStringList segments =
-        actualPath.split('/', Qt::SkipEmptyParts);
+    // Count only the path part. The encoded form is the whole URL, so scheme and
+    // authority contribute their own slashes; counting them made a correct
+    // encoding look like six segments.
+    const int scheme_end = actualPath.indexOf(QStringLiteral("://"));
+    const QString path_only =
+        scheme_end < 0 ? actualPath
+                       : actualPath.mid(actualPath.indexOf(
+                             '/', scheme_end + 3));
+    const QStringList path_segments =
+        path_only.split('/', Qt::SkipEmptyParts);
     // v1 / me / remote-sessions / <id> / revoke. Five, not six: the id must not
     // contribute an extra segment.
-    Expect(segments.size() == 5,
+    Expect(path_segments.size() == 5,
            QStringLiteral("an id containing a slash stays one path segment "
                           "(path %1 split into %2)")
-               .arg(actualPath, QString::number(segments.size())));
-    if (segments.size() == 5) {
-        Expect(segments.at(0) == QStringLiteral("v1")
-                   && segments.at(1) == QStringLiteral("me")
-                   && segments.at(2) == QStringLiteral("remote-sessions")
-                   && segments.at(4) == QStringLiteral("revoke"),
+               .arg(path_only, QString::number(path_segments.size())));
+    if (path_segments.size() == 5) {
+        Expect(path_segments.at(0) == QStringLiteral("v1")
+                   && path_segments.at(1) == QStringLiteral("me")
+                   && path_segments.at(2) == QStringLiteral("remote-sessions")
+                   && path_segments.at(4) == QStringLiteral("revoke"),
                QStringLiteral("the prefix and suffix are intact (path %1)")
-                   .arg(actualPath));
-        Expect(!segments.contains(QStringLiteral("with space")),
-               QStringLiteral("the space is encoded, not left literal "
-                              "(path %1)").arg(actualPath));
+                   .arg(path_only));
+        // The id itself must still be one segment holding the encoded slash and
+        // the encoded space, not the literal characters.
+        Expect(path_segments.at(3)
+                   == QStringLiteral("session%2Fwith%20space"),
+               QStringLiteral("the id is encoded as a single segment "
+                              "(got %1)").arg(path_segments.at(3)));
     }
 
     // A non-200 must surface as a failure with the server's own words, not as a
