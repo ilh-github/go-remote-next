@@ -55,6 +55,17 @@ export function resolveTiles({ selectedIds, devices, live = {}, translate }) {
   for (const id of selectedIds) {
     const device = index[id]
     const state = live[id] || {}
+    // The previous row is reused when nothing visible about it changed. This is
+    // not a micro-optimisation: the allocation profile named vue-i18n's
+    // `compileMessageFormat` as the top self-size path, and a tile template
+    // carries eight `$t()` bindings. A brand-new row object every recompute made
+    // Vue re-render the whole tile subtree - re-running all eight - on every
+    // live-state tick, and each iframe ticks twice a second.
+    const previous = previousRows.get(id)
+    // Resolved first, compared second. Comparing the half-built row would
+    // compare defaults against resolved values and report every tile as
+    // changed, which is the very thing being fixed.
+    const resolved = resolveOneRow({ id, device, state, t })
     const base = {
       deviceId: id,
       name: device ? (device.remark || device.device_name || id) : id,
@@ -63,19 +74,49 @@ export function resolveTiles({ selectedIds, devices, live = {}, translate }) {
       reason: '',
       state: 'connecting',
     }
-    if (!device) {
-      rows.push({ ...base, state: 'error', reason: t('wall.tileUnknown') })
-      continue
-    }
-    if (!device.online) {
-      rows.push({ ...base, url: '', state: 'offline', reason: t('wall.reasonOffline') })
-      continue
-    }
-    if (!device.logged_in) {
-      rows.push({ ...base, url: '', state: 'idle', reason: t('wall.reasonIdle') })
-      continue
-    }
-    rows.push({ ...base, state: state.state || 'connecting', reason: state.reason || '' })
+    // The counter is the one field whose job is to move on every tick, so it is
+    // applied even when the row is reused - otherwise the number an operator
+    // watches goes stale while everything else correctly holds still.
+    const next = previous && sameRow(previous, resolved)
+      ? Object.assign(previous, { detail: resolved.detail })
+      : resolved
+    previousRows.set(id, next)
+    rows.push(next)
   }
   return rows
+}
+
+// The row a tile renders, resolved from the device and its live state. Split out
+// so the reuse decision compares two finished rows rather than a finished one
+// against a half-built one.
+function resolveOneRow({ id, device, state, t }) {
+  const base = {
+    deviceId: id,
+    name: device ? (device.remark || device.device_name || id) : id,
+    url: state.url || '',
+    detail: state.detail || '',
+    reason: '',
+    state: 'connecting',
+  }
+  if (!device) return { ...base, state: 'error', reason: t('wall.tileUnknown') }
+  if (!device.online) return { ...base, url: '', state: 'offline', reason: t('wall.reasonOffline') }
+  if (!device.logged_in) return { ...base, url: '', state: 'idle', reason: t('wall.reasonIdle') }
+  return { ...base, state: state.state || 'connecting', reason: state.reason || '' }
+}
+
+// Rows are cached per device id so a recompute can tell "unchanged" from
+// "changed" without the caller holding on to the previous array. A Map rather
+// than a field on the row because the row is what the caller renders, and it
+// must stay a plain object.
+const previousRows = new Map()
+
+// Everything a row shows other than the counter. The counter is excluded on
+// purpose: it is expected to differ on every tick, and including it would make
+// every row look changed.
+function sameRow(previous, base) {
+  return previous.deviceId === base.deviceId
+    && previous.name === base.name
+    && previous.url === base.url
+    && previous.state === base.state
+    && previous.reason === base.reason
 }

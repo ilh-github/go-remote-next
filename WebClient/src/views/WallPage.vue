@@ -164,8 +164,10 @@ import { userApi } from '../api/userApi'
 import { openRemoteSession, prepareRemoteSession } from '../utils/remoteLauncher'
 import { WallAudioSelector } from '../../js/ui/wall-audio.js'
 import { resolveTiles } from '../../js/wall/tileModel.js'
+import { mergeLiveState } from '../../js/wall/liveState.js'
+import { makeStateLabel } from '../../js/wall/stateLabel.js'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const showToast = inject('showToast')
 const showLogin = inject('showLogin')
 const authState = inject('authState')
@@ -233,11 +235,15 @@ function onColumnsChange(value) {
   try { localStorage.setItem(WALL_COLUMNS_KEY, String(columns.value)) } catch { /* private mode */ }
 }
 
-function stateLabel(state) {
-  const key = `wall.state.${state}`
-  const str = t(key)
-  return str === key ? state : str
-}
+// Memoised per state, and rebuilt when the locale changes - depending on
+// `locale` is what makes a language switch rebuild it rather than keep serving
+// the old language out of the cache. Called from a template expression on every
+// tile badge of every render, which is what put vue-i18n's message compiler at
+// the top of this page's allocation profile.
+const stateLabel = computed(() => {
+  void locale.value
+  return makeStateLabel(t)
+})
 
 // The session reports both "connected" (transport up) and "live" (frames
 // flowing), and the later of the two is not guaranteed; either means the tile
@@ -453,12 +459,13 @@ function onWallMessage(event) {
   const data = event.data
   if (!data || data.type !== 'quickdesk-wall' || !data.device) return
   if (!selected.value.includes(data.device)) return
-  const previous = live[data.device] || {}
-  live[data.device] = {
-    ...previous,
-    state: data.state || previous.state || 'connecting',
-    detail: data.detail || '',
-  }
+  // Merged rather than replaced. Every iframe posts its frame counter twice a
+  // second, and replacing the entry made each of those a re-render of the tile -
+  // which re-runs the eight `$t()` bindings in the tile template. The 40-viewer
+  // soak measured that as 29.6% of all sampled allocation in vue-i18n's message
+  // compiler, on a 2008ms period that matches the reporting interval rather than
+  // the frame loop.
+  mergeLiveState(live, data, selected.value)
   // Re-apply the armed state once the tile actually has a session to attach
   // handlers to, and drop it if the session died.
   if (data.state === 'live' && armedId.value === data.device) {

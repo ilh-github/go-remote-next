@@ -142,3 +142,81 @@ test('the device list is indexed once rather than scanned per tile', () => {
   assert.equal(comparisons, 0,
     `the device list was searched ${comparisons} times; a per-tile scan searches it once per tile`)
 })
+
+// QD-908 follow-up: the allocation profile named `compileMessageFormat` in
+// vue-i18n as the top self-size path, and merging the live state only removed a
+// quarter of it. The rest was here: `resolveTiles` calls `t()` three times per
+// tile on every recompute, and the recompute runs on every live-state tick.
+// A reason string that only exists to be looked up when a tile is offline must
+// not be compiled for the tiles that are live.
+test('a live tile resolves without compiling its reason strings', () => {
+  let calls = 0
+  const translate = (key) => { calls += 1; return key }
+  resolveTiles({
+    selectedIds: ['a', 'b', 'c'],
+    devices: [device('a'), device('b'), device('c')],
+    live: {
+      a: { state: 'live', url: 'remote.html?device=a' },
+      b: { state: 'live', url: 'remote.html?device=b' },
+      c: { state: 'live', url: 'remote.html?device=c' },
+    },
+    translate,
+  })
+  assert.equal(calls, 0,
+    `a wall of live tiles compiled ${calls} reason strings it never shows`)
+})
+
+// The rest of the i18n cost. The allocation profile named `compileMessageFormat`
+// as the top self-size path, and a tile template carries eight `$t()` bindings.
+// Merging the live state removed a quarter of it; this is the remainder.
+// `resolveTiles` returned a brand-new row object every recompute, so Vue saw
+// every tile as changed and re-rendered the whole tile subtree - which re-runs
+// all eight bindings - on every live-state tick, and the iframes tick twice a
+// second each.
+test('a row is reused when nothing about it changed', () => {
+  const args = {
+    selectedIds: ['a', 'b'],
+    devices: [device('a'), device('b')],
+    live: {
+      a: { state: 'live', url: 'remote.html?device=a' },
+      b: { state: 'live', url: 'remote.html?device=b' },
+    },
+    translate: (key) => key,
+  }
+  const first = resolveTiles(args)
+  const second = resolveTiles(args)
+  assert.equal(second[0], first[0], 'tile a was unchanged but got a new row')
+  assert.equal(second[1], first[1], 'tile b was unchanged but got a new row')
+})
+
+// The counter is the one field that moves every tick, so it has to be applied
+// even on a reused row - otherwise the number the operator watches goes stale.
+test('a reused row still carries the advancing counter', () => {
+  const args = {
+    selectedIds: ['a'],
+    devices: [device('a')],
+    live: { a: { state: 'live', url: 'u', detail: '10' } },
+    translate: (key) => key,
+  }
+  resolveTiles(args)
+  args.live.a.detail = '11'
+  const rows = resolveTiles(args)
+  assert.equal(rows[0].detail, '11', 'the counter must stay live')
+})
+
+// A row whose state actually changed still has to be a new object, or the tile
+// would never update. Reuse is an optimisation for unchanged rows, not a
+// suppression of updates.
+test('a row whose state changed is still a new object', () => {
+  const args = {
+    selectedIds: ['a'],
+    devices: [device('a')],
+    live: { a: { state: 'connecting', url: 'u' } },
+    translate: (key) => key,
+  }
+  const before = resolveTiles(args)[0]
+  args.live.a.state = 'live'
+  const after = resolveTiles(args)[0]
+  assert.notEqual(after, before)
+  assert.equal(after.state, 'live')
+})
