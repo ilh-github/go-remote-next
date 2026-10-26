@@ -24,6 +24,23 @@ const SAMPLE_MS = positiveInteger(process.env.QD_WALL_SAMPLE_MS, 1000)
 const DENSE_FROM_MS = positiveInteger(process.env.QD_WALL_DENSE_FROM_MS, 0)
 const DENSE_TO_MS = positiveInteger(process.env.QD_WALL_DENSE_TO_MS, 0)
 const DENSE_SAMPLE_MS = positiveInteger(process.env.QD_WALL_DENSE_SAMPLE_MS, 100)
+// A cheap independent peak tracker, on by default.
+//
+// The two-hour run reported `heapGrowthMb` of 535 MiB, and the 120-second dense
+// run showed heap oscillating across 111% of its own mean while FPS and node
+// count held still. That is the shape of GC firing between samples rather than
+// of a leak, and the measurement is exposed to it twice: it samples only at the
+// start and the end, and the samples in between are limited by how expensive a
+// full sample is (200 viewers cost about seven seconds each, so a 200 ms dense
+// interval is overset fourteen-fold).
+//
+// A tracker that does nothing but read `JSHeapUsedSize` on an interval costs a
+// fraction of a full sample, so it can run many times more often and hold the
+// maximum. If the peak is far above the final reading, GC timing is the
+// explanation and the growth number is an artefact; if the peak tracks the final
+// reading, the growth is real and the allocator hunt is worth doing. Either way
+// the answer comes from a number rather than from an argument.
+const PEAK_TRACK_MS = positiveInteger(process.env.QD_WALL_PEAK_TRACK_MS, 1000)
 const MIN_MAIN_FPS = positiveNumber(process.env.QD_WALL_MIN_MAIN_FPS, 1)
 const MAX_HEAP_GROWTH_MB = positiveNumber(process.env.QD_WALL_MAX_HEAP_GROWTH_MB, 256)
 // Startup for hundreds of animated iframes plus the final sampling pass takes
@@ -183,6 +200,24 @@ test(
       const startedAt = Date.now()
       const startedFrames = await page.evaluate(() => window.__wallSoakMainFrames)
       const samples = []
+      const peak = { heapBytes: baseline.JSHeapUsedSize || 0, nodes: baseline.Nodes || 0, atMs: 0 }
+      let peakReads = 0
+      let peakTracker = null
+      if (PEAK_TRACK_MS > 0) {
+        // Deliberately not awaited inside the sampling loop: the point is that
+        // this runs independently of it, so a slow sample cannot starve it.
+        peakTracker = setInterval(async () => {
+          try {
+            const m = await performanceMetrics(cdp)
+            peakReads += 1
+            if ((m.JSHeapUsedSize || 0) > peak.heapBytes) {
+              peak.heapBytes = m.JSHeapUsedSize || 0
+              peak.nodes = m.Nodes || 0
+              peak.atMs = Date.now() - startedAt
+            }
+          } catch { /* the CDP session is gone; the run is over anyway */ }
+        }, PEAK_TRACK_MS)
+      }
       // Time series behind the two numbers that gate the run. `mainFps` is an
       // average over the whole soak, so 0.77 cannot distinguish "slow from the
       // first second" from "fine until it collapsed"; a per-sample series can,
@@ -253,6 +288,8 @@ test(
         if (remaining > 0) await new Promise((resolve) => setTimeout(resolve, remaining))
       }
 
+      if (peakTracker) clearInterval(peakTracker)
+
       const rotateToolbar = await page.evaluate(() => {
         const wall = document.querySelector('.wall-tools')
         const buttons = [...(wall?.querySelectorAll('button') || [])]
@@ -320,6 +357,20 @@ test(
         heapEndMb: Number(((finalMetrics.JSHeapUsedSize || 0) / 1024 / 1024).toFixed(2)),
         nodesEnd: finalMetrics.Nodes || 0,
         sampledFrames,
+        // The peak and how often it was read. `peakOverFinalMb` is the number
+        // that decides the question: a large one says the growth figure is a GC
+        // artefact and the allocator hunt is premature, a small one says the
+        // growth is real.
+        peak: {
+          intervalMs: PEAK_TRACK_MS,
+          reads: peakReads,
+          atMs: peak.atMs,
+          heapMb: Number((peak.heapBytes / 1024 / 1024).toFixed(1)),
+          nodes: peak.nodes,
+          peakOverFinalMb: Number(
+            ((peak.heapBytes - (finalMetrics.JSHeapUsedSize || 0)) / 1024 / 1024).toFixed(1),
+          ),
+        },
         pageErrors,
         // The series is what tells a gradual slide from a step change: the
         // average above cannot. Kept coarse on purpose - one point per sample
@@ -330,9 +381,23 @@ test(
 
       assert.ok(elapsedMs >= SOAK_SECONDS * 1000)
       assert.ok(mainFps >= MIN_MAIN_FPS, `main animation fps ${mainFps.toFixed(2)}`)
+      // The heap gate is on the peak, not on the start-to-end difference.
+      //
+      // The difference was shown to measure noise: three identical 200-viewer
+      // runs produced -156, -11 and +296 MiB, and the peak sat 250 MiB above the
+      // final reading in one of them and 13 MiB below it in another. A number
+      // that swings 300 MiB under fixed parameters cannot gate anything - it
+      // would fail random runs and hide real ones. The peak is the maximum over
+      // the whole run, so it is not an artefact of when GC happened to fire
+      // between two samples, and a wall that genuinely holds hundreds of
+      // viewers has to hold that maximum.
+      //
+      // Both figures are still reported, so the trace keeps the shape and the
+      // gate keeps a number it can defend.
+      const peakGrowthMb = (peak.heapBytes - (baseline.JSHeapUsedSize || 0)) / 1024 / 1024
       assert.ok(
-        heapGrowthMb <= MAX_HEAP_GROWTH_MB,
-        `JS heap grew ${heapGrowthMb.toFixed(1)} MiB`,
+        peakGrowthMb <= MAX_HEAP_GROWTH_MB,
+        `JS heap peaked ${peakGrowthMb.toFixed(1)} MiB above baseline (start-to-end ${heapGrowthMb.toFixed(1)} MiB)`,
       )
       assert.ok(sampledFrames.every((sample) => sample.frames > 1))
       assert.deepEqual(pageErrors, [])
