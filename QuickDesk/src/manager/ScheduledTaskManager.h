@@ -55,8 +55,8 @@ public:
                                 const QString& runAt,
                                 int repeatSeconds,
                                 int maxAttempts,
-                                QString schedule = QString(),
-                                QString timezone = QString(),
+                                const QString& schedule = QString(),
+                                const QString& timezone = QString(),
                                 bool skipHolidays = false);
     Q_INVOKABLE void deleteTask(int taskId);
     Q_INVOKABLE void handleRealtimeEvent(const QVariantMap& message);
