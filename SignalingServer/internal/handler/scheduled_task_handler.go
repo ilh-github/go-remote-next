@@ -126,18 +126,9 @@ func (h *ScheduledTaskHandler) Create(c *gin.Context) {
 	}
 	// run_at and schedule are two ways to say when; the service rejects being
 	// given both, and here a syntactically broken run_at is caught before it
-	// reaches it.
-	var runAt time.Time
-	if strings.TrimSpace(req.RunAt) != "" {
-		parsed, err := time.Parse(time.RFC3339, req.RunAt)
-		if err != nil {
-			ProblemBadRequest(c, ProblemCodeInvalidRequest, "run_at must be RFC3339, e.g. 2026-10-17T03:00:00Z")
-			return
-		}
-		runAt = parsed
-	} else if strings.TrimSpace(req.Schedule) == "" {
-		ProblemBadRequest(c, ProblemCodeInvalidRequest,
-			"run_at is required unless schedule is given (one of: "+strings.Join(service.SupportedCalendarSchedules(), ", ")+")")
+	// reaches it. Shared with Update so the two cannot drift.
+	runAt, ok := parseScheduledTaskRunAt(c, req)
+	if !ok {
 		return
 	}
 	row, err := h.tasks.Create(c.Request.Context(), middleware.MustUserID(c), service.ScheduledTaskSpec{
@@ -161,6 +152,81 @@ func (h *ScheduledTaskHandler) Create(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusCreated, scheduledTaskViewOf(*row))
+}
+
+// Update edits one of the user's tasks.
+//
+// PATCH rather than PUT, because the caller does not have to send the whole
+// schedule to change one field of it: the server reads the row first and only
+// overwrites what the body carries. A PUT would be a promise the body cannot
+// keep, since the request type is shared with create and has no "leave alone"
+// representation for a string.
+func (h *ScheduledTaskHandler) Update(c *gin.Context) {
+	if h.tasks == nil {
+		ProblemBadRequest(c, ProblemCodeInvalidRequest, "scheduled tasks are not configured")
+		return
+	}
+	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil || id == 0 {
+		ProblemBadRequest(c, ProblemCodeInvalidRequest, "invalid scheduled task id")
+		return
+	}
+	uid := middleware.MustUserID(c)
+	// The edit reuses the same request shape as create: both describe a whole
+	// schedule, and a partial form here would silently reset the fields it
+	// omits - the same full-replace hazard the access-policy PUT has.
+	var req scheduledTaskReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		ProblemBadRequest(c, ProblemCodeInvalidRequest, err.Error())
+		return
+	}
+	runAt, ok := parseScheduledTaskRunAt(c, req)
+	if !ok {
+		return
+	}
+	row, err := h.tasks.Update(c.Request.Context(), uid, uint(id), service.ScheduledTaskSpec{
+		Kind:          req.Kind,
+		RunAt:         runAt,
+		RepeatSeconds: req.RepeatSeconds,
+		MaxAttempts:   req.MaxAttempts,
+		Schedule:      req.Schedule,
+		Timezone:      req.Timezone,
+		SkipHolidays:  req.SkipHolidays,
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, gorm.ErrRecordNotFound):
+			ProblemNotFound(c, ProblemCodeNotFound, "Scheduled task not found")
+		case errors.Is(err, service.ErrInvalidScheduledTaskKind),
+			errors.Is(err, service.ErrInvalidScheduledTaskSchedule),
+			errors.Is(err, service.ErrInvalidScheduledTaskMaxAttempts),
+			errors.Is(err, service.ErrInvalidScheduledTaskCalendar):
+			ProblemBadRequest(c, ProblemCodeInvalidRequest, err.Error())
+		default:
+			ProblemInternal(c, err.Error())
+		}
+		return
+	}
+	c.JSON(http.StatusOK, scheduledTaskViewOf(*row))
+}
+
+// parseScheduledTaskRunAt resolves the "when" half of a create or edit body.
+// It returns false after writing the problem, so a caller can just return.
+func parseScheduledTaskRunAt(c *gin.Context, req scheduledTaskReq) (time.Time, bool) {
+	var runAt time.Time
+	if strings.TrimSpace(req.RunAt) != "" {
+		parsed, err := time.Parse(time.RFC3339, req.RunAt)
+		if err != nil {
+			ProblemBadRequest(c, ProblemCodeInvalidRequest, "run_at must be RFC3339, e.g. 2026-10-17T03:00:00Z")
+			return runAt, false
+		}
+		runAt = parsed
+	} else if strings.TrimSpace(req.Schedule) == "" {
+		ProblemBadRequest(c, ProblemCodeInvalidRequest,
+			"run_at is required unless schedule is given (one of: "+strings.Join(service.SupportedCalendarSchedules(), ", ")+")")
+		return runAt, false
+	}
+	return runAt, true
 }
 
 func (h *ScheduledTaskHandler) Delete(c *gin.Context) {

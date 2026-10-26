@@ -45,6 +45,19 @@ public:
                                 const QString& schedule = QString(),
                                 const QString& timezone = QString(),
                                 bool skipHolidays = false);
+    // QD-607: correcting an existing row. Without it the only way to fix a
+    // wrong budget or timezone was to delete and recreate the task, which
+    // dropped the outcome history the owner needed in order to see it was
+    // failing. PATCH rather than PUT, for the same reason the web client uses
+    // it: the body is the create body, which cannot express "leave alone".
+    Q_INVOKABLE void updateTask(int taskId,
+                                const QString& kind,
+                                const QString& runAt,
+                                int repeatSeconds,
+                                int maxAttempts,
+                                QString schedule = QString(),
+                                QString timezone = QString(),
+                                bool skipHolidays = false);
     Q_INVOKABLE void deleteTask(int taskId);
     Q_INVOKABLE void handleRealtimeEvent(const QVariantMap& message);
 
@@ -56,6 +69,7 @@ signals:
     void lastErrorChanged();
     void requestFailed(const QString& message);
     void taskCreated(int taskId);
+    void taskUpdated(int taskId);
     void taskDeleted(int taskId);
     void realtimeTaskFailed(const QString& kind, int taskId,
                             const QString& error);

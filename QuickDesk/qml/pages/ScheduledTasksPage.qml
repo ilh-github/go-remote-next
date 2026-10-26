@@ -25,6 +25,11 @@ Item {
     property date runDate: new Date(Date.now() + 3600000)
     property int pendingDeleteId: 0
     property string pendingDeleteKind: ""
+    // QD-607: the row the create dialog is currently correcting, or 0 when it is
+    // creating. One dialog rather than two, so the validation cannot drift
+    // between them - but the title and the submit button have to say which one
+    // the owner is looking at.
+    property int editingId: 0
     property bool refreshPending: false
     property var modeOptions: ["once", "interval", "calendar"]
     property var weekdayValues: ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
@@ -164,6 +169,7 @@ Item {
     }
 
     function openCreate() {
+        root.editingId = 0
         resetCreateForm()
         createDialog.show()
     }
@@ -182,6 +188,12 @@ Item {
 
     function submitCreate() {
         if (!root.manager || kindCombo.currentIndex < 0) return
+        // The same dialog serves the edit, so the branch is on whether a row is
+        // being corrected rather than on a second form with its own validation.
+        if (root.editingId > 0) {
+            submitUpdate()
+            return
+        }
         var attempts = Number(maxAttemptsField.text)
         if (!Number.isInteger(attempts) || attempts < 1 || attempts > 10) {
             root.showToast(qsTr("Retry attempts must be between 1 and 10"),
@@ -222,6 +234,97 @@ Item {
                                 "", "", false)
     }
 
+    // The edit reuses the create dialog's fields, so the seed is the only thing
+    // that makes it an edit. A dialog that opened on defaults would offer to
+    // replace a schedule the owner did not choose - and the only honest reason
+    // to edit is that the stored one is wrong.
+    function requestEdit(task) {
+        root.editingId = Number(task.id)
+        resetCreateForm()
+        root.mode = task.schedule ? "calendar" : "once"
+        if (Number(task.repeat_seconds) > 0) {
+            root.mode = "interval"
+            repeatMinutesField.text = String(
+                        Math.max(1, Math.round(Number(task.repeat_seconds) / 60)))
+        }
+        if (task.schedule) {
+            var parts = String(task.schedule).split("@")
+            var clock = parts[parts.length - 1] || ""
+            if (/^([01][0-9]|2[0-3]):[0-5][0-9]$/.test(clock))
+                calendarTimeField.text = clock
+            if (parts[0] === "weekdays") calendarTypeCombo.currentIndex = 1
+            if (parts[0] === "weekly") {
+                calendarTypeCombo.currentIndex = 2
+                for (var i = 0; i < weekdayCombo.model.length; ++i) {
+                    if (weekdayCombo.model[i].value === parts[1]) {
+                        weekdayCombo.currentIndex = i
+                        break
+                    }
+                }
+            }
+            if (parts[0] === "monthly") {
+                calendarTypeCombo.currentIndex = 3
+                monthDayField.text = String(Number(parts[1]) || 1)
+            }
+            if (parts[0] === "every") {
+                calendarTypeCombo.currentIndex = 4
+                everyDaysField.text = String(Number(parts[1]) || 1)
+            }
+        } else if (task.next_run_at) {
+            var parsed = new Date(task.next_run_at)
+            if (!isNaN(parsed.getTime())) root.runDate = parsed
+        }
+        timezoneField.text = task.timezone || ""
+        skipHolidaysSwitch.checked = !!task.skip_holidays
+        maxAttemptsField.text = String(Math.max(1, Number(task.max_attempts || 1)))
+        for (var k = 0; k < kindCombo.model.length; ++k) {
+            if (kindCombo.model[k].value === task.kind) {
+                kindCombo.currentIndex = k
+                break
+            }
+        }
+        createDialog.show()
+    }
+
+    function submitUpdate() {
+        var attempts = Number(maxAttemptsField.text)
+        if (!Number.isInteger(attempts) || attempts < 1 || attempts > 10) {
+            root.showToast(qsTr("Retry attempts must be between 1 and 10"),
+                           QDToast.Type.Warning)
+            return
+        }
+        if (root.mode === "calendar") {
+            if (!/^([01][0-9]|2[0-3]):[0-5][0-9]$/.test(calendarTimeField.text.trim())) {
+                root.showToast(qsTr("Enter a valid time in HH:MM format"),
+                               QDToast.Type.Warning)
+                return
+            }
+            root.manager.updateTask(root.editingId, kindCombo.selectedValue,
+                                    "", 0, attempts,
+                                    root.calendarSchedule(),
+                                    timezoneField.text.trim(),
+                                    skipHolidaysSwitch.checked)
+            return
+        }
+        if (root.runDate.getTime() <= Date.now()) {
+            root.showToast(qsTr("Choose a future start time"), QDToast.Type.Warning)
+            return
+        }
+        var repeatSeconds = 0
+        if (root.mode === "interval") {
+            var minutes = Number(repeatMinutesField.text)
+            if (!Number.isInteger(minutes) || minutes < 1) {
+                root.showToast(qsTr("Enter a positive interval"),
+                               QDToast.Type.Warning)
+                return
+            }
+            repeatSeconds = minutes * 60
+        }
+        root.manager.updateTask(root.editingId, kindCombo.selectedValue,
+                                root.runDate.toISOString(),
+                                repeatSeconds, attempts, "", "", false)
+    }
+
     function requestDelete(task) {
         root.pendingDeleteId = Number(task.id)
         root.pendingDeleteKind = task.kind
@@ -258,6 +361,14 @@ Item {
         function onTaskCreated(taskId) {
             createDialog.hide()
             root.showToast(qsTr("Scheduled task created"), QDToast.Type.Success)
+        }
+
+        function onTaskUpdated(taskId) {
+            createDialog.hide()
+            // The row's own id and outcome stay with it, which is the whole
+            // reason the edit exists: the owner sees the task was failing
+            // before they corrected it.
+            root.showToast(qsTr("Scheduled task updated"), QDToast.Type.Success)
         }
 
         function onTaskDeleted(taskId) {
@@ -573,11 +684,26 @@ Item {
                             }
                         }
 
-                        QDButton {
-                            text: qsTr("Delete")
-                            iconText: FluentIconGlyph.deleteGlyph
-                            buttonType: QDButton.Type.Danger
-                            onClicked: root.requestDelete(taskCard.modelData)
+                        RowLayout {
+                            spacing: Theme.spacingSmall
+
+                            // QD-607: correcting a row. Without it a wrong retry
+                            // budget or timezone could only be fixed by deleting
+                            // and recreating the task, which dropped the outcome
+                            // the owner needed in order to see it was failing.
+                            QDButton {
+                                text: qsTr("Edit")
+                                iconText: FluentIconGlyph.editGlyph
+                                buttonType: QDButton.Type.Secondary
+                                onClicked: root.requestEdit(taskCard.modelData)
+                            }
+
+                            QDButton {
+                                text: qsTr("Delete")
+                                iconText: FluentIconGlyph.deleteGlyph
+                                buttonType: QDButton.Type.Danger
+                                onClicked: root.requestDelete(taskCard.modelData)
+                            }
                         }
                     }
                 }
@@ -622,7 +748,11 @@ Item {
 
     QDDialog {
         id: createDialog
-        title: qsTr("Create scheduled task")
+        // One dialog serves both verbs, so the title has to say which one the
+        // owner is looking at: a "Create" heading over an edit invites them to
+        // think they are about to make a second task.
+        title: root.editingId > 0 ? qsTr("Edit scheduled task")
+                                  : qsTr("Create scheduled task")
         dialogWidth: Math.min(760, root.width - 48)
         dialogHeight: Math.min(700, root.height - 48)
         closeOnOverlay: false
@@ -915,7 +1045,7 @@ Item {
                 onClicked: createDialog.reject()
             },
             QDButton {
-                text: qsTr("Create")
+                text: root.editingId > 0 ? qsTr("Save") : qsTr("Create")
                 buttonType: QDButton.Type.Primary
                 loading: root.manager ? root.manager.busy : false
                 onClicked: root.submitCreate()

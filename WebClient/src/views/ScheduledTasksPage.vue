@@ -93,6 +93,9 @@
               </div>
             </div>
             <div class="task-actions">
+              <button class="btn btn-secondary btn-sm" @click="openEdit(task)">
+                {{ $t('scheduled.edit') }}
+              </button>
               <button class="btn btn-danger btn-sm" @click="deleteTask(task)">
                 {{ $t('scheduled.delete') }}
               </button>
@@ -114,8 +117,8 @@
       <div class="dialog task-dialog">
         <div class="dialog-head">
           <div>
-            <h3>{{ $t('scheduled.dialog.title') }}</h3>
-            <p>{{ $t('scheduled.dialog.subtitle') }}</p>
+            <h3>{{ dialog.editingId ? $t('scheduled.dialog.editTitle') : $t('scheduled.dialog.title') }}</h3>
+            <p>{{ dialog.editingId ? $t('scheduled.dialog.editSubtitle') : $t('scheduled.dialog.subtitle') }}</p>
           </div>
           <button class="icon-close" :title="$t('scheduled.close')" @click="closeDialog">✕</button>
         </div>
@@ -224,7 +227,7 @@
 
         <div class="form-actions">
           <button class="btn btn-primary" :disabled="saving" @click="saveTask">
-            {{ saving ? '...' : $t('scheduled.dialog.create') }}
+            {{ saving ? '...' : (dialog.editingId ? $t('scheduled.dialog.save') : $t('scheduled.dialog.create')) }}
           </button>
           <button class="btn btn-secondary" :disabled="saving" @click="closeDialog">
             {{ $t('user.cancel') }}
@@ -249,6 +252,7 @@ import { userApi } from '../api/userApi'
 import { userSync } from '../api/userSync'
 import {
   buildScheduledTaskPayload,
+  formFromScheduledTask,
   normalizeScheduledTaskList,
   toScheduledTaskLocalValue,
 } from '../api/scheduledTaskModels'
@@ -270,6 +274,7 @@ let pollTimer = null
 
 const dialog = reactive({
   show: false,
+  editingId: null,
   mode: 'once',
   kind: 'sign_out_all_sessions',
   run_at: '',
@@ -385,6 +390,7 @@ function defaultRunAt() {
 
 function resetDialog() {
   dialog.mode = 'once'
+  dialog.editingId = null
   dialog.kind = availableKinds.value[0]
   dialog.run_at = defaultRunAt()
   dialog.repeat_minutes = 60
@@ -400,6 +406,29 @@ function resetDialog() {
 
 function openCreate() {
   resetDialog()
+  dialog.show = true
+}
+
+// The edit opens on the stored row, not on defaults: a dialog that opened empty
+// would offer to replace a schedule the owner did not choose, and the only
+// honest reason to edit is that the one already stored is wrong.
+function openEdit(task) {
+  const form = formFromScheduledTask(task, {
+    timeZoneOffsetMinutes: new Date().getTimezoneOffset(),
+  })
+  dialog.editingId = task.id
+  dialog.mode = form.mode
+  dialog.kind = form.kind || availableKinds.value[0]
+  dialog.run_at = form.run_at || defaultRunAt()
+  dialog.repeat_minutes = form.repeat_minutes || 60
+  dialog.max_attempts = form.max_attempts
+  dialog.calendarType = form.calendarType
+  dialog.weekday = form.weekday
+  dialog.monthDay = form.monthDay
+  dialog.everyDays = form.everyDays
+  dialog.time = form.time
+  dialog.timezone = form.timezone
+  dialog.skip_holidays = form.skip_holidays
   dialog.show = true
 }
 
@@ -472,15 +501,18 @@ async function saveTask() {
     return
   }
   saving.value = true
-  const result = await userApi.createScheduledTask(payload)
+  const editingId = dialog.editingId
+  const result = editingId
+    ? await userApi.updateScheduledTask(editingId, payload)
+    : await userApi.createScheduledTask(payload)
   saving.value = false
   if (!result.ok) {
-    showToast(result.error || t('scheduled.createFailed'), 'error')
+    showToast(result.error || (editingId ? t('scheduled.updateFailed') : t('scheduled.createFailed')), 'error')
     return
   }
   dialog.show = false
   await loadTasks()
-  showToast(t('scheduled.created'), 'success')
+  showToast(editingId ? t('scheduled.updated') : t('scheduled.created'), 'success')
 }
 
 async function deleteTask(task) {

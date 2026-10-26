@@ -853,6 +853,10 @@ func main() {
 
 			me.GET("/scheduled-tasks", scheduledTaskHandler.List)
 			me.POST("/scheduled-tasks", scheduledTaskHandler.Create)
+			// PATCH, not PUT: the body is the create request's, which has no way
+			// to say "leave this string alone", so a full-replace verb here would
+			// reset whatever the caller omitted.
+			me.PATCH("/scheduled-tasks/:id", scheduledTaskHandler.Update)
 			me.DELETE("/scheduled-tasks/:id", scheduledTaskHandler.Delete)
 
 			me.GET("/recordings", sessionRecordingHandler.List)

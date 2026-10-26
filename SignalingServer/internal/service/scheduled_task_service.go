@@ -249,6 +249,116 @@ func (s *ScheduledTaskService) Get(ctx context.Context, userID, id uint) (*model
 	return &row, nil
 }
 
+// Update changes an existing task's schedule or retry budget.
+//
+// Without it the only way to correct a mistake is to delete the row and create
+// a new one, which throws away the outcome history the owner needs in order to
+// see that the task was failing in the first place - the exact thing they are
+// usually editing it to fix.
+//
+// The validation is Create's, not a smaller version of it: an edit is a create,
+// and a row saved with a schedule the worker cannot compute is one it parks on
+// the first tick. Two things differ, both because the row already exists:
+//
+//   - the outcome fields (last_run_at, last_status, last_error, attempts) are
+//     left alone. Re-arming is the caller's business and the scheduler's, not
+//     the edit's.
+//   - a task that already ran is disabled by the scheduler when it ran, and an
+//     edit that left it disabled would save a new schedule that never fires.
+//     So the edit re-enables it, which is what the owner asked for by changing
+//     it.
+func (s *ScheduledTaskService) Update(
+	ctx context.Context,
+	userID uint,
+	id uint,
+	spec ScheduledTaskSpec,
+) (*models.ScheduledTask, error) {
+	kind := strings.TrimSpace(spec.Kind)
+	if _, ok := s.actions[kind]; !ok {
+		return nil, fmt.Errorf("%w: %q (supported: %s)", ErrInvalidScheduledTaskKind, kind,
+			strings.Join(s.SupportedKinds(), ", "))
+	}
+	maxAttempts := spec.MaxAttempts
+	if maxAttempts == 0 {
+		maxAttempts = DefaultScheduledTaskMaxAttempts
+	}
+	if maxAttempts < MinScheduledTaskMaxAttempts || maxAttempts > MaxScheduledTaskMaxAttempts {
+		return nil, fmt.Errorf("%w: max_attempts is %d", ErrInvalidScheduledTaskMaxAttempts, maxAttempts)
+	}
+	now := time.Now().UTC()
+	schedule := strings.TrimSpace(spec.Schedule)
+	timezone := strings.TrimSpace(spec.Timezone)
+	updates := map[string]interface{}{
+		"kind":         kind,
+		"max_attempts": maxAttempts,
+		"updated_at":   now,
+		// An edit is a request to run again on the new schedule.
+		"enabled": true,
+	}
+	if spec.SkipHolidays && schedule == "" {
+		return nil, fmt.Errorf("%w: skip_holidays is only meaningful with schedule", ErrInvalidScheduledTaskCalendar)
+	}
+	if schedule != "" {
+		if !spec.RunAt.IsZero() {
+			return nil, fmt.Errorf("%w: run_at and schedule are mutually exclusive", ErrInvalidScheduledTaskCalendar)
+		}
+		if spec.RepeatSeconds != 0 {
+			return nil, fmt.Errorf("%w: repeat_seconds must be 0 with schedule, because the calendar recurrence is the period", ErrInvalidScheduledTaskCalendar)
+		}
+		parsed, err := parseCalendarSchedule(schedule)
+		if err != nil {
+			return nil, err
+		}
+		loc, err := scheduledTaskLocation(timezone)
+		if err != nil {
+			return nil, err
+		}
+		next := parsed.next(now, loc, now)
+		if spec.SkipHolidays {
+			next = advancePastHolidays(next, loc, currentHolidayCalendar())
+		}
+		updates["schedule"] = schedule
+		updates["timezone"] = timezone
+		updates["skip_holidays"] = spec.SkipHolidays
+		updates["next_run_at"] = next
+		// A calendar task has no fixed period, so a leftover interval from a
+		// previous shape would make the worker treat it as an interval task.
+		updates["repeat_seconds"] = 0
+	} else {
+		if timezone != "" {
+			return nil, fmt.Errorf("%w: timezone is only meaningful with schedule", ErrInvalidScheduledTaskCalendar)
+		}
+		if spec.RunAt.IsZero() || !spec.RunAt.After(now) {
+			return nil, fmt.Errorf("%w: run_at must be in the future", ErrInvalidScheduledTaskSchedule)
+		}
+		if spec.RepeatSeconds != 0 &&
+			(spec.RepeatSeconds < MinScheduledTaskRepeatSeconds || spec.RepeatSeconds > MaxScheduledTaskRepeatSeconds) {
+			return nil, fmt.Errorf("%w: repeat_seconds is %d", ErrInvalidScheduledTaskSchedule, spec.RepeatSeconds)
+		}
+		updates["next_run_at"] = spec.RunAt.UTC()
+		updates["repeat_seconds"] = spec.RepeatSeconds
+		// Clearing the calendar fields rather than leaving them: a row that was
+		// a calendar task and is now an interval one must not keep a schedule
+		// the worker would prefer over the interval it was given.
+		updates["schedule"] = ""
+		updates["timezone"] = ""
+		updates["skip_holidays"] = false
+	}
+	// Scoped by user_id first, so another user's id is a not-found rather than
+	// an edit. The outcome columns are deliberately absent from `updates`.
+	result := s.db.WithContext(ctx).
+		Model(&models.ScheduledTask{}).
+		Where("id = ? AND user_id = ?", id, userID).
+		Updates(updates)
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	if result.RowsAffected == 0 {
+		return nil, gorm.ErrRecordNotFound
+	}
+	return s.Get(ctx, userID, id)
+}
+
 // Delete removes one of the user's tasks. Filtering on user_id is what makes
 // another user's id a 404 rather than a deletion.
 func (s *ScheduledTaskService) Delete(ctx context.Context, userID, id uint) error {

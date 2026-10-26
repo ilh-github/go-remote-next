@@ -1,5 +1,18 @@
 # 远端发布与上游 PR 清单
 
+**更新时间**: 2026-10-26 16:20 CST
+
+## 本轮推送（2026-10-26 16:20 CST）
+
+- 本轮改动（计划任务编辑：`PATCH /v1/me/scheduled-tasks/:id` + WebClient/Qt 消费）
+  **尚未推送**，先在本地完成全部验证再推。推送命令与结果见下一节。
+- 上游 PR 状态本轮复核：#34 `CLEAN`/`MERGEABLE` 且 `build` SUCCESS，#33/#32/#31/#26 均
+  `CLEAN`，#25 仍 `DIRTY`/`CONFLICTING`（base `dev`，与上游 `dev` 已分叉），未动作。
+- 上游 `dev` 仍为 `88d4d36`。
+- 计划任务的编辑动作属于 QD-607，与 `codex/upstream-qd-607-batch-revoke@badf990`
+  同一主题；该候选已独立验证，等 #25 基线确认后 rebase 并 stacked 回贡，
+  不在本轮另开 PR。
+
 **更新时间**: 2026-10-26 23:10 CST
 
 ## 本轮推送（2026-10-26 23:10 CST）

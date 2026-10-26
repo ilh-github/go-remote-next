@@ -111,3 +111,61 @@ export function buildScheduledTaskPayload(form, options = {}) {
     repeat_seconds: form?.mode === 'interval' ? Number(form?.repeat_seconds) || 0 : 0,
   }
 }
+
+// Turns a stored row back into the dialog's form, so the edit dialog opens on
+// what is actually scheduled rather than on defaults.
+//
+// Without this the only way to fix a task was to delete it and recreate it,
+// because the create dialog always opened empty - and a recreate silently
+// drops the row's id along with its last_run_at / last_status / last_error,
+// which is the record the owner needs in order to see the task was failing.
+//
+// The parse is deliberately tolerant of a schedule it does not recognise: an
+// unknown cadence falls back to a one-shot at the stored next_run_at, which is
+// a schedule the owner can see and edit. Throwing here would leave the edit
+// button opening a dialog that cannot describe the row.
+export function formFromScheduledTask(row, options = {}) {
+  const task = row && typeof row === 'object' ? row : {}
+  const schedule = trimmed(task.schedule)
+  const form = {
+    kind: trimmed(task.kind),
+    max_attempts: Number(task.max_attempts) || 1,
+    calendarType: 'daily',
+    weekday: 'mon',
+    monthDay: 1,
+    everyDays: 3,
+    time: '22:00',
+    timezone: trimmed(task.timezone),
+    skip_holidays: !!task.skip_holidays,
+  }
+
+  if (schedule) {
+    const parts = schedule.split('@')
+    const clock = parts[parts.length - 1] || ''
+    if (/^([01][0-9]|2[0-3]):[0-5][0-9]$/.test(clock)) form.time = clock
+    if (parts[0] === 'weekdays') form.calendarType = 'weekdays'
+    if (parts[0] === 'weekly') {
+      form.calendarType = 'weekly'
+      if (parts[1]) form.weekday = parts[1]
+    }
+    if (parts[0] === 'monthly') {
+      form.calendarType = 'monthly'
+      form.monthDay = Number(parts[1]) || 1
+    }
+    if (parts[0] === 'every') {
+      form.calendarType = 'every'
+      form.everyDays = Number(parts[1]) || 1
+    }
+    form.mode = 'calendar'
+    return form
+  }
+
+  form.run_at = toScheduledTaskLocalValue(task.next_run_at, options)
+  if (Number(task.repeat_seconds) > 0) {
+    form.mode = 'interval'
+    form.repeat_minutes = Math.max(1, Math.round(Number(task.repeat_seconds) / 60))
+    return form
+  }
+  form.mode = 'once'
+  return form
+}

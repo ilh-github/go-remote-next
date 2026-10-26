@@ -53,7 +53,9 @@ int main(int argc, char** argv) {
     quickdesk::SetAuthTestLoggedIn(true);
 
     QList<QJsonObject> createBodies;
+    QList<QJsonObject> patchBodies;
     QString deletedPath;
+    QString patchedPath;
     int nextTaskId = 40;
     quickdesk::SetAuthTestRequestHandler(
         [&](const QString& method, const QUrl& url, const QString& body,
@@ -81,9 +83,22 @@ int main(int argc, char** argv) {
                 callback(204, "", "");
                 return;
             }
+            // PATCH is the edit. Recorded apart from the create bodies so a test
+            // can tell "a new task was made" from "the row was corrected" -
+            // which is the difference the feature exists to make.
+            if (method == "PATCH") {
+                patchedPath = url.path();
+                patchBodies.append(
+                    QJsonDocument::fromJson(body.toUtf8()).object());
+                callback(
+                    200, "",
+                    QStringLiteral(
+                        R"({"id":12,"kind":"sign_out_all_sessions","next_run_at":"2026-10-18T14:00:00Z","repeat_seconds":120,"enabled":true,"schedule":"","timezone":"","skip_holidays":false,"max_attempts":4,"attempts":0})")
+                        .toStdString());
+                return;
+            }
             callback(405, "unexpected method", "");
         });
-
     quickdesk::AuthManager authManager(nullptr);
     quickdesk::ScheduledTaskManager manager(&authManager);
 
@@ -150,6 +165,53 @@ int main(int argc, char** argv) {
            QStringLiteral("task deletion completes"));
     Expect(deletedPath == QStringLiteral("/v1/me/scheduled-tasks/12"),
            QStringLiteral("task deletion uses the owner-scoped route"));
+
+    // QD-607: the edit. A wrong retry budget or timezone could only be fixed by
+    // deleting the row and recreating it, which threw away the outcome the owner
+    // needed in order to see it was failing - so the desktop client gets the
+    // same correction the web client has.
+    QSignalSpy updatedSpy(&manager, SIGNAL(taskUpdated(int)));
+    manager.updateTask(12, QStringLiteral("sign_out_all_sessions"),
+                       QStringLiteral("2026-10-18T22:00:00.000Z"), 7200, 4);
+    Expect(WaitUntil([&]() { return updatedSpy.count() == 1; }, 5000),
+           QStringLiteral("task update completes"));
+    Expect(patchedPath == QStringLiteral("/v1/me/scheduled-tasks/12"),
+           QStringLiteral("task update uses the owner-scoped route"));
+    Expect(patchBodies.size() == 1,
+           QStringLiteral("one-shot update posts one payload"));
+    const QJsonObject patched = patchBodies.first();
+    Expect(patched.value(QStringLiteral("repeat_seconds")).toInt() == 7200,
+           QStringLiteral("update payload carries the new interval"));
+    Expect(patched.value(QStringLiteral("max_attempts")).toInt() == 4,
+           QStringLiteral("update payload carries the new retry budget"));
+    Expect(!patched.contains(QStringLiteral("schedule")),
+           QStringLiteral("interval update omits a calendar schedule"));
+
+    // A calendar edit must not carry run_at, for the same reason a calendar
+    // create must not: the server rejects the combination, and an edit that
+    // sent both would be a 400 the owner cannot act on.
+    manager.updateTask(12, QStringLiteral("sign_out_all_sessions"),
+                       QString(), 0, 2,
+                       QStringLiteral("weekly@mon@22:30"),
+                       QStringLiteral("Asia/Shanghai"), true);
+    Expect(WaitUntil([&]() { return patchBodies.size() == 2; }, 5000),
+           QStringLiteral("calendar update completes"));
+    const QJsonObject patchedCalendar = patchBodies.at(1);
+    Expect(patchedCalendar.value(QStringLiteral("schedule")).toString()
+               == QStringLiteral("weekly@mon@22:30"),
+           QStringLiteral("calendar update carries the schedule"));
+    Expect(!patchedCalendar.contains(QStringLiteral("run_at")),
+           QStringLiteral("calendar update omits run_at"));
+    Expect(!patchedCalendar.contains(QStringLiteral("repeat_seconds")),
+           QStringLiteral("calendar update omits repeat_seconds"));
+
+    // A row id that cannot exist is refused locally rather than sent: the
+    // request would be a 404 the owner cannot act on anyway.
+    const int before = patchBodies.size();
+    manager.updateTask(0, QStringLiteral("sign_out_all_sessions"),
+                       QStringLiteral("2026-10-18T22:00:00.000Z"), 0, 1);
+    Expect(patchBodies.size() == before,
+           QStringLiteral("an invalid task id sends no request"));
 
     QSignalSpy failedSpy(
         &manager, SIGNAL(realtimeTaskFailed(QString,int,QString)));

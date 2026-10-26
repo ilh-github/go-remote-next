@@ -571,6 +571,15 @@ class UserApi {
     return this._req('POST', '/v1/me/scheduled-tasks', body)
   }
 
+  // QD-607: correcting a task used to mean deleting it and creating a new one,
+  // which threw away the last_run_at / last_status / last_error the owner needs
+  // in order to see it was failing. PATCH, not PUT: this body is the create
+  // request's and it has no way to say "leave this string alone", so a
+  // full-replace verb here would reset whatever the caller omitted.
+  updateScheduledTask(id, body) {
+    return this._req('PATCH', `/v1/me/scheduled-tasks/${encodeURIComponent(id)}`, body)
+  }
+
   deleteScheduledTask(id) {
     return this._req('DELETE', `/v1/me/scheduled-tasks/${encodeURIComponent(id)}`)
   }

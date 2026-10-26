@@ -163,6 +163,89 @@ void ScheduledTaskManager::createTask(
         });
 }
 
+// The validation is createTask's, and the body is createTask's: an edit is a
+// create, so a row saved with a schedule the worker cannot compute is one it
+// parks on the first tick. Only the verb and the URL differ, which is the whole
+// point - a second, smaller validation here would let the two drift.
+void ScheduledTaskManager::updateTask(
+    int taskId, const QString& kind, const QString& runAt, int repeatSeconds,
+    int maxAttempts, const QString& schedule, const QString& timezone,
+    bool skipHolidays)
+{
+    if (!m_authManager || !m_authManager->isLoggedIn() || taskId <= 0) {
+        return;
+    }
+    const QString normalizedKind = kind.trimmed();
+    const QString normalizedRunAt = runAt.trimmed();
+    const QString normalizedSchedule = schedule.trimmed();
+    if (normalizedKind.isEmpty()
+        || (normalizedRunAt.isEmpty() && normalizedSchedule.isEmpty())) {
+        const QString message = tr("Choose an action and a valid schedule");
+        setLastError(message);
+        emit requestFailed(message);
+        return;
+    }
+    if (maxAttempts < 1 || maxAttempts > 10) {
+        const QString message =
+            tr("Retry attempts must be between 1 and 10");
+        setLastError(message);
+        emit requestFailed(message);
+        return;
+    }
+
+    QJsonObject body;
+    body[QStringLiteral("kind")] = normalizedKind;
+    body[QStringLiteral("max_attempts")] = maxAttempts;
+    if (normalizedSchedule.isEmpty()) {
+        body[QStringLiteral("run_at")] = normalizedRunAt;
+        body[QStringLiteral("repeat_seconds")] = qMax(0, repeatSeconds);
+    } else {
+        body[QStringLiteral("schedule")] = normalizedSchedule;
+        body[QStringLiteral("timezone")] = timezone.trimmed();
+        body[QStringLiteral("skip_holidays")] = skipHolidays;
+    }
+
+    const QUrl url(m_authManager->httpBaseUrl()
+                   + QStringLiteral("v1/me/scheduled-tasks/")
+                   + QString::number(taskId));
+    beginRequest();
+    m_authManager->request(
+        QStringLiteral("PATCH"), url,
+        QString::fromUtf8(
+            QJsonDocument(body).toJson(QJsonDocument::Compact)),
+        [this, taskId](int statusCode, const std::string& errorMsg,
+                       const std::string& data) {
+            QMetaObject::invokeMethod(
+                this,
+                [this, taskId, statusCode, errorMsg, data]() {
+                    if (statusCode == 200 && errorMsg.empty()) {
+                        const QVariantMap row = normalizeTask(
+                            QJsonDocument::fromJson(
+                                QByteArray::fromStdString(data)).object());
+                        const int id = row.value(QStringLiteral("id")).toInt();
+                        for (int i = 0; i < m_tasks.size(); ++i) {
+                            if (m_tasks.at(i).toMap()
+                                    .value(QStringLiteral("id")).toInt() == id) {
+                                m_tasks.replace(i, row);
+                                break;
+                            }
+                        }
+                        setLastError(QString());
+                        emit tasksChanged();
+                        emit taskUpdated(taskId);
+                    } else {
+                        const QString message =
+                            problemMessage(data, errorMsg, statusCode);
+                        setLastError(message);
+                        LOG_WARN("[ScheduledTaskManager] update({}) failed: status={} err={}",
+                                 taskId, statusCode, message.toStdString());
+                        emit requestFailed(message);
+                    }
+                    finishRequest();
+                });
+        });
+}
+
 void ScheduledTaskManager::deleteTask(int taskId)
 {
     if (!m_authManager || !m_authManager->isLoggedIn() || taskId <= 0) {

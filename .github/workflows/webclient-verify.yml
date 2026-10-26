@@ -68,6 +68,7 @@ jobs:
           node --test test/e2e/wall.e2e.mjs
           node --test test/e2e/scheduled-prompt.e2e.mjs
           node --test test/e2e/recordings-live.e2e.mjs
+          node --test test/e2e/scheduled-edit.e2e.mjs
 
   integration:
     name: Server-backed E2E
