@@ -84,6 +84,27 @@
 - QD-908 多观看端 soak 门禁已补：真实 `WallPage.vue` 加载可配置数量的动画会话 iframe，
   采样瓦片存活、iframe 帧推进、主线程 rAF、JS heap、音频独占和页面错误；200 路
   30 秒烟测通过，正式 2 小时门禁通过环境变量启用
+- QD-908 本轮补齐「周期性分配源」，这是上一轮 2 小时长跑留下的唯一未答问题。先加测量：
+  `js/soak/allocationProfile.js` 用 CDP `HeapProfiler.startSampling` 全程采样分配（结束时的
+  堆快照只能说活着多少，说不出谁分配的，已被回收的周期性分配源在快照里不留痕迹），
+  汇总出自分配最大的调用路径及其占比；peak tracker 原本就在按间隔读 heap，序列直接复用
+  （上限 600 点，2 小时跑每秒一点是 7200 个点，不可读也未必更快），周期用去均值后的自相关，
+  且必须超过阈值才报告——heap 曾被测得在均值 111% 幅度上振荡而一切正常，弱相关报成发现
+  比不报更糟，`periodMs` 为 0 是「未建立周期」这个答案而非缺字段。40 路 90 秒首跑即定位：
+  自分配第一名是 vue-i18n 的 `compileMessageFormat`，占 29.6%，heap 周期 2008ms、
+  strength 0.762——与被控端 2000ms `getStats` 间隔吻合而非帧循环，与「分配源不依赖主线程
+  帧循环」这一既有结论对上了。根因是三处无故全墙重渲：① iframe 每 500ms 上报帧计数，
+  `onWallMessage` 用整个替换 `live[deviceId]` 对象来回应，替换即重渲，而瓦片模板带 8 个
+  `$t()` 绑定各编译一次 i18n 消息；② `resolveTiles` 每次重算都返回全新 row 对象，Vue 于是
+  认为每个瓦片都变了；③ `stateLabel` 在模板表达式里调 `t()`，每瓦片徽章每次渲染一次。
+  修法分别是 `mergeLiveState`（合并且告知是否有可见变化，计数原地推进）、row 复用
+  （`sameRow` 排除计数，先解析再比较）、`stateLabel` 按状态 memo 化并随 locale 重建。
+  40 路 90 秒复测：总采样分配 -24.6%，i18n 头部路径 -21%，`compileMessageFormat` 已换成
+  便宜得多的 `resolveMessageFormat`，说明编译器不再走 tick 路径。2008ms 周期仍在，
+  这是对的——那是 `getStats` 在做真事，剩下的是瓦片状态变化时模板理应偿付的消息解析。
+  验证：新增 16 个单测，`npm test` 207/207，wall E2E 绿，生产构建绿，smoke soak 通过且
+  profile 非空、无页面错误。一处已记录的反面：row 复用的第一版拿半成品 row 与上一个比较，
+  于是每个瓦片都像变过，测试直接红，改成先解析再比两个成品 row 才对
 - QD-610 已补控制面事件订阅：Qt `CloudDeviceManager` 只向本机 MCP 广播白名单事件，
   MCP 支持 `event_type` / `event_device_id` / `event_filter`、设备 ID 归一化、
   claim-before-run 和事件 ID 幂等；SQLite 模式重启后不依赖会重置的 `server_rev`
