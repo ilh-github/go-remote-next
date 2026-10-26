@@ -39,7 +39,10 @@ func TestScheduledTaskUpdateChangesScheduleAndBudget(t *testing.T) {
 	if updated.ID != row.ID {
 		t.Fatalf("update returned id %d, want %d", updated.ID, row.ID)
 	}
-	if !updated.NextRunAt.Equal(newRunAt) {
+	// Truncated to the microsecond Postgres stores, because the column has no
+	// nanosecond field: a time.Time built in Go carries them, and comparing the
+	// two with Equal fails on the digits the database never had.
+	if !updated.NextRunAt.Equal(newRunAt.Truncate(time.Microsecond)) {
 		t.Fatalf("next_run_at = %s, want %s", updated.NextRunAt, newRunAt)
 	}
 	if updated.RepeatSeconds != 120 || updated.MaxAttempts != 5 {
@@ -47,7 +50,10 @@ func TestScheduledTaskUpdateChangesScheduleAndBudget(t *testing.T) {
 	}
 
 	stored := loadScheduledTask(t, db, row.ID)
-	if !stored.NextRunAt.Equal(newRunAt) || stored.RepeatSeconds != 120 || stored.MaxAttempts != 5 {
+	if !stored.NextRunAt.Equal(newRunAt.Truncate(time.Microsecond)) {
+		t.Fatalf("stored row = %+v, want the updated schedule and budget", stored)
+	}
+	if stored.RepeatSeconds != 120 || stored.MaxAttempts != 5 {
 		t.Fatalf("stored row = %+v, want the updated schedule and budget", stored)
 	}
 }
@@ -119,7 +125,7 @@ func TestScheduledTaskUpdateIsOwnerScoped(t *testing.T) {
 		t.Fatalf("cross-user update err = %v, want ErrRecordNotFound", err)
 	}
 	stored := loadScheduledTask(t, db, theirs.ID)
-	if !stored.NextRunAt.Equal(originalRunAt) {
+	if !stored.NextRunAt.Equal(originalRunAt.Truncate(time.Microsecond)) {
 		t.Fatalf("another user's next_run_at moved to %s, want %s untouched",
 			stored.NextRunAt, originalRunAt)
 	}
@@ -193,7 +199,7 @@ func TestScheduledTaskUpdateRecomputesACalendarOccurrence(t *testing.T) {
 	// would fire eight hours late.
 	want := time.Date(updated.NextRunAt.Year(), updated.NextRunAt.Month(), updated.NextRunAt.Day(),
 		9, 5, 0, 0, shanghai).UTC()
-	if !updated.NextRunAt.Equal(want) {
+	if !updated.NextRunAt.Equal(want.Truncate(time.Microsecond)) {
 		t.Fatalf("next_run_at = %s, want %s (09:05 Asia/Shanghai in UTC)",
 			updated.NextRunAt, want)
 	}

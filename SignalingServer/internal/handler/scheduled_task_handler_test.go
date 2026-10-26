@@ -130,7 +130,9 @@ func TestScheduledTaskHandlerUpdateRejectsAForeignRow(t *testing.T) {
 	if err := db.First(&stored, seed.ID).Error; err != nil {
 		t.Fatalf("reload: %v", err)
 	}
-	if !stored.NextRunAt.Equal(originalRunAt) {
+	// Microsecond precision, because that is all the column has: the row was
+	// seeded with a nanosecond-bearing Go time and the database kept six digits.
+	if !stored.NextRunAt.Equal(originalRunAt.Truncate(time.Microsecond)) {
 		t.Fatalf("foreign row moved to %s, want %s untouched", stored.NextRunAt, originalRunAt)
 	}
 }
