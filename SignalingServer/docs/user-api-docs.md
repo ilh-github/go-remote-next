@@ -1288,6 +1288,7 @@ socket the owner's revoke does and audits `session.revoke`.
 | `GET` | `/v1/me/connections?cursor=&limit=&since=` | — |
 | `POST` | `/v1/me/connections` | `{device_id, duration, status: "success"\|"failed", error_msg?}` |
 | `POST` | `/v1/me/file-transfer-audits` | `{device_id, transfer_id, direction: "upload"\|"download", status: "completed"\|"failed", filename?, bytes_transferred?, total_bytes?, error?}` |
+| `GET` | `/v1/me/audit-logs?cursor=&limit=&action=` | — |
 | `GET` | `/v1/me/recordings?cursor=&limit=` | — |
 | `POST` | `/v1/me/recordings` | `{device_id, device_name?, session_id?, status, format?, artifact_path?, artifact_url?, thumbnail_path?, duration_seconds?, size_bytes?, started_at?, ended_at?}` |
 | `GET` | `/v1/me/recordings/:id` | — |
@@ -1310,6 +1311,18 @@ belongs to the caller and writes one audit row under
 optional error are stored as JSON details. Repeating the same
 `(actor, direction, transfer_id)` is idempotent, so a network retry cannot
 duplicate the trail.
+
+The read side is `GET /v1/me/audit-logs`, which returns the caller's own rows
+for both data-channel payloads (file transfers and clipboard syncs) newest
+first, cursor-paginated like every other list. Rows are scoped to the caller's
+own actor id: both reporting endpoints refuse a device the caller does not own,
+so the actor on a row is that device's owner, and the scope cannot widen into a
+view of anybody else's transfers. `action` narrows to one kind and is an
+allow-list - an action this trail does not hold is a `400` rather than an empty
+page, because "you did nothing" must not be a conclusion a typo can produce.
+`details` comes back as a JSON string, which is what keeps the "no clipboard
+text, ever" property of the write endpoint visible to a client rather than
+hidden behind a typed field.
 
 This is an attributable **controller report**, not cryptographic proof from
 the host that a file was actually read or written. A deployment that needs

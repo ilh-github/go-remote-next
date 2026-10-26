@@ -787,3 +787,13 @@ PR 描述至少写明：
   `quickdesk-mcp` 没有对应模块；`control_grant` / `control_revoked` 两个帧
   本身是上游可独立审查的纯函数，可作为后续最小候选从 `upstream/dev` 切出。
 - 远端写入当前可用（PR #31、#32 均已成功创建），本条不是阻塞记录。
+
+## QD-909 审计链读侧（2026-10-26）
+
+- fork 提交：见本轮 `feat(signaling)`，`dev` 与 `master` 同步。
+- 上游候选：**未准备**。依赖 fork 已有的 `file-transfer-audits` /
+  `clipboard-audits` 写端点与控制面基线（PR #25 系列），因此与
+  `codex/upstream-qd-111-file-transfer-audit` 同一基线约束，等 #25 合并后
+  作为 stacked 增量拆出。
+- SDK 未重新生成：freshness 门禁需要本机 JDK + openapi-generator，本轮未跑。
+  源 spec 已含新 path 与 schema，SDK 需在有生成器的环境重新生成后提交。

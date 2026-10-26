@@ -200,6 +200,64 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+  /v1/me/audit-logs:
+    get:
+      tags: [fileTransfers]
+      summary: Read back the data-channel audit trail that belongs to the caller
+      operationId: listMyAuditLogs
+      description: |
+        The read side of the two reporting endpoints above. File and clipboard
+        transfers travel peer to peer over the Remoting data channel, so the
+        control plane can only record what a controller tells it afterwards;
+        this is how the device owner reads those records back without going
+        through the administrator console.
+
+        Rows are scoped to the caller's own actor id. Both reporting endpoints
+        refuse a device the caller does not own, so the actor on a row is that
+        device's owner and this scope cannot expose anybody else's transfers.
+
+        `action` is an allow-list rather than a free-form filter: an action this
+        trail does not hold is refused with 400 rather than answered with an
+        empty page, because "you did nothing" must not be a conclusion a typo
+        can produce. Supported values are `file.transfer.upload`,
+        `file.transfer.download`, `clipboard.sync.upload` and
+        `clipboard.sync.download`.
+
+        Cursor-paginated, newest first. `next_cursor` is opaque: pass it back as
+        `?cursor=` to fetch the next page and stop when it is absent.
+      parameters:
+        - name: action
+          in: query
+          required: false
+          description: Narrow to one audit action. An unsupported value is a 400.
+          schema:
+            type: string
+            enum:
+              - file.transfer.upload
+              - file.transfer.download
+              - clipboard.sync.upload
+              - clipboard.sync.download
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: One page of the caller's audit rows, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OwnerAuditLogPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
   /v1/me/device-groups:
     get:
       tags: [deviceGroups]
@@ -3189,6 +3247,65 @@ components:
           description: |
             The owning user, present when the server eager-loads it. Optional -
             clients must not depend on this being present.
+    OwnerAuditLogPage:
+      type: object
+      description: |
+        Cursor page of the caller's own data-channel audit rows, newest first.
+        `next_cursor` is absent on the last page.
+
+        `details` is a JSON string rather than an object: it is stored verbatim
+        as the write endpoint produced it, and parsing it as a string is what
+        keeps the "no clipboard text, ever" property of that endpoint visible to
+        a client instead of hiding it behind a typed field.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/OwnerAuditLog'
+        next_cursor:
+          type: string
+        total:
+          type: integer
+          format: int64
+    OwnerAuditLog:
+      type: object
+      description: |
+        One audit row. `admin_id` and `admin_username` are always empty here:
+        this trail is written by end-user actors, and an administrator acting on
+        the same resource lands in the admin-side trail instead.
+      required: [id, action, resource_type, resource_id, created_at]
+      properties:
+        id:
+          type: integer
+          format: int64
+        actor_user_id:
+          type: integer
+          format: int64
+          description: The account that reported the transfer. Always the caller.
+        action:
+          type: string
+          description: |
+            One of `file.transfer.upload`, `file.transfer.download`,
+            `clipboard.sync.upload`, `clipboard.sync.download`.
+        resource_type:
+          type: string
+          description: |
+            `file_transfer` or `clipboard_sync`.
+        resource_id:
+          type: string
+          description: The transfer id the reporter supplied, which is the idempotency key.
+        details:
+          type: string
+          description: |
+            JSON-encoded metadata: byte counts, direction, status and, for file
+            transfers, the filename. Never the transferred content itself.
+        ip:
+          type: string
+          description: The source address the report arrived from.
+        created_at:
+          type: string
+          format: date-time
     SessionRecordingList:
       type: object
       description: |

@@ -562,6 +562,10 @@ func main() {
 	}
 	fileTransferAuditHandler := handler.NewFileTransferAuditHandler(deviceService, auditService)
 	clipboardAuditHandler := handler.NewClipboardAuditHandler(deviceService, auditService)
+	// The read side of the same trail: the owner can report a transfer and read
+	// their own rows back, which is what makes "what did my controller copy at
+	// 14:03?" answerable by the one person who can act on it.
+	ownerAuditHandler := handler.NewOwnerAuditHandler(auditService)
 	hostHandler := handler.NewHostHandler(deviceService, tokenService, presenceService, settingsService, rateLimitService, deviceAccessService, deviceAccessPolicyService, deviceAccessGrantService, deviceAccessApprovalService, bus, cfg)
 	// How long an exclusive-control holder survives in the shared store. It is
 	// deliberately generous for one socket: the socket itself outliving its
@@ -806,6 +810,11 @@ func main() {
 			// direction, MIME type and byte count only - there is deliberately
 			// no field for the text.
 			me.POST("/clipboard-audits", clipboardAuditHandler.Create)
+			// Owner-scoped read of the data-channel audit trail. Scoped by the
+			// caller's own actor id: both write endpoints refuse a device the
+			// caller does not own, so this cannot become a view of anybody else's
+			// transfers.
+			me.GET("/audit-logs", ownerAuditHandler.List)
 
 			// Who is in the caller's machines right now (status=active) and who
 			// has been. Deliberately not /sessions, which is the caller's own
