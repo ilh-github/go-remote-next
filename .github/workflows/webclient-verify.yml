@@ -34,11 +34,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: npm
-          cache-dependency-path: WebClient/package-lock.json
       - name: Install dependencies
         working-directory: WebClient
-        run: npm ci
+        # `npm install`, not `npm ci`: the lock file is not committed. The
+        # repository's .gitignore has a bare `package-lock.json` rule with no
+        # leading slash, so it matches at every depth - including WebClient's -
+        # and the first run of this workflow failed on exactly that, with
+        # setup-node reporting "specified paths were not resolved". Committing a
+        # lock file would mean editing a rule somebody else set for the whole
+        # repository, which is not this change's to make.
+        run: npm install
       - name: Unit tests
         working-directory: WebClient
         run: npm test
@@ -70,15 +75,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: npm
-          cache-dependency-path: WebClient/package-lock.json
       - uses: actions/setup-go@v5
         with:
           go-version-file: SignalingServer/go.mod
           cache-dependency-path: SignalingServer/go.sum
       - name: Install dependencies
         working-directory: WebClient
-        run: npm ci
+        run: npm install
       - name: Install the browser the E2E drive
         working-directory: WebClient
         run: npx playwright install --with-deps chromium
