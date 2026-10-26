@@ -149,6 +149,7 @@ Class | Method | HTTP request | Description
 *DevicesApi* | [**verifyAccessCode**](docs/Api/DevicesApi.md#verifyaccesscode) | **POST** /v1/devices/{device_id}/access-code:verify | Verify a device access code and mint a signal token
 *FileTransfersApi* | [**createClipboardAudit**](docs/Api/FileTransfersApi.md#createclipboardaudit) | **POST** /v1/me/clipboard-audits | Report a controller-observed clipboard sync for auditing
 *FileTransfersApi* | [**createFileTransferAudit**](docs/Api/FileTransfersApi.md#createfiletransferaudit) | **POST** /v1/me/file-transfer-audits | Report a controller-observed file transfer for auditing
+*FileTransfersApi* | [**listMyAuditLogs**](docs/Api/FileTransfersApi.md#listmyauditlogs) | **GET** /v1/me/audit-logs | Read back the data-channel audit trail that belongs to the caller
 *MeApi* | [**getMe**](docs/Api/MeApi.md#getme) | **GET** /v1/me | The authenticated user
 *NotificationsApi* | [**deleteMetricAlert**](docs/Api/NotificationsApi.md#deletemetricalert) | **DELETE** /v1/me/devices/{device_id}/metric-alert | Delete the owner&#39;s metric alert rule
 *NotificationsApi* | [**getMetricAlert**](docs/Api/NotificationsApi.md#getmetricalert) | **GET** /v1/me/devices/{device_id}/metric-alert | The owner&#39;s CPU, memory, and disk alert rule
@@ -219,6 +220,8 @@ Class | Method | HTTP request | Description
 - [NotificationChannelList](docs/Model/NotificationChannelList.md)
 - [OfflineAlertInput](docs/Model/OfflineAlertInput.md)
 - [OfflineAlertRule](docs/Model/OfflineAlertRule.md)
+- [OwnerAuditLog](docs/Model/OwnerAuditLog.md)
+- [OwnerAuditLogPage](docs/Model/OwnerAuditLogPage.md)
 - [PlaybackTicket](docs/Model/PlaybackTicket.md)
 - [Problem](docs/Model/Problem.md)
 - [RemoteSession](docs/Model/RemoteSession.md)

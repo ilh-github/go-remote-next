@@ -21,6 +21,7 @@ import okhttp3.HttpUrl
 
 import io.quickdesk.signaling.models.ClipboardAuditInput
 import io.quickdesk.signaling.models.FileTransferAuditInput
+import io.quickdesk.signaling.models.OwnerAuditLogPage
 import io.quickdesk.signaling.models.Problem
 
 import com.squareup.moshi.Json
@@ -184,6 +185,115 @@ class FileTransfersApi(basePath: kotlin.String = defaultBasePath, client: Call.F
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/v1/me/file-transfer-audits",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * enum for parameter action
+     */
+     enum class ActionListMyAuditLogs(val value: kotlin.String) {
+         @Json(name = "file.transfer.upload") filePeriodTransferPeriodUpload("file.transfer.upload"),
+         @Json(name = "file.transfer.download") filePeriodTransferPeriodDownload("file.transfer.download"),
+         @Json(name = "clipboard.sync.upload") clipboardPeriodSyncPeriodUpload("clipboard.sync.upload"),
+         @Json(name = "clipboard.sync.download") clipboardPeriodSyncPeriodDownload("clipboard.sync.download");
+
+        /**
+         * Override [toString()] to avoid using the enum variable name as the value, and instead use
+         * the actual value defined in the API spec file.
+         *
+         * This solves a problem when the variable name and its value are different, and ensures that
+         * the client sends the correct enum values to the server always.
+         */
+        override fun toString(): kotlin.String = "$value"
+     }
+
+    /**
+     * GET /v1/me/audit-logs
+     * Read back the data-channel audit trail that belongs to the caller
+     * The read side of the two reporting endpoints above. File and clipboard transfers travel peer to peer over the Remoting data channel, so the control plane can only record what a controller tells it afterwards; this is how the device owner reads those records back without going through the administrator console.  Rows are scoped to the caller&#39;s own actor id. Both reporting endpoints refuse a device the caller does not own, so the actor on a row is that device&#39;s owner and this scope cannot expose anybody else&#39;s transfers.  &#x60;action&#x60; is an allow-list rather than a free-form filter: an action this trail does not hold is refused with 400 rather than answered with an empty page, because \&quot;you did nothing\&quot; must not be a conclusion a typo can produce. Supported values are &#x60;file.transfer.upload&#x60;, &#x60;file.transfer.download&#x60;, &#x60;clipboard.sync.upload&#x60; and &#x60;clipboard.sync.download&#x60;.  Cursor-paginated, newest first. &#x60;next_cursor&#x60; is opaque: pass it back as &#x60;?cursor&#x3D;&#x60; to fetch the next page and stop when it is absent. 
+     * @param action Narrow to one audit action. An unsupported value is a 400. (optional)
+     * @param cursor  (optional)
+     * @param limit  (optional)
+     * @return OwnerAuditLogPage
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    fun listMyAuditLogs(action: ActionListMyAuditLogs? = null, cursor: kotlin.String? = null, limit: kotlin.Int? = null) : OwnerAuditLogPage {
+        val localVarResponse = listMyAuditLogsWithHttpInfo(action = action, cursor = cursor, limit = limit)
+
+        return when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as OwnerAuditLogPage
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /v1/me/audit-logs
+     * Read back the data-channel audit trail that belongs to the caller
+     * The read side of the two reporting endpoints above. File and clipboard transfers travel peer to peer over the Remoting data channel, so the control plane can only record what a controller tells it afterwards; this is how the device owner reads those records back without going through the administrator console.  Rows are scoped to the caller&#39;s own actor id. Both reporting endpoints refuse a device the caller does not own, so the actor on a row is that device&#39;s owner and this scope cannot expose anybody else&#39;s transfers.  &#x60;action&#x60; is an allow-list rather than a free-form filter: an action this trail does not hold is refused with 400 rather than answered with an empty page, because \&quot;you did nothing\&quot; must not be a conclusion a typo can produce. Supported values are &#x60;file.transfer.upload&#x60;, &#x60;file.transfer.download&#x60;, &#x60;clipboard.sync.upload&#x60; and &#x60;clipboard.sync.download&#x60;.  Cursor-paginated, newest first. &#x60;next_cursor&#x60; is opaque: pass it back as &#x60;?cursor&#x3D;&#x60; to fetch the next page and stop when it is absent. 
+     * @param action Narrow to one audit action. An unsupported value is a 400. (optional)
+     * @param cursor  (optional)
+     * @param limit  (optional)
+     * @return ApiResponse<OwnerAuditLogPage?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    fun listMyAuditLogsWithHttpInfo(action: ActionListMyAuditLogs?, cursor: kotlin.String?, limit: kotlin.Int?) : ApiResponse<OwnerAuditLogPage?> {
+        val localVariableConfig = listMyAuditLogsRequestConfig(action = action, cursor = cursor, limit = limit)
+
+        return request<Unit, OwnerAuditLogPage>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listMyAuditLogs
+     *
+     * @param action Narrow to one audit action. An unsupported value is a 400. (optional)
+     * @param cursor  (optional)
+     * @param limit  (optional)
+     * @return RequestConfig
+     */
+    fun listMyAuditLogsRequestConfig(action: ActionListMyAuditLogs?, cursor: kotlin.String?, limit: kotlin.Int?) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                if (action != null) {
+                    put("action", listOf(action.value))
+                }
+                if (cursor != null) {
+                    put("cursor", listOf(cursor.toString()))
+                }
+                if (limit != null) {
+                    put("limit", listOf(limit.toString()))
+                }
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json, application/problem+json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/v1/me/audit-logs",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,

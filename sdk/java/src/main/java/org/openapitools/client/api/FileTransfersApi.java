@@ -29,6 +29,7 @@ import java.io.IOException;
 
 import org.openapitools.client.model.ClipboardAuditInput;
 import org.openapitools.client.model.FileTransferAuditInput;
+import org.openapitools.client.model.OwnerAuditLogPage;
 import org.openapitools.client.model.Problem;
 
 import java.lang.reflect.Type;
@@ -350,6 +351,156 @@ public class FileTransfersApi {
 
         okhttp3.Call localVarCall = createFileTransferAuditValidateBeforeCall(fileTransferAuditInput, _callback);
         localVarApiClient.executeAsync(localVarCall, _callback);
+        return localVarCall;
+    }
+    /**
+     * Build call for listMyAuditLogs
+     * @param action Narrow to one audit action. An unsupported value is a 400. (optional)
+     * @param cursor  (optional)
+     * @param limit  (optional)
+     * @param _callback Callback for upload/download progress
+     * @return Call to execute
+     * @throws ApiException If fail to serialize the request body object
+     * @http.response.details
+     <table border="1">
+       <caption>Response Details</caption>
+        <tr><td> Status Code </td><td> Description </td><td> Response Headers </td></tr>
+        <tr><td> 200 </td><td> One page of the caller&#39;s audit rows, newest first. </td><td>  -  </td></tr>
+        <tr><td> 400 </td><td> The request was malformed or failed validation. </td><td>  -  </td></tr>
+        <tr><td> 401 </td><td> Missing or expired credentials. </td><td>  -  </td></tr>
+     </table>
+     */
+    public okhttp3.Call listMyAuditLogsCall(@javax.annotation.Nullable String action, @javax.annotation.Nullable String cursor, @javax.annotation.Nullable Integer limit, final ApiCallback _callback) throws ApiException {
+        String basePath = null;
+        // Operation Servers
+        String[] localBasePaths = new String[] {  };
+
+        // Determine Base Path to Use
+        if (localCustomBaseUrl != null){
+            basePath = localCustomBaseUrl;
+        } else if ( localBasePaths.length > 0 ) {
+            basePath = localBasePaths[localHostIndex];
+        } else {
+            basePath = null;
+        }
+
+        Object localVarPostBody = null;
+
+        // create path and map variables
+        String localVarPath = "/v1/me/audit-logs";
+
+        List<Pair> localVarQueryParams = new ArrayList<Pair>();
+        List<Pair> localVarCollectionQueryParams = new ArrayList<Pair>();
+        Map<String, String> localVarHeaderParams = new HashMap<String, String>();
+        Map<String, String> localVarCookieParams = new HashMap<String, String>();
+        Map<String, Object> localVarFormParams = new HashMap<String, Object>();
+
+        if (action != null) {
+            localVarQueryParams.addAll(localVarApiClient.parameterToPair("action", action));
+        }
+
+        if (cursor != null) {
+            localVarQueryParams.addAll(localVarApiClient.parameterToPair("cursor", cursor));
+        }
+
+        if (limit != null) {
+            localVarQueryParams.addAll(localVarApiClient.parameterToPair("limit", limit));
+        }
+
+        final String[] localVarAccepts = {
+            "application/json",
+            "application/problem+json"
+        };
+        final String localVarAccept = localVarApiClient.selectHeaderAccept(localVarAccepts);
+        if (localVarAccept != null) {
+            localVarHeaderParams.put("Accept", localVarAccept);
+        }
+
+        final String[] localVarContentTypes = {
+        };
+        final String localVarContentType = localVarApiClient.selectHeaderContentType(localVarContentTypes);
+        if (localVarContentType != null) {
+            localVarHeaderParams.put("Content-Type", localVarContentType);
+        }
+
+        String[] localVarAuthNames = new String[] { "ApiKeyAuth", "BearerAuth" };
+        return localVarApiClient.buildCall(basePath, localVarPath, "GET", localVarQueryParams, localVarCollectionQueryParams, localVarPostBody, localVarHeaderParams, localVarCookieParams, localVarFormParams, localVarAuthNames, _callback);
+    }
+
+    @SuppressWarnings("rawtypes")
+    private okhttp3.Call listMyAuditLogsValidateBeforeCall(@javax.annotation.Nullable String action, @javax.annotation.Nullable String cursor, @javax.annotation.Nullable Integer limit, final ApiCallback _callback) throws ApiException {
+        return listMyAuditLogsCall(action, cursor, limit, _callback);
+
+    }
+
+    /**
+     * Read back the data-channel audit trail that belongs to the caller
+     * The read side of the two reporting endpoints above. File and clipboard transfers travel peer to peer over the Remoting data channel, so the control plane can only record what a controller tells it afterwards; this is how the device owner reads those records back without going through the administrator console.  Rows are scoped to the caller&#39;s own actor id. Both reporting endpoints refuse a device the caller does not own, so the actor on a row is that device&#39;s owner and this scope cannot expose anybody else&#39;s transfers.  &#x60;action&#x60; is an allow-list rather than a free-form filter: an action this trail does not hold is refused with 400 rather than answered with an empty page, because \&quot;you did nothing\&quot; must not be a conclusion a typo can produce. Supported values are &#x60;file.transfer.upload&#x60;, &#x60;file.transfer.download&#x60;, &#x60;clipboard.sync.upload&#x60; and &#x60;clipboard.sync.download&#x60;.  Cursor-paginated, newest first. &#x60;next_cursor&#x60; is opaque: pass it back as &#x60;?cursor&#x3D;&#x60; to fetch the next page and stop when it is absent. 
+     * @param action Narrow to one audit action. An unsupported value is a 400. (optional)
+     * @param cursor  (optional)
+     * @param limit  (optional)
+     * @return OwnerAuditLogPage
+     * @throws ApiException If fail to call the API, e.g. server error or cannot deserialize the response body
+     * @http.response.details
+     <table border="1">
+       <caption>Response Details</caption>
+        <tr><td> Status Code </td><td> Description </td><td> Response Headers </td></tr>
+        <tr><td> 200 </td><td> One page of the caller&#39;s audit rows, newest first. </td><td>  -  </td></tr>
+        <tr><td> 400 </td><td> The request was malformed or failed validation. </td><td>  -  </td></tr>
+        <tr><td> 401 </td><td> Missing or expired credentials. </td><td>  -  </td></tr>
+     </table>
+     */
+    public OwnerAuditLogPage listMyAuditLogs(@javax.annotation.Nullable String action, @javax.annotation.Nullable String cursor, @javax.annotation.Nullable Integer limit) throws ApiException {
+        ApiResponse<OwnerAuditLogPage> localVarResp = listMyAuditLogsWithHttpInfo(action, cursor, limit);
+        return localVarResp.getData();
+    }
+
+    /**
+     * Read back the data-channel audit trail that belongs to the caller
+     * The read side of the two reporting endpoints above. File and clipboard transfers travel peer to peer over the Remoting data channel, so the control plane can only record what a controller tells it afterwards; this is how the device owner reads those records back without going through the administrator console.  Rows are scoped to the caller&#39;s own actor id. Both reporting endpoints refuse a device the caller does not own, so the actor on a row is that device&#39;s owner and this scope cannot expose anybody else&#39;s transfers.  &#x60;action&#x60; is an allow-list rather than a free-form filter: an action this trail does not hold is refused with 400 rather than answered with an empty page, because \&quot;you did nothing\&quot; must not be a conclusion a typo can produce. Supported values are &#x60;file.transfer.upload&#x60;, &#x60;file.transfer.download&#x60;, &#x60;clipboard.sync.upload&#x60; and &#x60;clipboard.sync.download&#x60;.  Cursor-paginated, newest first. &#x60;next_cursor&#x60; is opaque: pass it back as &#x60;?cursor&#x3D;&#x60; to fetch the next page and stop when it is absent. 
+     * @param action Narrow to one audit action. An unsupported value is a 400. (optional)
+     * @param cursor  (optional)
+     * @param limit  (optional)
+     * @return ApiResponse&lt;OwnerAuditLogPage&gt;
+     * @throws ApiException If fail to call the API, e.g. server error or cannot deserialize the response body
+     * @http.response.details
+     <table border="1">
+       <caption>Response Details</caption>
+        <tr><td> Status Code </td><td> Description </td><td> Response Headers </td></tr>
+        <tr><td> 200 </td><td> One page of the caller&#39;s audit rows, newest first. </td><td>  -  </td></tr>
+        <tr><td> 400 </td><td> The request was malformed or failed validation. </td><td>  -  </td></tr>
+        <tr><td> 401 </td><td> Missing or expired credentials. </td><td>  -  </td></tr>
+     </table>
+     */
+    public ApiResponse<OwnerAuditLogPage> listMyAuditLogsWithHttpInfo(@javax.annotation.Nullable String action, @javax.annotation.Nullable String cursor, @javax.annotation.Nullable Integer limit) throws ApiException {
+        okhttp3.Call localVarCall = listMyAuditLogsValidateBeforeCall(action, cursor, limit, null);
+        Type localVarReturnType = new TypeToken<OwnerAuditLogPage>(){}.getType();
+        return localVarApiClient.execute(localVarCall, localVarReturnType);
+    }
+
+    /**
+     * Read back the data-channel audit trail that belongs to the caller (asynchronously)
+     * The read side of the two reporting endpoints above. File and clipboard transfers travel peer to peer over the Remoting data channel, so the control plane can only record what a controller tells it afterwards; this is how the device owner reads those records back without going through the administrator console.  Rows are scoped to the caller&#39;s own actor id. Both reporting endpoints refuse a device the caller does not own, so the actor on a row is that device&#39;s owner and this scope cannot expose anybody else&#39;s transfers.  &#x60;action&#x60; is an allow-list rather than a free-form filter: an action this trail does not hold is refused with 400 rather than answered with an empty page, because \&quot;you did nothing\&quot; must not be a conclusion a typo can produce. Supported values are &#x60;file.transfer.upload&#x60;, &#x60;file.transfer.download&#x60;, &#x60;clipboard.sync.upload&#x60; and &#x60;clipboard.sync.download&#x60;.  Cursor-paginated, newest first. &#x60;next_cursor&#x60; is opaque: pass it back as &#x60;?cursor&#x3D;&#x60; to fetch the next page and stop when it is absent. 
+     * @param action Narrow to one audit action. An unsupported value is a 400. (optional)
+     * @param cursor  (optional)
+     * @param limit  (optional)
+     * @param _callback The callback to be executed when the API call finishes
+     * @return The request call
+     * @throws ApiException If fail to process the API call, e.g. serializing the request body object
+     * @http.response.details
+     <table border="1">
+       <caption>Response Details</caption>
+        <tr><td> Status Code </td><td> Description </td><td> Response Headers </td></tr>
+        <tr><td> 200 </td><td> One page of the caller&#39;s audit rows, newest first. </td><td>  -  </td></tr>
+        <tr><td> 400 </td><td> The request was malformed or failed validation. </td><td>  -  </td></tr>
+        <tr><td> 401 </td><td> Missing or expired credentials. </td><td>  -  </td></tr>
+     </table>
+     */
+    public okhttp3.Call listMyAuditLogsAsync(@javax.annotation.Nullable String action, @javax.annotation.Nullable String cursor, @javax.annotation.Nullable Integer limit, final ApiCallback<OwnerAuditLogPage> _callback) throws ApiException {
+
+        okhttp3.Call localVarCall = listMyAuditLogsValidateBeforeCall(action, cursor, limit, _callback);
+        Type localVarReturnType = new TypeToken<OwnerAuditLogPage>(){}.getType();
+        localVarApiClient.executeAsync(localVarCall, localVarReturnType, _callback);
         return localVarCall;
     }
 }

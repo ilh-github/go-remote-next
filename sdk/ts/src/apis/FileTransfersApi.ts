@@ -17,6 +17,7 @@ import * as runtime from '../runtime';
 import type {
   ClipboardAuditInput,
   FileTransferAuditInput,
+  OwnerAuditLogPage,
   Problem,
 } from '../models/index';
 import {
@@ -24,6 +25,8 @@ import {
     ClipboardAuditInputToJSON,
     FileTransferAuditInputFromJSON,
     FileTransferAuditInputToJSON,
+    OwnerAuditLogPageFromJSON,
+    OwnerAuditLogPageToJSON,
     ProblemFromJSON,
     ProblemToJSON,
 } from '../models/index';
@@ -34,6 +37,12 @@ export interface CreateClipboardAuditRequest {
 
 export interface CreateFileTransferAuditRequest {
     fileTransferAuditInput: FileTransferAuditInput;
+}
+
+export interface ListMyAuditLogsRequest {
+    action?: ListMyAuditLogsActionEnum;
+    cursor?: string;
+    limit?: number;
 }
 
 /**
@@ -145,4 +154,70 @@ export class FileTransfersApi extends runtime.BaseAPI {
         await this.createFileTransferAuditRaw(requestParameters, initOverrides);
     }
 
+    /**
+     * The read side of the two reporting endpoints above. File and clipboard transfers travel peer to peer over the Remoting data channel, so the control plane can only record what a controller tells it afterwards; this is how the device owner reads those records back without going through the administrator console.  Rows are scoped to the caller\'s own actor id. Both reporting endpoints refuse a device the caller does not own, so the actor on a row is that device\'s owner and this scope cannot expose anybody else\'s transfers.  `action` is an allow-list rather than a free-form filter: an action this trail does not hold is refused with 400 rather than answered with an empty page, because \"you did nothing\" must not be a conclusion a typo can produce. Supported values are `file.transfer.upload`, `file.transfer.download`, `clipboard.sync.upload` and `clipboard.sync.download`.  Cursor-paginated, newest first. `next_cursor` is opaque: pass it back as `?cursor=` to fetch the next page and stop when it is absent. 
+     * Read back the data-channel audit trail that belongs to the caller
+     */
+    async listMyAuditLogsRaw(requestParameters: ListMyAuditLogsRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<OwnerAuditLogPage>> {
+        const queryParameters: any = {};
+
+        if (requestParameters['action'] != null) {
+            queryParameters['action'] = requestParameters['action'];
+        }
+
+        if (requestParameters['cursor'] != null) {
+            queryParameters['cursor'] = requestParameters['cursor'];
+        }
+
+        if (requestParameters['limit'] != null) {
+            queryParameters['limit'] = requestParameters['limit'];
+        }
+
+        const headerParameters: runtime.HTTPHeaders = {};
+
+        if (this.configuration && this.configuration.apiKey) {
+            headerParameters["X-API-Key"] = await this.configuration.apiKey("X-API-Key"); // ApiKeyAuth authentication
+        }
+
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("BearerAuth", []);
+
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+
+        let urlPath = `/v1/me/audit-logs`;
+
+        const response = await this.request({
+            path: urlPath,
+            method: 'GET',
+            headers: headerParameters,
+            query: queryParameters,
+        }, initOverrides);
+
+        return new runtime.JSONApiResponse(response, (jsonValue) => OwnerAuditLogPageFromJSON(jsonValue));
+    }
+
+    /**
+     * The read side of the two reporting endpoints above. File and clipboard transfers travel peer to peer over the Remoting data channel, so the control plane can only record what a controller tells it afterwards; this is how the device owner reads those records back without going through the administrator console.  Rows are scoped to the caller\'s own actor id. Both reporting endpoints refuse a device the caller does not own, so the actor on a row is that device\'s owner and this scope cannot expose anybody else\'s transfers.  `action` is an allow-list rather than a free-form filter: an action this trail does not hold is refused with 400 rather than answered with an empty page, because \"you did nothing\" must not be a conclusion a typo can produce. Supported values are `file.transfer.upload`, `file.transfer.download`, `clipboard.sync.upload` and `clipboard.sync.download`.  Cursor-paginated, newest first. `next_cursor` is opaque: pass it back as `?cursor=` to fetch the next page and stop when it is absent. 
+     * Read back the data-channel audit trail that belongs to the caller
+     */
+    async listMyAuditLogs(requestParameters: ListMyAuditLogsRequest = {}, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<OwnerAuditLogPage> {
+        const response = await this.listMyAuditLogsRaw(requestParameters, initOverrides);
+        return await response.value();
+    }
+
 }
+
+/**
+ * @export
+ */
+export const ListMyAuditLogsActionEnum = {
+    FileTransferUpload: 'file.transfer.upload',
+    FileTransferDownload: 'file.transfer.download',
+    ClipboardSyncUpload: 'clipboard.sync.upload',
+    ClipboardSyncDownload: 'clipboard.sync.download'
+} as const;
+export type ListMyAuditLogsActionEnum = typeof ListMyAuditLogsActionEnum[keyof typeof ListMyAuditLogsActionEnum];

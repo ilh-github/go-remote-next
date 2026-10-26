@@ -24,6 +24,7 @@ docs/ApproveAccessApprovalRequest.md
 docs/AuthApi.md
 docs/AuthSessionRequest.md
 docs/AuthSessionResponse.md
+docs/ClipboardAuditInput.md
 docs/DeleteMyDeviceGroup200Response.md
 docs/Device.md
 docs/DeviceAccessBanRequest.md
@@ -49,6 +50,8 @@ docs/NotificationChannelList.md
 docs/NotificationsApi.md
 docs/OfflineAlertInput.md
 docs/OfflineAlertRule.md
+docs/OwnerAuditLog.md
+docs/OwnerAuditLogPage.md
 docs/PlaybackTicket.md
 docs/Problem.md
 docs/RecordingsApi.md
@@ -131,6 +134,7 @@ src/main/java/org/openapitools/client/model/ApprovalSummaryDeniedSourcesInner.ja
 src/main/java/org/openapitools/client/model/ApproveAccessApprovalRequest.java
 src/main/java/org/openapitools/client/model/AuthSessionRequest.java
 src/main/java/org/openapitools/client/model/AuthSessionResponse.java
+src/main/java/org/openapitools/client/model/ClipboardAuditInput.java
 src/main/java/org/openapitools/client/model/DeleteMyDeviceGroup200Response.java
 src/main/java/org/openapitools/client/model/Device.java
 src/main/java/org/openapitools/client/model/DeviceAccessBanRequest.java
@@ -151,6 +155,8 @@ src/main/java/org/openapitools/client/model/NotificationChannel.java
 src/main/java/org/openapitools/client/model/NotificationChannelList.java
 src/main/java/org/openapitools/client/model/OfflineAlertInput.java
 src/main/java/org/openapitools/client/model/OfflineAlertRule.java
+src/main/java/org/openapitools/client/model/OwnerAuditLog.java
+src/main/java/org/openapitools/client/model/OwnerAuditLogPage.java
 src/main/java/org/openapitools/client/model/PlaybackTicket.java
 src/main/java/org/openapitools/client/model/Problem.java
 src/main/java/org/openapitools/client/model/RemoteSession.java
@@ -203,6 +209,7 @@ src/test/java/org/openapitools/client/model/ApprovalSummaryTest.java
 src/test/java/org/openapitools/client/model/ApproveAccessApprovalRequestTest.java
 src/test/java/org/openapitools/client/model/AuthSessionRequestTest.java
 src/test/java/org/openapitools/client/model/AuthSessionResponseTest.java
+src/test/java/org/openapitools/client/model/ClipboardAuditInputTest.java
 src/test/java/org/openapitools/client/model/DeleteMyDeviceGroup200ResponseTest.java
 src/test/java/org/openapitools/client/model/DeviceAccessBanRequestTest.java
 src/test/java/org/openapitools/client/model/DeviceAccessPolicyInputTest.java
@@ -223,6 +230,8 @@ src/test/java/org/openapitools/client/model/NotificationChannelListTest.java
 src/test/java/org/openapitools/client/model/NotificationChannelTest.java
 src/test/java/org/openapitools/client/model/OfflineAlertInputTest.java
 src/test/java/org/openapitools/client/model/OfflineAlertRuleTest.java
+src/test/java/org/openapitools/client/model/OwnerAuditLogPageTest.java
+src/test/java/org/openapitools/client/model/OwnerAuditLogTest.java
 src/test/java/org/openapitools/client/model/PlaybackTicketTest.java
 src/test/java/org/openapitools/client/model/ProblemTest.java
 src/test/java/org/openapitools/client/model/RemoteSessionAccessLogTest.java

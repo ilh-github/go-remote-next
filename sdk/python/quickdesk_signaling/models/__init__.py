@@ -53,6 +53,8 @@ from quickdesk_signaling.models.notification_channel import NotificationChannel
 from quickdesk_signaling.models.notification_channel_list import NotificationChannelList
 from quickdesk_signaling.models.offline_alert_input import OfflineAlertInput
 from quickdesk_signaling.models.offline_alert_rule import OfflineAlertRule
+from quickdesk_signaling.models.owner_audit_log import OwnerAuditLog
+from quickdesk_signaling.models.owner_audit_log_page import OwnerAuditLogPage
 from quickdesk_signaling.models.playback_ticket import PlaybackTicket
 from quickdesk_signaling.models.problem import Problem
 from quickdesk_signaling.models.remote_session import RemoteSession

@@ -69,6 +69,31 @@ namespace QuickDesk.Signaling.Client.Api
         /// <param name="fileTransferAuditInput"></param>
         /// <returns>ApiResponse of Object(void)</returns>
         ApiResponse<Object> CreateFileTransferAuditWithHttpInfo(FileTransferAuditInput fileTransferAuditInput);
+        /// <summary>
+        /// Read back the data-channel audit trail that belongs to the caller
+        /// </summary>
+        /// <remarks>
+        /// The read side of the two reporting endpoints above. File and clipboard transfers travel peer to peer over the Remoting data channel, so the control plane can only record what a controller tells it afterwards; this is how the device owner reads those records back without going through the administrator console.  Rows are scoped to the caller&#39;s own actor id. Both reporting endpoints refuse a device the caller does not own, so the actor on a row is that device&#39;s owner and this scope cannot expose anybody else&#39;s transfers.  &#x60;action&#x60; is an allow-list rather than a free-form filter: an action this trail does not hold is refused with 400 rather than answered with an empty page, because \&quot;you did nothing\&quot; must not be a conclusion a typo can produce. Supported values are &#x60;file.transfer.upload&#x60;, &#x60;file.transfer.download&#x60;, &#x60;clipboard.sync.upload&#x60; and &#x60;clipboard.sync.download&#x60;.  Cursor-paginated, newest first. &#x60;next_cursor&#x60; is opaque: pass it back as &#x60;?cursor&#x3D;&#x60; to fetch the next page and stop when it is absent. 
+        /// </remarks>
+        /// <exception cref="QuickDesk.Signaling.Client.Client.ApiException">Thrown when fails to make API call</exception>
+        /// <param name="action">Narrow to one audit action. An unsupported value is a 400. (optional)</param>
+        /// <param name="cursor"> (optional)</param>
+        /// <param name="limit"> (optional)</param>
+        /// <returns>OwnerAuditLogPage</returns>
+        OwnerAuditLogPage ListMyAuditLogs(string? action = default, string? cursor = default, int? limit = default);
+
+        /// <summary>
+        /// Read back the data-channel audit trail that belongs to the caller
+        /// </summary>
+        /// <remarks>
+        /// The read side of the two reporting endpoints above. File and clipboard transfers travel peer to peer over the Remoting data channel, so the control plane can only record what a controller tells it afterwards; this is how the device owner reads those records back without going through the administrator console.  Rows are scoped to the caller&#39;s own actor id. Both reporting endpoints refuse a device the caller does not own, so the actor on a row is that device&#39;s owner and this scope cannot expose anybody else&#39;s transfers.  &#x60;action&#x60; is an allow-list rather than a free-form filter: an action this trail does not hold is refused with 400 rather than answered with an empty page, because \&quot;you did nothing\&quot; must not be a conclusion a typo can produce. Supported values are &#x60;file.transfer.upload&#x60;, &#x60;file.transfer.download&#x60;, &#x60;clipboard.sync.upload&#x60; and &#x60;clipboard.sync.download&#x60;.  Cursor-paginated, newest first. &#x60;next_cursor&#x60; is opaque: pass it back as &#x60;?cursor&#x3D;&#x60; to fetch the next page and stop when it is absent. 
+        /// </remarks>
+        /// <exception cref="QuickDesk.Signaling.Client.Client.ApiException">Thrown when fails to make API call</exception>
+        /// <param name="action">Narrow to one audit action. An unsupported value is a 400. (optional)</param>
+        /// <param name="cursor"> (optional)</param>
+        /// <param name="limit"> (optional)</param>
+        /// <returns>ApiResponse of OwnerAuditLogPage</returns>
+        ApiResponse<OwnerAuditLogPage> ListMyAuditLogsWithHttpInfo(string? action = default, string? cursor = default, int? limit = default);
         #endregion Synchronous Operations
     }
 
@@ -124,6 +149,33 @@ namespace QuickDesk.Signaling.Client.Api
         /// <param name="cancellationToken">Cancellation Token to cancel the request.</param>
         /// <returns>Task of ApiResponse</returns>
         System.Threading.Tasks.Task<ApiResponse<Object>> CreateFileTransferAuditWithHttpInfoAsync(FileTransferAuditInput fileTransferAuditInput, System.Threading.CancellationToken cancellationToken = default);
+        /// <summary>
+        /// Read back the data-channel audit trail that belongs to the caller
+        /// </summary>
+        /// <remarks>
+        /// The read side of the two reporting endpoints above. File and clipboard transfers travel peer to peer over the Remoting data channel, so the control plane can only record what a controller tells it afterwards; this is how the device owner reads those records back without going through the administrator console.  Rows are scoped to the caller&#39;s own actor id. Both reporting endpoints refuse a device the caller does not own, so the actor on a row is that device&#39;s owner and this scope cannot expose anybody else&#39;s transfers.  &#x60;action&#x60; is an allow-list rather than a free-form filter: an action this trail does not hold is refused with 400 rather than answered with an empty page, because \&quot;you did nothing\&quot; must not be a conclusion a typo can produce. Supported values are &#x60;file.transfer.upload&#x60;, &#x60;file.transfer.download&#x60;, &#x60;clipboard.sync.upload&#x60; and &#x60;clipboard.sync.download&#x60;.  Cursor-paginated, newest first. &#x60;next_cursor&#x60; is opaque: pass it back as &#x60;?cursor&#x3D;&#x60; to fetch the next page and stop when it is absent. 
+        /// </remarks>
+        /// <exception cref="QuickDesk.Signaling.Client.Client.ApiException">Thrown when fails to make API call</exception>
+        /// <param name="action">Narrow to one audit action. An unsupported value is a 400. (optional)</param>
+        /// <param name="cursor"> (optional)</param>
+        /// <param name="limit"> (optional)</param>
+        /// <param name="cancellationToken">Cancellation Token to cancel the request.</param>
+        /// <returns>Task of OwnerAuditLogPage</returns>
+        System.Threading.Tasks.Task<OwnerAuditLogPage> ListMyAuditLogsAsync(string? action = default, string? cursor = default, int? limit = default, System.Threading.CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Read back the data-channel audit trail that belongs to the caller
+        /// </summary>
+        /// <remarks>
+        /// The read side of the two reporting endpoints above. File and clipboard transfers travel peer to peer over the Remoting data channel, so the control plane can only record what a controller tells it afterwards; this is how the device owner reads those records back without going through the administrator console.  Rows are scoped to the caller&#39;s own actor id. Both reporting endpoints refuse a device the caller does not own, so the actor on a row is that device&#39;s owner and this scope cannot expose anybody else&#39;s transfers.  &#x60;action&#x60; is an allow-list rather than a free-form filter: an action this trail does not hold is refused with 400 rather than answered with an empty page, because \&quot;you did nothing\&quot; must not be a conclusion a typo can produce. Supported values are &#x60;file.transfer.upload&#x60;, &#x60;file.transfer.download&#x60;, &#x60;clipboard.sync.upload&#x60; and &#x60;clipboard.sync.download&#x60;.  Cursor-paginated, newest first. &#x60;next_cursor&#x60; is opaque: pass it back as &#x60;?cursor&#x3D;&#x60; to fetch the next page and stop when it is absent. 
+        /// </remarks>
+        /// <exception cref="QuickDesk.Signaling.Client.Client.ApiException">Thrown when fails to make API call</exception>
+        /// <param name="action">Narrow to one audit action. An unsupported value is a 400. (optional)</param>
+        /// <param name="cursor"> (optional)</param>
+        /// <param name="limit"> (optional)</param>
+        /// <param name="cancellationToken">Cancellation Token to cancel the request.</param>
+        /// <returns>Task of ApiResponse (OwnerAuditLogPage)</returns>
+        System.Threading.Tasks.Task<ApiResponse<OwnerAuditLogPage>> ListMyAuditLogsWithHttpInfoAsync(string? action = default, string? cursor = default, int? limit = default, System.Threading.CancellationToken cancellationToken = default);
         #endregion Asynchronous Operations
     }
 
@@ -605,6 +657,167 @@ namespace QuickDesk.Signaling.Client.Api
             if (this.ExceptionFactory != null)
             {
                 Exception _exception = this.ExceptionFactory("CreateFileTransferAudit", localVarResponse);
+                if (_exception != null) throw _exception;
+            }
+
+            return localVarResponse;
+        }
+
+        /// <summary>
+        /// Read back the data-channel audit trail that belongs to the caller The read side of the two reporting endpoints above. File and clipboard transfers travel peer to peer over the Remoting data channel, so the control plane can only record what a controller tells it afterwards; this is how the device owner reads those records back without going through the administrator console.  Rows are scoped to the caller&#39;s own actor id. Both reporting endpoints refuse a device the caller does not own, so the actor on a row is that device&#39;s owner and this scope cannot expose anybody else&#39;s transfers.  &#x60;action&#x60; is an allow-list rather than a free-form filter: an action this trail does not hold is refused with 400 rather than answered with an empty page, because \&quot;you did nothing\&quot; must not be a conclusion a typo can produce. Supported values are &#x60;file.transfer.upload&#x60;, &#x60;file.transfer.download&#x60;, &#x60;clipboard.sync.upload&#x60; and &#x60;clipboard.sync.download&#x60;.  Cursor-paginated, newest first. &#x60;next_cursor&#x60; is opaque: pass it back as &#x60;?cursor&#x3D;&#x60; to fetch the next page and stop when it is absent. 
+        /// </summary>
+        /// <exception cref="QuickDesk.Signaling.Client.Client.ApiException">Thrown when fails to make API call</exception>
+        /// <param name="action">Narrow to one audit action. An unsupported value is a 400. (optional)</param>
+        /// <param name="cursor"> (optional)</param>
+        /// <param name="limit"> (optional)</param>
+        /// <returns>OwnerAuditLogPage</returns>
+        public OwnerAuditLogPage ListMyAuditLogs(string? action = default, string? cursor = default, int? limit = default)
+        {
+            QuickDesk.Signaling.Client.Client.ApiResponse<OwnerAuditLogPage> localVarResponse = ListMyAuditLogsWithHttpInfo(action, cursor, limit);
+            return localVarResponse.Data;
+        }
+
+        /// <summary>
+        /// Read back the data-channel audit trail that belongs to the caller The read side of the two reporting endpoints above. File and clipboard transfers travel peer to peer over the Remoting data channel, so the control plane can only record what a controller tells it afterwards; this is how the device owner reads those records back without going through the administrator console.  Rows are scoped to the caller&#39;s own actor id. Both reporting endpoints refuse a device the caller does not own, so the actor on a row is that device&#39;s owner and this scope cannot expose anybody else&#39;s transfers.  &#x60;action&#x60; is an allow-list rather than a free-form filter: an action this trail does not hold is refused with 400 rather than answered with an empty page, because \&quot;you did nothing\&quot; must not be a conclusion a typo can produce. Supported values are &#x60;file.transfer.upload&#x60;, &#x60;file.transfer.download&#x60;, &#x60;clipboard.sync.upload&#x60; and &#x60;clipboard.sync.download&#x60;.  Cursor-paginated, newest first. &#x60;next_cursor&#x60; is opaque: pass it back as &#x60;?cursor&#x3D;&#x60; to fetch the next page and stop when it is absent. 
+        /// </summary>
+        /// <exception cref="QuickDesk.Signaling.Client.Client.ApiException">Thrown when fails to make API call</exception>
+        /// <param name="action">Narrow to one audit action. An unsupported value is a 400. (optional)</param>
+        /// <param name="cursor"> (optional)</param>
+        /// <param name="limit"> (optional)</param>
+        /// <returns>ApiResponse of OwnerAuditLogPage</returns>
+        public QuickDesk.Signaling.Client.Client.ApiResponse<OwnerAuditLogPage> ListMyAuditLogsWithHttpInfo(string? action = default, string? cursor = default, int? limit = default)
+        {
+            QuickDesk.Signaling.Client.Client.RequestOptions localVarRequestOptions = new QuickDesk.Signaling.Client.Client.RequestOptions();
+
+            string[] _contentTypes = new string[] {
+            };
+
+            // to determine the Accept header
+            string[] _accepts = new string[] {
+                "application/json",
+                "application/problem+json"
+            };
+
+            var localVarContentType = QuickDesk.Signaling.Client.Client.ClientUtils.SelectHeaderContentType(_contentTypes);
+            if (localVarContentType != null) localVarRequestOptions.HeaderParameters.Add("Content-Type", localVarContentType);
+
+            var localVarAccept = QuickDesk.Signaling.Client.Client.ClientUtils.SelectHeaderAccept(_accepts);
+            if (localVarAccept != null) localVarRequestOptions.HeaderParameters.Add("Accept", localVarAccept);
+
+            if (action != null)
+            {
+                localVarRequestOptions.QueryParameters.Add(QuickDesk.Signaling.Client.Client.ClientUtils.ParameterToMultiMap("", "action", action));
+            }
+            if (cursor != null)
+            {
+                localVarRequestOptions.QueryParameters.Add(QuickDesk.Signaling.Client.Client.ClientUtils.ParameterToMultiMap("", "cursor", cursor));
+            }
+            if (limit != null)
+            {
+                localVarRequestOptions.QueryParameters.Add(QuickDesk.Signaling.Client.Client.ClientUtils.ParameterToMultiMap("", "limit", limit));
+            }
+
+            // authentication (ApiKeyAuth) required
+            if (!string.IsNullOrEmpty(this.Configuration.GetApiKeyWithPrefix("X-API-Key")))
+            {
+                localVarRequestOptions.HeaderParameters.Add("X-API-Key", this.Configuration.GetApiKeyWithPrefix("X-API-Key"));
+            }
+            // authentication (BearerAuth) required
+            // bearer authentication required
+            if (!string.IsNullOrEmpty(this.Configuration.AccessToken) && !localVarRequestOptions.HeaderParameters.ContainsKey("Authorization"))
+            {
+                localVarRequestOptions.HeaderParameters.Add("Authorization", "Bearer " + this.Configuration.AccessToken);
+            }
+
+            // make the HTTP request
+            var localVarResponse = this.Client.Get<OwnerAuditLogPage>("/v1/me/audit-logs", localVarRequestOptions, this.Configuration);
+
+            if (this.ExceptionFactory != null)
+            {
+                Exception _exception = this.ExceptionFactory("ListMyAuditLogs", localVarResponse);
+                if (_exception != null) throw _exception;
+            }
+
+            return localVarResponse;
+        }
+
+        /// <summary>
+        /// Read back the data-channel audit trail that belongs to the caller The read side of the two reporting endpoints above. File and clipboard transfers travel peer to peer over the Remoting data channel, so the control plane can only record what a controller tells it afterwards; this is how the device owner reads those records back without going through the administrator console.  Rows are scoped to the caller&#39;s own actor id. Both reporting endpoints refuse a device the caller does not own, so the actor on a row is that device&#39;s owner and this scope cannot expose anybody else&#39;s transfers.  &#x60;action&#x60; is an allow-list rather than a free-form filter: an action this trail does not hold is refused with 400 rather than answered with an empty page, because \&quot;you did nothing\&quot; must not be a conclusion a typo can produce. Supported values are &#x60;file.transfer.upload&#x60;, &#x60;file.transfer.download&#x60;, &#x60;clipboard.sync.upload&#x60; and &#x60;clipboard.sync.download&#x60;.  Cursor-paginated, newest first. &#x60;next_cursor&#x60; is opaque: pass it back as &#x60;?cursor&#x3D;&#x60; to fetch the next page and stop when it is absent. 
+        /// </summary>
+        /// <exception cref="QuickDesk.Signaling.Client.Client.ApiException">Thrown when fails to make API call</exception>
+        /// <param name="action">Narrow to one audit action. An unsupported value is a 400. (optional)</param>
+        /// <param name="cursor"> (optional)</param>
+        /// <param name="limit"> (optional)</param>
+        /// <param name="cancellationToken">Cancellation Token to cancel the request.</param>
+        /// <returns>Task of OwnerAuditLogPage</returns>
+        public async System.Threading.Tasks.Task<OwnerAuditLogPage> ListMyAuditLogsAsync(string? action = default, string? cursor = default, int? limit = default, System.Threading.CancellationToken cancellationToken = default)
+        {
+            QuickDesk.Signaling.Client.Client.ApiResponse<OwnerAuditLogPage> localVarResponse = await ListMyAuditLogsWithHttpInfoAsync(action, cursor, limit, cancellationToken).ConfigureAwait(false);
+            return localVarResponse.Data;
+        }
+
+        /// <summary>
+        /// Read back the data-channel audit trail that belongs to the caller The read side of the two reporting endpoints above. File and clipboard transfers travel peer to peer over the Remoting data channel, so the control plane can only record what a controller tells it afterwards; this is how the device owner reads those records back without going through the administrator console.  Rows are scoped to the caller&#39;s own actor id. Both reporting endpoints refuse a device the caller does not own, so the actor on a row is that device&#39;s owner and this scope cannot expose anybody else&#39;s transfers.  &#x60;action&#x60; is an allow-list rather than a free-form filter: an action this trail does not hold is refused with 400 rather than answered with an empty page, because \&quot;you did nothing\&quot; must not be a conclusion a typo can produce. Supported values are &#x60;file.transfer.upload&#x60;, &#x60;file.transfer.download&#x60;, &#x60;clipboard.sync.upload&#x60; and &#x60;clipboard.sync.download&#x60;.  Cursor-paginated, newest first. &#x60;next_cursor&#x60; is opaque: pass it back as &#x60;?cursor&#x3D;&#x60; to fetch the next page and stop when it is absent. 
+        /// </summary>
+        /// <exception cref="QuickDesk.Signaling.Client.Client.ApiException">Thrown when fails to make API call</exception>
+        /// <param name="action">Narrow to one audit action. An unsupported value is a 400. (optional)</param>
+        /// <param name="cursor"> (optional)</param>
+        /// <param name="limit"> (optional)</param>
+        /// <param name="cancellationToken">Cancellation Token to cancel the request.</param>
+        /// <returns>Task of ApiResponse (OwnerAuditLogPage)</returns>
+        public async System.Threading.Tasks.Task<QuickDesk.Signaling.Client.Client.ApiResponse<OwnerAuditLogPage>> ListMyAuditLogsWithHttpInfoAsync(string? action = default, string? cursor = default, int? limit = default, System.Threading.CancellationToken cancellationToken = default)
+        {
+
+            QuickDesk.Signaling.Client.Client.RequestOptions localVarRequestOptions = new QuickDesk.Signaling.Client.Client.RequestOptions();
+
+            string[] _contentTypes = new string[] {
+            };
+
+            // to determine the Accept header
+            string[] _accepts = new string[] {
+                "application/json",
+                "application/problem+json"
+            };
+
+
+            var localVarContentType = QuickDesk.Signaling.Client.Client.ClientUtils.SelectHeaderContentType(_contentTypes);
+            if (localVarContentType != null) localVarRequestOptions.HeaderParameters.Add("Content-Type", localVarContentType);
+
+            var localVarAccept = QuickDesk.Signaling.Client.Client.ClientUtils.SelectHeaderAccept(_accepts);
+            if (localVarAccept != null) localVarRequestOptions.HeaderParameters.Add("Accept", localVarAccept);
+
+            if (action != null)
+            {
+                localVarRequestOptions.QueryParameters.Add(QuickDesk.Signaling.Client.Client.ClientUtils.ParameterToMultiMap("", "action", action));
+            }
+            if (cursor != null)
+            {
+                localVarRequestOptions.QueryParameters.Add(QuickDesk.Signaling.Client.Client.ClientUtils.ParameterToMultiMap("", "cursor", cursor));
+            }
+            if (limit != null)
+            {
+                localVarRequestOptions.QueryParameters.Add(QuickDesk.Signaling.Client.Client.ClientUtils.ParameterToMultiMap("", "limit", limit));
+            }
+
+            // authentication (ApiKeyAuth) required
+            if (!string.IsNullOrEmpty(this.Configuration.GetApiKeyWithPrefix("X-API-Key")))
+            {
+                localVarRequestOptions.HeaderParameters.Add("X-API-Key", this.Configuration.GetApiKeyWithPrefix("X-API-Key"));
+            }
+            // authentication (BearerAuth) required
+            // bearer authentication required
+            if (!string.IsNullOrEmpty(this.Configuration.AccessToken) && !localVarRequestOptions.HeaderParameters.ContainsKey("Authorization"))
+            {
+                localVarRequestOptions.HeaderParameters.Add("Authorization", "Bearer " + this.Configuration.AccessToken);
+            }
+
+            // make the HTTP request
+
+            var localVarResponse = await this.AsynchronousClient.GetAsync<OwnerAuditLogPage>("/v1/me/audit-logs", localVarRequestOptions, this.Configuration, cancellationToken).ConfigureAwait(false);
+
+            if (this.ExceptionFactory != null)
+            {
+                Exception _exception = this.ExceptionFactory("ListMyAuditLogs", localVarResponse);
                 if (_exception != null) throw _exception;
             }
 

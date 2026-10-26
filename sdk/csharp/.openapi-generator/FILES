@@ -22,6 +22,7 @@ docs/ApproveAccessApprovalRequest.md
 docs/AuthApi.md
 docs/AuthSessionRequest.md
 docs/AuthSessionResponse.md
+docs/ClipboardAuditInput.md
 docs/DeleteMyDeviceGroup200Response.md
 docs/Device.md
 docs/DeviceAccessBanRequest.md
@@ -47,6 +48,8 @@ docs/NotificationChannelList.md
 docs/NotificationsApi.md
 docs/OfflineAlertInput.md
 docs/OfflineAlertRule.md
+docs/OwnerAuditLog.md
+docs/OwnerAuditLogPage.md
 docs/PlaybackTicket.md
 docs/Problem.md
 docs/RecordingsApi.md
@@ -103,6 +106,7 @@ src/QuickDesk.Signaling.Client.Test/Model/ApprovalSummaryTests.cs
 src/QuickDesk.Signaling.Client.Test/Model/ApproveAccessApprovalRequestTests.cs
 src/QuickDesk.Signaling.Client.Test/Model/AuthSessionRequestTests.cs
 src/QuickDesk.Signaling.Client.Test/Model/AuthSessionResponseTests.cs
+src/QuickDesk.Signaling.Client.Test/Model/ClipboardAuditInputTests.cs
 src/QuickDesk.Signaling.Client.Test/Model/DeleteMyDeviceGroup200ResponseTests.cs
 src/QuickDesk.Signaling.Client.Test/Model/DeviceAccessBanRequestTests.cs
 src/QuickDesk.Signaling.Client.Test/Model/DeviceAccessPolicyInputTests.cs
@@ -123,6 +127,8 @@ src/QuickDesk.Signaling.Client.Test/Model/NotificationChannelListTests.cs
 src/QuickDesk.Signaling.Client.Test/Model/NotificationChannelTests.cs
 src/QuickDesk.Signaling.Client.Test/Model/OfflineAlertInputTests.cs
 src/QuickDesk.Signaling.Client.Test/Model/OfflineAlertRuleTests.cs
+src/QuickDesk.Signaling.Client.Test/Model/OwnerAuditLogPageTests.cs
+src/QuickDesk.Signaling.Client.Test/Model/OwnerAuditLogTests.cs
 src/QuickDesk.Signaling.Client.Test/Model/PlaybackTicketTests.cs
 src/QuickDesk.Signaling.Client.Test/Model/ProblemTests.cs
 src/QuickDesk.Signaling.Client.Test/Model/RemoteSessionAccessLogTests.cs
@@ -194,6 +200,7 @@ src/QuickDesk.Signaling.Client/Model/ApprovalSummaryDeniedSourcesInner.cs
 src/QuickDesk.Signaling.Client/Model/ApproveAccessApprovalRequest.cs
 src/QuickDesk.Signaling.Client/Model/AuthSessionRequest.cs
 src/QuickDesk.Signaling.Client/Model/AuthSessionResponse.cs
+src/QuickDesk.Signaling.Client/Model/ClipboardAuditInput.cs
 src/QuickDesk.Signaling.Client/Model/DeleteMyDeviceGroup200Response.cs
 src/QuickDesk.Signaling.Client/Model/Device.cs
 src/QuickDesk.Signaling.Client/Model/DeviceAccessBanRequest.cs
@@ -214,6 +221,8 @@ src/QuickDesk.Signaling.Client/Model/NotificationChannel.cs
 src/QuickDesk.Signaling.Client/Model/NotificationChannelList.cs
 src/QuickDesk.Signaling.Client/Model/OfflineAlertInput.cs
 src/QuickDesk.Signaling.Client/Model/OfflineAlertRule.cs
+src/QuickDesk.Signaling.Client/Model/OwnerAuditLog.cs
+src/QuickDesk.Signaling.Client/Model/OwnerAuditLogPage.cs
 src/QuickDesk.Signaling.Client/Model/PlaybackTicket.cs
 src/QuickDesk.Signaling.Client/Model/Problem.cs
 src/QuickDesk.Signaling.Client/Model/RemoteSession.cs

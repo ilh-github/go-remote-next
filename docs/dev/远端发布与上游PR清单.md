@@ -795,5 +795,4 @@ PR 描述至少写明：
   `clipboard-audits` 写端点与控制面基线（PR #25 系列），因此与
   `codex/upstream-qd-111-file-transfer-audit` 同一基线约束，等 #25 合并后
   作为 stacked 增量拆出。
-- SDK 未重新生成：freshness 门禁需要本机 JDK + openapi-generator，本轮未跑。
-  源 spec 已含新 path 与 schema，SDK 需在有生成器的环境重新生成后提交。
+- SDK 已重新生成并提交：见第 208 节，7 套 freshness 门禁全部通过。

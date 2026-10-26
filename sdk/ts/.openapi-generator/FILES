@@ -31,6 +31,7 @@ src/models/ApprovalSummaryDeniedSourcesInner.ts
 src/models/ApproveAccessApprovalRequest.ts
 src/models/AuthSessionRequest.ts
 src/models/AuthSessionResponse.ts
+src/models/ClipboardAuditInput.ts
 src/models/DeleteMyDeviceGroup200Response.ts
 src/models/Device.ts
 src/models/DeviceAccessBanRequest.ts
@@ -51,6 +52,8 @@ src/models/NotificationChannel.ts
 src/models/NotificationChannelList.ts
 src/models/OfflineAlertInput.ts
 src/models/OfflineAlertRule.ts
+src/models/OwnerAuditLog.ts
+src/models/OwnerAuditLogPage.ts
 src/models/PlaybackTicket.ts
 src/models/Problem.ts
 src/models/RemoteSession.ts

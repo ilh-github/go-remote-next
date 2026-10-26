@@ -117,6 +117,7 @@ All URIs are relative to *https://your-signaling-host*
 | *DevicesApi* | [**verifyAccessCode**](docs/DevicesApi.md#verifyaccesscode) | **POST** /v1/devices/{device_id}/access-code:verify | Verify a device access code and mint a signal token |
 | *FileTransfersApi* | [**createClipboardAudit**](docs/FileTransfersApi.md#createclipboardaudit) | **POST** /v1/me/clipboard-audits | Report a controller-observed clipboard sync for auditing |
 | *FileTransfersApi* | [**createFileTransferAudit**](docs/FileTransfersApi.md#createfiletransferaudit) | **POST** /v1/me/file-transfer-audits | Report a controller-observed file transfer for auditing |
+| *FileTransfersApi* | [**listMyAuditLogs**](docs/FileTransfersApi.md#listmyauditlogs) | **GET** /v1/me/audit-logs | Read back the data-channel audit trail that belongs to the caller |
 | *MeApi* | [**getMe**](docs/MeApi.md#getme) | **GET** /v1/me | The authenticated user |
 | *NotificationsApi* | [**deleteMetricAlert**](docs/NotificationsApi.md#deletemetricalert) | **DELETE** /v1/me/devices/{device_id}/metric-alert | Delete the owner's metric alert rule |
 | *NotificationsApi* | [**getMetricAlert**](docs/NotificationsApi.md#getmetricalert) | **GET** /v1/me/devices/{device_id}/metric-alert | The owner's CPU, memory, and disk alert rule |
@@ -189,6 +190,8 @@ All URIs are relative to *https://your-signaling-host*
  - [io.quickdesk.signaling.models.NotificationChannelList](docs/NotificationChannelList.md)
  - [io.quickdesk.signaling.models.OfflineAlertInput](docs/OfflineAlertInput.md)
  - [io.quickdesk.signaling.models.OfflineAlertRule](docs/OfflineAlertRule.md)
+ - [io.quickdesk.signaling.models.OwnerAuditLog](docs/OwnerAuditLog.md)
+ - [io.quickdesk.signaling.models.OwnerAuditLogPage](docs/OwnerAuditLogPage.md)
  - [io.quickdesk.signaling.models.PlaybackTicket](docs/PlaybackTicket.md)
  - [io.quickdesk.signaling.models.Problem](docs/Problem.md)
  - [io.quickdesk.signaling.models.RemoteSession](docs/RemoteSession.md)

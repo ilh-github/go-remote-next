@@ -30,6 +30,7 @@ docs/Model/ApprovalSummaryDeniedSourcesInner.md
 docs/Model/ApproveAccessApprovalRequest.md
 docs/Model/AuthSessionRequest.md
 docs/Model/AuthSessionResponse.md
+docs/Model/ClipboardAuditInput.md
 docs/Model/DeleteMyDeviceGroup200Response.md
 docs/Model/Device.md
 docs/Model/DeviceAccessBanRequest.md
@@ -50,6 +51,8 @@ docs/Model/NotificationChannel.md
 docs/Model/NotificationChannelList.md
 docs/Model/OfflineAlertInput.md
 docs/Model/OfflineAlertRule.md
+docs/Model/OwnerAuditLog.md
+docs/Model/OwnerAuditLogPage.md
 docs/Model/PlaybackTicket.md
 docs/Model/Problem.md
 docs/Model/RemoteSession.md
@@ -107,6 +110,7 @@ lib/Model/ApprovalSummaryDeniedSourcesInner.php
 lib/Model/ApproveAccessApprovalRequest.php
 lib/Model/AuthSessionRequest.php
 lib/Model/AuthSessionResponse.php
+lib/Model/ClipboardAuditInput.php
 lib/Model/DeleteMyDeviceGroup200Response.php
 lib/Model/Device.php
 lib/Model/DeviceAccessBanRequest.php
@@ -128,6 +132,8 @@ lib/Model/NotificationChannel.php
 lib/Model/NotificationChannelList.php
 lib/Model/OfflineAlertInput.php
 lib/Model/OfflineAlertRule.php
+lib/Model/OwnerAuditLog.php
+lib/Model/OwnerAuditLogPage.php
 lib/Model/PlaybackTicket.php
 lib/Model/Problem.php
 lib/Model/RemoteSession.php
@@ -182,6 +188,7 @@ test/Model/ApprovalSummaryTest.php
 test/Model/ApproveAccessApprovalRequestTest.php
 test/Model/AuthSessionRequestTest.php
 test/Model/AuthSessionResponseTest.php
+test/Model/ClipboardAuditInputTest.php
 test/Model/DeleteMyDeviceGroup200ResponseTest.php
 test/Model/DeviceAccessBanRequestTest.php
 test/Model/DeviceAccessPolicyInputTest.php
@@ -202,6 +209,8 @@ test/Model/NotificationChannelListTest.php
 test/Model/NotificationChannelTest.php
 test/Model/OfflineAlertInputTest.php
 test/Model/OfflineAlertRuleTest.php
+test/Model/OwnerAuditLogPageTest.php
+test/Model/OwnerAuditLogTest.php
 test/Model/PlaybackTicketTest.php
 test/Model/ProblemTest.php
 test/Model/RemoteSessionAccessLogTest.php

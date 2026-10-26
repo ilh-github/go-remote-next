@@ -19,6 +19,7 @@ docs/ApproveAccessApprovalRequest.md
 docs/AuthApi.md
 docs/AuthSessionRequest.md
 docs/AuthSessionResponse.md
+docs/ClipboardAuditInput.md
 docs/DeleteMyDeviceGroup200Response.md
 docs/Device.md
 docs/DeviceAccessBanRequest.md
@@ -44,6 +45,8 @@ docs/NotificationChannelList.md
 docs/NotificationsApi.md
 docs/OfflineAlertInput.md
 docs/OfflineAlertRule.md
+docs/OwnerAuditLog.md
+docs/OwnerAuditLogPage.md
 docs/PlaybackTicket.md
 docs/Problem.md
 docs/RecordingsApi.md
@@ -121,6 +124,7 @@ src/main/kotlin/io/quickdesk/signaling/models/ApprovalSummaryDeniedSourcesInner.
 src/main/kotlin/io/quickdesk/signaling/models/ApproveAccessApprovalRequest.kt
 src/main/kotlin/io/quickdesk/signaling/models/AuthSessionRequest.kt
 src/main/kotlin/io/quickdesk/signaling/models/AuthSessionResponse.kt
+src/main/kotlin/io/quickdesk/signaling/models/ClipboardAuditInput.kt
 src/main/kotlin/io/quickdesk/signaling/models/DeleteMyDeviceGroup200Response.kt
 src/main/kotlin/io/quickdesk/signaling/models/Device.kt
 src/main/kotlin/io/quickdesk/signaling/models/DeviceAccessBanRequest.kt
@@ -141,6 +145,8 @@ src/main/kotlin/io/quickdesk/signaling/models/NotificationChannel.kt
 src/main/kotlin/io/quickdesk/signaling/models/NotificationChannelList.kt
 src/main/kotlin/io/quickdesk/signaling/models/OfflineAlertInput.kt
 src/main/kotlin/io/quickdesk/signaling/models/OfflineAlertRule.kt
+src/main/kotlin/io/quickdesk/signaling/models/OwnerAuditLog.kt
+src/main/kotlin/io/quickdesk/signaling/models/OwnerAuditLogPage.kt
 src/main/kotlin/io/quickdesk/signaling/models/PlaybackTicket.kt
 src/main/kotlin/io/quickdesk/signaling/models/Problem.kt
 src/main/kotlin/io/quickdesk/signaling/models/RemoteSession.kt
@@ -193,6 +199,7 @@ src/test/kotlin/io/quickdesk/signaling/models/ApprovalSummaryTest.kt
 src/test/kotlin/io/quickdesk/signaling/models/ApproveAccessApprovalRequestTest.kt
 src/test/kotlin/io/quickdesk/signaling/models/AuthSessionRequestTest.kt
 src/test/kotlin/io/quickdesk/signaling/models/AuthSessionResponseTest.kt
+src/test/kotlin/io/quickdesk/signaling/models/ClipboardAuditInputTest.kt
 src/test/kotlin/io/quickdesk/signaling/models/DeleteMyDeviceGroup200ResponseTest.kt
 src/test/kotlin/io/quickdesk/signaling/models/DeviceAccessBanRequestTest.kt
 src/test/kotlin/io/quickdesk/signaling/models/DeviceAccessPolicyInputTest.kt
@@ -213,6 +220,8 @@ src/test/kotlin/io/quickdesk/signaling/models/NotificationChannelListTest.kt
 src/test/kotlin/io/quickdesk/signaling/models/NotificationChannelTest.kt
 src/test/kotlin/io/quickdesk/signaling/models/OfflineAlertInputTest.kt
 src/test/kotlin/io/quickdesk/signaling/models/OfflineAlertRuleTest.kt
+src/test/kotlin/io/quickdesk/signaling/models/OwnerAuditLogPageTest.kt
+src/test/kotlin/io/quickdesk/signaling/models/OwnerAuditLogTest.kt
 src/test/kotlin/io/quickdesk/signaling/models/PlaybackTicketTest.kt
 src/test/kotlin/io/quickdesk/signaling/models/ProblemTest.kt
 src/test/kotlin/io/quickdesk/signaling/models/RemoteSessionAccessLogTest.kt

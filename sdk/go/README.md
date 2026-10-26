@@ -150,6 +150,7 @@ Class | Method | HTTP request | Description
 *DevicesAPI* | [**VerifyAccessCode**](docs/DevicesAPI.md#verifyaccesscode) | **Post** /v1/devices/{device_id}/access-code:verify | Verify a device access code and mint a signal token
 *FileTransfersAPI* | [**CreateClipboardAudit**](docs/FileTransfersAPI.md#createclipboardaudit) | **Post** /v1/me/clipboard-audits | Report a controller-observed clipboard sync for auditing
 *FileTransfersAPI* | [**CreateFileTransferAudit**](docs/FileTransfersAPI.md#createfiletransferaudit) | **Post** /v1/me/file-transfer-audits | Report a controller-observed file transfer for auditing
+*FileTransfersAPI* | [**ListMyAuditLogs**](docs/FileTransfersAPI.md#listmyauditlogs) | **Get** /v1/me/audit-logs | Read back the data-channel audit trail that belongs to the caller
 *MeAPI* | [**GetMe**](docs/MeAPI.md#getme) | **Get** /v1/me | The authenticated user
 *NotificationsAPI* | [**DeleteMetricAlert**](docs/NotificationsAPI.md#deletemetricalert) | **Delete** /v1/me/devices/{device_id}/metric-alert | Delete the owner&#39;s metric alert rule
 *NotificationsAPI* | [**GetMetricAlert**](docs/NotificationsAPI.md#getmetricalert) | **Get** /v1/me/devices/{device_id}/metric-alert | The owner&#39;s CPU, memory, and disk alert rule
@@ -221,6 +222,8 @@ Class | Method | HTTP request | Description
  - [NotificationChannelList](docs/NotificationChannelList.md)
  - [OfflineAlertInput](docs/OfflineAlertInput.md)
  - [OfflineAlertRule](docs/OfflineAlertRule.md)
+ - [OwnerAuditLog](docs/OwnerAuditLog.md)
+ - [OwnerAuditLogPage](docs/OwnerAuditLogPage.md)
  - [PlaybackTicket](docs/PlaybackTicket.md)
  - [Problem](docs/Problem.md)
  - [RemoteSession](docs/RemoteSession.md)

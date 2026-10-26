@@ -32,6 +32,7 @@ docs/ApproveAccessApprovalRequest.md
 docs/AuthAPI.md
 docs/AuthSessionRequest.md
 docs/AuthSessionResponse.md
+docs/ClipboardAuditInput.md
 docs/DeleteMyDeviceGroup200Response.md
 docs/Device.md
 docs/DeviceAccessBanRequest.md
@@ -57,6 +58,8 @@ docs/NotificationChannelList.md
 docs/NotificationsAPI.md
 docs/OfflineAlertInput.md
 docs/OfflineAlertRule.md
+docs/OwnerAuditLog.md
+docs/OwnerAuditLogPage.md
 docs/PlaybackTicket.md
 docs/Problem.md
 docs/RecordingsAPI.md
@@ -106,6 +109,7 @@ model_approval_summary_denied_sources_inner.go
 model_approve_access_approval_request.go
 model_auth_session_request.go
 model_auth_session_response.go
+model_clipboard_audit_input.go
 model_delete_my_device_group_200_response.go
 model_device.go
 model_device_access_ban_request.go
@@ -126,6 +130,8 @@ model_notification_channel.go
 model_notification_channel_list.go
 model_offline_alert_input.go
 model_offline_alert_rule.go
+model_owner_audit_log.go
+model_owner_audit_log_page.go
 model_playback_ticket.go
 model_problem.go
 model_remote_session.go

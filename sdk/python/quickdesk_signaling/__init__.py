@@ -75,6 +75,8 @@ __all__ = [
     "NotificationChannelList",
     "OfflineAlertInput",
     "OfflineAlertRule",
+    "OwnerAuditLog",
+    "OwnerAuditLogPage",
     "PlaybackTicket",
     "Problem",
     "RemoteSession",
@@ -164,6 +166,8 @@ from quickdesk_signaling.models.notification_channel import NotificationChannel 
 from quickdesk_signaling.models.notification_channel_list import NotificationChannelList as NotificationChannelList
 from quickdesk_signaling.models.offline_alert_input import OfflineAlertInput as OfflineAlertInput
 from quickdesk_signaling.models.offline_alert_rule import OfflineAlertRule as OfflineAlertRule
+from quickdesk_signaling.models.owner_audit_log import OwnerAuditLog as OwnerAuditLog
+from quickdesk_signaling.models.owner_audit_log_page import OwnerAuditLogPage as OwnerAuditLogPage
 from quickdesk_signaling.models.playback_ticket import PlaybackTicket as PlaybackTicket
 from quickdesk_signaling.models.problem import Problem as Problem
 from quickdesk_signaling.models.remote_session import RemoteSession as RemoteSession

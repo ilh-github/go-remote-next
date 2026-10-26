@@ -39,6 +39,8 @@ export * from './NotificationChannel';
 export * from './NotificationChannelList';
 export * from './OfflineAlertInput';
 export * from './OfflineAlertRule';
+export * from './OwnerAuditLog';
+export * from './OwnerAuditLogPage';
 export * from './PlaybackTicket';
 export * from './Problem';
 export * from './RemoteSession';

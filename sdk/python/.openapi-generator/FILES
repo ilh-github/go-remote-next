@@ -22,6 +22,7 @@ docs/ApproveAccessApprovalRequest.md
 docs/AuthApi.md
 docs/AuthSessionRequest.md
 docs/AuthSessionResponse.md
+docs/ClipboardAuditInput.md
 docs/DeleteMyDeviceGroup200Response.md
 docs/Device.md
 docs/DeviceAccessBanRequest.md
@@ -47,6 +48,8 @@ docs/NotificationChannelList.md
 docs/NotificationsApi.md
 docs/OfflineAlertInput.md
 docs/OfflineAlertRule.md
+docs/OwnerAuditLog.md
+docs/OwnerAuditLogPage.md
 docs/PlaybackTicket.md
 docs/Problem.md
 docs/RecordingsApi.md
@@ -111,6 +114,7 @@ quickdesk_signaling/models/approval_summary_denied_sources_inner.py
 quickdesk_signaling/models/approve_access_approval_request.py
 quickdesk_signaling/models/auth_session_request.py
 quickdesk_signaling/models/auth_session_response.py
+quickdesk_signaling/models/clipboard_audit_input.py
 quickdesk_signaling/models/delete_my_device_group200_response.py
 quickdesk_signaling/models/device.py
 quickdesk_signaling/models/device_access_ban_request.py
@@ -131,6 +135,8 @@ quickdesk_signaling/models/notification_channel.py
 quickdesk_signaling/models/notification_channel_list.py
 quickdesk_signaling/models/offline_alert_input.py
 quickdesk_signaling/models/offline_alert_rule.py
+quickdesk_signaling/models/owner_audit_log.py
+quickdesk_signaling/models/owner_audit_log_page.py
 quickdesk_signaling/models/playback_ticket.py
 quickdesk_signaling/models/problem.py
 quickdesk_signaling/models/remote_session.py
@@ -182,6 +188,7 @@ test/test_approve_access_approval_request.py
 test/test_auth_api.py
 test/test_auth_session_request.py
 test/test_auth_session_response.py
+test/test_clipboard_audit_input.py
 test/test_delete_my_device_group200_response.py
 test/test_device.py
 test/test_device_access_ban_request.py
@@ -207,6 +214,8 @@ test/test_notification_channel_list.py
 test/test_notifications_api.py
 test/test_offline_alert_input.py
 test/test_offline_alert_rule.py
+test/test_owner_audit_log.py
+test/test_owner_audit_log_page.py
 test/test_playback_ticket.py
 test/test_problem.py
 test/test_recordings_api.py
