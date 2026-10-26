@@ -498,6 +498,7 @@ assert_text_present(device_id=dev_id, text="确认删除")
 |------|------|
 | `skill_list_tools` | 列出远程技能宿主上的所有可用工具。返回工具名、描述和参数结构。 |
 | `skill_exec` | 在远程技能宿主上执行工具。传入工具名和参数（JSON 对象）。 |
+| `batch_skill_exec` | 同一个工具一次发到多台设备，每台各收一份回执。传入 `device_ids`、工具名和参数。 |
 
 #### 内置技能宿主工具
 
@@ -551,7 +552,24 @@ skill_exec(device_id=dev_id, tool="run_command",
 skill_exec(device_id=dev_id, tool="read_file",
            args={"path": "C:\\Users\\admin\\config.ini"})
     → 文件内容
+
+// 同一个命令一次发到多台设备（并发，每台一份回执）
+batch_skill_exec(device_ids=["dev_a", "dev_b", "dev_c"],
+                 tool="run_command",
+                 args={"command": "systeminfo | findstr /B /C:\"OS Name\""})
+    → {"total": 3, "succeeded": 2, "failed": 1,
+       "devices": [{"device_id": "dev_a", "ok": true, "detail": "..."},
+                   {"device_id": "dev_b", "ok": false, "detail": "host offline"},
+                   {"device_id": "dev_c", "ok": true, "detail": "..."}]}
 ```
+
+**为什么不是循环 `skill_exec`**：批量调用是并发发出的，几十台机器不会排成一队等；
+一台连不上不会让整批失败——另外几十台的结果正是你要的；返回的是每台一条的结构化
+回执，而不是让模型自己决定「哪台算成功」之后总结出来的散文。上限 50 台，
+重复的 device_id 会先去重。信任层按设备逐台检查，批量不是绕过单次确认的途径。
+
+> **注意：** 单台回执的 `detail` 截断到 2 KB。批量要的是台数和每台判定，
+> 一台话多的主机不该把整份报告变成一坨。
 
 > **注意：** 技能宿主工具直接在远程主机执行，不需要可见的桌面会话。对于读文件、执行命令、查看系统状态等任务，比截图自动化更快更可靠。
 
@@ -661,7 +679,7 @@ Prompts 是内置的指令模板，教 AI Agent 如何高效完成特定场景�
 | Prompt | 说明 | 参数 |
 |--------|------|------|
 | `server_health_check` | 全面的服务器健康检查 — CPU、内存、磁盘、进程、服务、错误日志。生成结构化健康报告。 | `device_id` |
-| `batch_operation` | 在多台设备上依次执行同一任务的指南，含错误处理和汇总报告。 | `task_description` |
+| `batch_operation` | 在多台设备上依次执行同一任务的指南，含错误处理和汇总报告。适合需要分步判断的异质任务；同一条命令打多台请用 `batch_skill_exec` 工具。 | `task_description` |
 
 ### 故障诊断
 

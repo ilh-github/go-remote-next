@@ -19,6 +19,7 @@ use serde_json::json;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
+use crate::batch::{normalize_batch_devices, run_batch, validate_batch_size, BatchDeviceOutcome};
 use crate::event_bus::EventBus;
 use crate::memory::MemoryStore;
 use crate::trust::TrustEngine;
@@ -507,6 +508,35 @@ struct SkillExecParam {
     /// Arguments to pass to the tool as a JSON object
     #[serde(default, deserialize_with = "deserialize_args")]
     args: Option<serde_json::Value>,
+}
+
+/// The batch form of the same call: the same tool, the same arguments, a list of
+/// devices instead of one.
+#[derive(Deserialize, JsonSchema)]
+struct BatchSkillExecParam {
+    /// Devices to run on. Duplicates are collapsed, so listing one twice does
+    /// not run the command twice on it.
+    device_ids: Vec<String>,
+    /// Tool name to invoke on each device's skill host
+    tool: String,
+    /// Arguments to pass to the tool as a JSON object
+    #[serde(default, deserialize_with = "deserialize_args")]
+    args: Option<serde_json::Value>,
+}
+
+/// Caps one device's answer inside a batch report. A host that returns a large
+/// listing would otherwise make the whole report unreadable, and the point of
+/// the batch is the count and the per-device verdict.
+fn truncate_batch_detail(raw: &str) -> String {
+    const MAX_DETAIL_BYTES: usize = 2048;
+    if raw.len() <= MAX_DETAIL_BYTES {
+        return raw.to_string();
+    }
+    let mut cut = MAX_DETAIL_BYTES;
+    while cut > 0 && !raw.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    format!("{}... [truncated]", &raw[..cut])
 }
 
 fn deserialize_args<'de, D>(deserializer: D) -> Result<Option<serde_json::Value>, D::Error>
@@ -2042,6 +2072,100 @@ Use skill_list_tools first to discover available tools and their parameters.")]
         result_str
     }
 
+    /// Run one skill-host tool across many devices at once, with one
+    /// acknowledgement per device.
+    ///
+    /// The batch prompt that already exists tells a model to loop over devices
+    /// itself, which makes the model decide what "done" means for each one and
+    /// hands the operator prose instead of a count. This is the execution half:
+    /// the same tool goes to every device concurrently, each acknowledgement is
+    /// waited for, and the answer is a per-device report.
+    ///
+    /// One unreachable host does not fail the batch - the other forty-nine
+    /// results are still what the operator asked for.
+    #[tool(description = "Run one skill-host tool across many devices at once and get \
+one acknowledgement per device. Use this instead of calling skill_exec in a loop when \
+the same command goes to several machines: the calls overlap, a device that fails does \
+not hide the others, and the result is a per-device report rather than prose. \
+Use skill_list_tools first to discover the tool and its parameters.")]
+    async fn batch_skill_exec(&self, params: Parameters<BatchSkillExecParam>) -> String {
+        let p = params.0;
+        let devices = match normalize_batch_devices(&p.device_ids) {
+            Ok(d) => d,
+            Err(e) => return json!({"error": e}).to_string(),
+        };
+        if let Err(e) = validate_batch_size(devices.len()) {
+            return json!({"error": e}).to_string();
+        }
+        let args = p.args.unwrap_or(json!({}));
+
+        // The trust check runs per device, before anything is sent, because it
+        // decides whether this tool may run on that machine at all. A batch is
+        // not a way around the confirmation a single call would require.
+        for device_id in &devices {
+            if let Err(e) = self.check_trust_and_confirm(device_id, &p.tool, &args).await {
+                return json!({"error": e}).to_string();
+            }
+        }
+
+        // Cloned for the closure, which needs its own copy per device; the
+        // original stays here for the audit loop below.
+        let ws = self.ws.clone();
+        let tool = p.tool.clone();
+        let batch_args = args.clone();
+        let report = run_batch(devices, move |device_id| {
+            let ws = ws.clone();
+            let tool = tool.clone();
+            let args = batch_args.clone();
+            async move {
+                let req = json!({
+                    "deviceId": device_id,
+                    "tool": tool,
+                    "args": args,
+                });
+                match ws.request("skillExec", req).await {
+                    Ok(v) => BatchDeviceOutcome {
+                        device_id,
+                        ok: true,
+                        // Truncated so one chatty host cannot make the whole
+                        // report unreadable; the operator asked for a count.
+                        detail: truncate_batch_detail(
+                            &serde_json::to_string_pretty(&v).unwrap_or_default(),
+                        ),
+                    },
+                    Err(e) => BatchDeviceOutcome {
+                        device_id,
+                        ok: false,
+                        detail: truncate_batch_detail(&e),
+                    },
+                }
+            }
+        })
+        .await;
+
+        // Audit and memory are per device, exactly as they are for a single
+        // call: an operator reviewing the trail has to see which machine each
+        // action landed on, not one row saying "the fleet".
+        for outcome in &report.outcomes {
+            if outcome.device_id.is_empty() {
+                continue;
+            }
+            let risk = self.state.trust.assess_risk(&p.tool, &args);
+            self.state.trust.log_audit(
+                &outcome.device_id, &p.tool, &args,
+                risk.risk_level, "executed",
+                if outcome.ok { "success" } else { &outcome.detail }, "",
+            );
+            let session_id = format!("session-{}", &outcome.device_id);
+            self.state.memory.log_operation(
+                &session_id, &outcome.device_id, &p.tool, &args,
+                &outcome.detail, outcome.ok, 0, "",
+            );
+        }
+
+        report.to_json().to_string()
+    }
+
     #[tool(description = "List all tools available on the remote skill host. \
 Returns the tool names, descriptions, and input schemas so you know how to call them \
 with skill_exec.")]
@@ -2943,6 +3067,33 @@ impl ServerHandler for QuickDeskMcpServer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_chatty_host_cannot_make_the_batch_report_unreadable() {
+        // The point of the batch is the count and the per-device verdict. A host
+        // that returns a large listing must not turn the whole report into one
+        // enormous field the operator cannot scan.
+        let long = "x".repeat(10_000);
+        let cut = truncate_batch_detail(&long);
+        assert!(cut.len() < 3000, "detail was not truncated: {} bytes", cut.len());
+        assert!(cut.ends_with("... [truncated]"), "no truncation marker: {}", &cut[cut.len().saturating_sub(30)..]);
+
+        // A short answer is passed through untouched - the marker on a small
+        // response would be a lie about what the host said.
+        assert_eq!(truncate_batch_detail("exit 0"), "exit 0");
+        assert_eq!(truncate_batch_detail(""), "");
+    }
+
+    #[test]
+    fn truncation_never_splits_a_multibyte_character() {
+        // A host whose output ends in Chinese or emoji must not be cut in the
+        // middle of a code point: that panics on the slice, and a batch that
+        // panics loses every other device's acknowledgement.
+        let text = "完成".repeat(2000);
+        let cut = truncate_batch_detail(&text);
+        assert!(cut.len() < 3000);
+        assert!(cut.is_char_boundary(cut.len()));
+    }
 
     #[test]
     fn maps_recorded_pointer_actions_to_quickdesk_websocket_requests() {
