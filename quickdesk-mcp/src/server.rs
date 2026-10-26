@@ -2057,7 +2057,7 @@ Use skill_list_tools first to discover available tools and their parameters.")]
             if success { "success" } else { &error_msg }, "",
         );
 
-        let session_id = format!("session-{}", &p.device_id);
+        let session_id = format!("session-{}", p.device_id);
         self.state.memory.log_operation(
             &session_id, &p.device_id, &p.tool, &args,
             &result_str, success, duration_ms, &error_msg,
@@ -2156,7 +2156,7 @@ Use skill_list_tools first to discover the tool and its parameters.")]
                 risk.risk_level, "executed",
                 if outcome.ok { "success" } else { &outcome.detail }, "",
             );
-            let session_id = format!("session-{}", &outcome.device_id);
+            let session_id = format!("session-{}", outcome.device_id);
             self.state.memory.log_operation(
                 &session_id, &outcome.device_id, &p.tool, &args,
                 &outcome.detail, outcome.ok, 0, "",
