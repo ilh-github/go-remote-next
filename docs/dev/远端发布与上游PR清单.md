@@ -120,6 +120,19 @@
 - 上游候选：QD-216 属上游 issue #9 的修复，`hostreadiness` 纯逻辑层可独立切出；
   Qt 接线依赖 fork 的 MainController 结构，留 fork。
 
+## 本轮推送（2026-10-26 09:40 CST）
+
+- QD-511 的「可读失败原因」层已落地：`a3ebfae`（feat: tell the operator which of
+  four failures they have）。`git push origin dev master` 成功，远端均到达
+  `a3ebfae`，`git rev-list --left-right --count origin/dev...dev` = `0 0`。
+- 验证：`cargo test --offline --bin quickdesk-mcp` 119/119（新增 2 个用例）、
+  `cargo clippy --all-targets -- -D warnings` 零告警、`git diff --check` 通过。
+- 红绿做了三种破坏：分类塌陷、guidance 统一文案，以及第一版测试自身漏测。
+  前两种确认会红；第三种是测试的缺陷，加固后才抓住。已在联调记录第 171 节记全过程。
+- QD-511 保持 `[~]`：剩余「自动 AI 失败解释/决策」需外部 AI 服务。
+- 上游候选：`MismatchKind` / `classify_mismatch` / `mismatch_guidance` 是纯函数，
+  不依赖 fork 业务，可单独切成上游最小 PR；本轮未创建。
+
 ## 当前本地基线
 
 - fork 本地主线：`dev` / `master` 已同步；QD-907 功能提交为 `33e9851`、`fd92cdd`，
