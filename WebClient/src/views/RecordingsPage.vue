@@ -111,9 +111,10 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref, inject, onMounted } from 'vue'
+import { computed, reactive, ref, inject, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { userApi } from '../api/userApi'
+import { userSync } from '../api/userSync'
 
 const { t } = useI18n()
 const showToast = inject('showToast')
@@ -361,6 +362,31 @@ async function removeRecording(row) {
 
 onMounted(() => {
   if (authState.isLoggedIn) refresh()
+})
+
+// A recording is not only this operator's: another controller can finish an
+// upload, or delete one, while the page is open. The server publishes all three
+// lifecycle events, and until now nothing here listened for them - the page
+// looked complete and then went stale the moment somebody else touched a
+// recording, with a reload as the only cure.
+//
+// Debounced, because one upload produces created followed by updated and a
+// burst of them would otherwise reload the list repeatedly.
+let recordingRefreshTimer = null
+function onRecordingChanged() {
+  clearTimeout(recordingRefreshTimer)
+  recordingRefreshTimer = setTimeout(() => {
+    if (authState.isLoggedIn) refresh()
+  }, 250)
+}
+
+onMounted(() => {
+  userSync.addEventListener('recording-changed', onRecordingChanged)
+})
+
+onBeforeUnmount(() => {
+  clearTimeout(recordingRefreshTimer)
+  userSync.removeEventListener('recording-changed', onRecordingChanged)
 })
 </script>
 

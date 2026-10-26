@@ -262,6 +262,26 @@ class UserSync extends EventTarget {
       return
     }
     if (
+      type === 'recording.created'
+      || type === 'recording.updated'
+      || type === 'recording.deleted'
+    ) {
+      if (!this._shouldApplyFrame(type, msg.server_rev)) return
+      const data = msg.data || {}
+      // No id means the page could not tell which row changed, so refreshing on
+      // it would be a guess. Dropped rather than surfaced.
+      if (!data.recording_id) return
+      this.dispatchEvent(new CustomEvent('recording-changed', {
+        detail: {
+          type,
+          recording_id: data.recording_id,
+          device_id: data.device_id || '',
+          data,
+        },
+      }))
+      return
+    }
+    if (
       type === 'device.access_approval.requested'
       || type === 'device.access_approval.decided'
     ) {

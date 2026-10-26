@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Recordings E2E</title>
+  <style>
+    body { margin: 0; padding: 20px; background: #1a1a2e; color: #eee; font-family: sans-serif; }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <script type="module">
+    import { createApp, h } from 'vue'
+    import { createI18n } from 'vue-i18n'
+    import RecordingsPage from '/src/views/RecordingsPage.vue'
+    import { en } from '/src/i18n/en.js'
+    import { zh } from '/src/i18n/zh.js'
+    import { userApi } from '/src/api/userApi.js'
+    import { authState, updateAuthState } from '/src/store/auth.js'
+
+    localStorage.setItem('quickdesk_lang', 'en-US')
+    localStorage.setItem('quickdesk_user_access_token', 'recordings-e2e-token')
+    localStorage.setItem('quickdesk_signaling_url', location.origin.replace(/^http/, 'ws'))
+    userApi.setBaseUrl(location.origin)
+    updateAuthState()
+
+    const i18n = createI18n({
+      legacy: false,
+      locale: 'en-US',
+      fallbackLocale: 'en-US',
+      messages: { 'zh-CN': zh, 'en-US': en },
+    })
+    const app = createApp({ render: () => h(RecordingsPage) })
+    app.use(i18n)
+    window.__recordingsToasts = []
+    app.provide('showToast', (message, type) => {
+      window.__recordingsToasts.push({ message, type })
+    })
+    app.provide('showLogin', () => {})
+    app.provide('authState', authState)
+
+    app.mount('#app')
+    window.__recordingsMounted = true
+  </script>
+</body>
+</html>
