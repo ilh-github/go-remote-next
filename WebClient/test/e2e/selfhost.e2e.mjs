@@ -44,9 +44,13 @@ before(async () => {
   const signalingBinary = path.join(tempRoot, 'signaling')
   const seedBinary = path.join(tempRoot, 'seed-smoke')
   await Promise.all([
+    // 64 MiB on the signaling build, not 16: on a cold module cache `go build`
+    // prints one line per module it downloads, tens of megabytes in total, and a
+    // smaller buffer makes the call fail with "Command failed" before any
+    // assertion has run. The seed build stays at 16 MiB - it prints a few lines.
     runFile('go', ['build', '-o', signalingBinary, './cmd/signaling'], {
       cwd: SERVER_ROOT,
-      maxBuffer: 16 * 1024 * 1024,
+      maxBuffer: 64 * 1024 * 1024,
     }),
     runFile('go', ['build', '-o', seedBinary, './cmd/seed-smoke'], {
       cwd: SERVER_ROOT,

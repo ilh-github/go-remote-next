@@ -79,6 +79,14 @@ jobs:
         with:
           go-version-file: SignalingServer/go.mod
           cache-dependency-path: SignalingServer/go.sum
+      - name: Warm the Go module cache
+        working-directory: SignalingServer
+        # The E2E shell out to `go build` with a bounded output buffer. On a cold
+        # runner that build downloads the whole module graph, the output overflows
+        # the buffer, and the test fails with "Command failed" before it has
+        # asserted anything. Downloading here keeps the build quiet and the
+        # failure mode honest.
+        run: go mod download
       - name: Install dependencies
         working-directory: WebClient
         run: npm install

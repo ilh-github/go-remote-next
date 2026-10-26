@@ -99,9 +99,9 @@ before(async () => {
   const seedBinary = path.join(tempRoot, 'seed-smoke')
   await Promise.all([
     runFile('go', ['build', '-o', signalingBinary, './cmd/signaling'],
-      { cwd: SERVER_ROOT, maxBuffer: 16 * 1024 * 1024 }),
+      { cwd: SERVER_ROOT, maxBuffer: 64 * 1024 * 1024 }),
     runFile('go', ['build', '-o', seedBinary, './cmd/seed-smoke'],
-      { cwd: SERVER_ROOT, maxBuffer: 16 * 1024 * 1024 }),
+      { cwd: SERVER_ROOT, maxBuffer: 64 * 1024 * 1024 }),
   ])
 
   redis = startProcess('redis-server', [
