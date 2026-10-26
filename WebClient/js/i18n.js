@@ -194,6 +194,12 @@ const zh = {
     'log.connectFailed': '连接失败: {error}',
     'log.reconnecting': '信令连接已断开，开始重连 (code={code}, reason={reason})',
     'log.reconnectAttempt': '重连尝试 {attempt}/{total}',
+    // The browser's own offline/online state, which is the only signal a
+    // process-level outage produces: the socket never closes, it just stops
+    // working, so the client would otherwise keep showing "Connected" over a
+    // link that is gone.
+    'log.networkOffline': '本机网络已断开，等待恢复',
+    'log.networkOnline': '本机网络已恢复，正在重连',
     'log.reconnectFailed': '第 {attempt}/{total} 次重连失败: {error}',
     'status.connectFailed': '连接失败',
     'log.stateChange': '状态: {from} -> {to}',
@@ -525,6 +531,8 @@ const en = {
     'log.connectFailed': 'Connection failed: {error}',
     'log.reconnecting': 'Signaling disconnected, starting reconnect (code={code}, reason={reason})',
     'log.reconnectAttempt': 'Reconnect attempt {attempt}/{total}',
+    'log.networkOffline': 'This machine lost its network connection, waiting for it to return',
+    'log.networkOnline': 'This machine is back online, reconnecting',
     'log.reconnectFailed': 'Reconnect attempt {attempt}/{total} failed: {error}',
     'status.connectFailed': 'Connection failed',
     'log.stateChange': 'State: {from} -> {to}',

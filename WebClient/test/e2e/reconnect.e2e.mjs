@@ -446,6 +446,52 @@ test('keeps a recording upload alive while signaling disconnects and reconnects'
   }
 })
 
+// QD-907's other remaining boundary: the process itself loses the network.
+//
+// This is a different failure from a socket closing, and the difference is what
+// makes it worth its own test. A close arrives as an event the client can react
+// to. A process that goes offline gets no event at all - the socket just stops
+// working, and the client finds out only when it next tries to use it. So the
+// behaviour under test is whether the client notices at all, and whether coming
+// back online is enough to recover without the operator reloading the page.
+test('recovers after the whole process loses and regains the network', async () => {
+  const harness = await createHarness()
+  try {
+    await harness.openRemote()
+    await harness.waitForConnected()
+
+    await harness.setProcessOffline(true)
+    // Give the browser time to fire its own offline event and for the socket to
+    // notice, rather than racing it: a check made too early passes because
+    // nothing has happened yet.
+    await new Promise((resolve) => setTimeout(resolve, 1500))
+
+    await harness.setProcessOffline(false)
+
+    // Back online is the trigger. The client has to reconnect on its own - a
+    // page that only recovers because the operator reloaded it has not handled
+    // this case at all. Two sockets is the proof: the second one is the client
+    // dialling again after the network returned.
+    await harness.waitForConnected({ expectedSignalConnections: 2 })
+    assert.equal(
+      await harness.reconnectTaskActive(),
+      false,
+      'the client must settle once the network is back, not keep retrying',
+    )
+    assert.equal(
+      await harness.statusText(),
+      'Connected',
+      'regaining the network must restore the session without a reload',
+    )
+    assert.ok(
+      !harness.state.connections.some((entry) => entry.error_msg === 'reconnect_exhausted'),
+      'a process-level outage must not be recorded as an exhausted reconnect',
+    )
+  } finally {
+    await harness.close()
+  }
+})
+
 async function createHarness() {
   const state = {
     accessMode: 'success',
@@ -612,6 +658,12 @@ async function createHarness() {
     context,
     page,
     sockets,
+    // The whole browser process loses the network, which is a different failure
+    // from a socket closing: there is no close event to react to, only the
+    // browser's own offline state.
+    async setProcessOffline(offline) {
+      await context.setOffline(offline)
+    },
     async openRemote() {
       await page.goto(
         `${baseUrl}/remote.html?server=${encodeURIComponent(wsUrl)}&device=e2e-device&st=initial-token`,

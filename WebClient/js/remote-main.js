@@ -313,6 +313,7 @@ class RemoteDesktopApp {
         this._connectionRecorded = false;
         this._setupTabCoordinator(deviceId);
         this._setupControlGrant();
+        this._setupNetworkStateHandlers();
 
         // Set up userApi base URL for connection recording
         userApi.setBaseUrl(serverUrl);
@@ -782,6 +783,33 @@ class RemoteDesktopApp {
         window.addEventListener('beforeunload', () => {
             this.tabCoordinator?.releaseAll();
         }, { once: true });
+    }
+
+    // A process that loses the network gets no socket event to react to: the
+    // connection does not close, it just stops working, and the only signal is
+    // the browser's own offline state. Without this the client keeps showing
+    // "Connected" over a link that is gone, and the operator finds out by
+    // typing into a machine that is not receiving anything.
+    _setupNetworkStateHandlers() {
+        window.addEventListener('offline', () => {
+            if (this._manualDisconnect) return;
+            this._log(t('log.networkOffline'), 'warning');
+            this._setConnectionState('reconnecting', t('log.networkOffline'));
+            // Close the socket so the reconnect path has something to react to.
+            // Leaving it open means the client waits for a close that will not
+            // arrive until the network is already back.
+            try { this.session?.disconnect(); } catch { /* already closing */ }
+        });
+
+        window.addEventListener('online', () => {
+            if (this._manualDisconnect || this._reconnectTask) return;
+            // Coming back is the trigger, but only if there is something to
+            // restore: a page that was never connected must not start a
+            // reconnect it has no config for.
+            if (!this._connectionConfig) return;
+            this._log(t('log.networkOnline'), 'info');
+            this._startReconnect({ code: 'network_restored', reason: 'online' });
+        });
     }
 
     // QD-314: the server's answer on who may drive this machine. It is wired to
