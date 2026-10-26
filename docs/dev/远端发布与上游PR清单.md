@@ -8,9 +8,24 @@
   已推送：`git push origin dev` 成功，`origin/dev` 从 `87a4be7` 前进到 `b0cf3f4`，
   `git rev-list --left-right --count origin/dev...dev` = `0 0`；本地 `master`
   已同步到同一提交。工作树只剩三个约定不提交的未跟踪路径。
-- 该提交含 C++/QML 改动，本机无 Qt 工具链，构建与测试证据来自 CI
-  （`QuickDesk Windows` / `QuickDesk macOS` workflow，触发路径含 `QuickDesk/**`）。
-  **这两条 run 的结果需在上传后核对**，通过前不把 Qt 侧标记为已验证。
+- 该提交含 C++/QML 改动，本机无 Qt 工具链，构建与测试证据全部来自 CI。
+  **已核对的结果**（run 见下）：
+  - `WebClient verify` success（unit + 9 个 mock 浏览器 E2E，含本轮新增的
+    `scheduled-edit.e2e.mjs`）。
+  - `SignalingServer verify` success——首次为 failure，但失败的是
+    `Conformance smoke` 的 `curl: (7) Failed to connect to 127.0.0.1 port 8000`，
+    即服务端没起来，不是断言失败；`gh run rerun --failed` 后四 job 全绿。
+    该 job 在 `dba67213`、`5ea85dd` 等无关提交上也失败过，是已知 flaky。
+  - `QuickDesk Windows` success：`100% tests passed, 0 tests failed out of 20`，
+    其中 `17/20 quickdesk_scheduled_task_manager_test ... Passed`，
+    即本轮新增的 Qt 编辑断言真的在跑。
+  - `QuickDesk macOS` 仍 queued（该 workflow 常年排队 60~100 分钟），结果待补。
+- 过程中 CI 抓到两个本机看不见的缺陷，都已修：
+  ①MSVC `C2511: updateTask overloaded member function not found`——
+    头文件里可选参数是 `QString` 值参而定义是 `const QString&`，声明与定义
+    描述的不是同一个函数；`14dec12` 修。
+  ②Postgres timestamp 只有微秒精度，带纳秒的 `time.Time` 比 `Equal` 必败；
+    `34eaf46` 修。本机看着绿是因为两边时钟碰巧一致。
 - 上游 PR 状态本轮复核：#34 `CLEAN`/`MERGEABLE` 且 `build` SUCCESS，#33/#32/#31/#26 均
   `CLEAN`，#25 仍 `DIRTY`/`CONFLICTING`（base `dev`，与上游 `dev` 已分叉），未动作。
 - 上游 `dev` 仍为 `88d4d36`。
