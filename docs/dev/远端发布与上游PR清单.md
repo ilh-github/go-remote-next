@@ -19,7 +19,12 @@
   - `QuickDesk Windows` success：`100% tests passed, 0 tests failed out of 20`，
     其中 `17/20 quickdesk_scheduled_task_manager_test ... Passed`，
     即本轮新增的 Qt 编辑断言真的在跑。
-  - `QuickDesk macOS` 仍 queued（该 workflow 常年排队 60~100 分钟），结果待补。
+  - `QuickDesk macOS` 当时仍 queued；后续跑完后为 failure，但**失败点固定是
+    `Package DMG` 的 `MACOS_SIGN_IDENTITY is required for a notarized release`**，
+    即 QD-005/QD-808 一直缺的那枚 Apple Developer ID 凭据。Build、Build MCP Bridge、
+    Build Skill Host、Publish 全部 success，Notarization gate E2E 因缺凭据 skip。
+    **近十次 macOS run（`52cca18b` 至 `9591dd05`）失败步骤全是 `Package DMG`**，
+    与 fork 代码无关，属既有环境缺口，不构成本轮回贡的阻碍，也不当成回归。
 - 过程中 CI 抓到两个本机看不见的缺陷，都已修：
   ①MSVC `C2511: updateTask overloaded member function not found`——
     头文件里可选参数是 `QString` 值参而定义是 `const QString&`，声明与定义
