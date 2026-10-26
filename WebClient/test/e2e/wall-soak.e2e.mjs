@@ -6,7 +6,7 @@ import { createServer } from 'vite'
 
 // The interval rule lives in a module so it can be tested without a two-hour
 // run; the E2E only decides when to ask it.
-import { buildSamplingPlan, intervalAt } from '../../js/soak/samplingPlan.js'
+import { buildSamplingPlan, intervalAt, denseResolution } from '../../js/soak/samplingPlan.js'
 
 const WEB_ROOT = new URL('../../', import.meta.url).pathname
 const DEVICE_COUNT = positiveInteger(process.env.QD_WALL_DEVICES, 40)
@@ -194,6 +194,10 @@ test(
       let previousFrames = startedFrames
       let previousSampleAt = 0
       let index = 0
+      // Measured, not assumed: how long one sample actually costs is what decides
+      // whether a dense window is dense. Recorded as a rolling figure so the
+      // summary can report the achieved resolution next to the configured one.
+      let samplingCostMs = 0
 
       while (Date.now() - startedAt < SOAK_SECONDS * 1000) {
         const sampleStarted = Date.now()
@@ -237,6 +241,12 @@ test(
         // The interval is chosen per sample, not fixed for the run: inside the
         // dense window the loop tightens so a step change lands on several
         // points instead of being interpolated between two of them.
+        // Rolling average of what a sample costs, so a slow start-up sample does
+        // not permanently misreport the achievable resolution.
+        const sampleCost = Date.now() - sampleStarted
+        samplingCostMs = samplingCostMs === 0
+          ? sampleCost
+          : Math.round(samplingCostMs * 0.7 + sampleCost * 0.3)
         const elapsedNow = Date.now() - startedAt
         const interval = intervalAt(SAMPLING_PLAN, elapsedNow)
         const remaining = interval - (Date.now() - sampleStarted)
@@ -296,6 +306,14 @@ test(
           samples: samples.filter((sample) => (
             sample.elapsedMs >= DENSE_FROM_MS && sample.elapsedMs < DENSE_TO_MS
           )).length,
+          // The interval that was configured is not the interval that was
+          // achieved: under 200 viewers one sample costs seconds, so a 500 ms
+          // window is overshot by however long the sampling itself takes. Both
+          // numbers are reported, because a trace whose resolution is a property
+          // of machine load while the summary claims it was configured is a lie
+          // about its own evidence.
+          achievedIntervalMs: Number(((Date.now() - startedAt) / Math.max(1, samples.length)).toFixed(0)),
+          resolution: denseResolution(SAMPLING_PLAN, samplingCostMs),
         },
         mainFps: Number(mainFps.toFixed(2)),
         heapGrowthMb: Number(heapGrowthMb.toFixed(2)),

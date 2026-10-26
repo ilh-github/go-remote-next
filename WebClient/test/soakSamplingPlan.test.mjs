@@ -6,7 +6,8 @@ import test from 'node:test'
 // The rule that picks the interval lives in soak/samplingPlan.js so it can be
 // tested without a two-hour run.
 
-const { buildSamplingPlan, intervalAt, plannedSampleCount } = await import('../js/soak/samplingPlan.js')
+const { buildSamplingPlan, intervalAt, plannedSampleCount, denseResolution } =
+  await import('../js/soak/samplingPlan.js')
 
 // The default every existing run gets: no window configured, one interval for
 // the whole run. A run that never asked for dense sampling must not silently
@@ -112,4 +113,56 @@ test('the sample count without a window reports no dense samples', () => {
 test('intervalAt tolerates no plan', () => {
   assert.equal(intervalAt(null, 5000), 1000)
   assert.equal(intervalAt(undefined, 5000), 1000)
+})
+
+// The interval a plan asks for and the interval a run achieves are different
+// numbers once sampling itself costs time. Under 200 viewers one sample takes
+// about seven seconds, so a 500 ms dense interval is overshot fourteen-fold and
+// a window configured for 240 points yields six. Reporting the configured
+// interval as if it were the achieved one makes the trace's resolution a
+// property of machine load while the summary claims it was configured.
+test('a dense window sampling cannot deliver reports the gap', () => {
+  const plan = buildSamplingPlan({
+    intervalMs: 5000, fromMs: 0, toMs: 120000, denseIntervalMs: 500,
+  })
+  // A cheap sample: the plan's own interval is the binding constraint.
+  const cheap = denseResolution(plan, 100)
+  assert.equal(cheap.achievable, true)
+  assert.equal(cheap.effectiveMs, 500, 'the requested interval is what is used')
+
+  // The measured 200-viewer cost: the sample dominates, so the window is not
+  // actually dense even though it is configured to be.
+  const expensive = denseResolution(plan, 7000)
+  assert.equal(expensive.achievable, false)
+  assert.equal(expensive.effectiveMs, 7000,
+    'the effective interval must be the real one, not the configured one')
+  assert.equal(expensive.requestedMs, 500)
+})
+
+// A sample exactly as expensive as the requested interval is still achievable:
+// the loop keeps up, it just has no slack.
+test('a sample that costs exactly the interval is achievable', () => {
+  const plan = buildSamplingPlan({
+    intervalMs: 1000, fromMs: 0, toMs: 10000, denseIntervalMs: 200,
+  })
+  const result = denseResolution(plan, 200)
+  assert.equal(result.achievable, true)
+  assert.equal(result.effectiveMs, 200)
+})
+
+// With no window the question is about the coarse interval, so a caller that
+// never configured dense sampling still gets an honest answer.
+test('resolution without a window reports the coarse interval', () => {
+  const plan = buildSamplingPlan({ intervalMs: 1000 })
+  const result = denseResolution(plan, 250)
+  assert.equal(result.achievable, true)
+  assert.equal(result.requestedMs, 1000)
+  assert.equal(result.effectiveMs, 1000)
+})
+
+// A caller with no plan at all must not crash: the coarse default is the answer.
+test('resolution tolerates no plan', () => {
+  const result = denseResolution(null, 5000)
+  assert.equal(result.achievable, true)
+  assert.equal(result.requestedMs, 1000)
 })

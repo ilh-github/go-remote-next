@@ -101,6 +101,42 @@ export function plannedSampleCount(plan, durationMs) {
   }
 }
 
+/**
+ * Whether the plan can actually deliver the resolution it promises.
+ *
+ * The interval a plan *asks* for and the interval a run *achieves* are different
+ * numbers once sampling itself costs time. Under 200 viewers one sample takes
+ * about seven seconds (page.evaluate plus a CDP metrics read), so a 500 ms dense
+ * interval is overshot fourteen-fold and the window yields six points instead of
+ * the two hundred and forty it was configured for. A plan that cannot say so
+ * ships a trace whose resolution is a property of machine load rather than of
+ * configuration, and a summary that reports the configured interval as if it
+ * were the achieved one is a lie about its own evidence.
+ *
+ * This reports the gap so the E2E can carry it in the summary rather than
+ * silently producing a dense window that is not dense.
+ *
+ * @param {{intervalMs: number, window: object|null}} plan
+ * @param {number} sampleCostMs  how long one sample actually takes
+ * @returns {{achievable: boolean, effectiveMs: number, requestedMs: number}}
+ */
+export function denseResolution(plan, sampleCostMs) {
+  const requested = plan && plan.window ? plan.window.intervalMs : (plan ? plan.intervalMs : 1000)
+  // A caller with no plan has nothing to fall short of, so the question does not
+  // apply: reporting "not achievable" there would make the coarse default look
+  // broken by a cost it was never trying to beat.
+  if (!plan) {
+    return { achievable: true, effectiveMs: requested, requestedMs: requested }
+  }
+  const cost = positive(sampleCostMs, 0)
+  const effective = Math.max(requested, cost)
+  return {
+    achievable: effective <= requested,
+    effectiveMs: effective,
+    requestedMs: requested,
+  }
+}
+
 function positive(value, fallback) {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : fallback
 }
