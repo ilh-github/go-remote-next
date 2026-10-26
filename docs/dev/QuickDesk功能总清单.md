@@ -717,7 +717,7 @@ Roadmap 项放到同一条实施路径中。详细追溯仍以第 16 节为准�
 | 3 | 等 PR #25 基线 | QD-204 API/客户端、QD-607 服务端、QD-108 / QD-508 / QD-706 / QD-708 管理面、QD-005 客户端 | 这些能力依赖控制面、OpenAPI、录像或管理页基线；直接塞进 #25 会变成巨型 PR | 维护者确认 #25 合并或 stacked base；再按服务端/Web/Qt/更新拆 PR |
 | 4 | 跟踪上游已有 PR | PR #22 自动审批、#23 录像、#24 skill-host 运行库、#25 控制面 | 上游已有实现，重复开发只会制造分叉 | PR 合并后同步 `upstream/dev`，重跑受影响测试；删除重复本地实现 |
 | 5 | 提 Remoting 需求 | QD-004 Host 权威录制、QD-007 图片剪贴板、QD-114 真实 CertVerifier、QD-214 Windows 用户上下文 | 必须改 Chromium Remoting 或宿主生命周期，维护者已明确这类改动由他处理 | 每项提交协议草案、权限边界、兼容性和验收用例；不在 fork 伪造第二套媒体链路 |
-| 6 | fork 自主增强 | QD-610 业务集成、QD-511 智能回放、QD-904 / QD-907 / QD-908 / QD-909 | QD-510、HTTP trigger、持久化 interval/IANA 时区 cron trigger、法定节假日跳过、cron 漏跑补跑、Idempotency-Key、异步队列/取消、HMAC 回调、持久 outbox、死信查询/重放、单条与批量 ack、操作者归属、queued job 重启恢复、同目录多进程 claim 协调、QuickDesk 本机持久 replay、服务端 Redis replay retention 和跨 worker retry claim 恢复已落地；数据库事务 event outbox 已覆盖 14 类关键事件，公平调度和 Owner 委托权限已落地，剩余业务编排缺跨机器分布式队列 | 有明确用户入口、失败路径和对应自动化或真机证据 |
+| 6 | fork 自主增强 | QD-610 业务集成、QD-511 智能回放、QD-904 / QD-907 / QD-908 / QD-909 | QD-510、HTTP trigger、持久化 interval/IANA 时区 cron trigger、法定节假日跳过、cron 漏跑补跑、Idempotency-Key、异步队列/取消、HMAC 回调、持久 outbox、死信查询/重放、单条与批量 ack、操作者归属、queued job 重启恢复、同目录多进程 claim 协调、QuickDesk 本机持久 replay、服务端 Redis replay retention 和跨 worker retry claim 恢复已落地；数据库事务 event outbox 已覆盖 14 类关键事件，公平调度、Owner 委托权限和跨机器分布式队列（`93a0d13`，`QUICKDESK_WORKFLOW_PEER_JOB_DIRS` + `QUICKDESK_WORKFLOW_CLAIM_DB`）均已落地；QD-610 至此在 fork 侧收口 | 有明确用户入口、失败路径和对应自动化或真机证据 |
 | 7 | 暂缓跟随上游 | QD-318 Linux、QD-319 iOS/Android | 上游 Roadmap 已列出，本 fork 当前不承诺实现 | 保持接口和构建兼容；上游方向明确后再排期 |
 | 8 | 不进入待办 | RDP、重写 WebRTC/Remoting、多租户/SSO/计费、通用插件市场 | 与“复用成熟远控内核 + 补业务控制面”的路线冲突或收益不足 | 只有用户重新定义产品目标才重新评估 |
 
