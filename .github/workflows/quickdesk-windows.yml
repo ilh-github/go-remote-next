@@ -84,6 +84,20 @@ jobs:
         shell: cmd
         run: call scripts\build_mcp_win.bat Release
 
+      # The MCP bridge is built here and nowhere tested, which is how a module
+      # can carry a hundred passing tests and still have no evidence from any
+      # runner. `cargo build` compiles the test module only under `cfg(test)`,
+      # so a build says nothing about whether those tests pass - or whether
+      # they still compile after a refactor.
+      - name: Test MCP Bridge
+        shell: cmd
+        run: |
+          cd quickdesk-mcp
+          cargo test --offline
+          if errorlevel 1 exit /b 1
+          cargo clippy --offline --all-targets -- -D warnings
+          if errorlevel 1 exit /b 1
+
       - name: Build Skill Host
         shell: cmd
         run: call scripts\build_skill_host_win.bat Release

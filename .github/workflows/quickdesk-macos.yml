@@ -82,6 +82,14 @@ jobs:
       - name: Build MCP Bridge
         run: bash scripts/build_mcp_mac.sh Release ${{ matrix.arch }}
 
+      # Same gap as the Windows workflow: the bridge is built and never tested,
+      # so its test module only ever runs on a developer's machine.
+      - name: Test MCP Bridge
+        run: |
+          cd quickdesk-mcp
+          cargo test --offline
+          cargo clippy --offline --all-targets -- -D warnings
+
       - name: Build Skill Host
         run: bash scripts/build_skill_host_mac.sh Release ${{ matrix.arch }}
 
