@@ -1,5 +1,19 @@
 # 远端发布与上游 PR 清单
 
+**更新时间**: 2026-10-26 23:10 CST
+
+## 本轮推送（2026-10-26 23:10 CST）
+
+- `e4e58db`（test(webclient): pin the event coverage check as behaviour, not text）
+  已推送：`git push origin dev` 成功，`origin/dev` 从 `00deb1d` 前进到 `e4e58db`，
+  `git rev-list --left-right --count origin/dev...dev` = `0 0`；本地 `master`
+  已同步到同一提交。该提交只含一个测试文件与清单/联调记录的三处文档，无产品行为变更，
+  因此不建上游 PR。
+- 上游 PR 状态本轮复核：#34 `CLEAN`/`MERGEABLE` 且唯一检查 `build` 为 SUCCESS；
+  #33 `CLEAN`；#32 `CLEAN`；#31 `CLEAN`；#26 `CLEAN`；#25 仍 `DIRTY`/`CONFLICTING`
+  （base `dev`，与上游 `dev` 已分叉），未动作。
+- 上游 `dev` 仍为 `88d4d36`（PR #24 的 skill-host 修复），与 fork 基线一致。
+
 **更新时间**: 2026-10-26 12:50 CST
 
 ## 本轮推送（2026-10-26 12:50 CST）
