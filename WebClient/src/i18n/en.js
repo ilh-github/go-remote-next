@@ -627,6 +627,7 @@ export const en = {
       approvalDecided: 'Approval decided',
       scheduledTaskFailed: 'Scheduled task failed',
       metricAlert: 'Device metric alert',
+      connectPrompted: 'Scheduled connection due',
     },
     windows: {
       add: 'Add time window',

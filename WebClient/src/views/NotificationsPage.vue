@@ -508,6 +508,7 @@ import {
   normalizeQuietHours,
   toDatetimeLocalValue,
 } from '../api/notificationModels'
+import { eventLabelKey } from '../../js/notifications/eventLabels'
 
 const { t } = useI18n()
 const authState = inject('authState')
@@ -599,24 +600,11 @@ const selectedChannel = computed(() => (
   channels.value.find((channel) => channel.id === selectedChannelId.value) || null
 ))
 
-const eventLabelKeys = {
-  'device.access.denied': 'accessDenied',
-  'device.access.granted': 'accessGranted',
-  'device.access.session': 'accessSession',
-  'device.online.changed': 'onlineChanged',
-  'device.offline.sustained': 'offlineSustained',
-  'device.bound': 'bound',
-  'device.unbound': 'unbound',
-  'device.access_approval.requested': 'approvalRequested',
-  'device.access_approval.decided': 'approvalDecided',
-  'scheduled_task.failed': 'scheduledTaskFailed',
-  'device.metric.alert': 'metricAlert',
-}
-
+// The mapping lives in a module so an event type this build has not heard of is
+// a deliberate fallback rather than an empty table cell, and so the coverage is
+// a test instead of a hope.
 function eventLabel(event) {
-  const key = eventLabelKeys[event]
-  if (!key) return event
-  return t(`notifications.eventNames.${key}`)
+  return t(`notifications.eventNames.${eventLabelKey(event)}`)
 }
 
 function deviceName(device) {

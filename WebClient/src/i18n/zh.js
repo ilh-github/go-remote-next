@@ -630,6 +630,7 @@ export const zh = {
       approvalDecided: '访问审批结果',
       scheduledTaskFailed: '计划任务失败',
       metricAlert: '设备指标告警',
+      connectPrompted: '计划连接已到点',
     },
     windows: {
       add: '添加时间窗口',

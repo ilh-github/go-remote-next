@@ -96,6 +96,17 @@ const (
 	// row (`attempts`, `last_error`) and in the audit trail, and paging the
 	// owner on every retry would train them to ignore the alert.
 	EventScheduledTaskFailed = "scheduled_task.failed"
+
+	// EventDeviceConnectPrompted fires when a scheduled task comes due and the
+	// owner's clients should be told a connection is expected now.
+	//
+	// The control plane cannot make a controller dial a device - that is a
+	// client-side act - which is why "scheduled connection" was never a task
+	// kind: it could be scheduled but never actually run. Everything around the
+	// connection is control-plane work, though, and a prompt is the useful half
+	// of it: the row exists, the clock fires, and every client the owner already
+	// has open learns a connection is due without polling for it.
+	EventDeviceConnectPrompted = "device.connect_prompted"
 )
 
 // EventSubscriber is the in-process interface for anything that wants to

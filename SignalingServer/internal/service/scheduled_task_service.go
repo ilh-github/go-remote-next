@@ -600,6 +600,96 @@ func NewRevokeAllRemoteSessionsAction(
 	return &RevokeAllRemoteSessionsAction{db: db, revoker: revoker}
 }
 
+// ConnectPromptAction publishes device.connect_prompted when a scheduled task
+// comes due.
+//
+// This is the half of "scheduled connection" the control plane can actually
+// deliver. The other half - making a controller dial the device - lives in a
+// client, and a task that needed one to cooperate could be scheduled but never
+// actually run, which is why no such kind was ever registered. A prompt needs
+// nothing but the row and the clock, so it can be verified end to end today.
+//
+// It carries the task id so a client can act on the prompt without a round trip,
+// and the device when the task names one, because "connect to something" is not
+// a prompt anybody can act on.
+// eventPublisher is the narrow surface ConnectPromptAction needs. An interface
+// rather than *EventBus so a test can assert on what was published without
+// standing up the real bus and its Redis stream.
+type eventPublisher interface {
+	Publish(ctx context.Context, evt Event)
+}
+
+type ConnectPromptAction struct {
+	bus eventPublisher
+	// outbox makes the publish durable. There is no business row to bind to -
+	// the task outcome is written by runOne after this returns - so this only
+	// guarantees the prompt survives a crash, not that both commit together.
+	outbox EventOutboxWriter
+	// enqueue runs the outbox write inside the caller's transaction. A field
+	// rather than a *gorm.DB so the durable path is testable without a database:
+	// a bare &gorm.DB{} panics inside gorm's Session, which would make the test
+	// about gorm rather than about this action.
+	enqueue func(ctx context.Context, evt Event) error
+}
+
+func NewConnectPromptAction(bus eventPublisher) *ConnectPromptAction {
+	return &ConnectPromptAction{bus: bus}
+}
+
+// WithOutbox routes the prompt through the transactional outbox. Without one the
+// action keeps the direct publish.
+func (a *ConnectPromptAction) WithOutbox(outbox EventOutboxWriter) *ConnectPromptAction {
+	a.outbox = outbox
+	return a
+}
+
+// WithDB supplies the handle the outbox transaction runs on.
+func (a *ConnectPromptAction) WithDB(db *gorm.DB) *ConnectPromptAction {
+	if db != nil {
+		a.enqueue = func(ctx context.Context, evt Event) error {
+			return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+				_, err := a.outbox.EnqueueTx(ctx, tx, evt)
+				return err
+			})
+		}
+	}
+	return a
+}
+
+// WithEnqueue replaces the transaction the outbox write runs in. Production uses
+// WithDB; a test uses this to observe the durable path directly.
+func (a *ConnectPromptAction) WithEnqueue(enqueue func(context.Context, Event) error) *ConnectPromptAction {
+	a.enqueue = enqueue
+	return a
+}
+
+func (a *ConnectPromptAction) Run(ctx context.Context, task models.ScheduledTask) error {
+	if a == nil || a.bus == nil {
+		// A configuration error rather than a silent success: an occurrence that
+		// reports success while telling nobody anything is the failure this
+		// feature exists to avoid.
+		return errors.New("connect-prompt action is not configured")
+	}
+	evt := Event{
+		Type:   EventDeviceConnectPrompted,
+		UserID: task.UserID,
+		Data: map[string]interface{}{
+			"task_id": task.ID,
+		},
+	}
+	if a.outbox == nil || a.enqueue == nil {
+		a.bus.Publish(ctx, evt)
+		return nil
+	}
+	// A failed enqueue must not fail the occurrence. The prompt is already due;
+	// retrying it later would deliver a reminder for a moment that has passed,
+	// and the log line is the only trace an operator gets.
+	if err := a.enqueue(ctx, evt); err != nil {
+		log.Printf("[scheduled-task] enqueue device.connect_prompted for task %d failed: %v", task.ID, err)
+	}
+	return nil
+}
+
 func (a *RevokeAllRemoteSessionsAction) Run(
 	ctx context.Context,
 	task models.ScheduledTask,

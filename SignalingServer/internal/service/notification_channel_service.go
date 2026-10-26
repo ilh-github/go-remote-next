@@ -35,6 +35,10 @@ var SupportedUserNotificationEvents = []string{
 	// A scheduled task that has spent its retry budget is an operational
 	// failure the owner asked to be told about by scheduling it.
 	EventScheduledTaskFailed,
+	EventDeviceConnectPrompted,
+	// A scheduled connection prompt. The owner asked to be told at a time they
+	// chose; without this the prompt reaches the realtime socket and nowhere the
+	// owner configured, which is the half-wired version of the feature.
 }
 
 // IsSupportedUserNotificationEvent reports whether evtType may be subscribed

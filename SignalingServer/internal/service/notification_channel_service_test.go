@@ -48,6 +48,17 @@ func TestMetricAlertCanReachUserNotificationChannels(t *testing.T) {
 	if !IsSupportedUserNotificationEvent(EventDeviceMetricAlert) {
 		t.Fatalf("%s must be subscribable by a user notification channel", EventDeviceMetricAlert)
 	}
+
+}
+
+// QD-607's connect prompt is only useful if a user can actually ask to be told.
+// The event reaches the realtime stream whatever this list says, so a channel
+// that cannot subscribe to it is the half-wired kind of feature: it works on the
+// socket and is invisible everywhere the owner configured their notifications.
+func TestConnectPromptCanReachUserNotificationChannels(t *testing.T) {
+	if !IsSupportedUserNotificationEvent(EventDeviceConnectPrompted) {
+		t.Fatalf("%s must be subscribable by a user notification channel", EventDeviceConnectPrompted)
+	}
 }
 
 func TestChannelSubscribes(t *testing.T) {

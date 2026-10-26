@@ -621,6 +621,15 @@ func main() {
 				remoteSessionService, realtimeHandler),
 		),
 	)
+	// The prompt half of a scheduled connection. A kind that promised the
+	// connection itself was never registered, because the control plane cannot
+	// make a controller dial a device - it could be scheduled and never run.
+	// Telling the owner's clients that a connection is due is entirely
+	// control-plane work, so it can be verified end to end.
+	scheduledTaskService.RegisterAction(
+		models.ScheduledTaskConnectPrompt,
+		service.NewConnectPromptAction(bus).WithOutbox(eventOutbox).WithDB(db),
+	)
 	if !minimalMode && cfg.ScheduledTask.IntervalSeconds > 0 {
 		go scheduledTaskService.Run(
 			context.Background(),

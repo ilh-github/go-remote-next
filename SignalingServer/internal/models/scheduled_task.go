@@ -18,6 +18,12 @@ const (
 	// action: unlike sign_out_all_sessions it leaves the account's login
 	// families alone and only empties active remote-desktop sessions.
 	ScheduledTaskRevokeAllRemoteSessions = "revoke_all_remote_sessions"
+	// ScheduledTaskConnectPrompt tells the owner's clients that a connection is
+	// due. It is deliberately not a connection: the control plane cannot make a
+	// controller dial a device, so a kind that promised one could be scheduled
+	// and never run. This one only publishes, and publishing is entirely
+	// control-plane work.
+	ScheduledTaskConnectPrompt = "connect_prompt"
 )
 
 // ScheduledTask is one owner-scheduled control-plane action.

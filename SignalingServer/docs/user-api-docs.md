@@ -1533,7 +1533,7 @@ confirm that "05:30 Shanghai" was understood as 05:30 Shanghai and not 05:30
 UTC.
 
 Only kinds whose whole effect lives in the control plane are registered, so a
-task never silently depends on a client that is not there. Today there are two
+task never silently depends on a client that is not there. Today there are three
 kinds:
 
 - **`sign_out_all_sessions`** — revokes every active session family of the
@@ -1548,6 +1548,16 @@ kinds:
   session is. Ending no sessions is a successful no-op. A controller socket that
   does not acknowledge the close makes that occurrence fail and appears in
   `last_error`, so the existing retry/visibility rules still apply.
+
+- **`connect_prompt`** — tells the owner's clients that a connection is due. It
+  publishes `device.connect_prompted` to the owner's realtime stream and to any
+  subscribed webhook, carrying the task id so a client can act without a second
+  request. This is the half of a "scheduled connection" the control plane can
+  deliver: the other half — making a controller actually dial the device — is a
+  client-side act, and a kind that promised it could be scheduled but never run.
+  A prompt needs only the row and the clock, so it is verifiable end to end.
+  Clients that want the connection itself react to the event; the server never
+  opens one on the owner's behalf.
 
 `revoke_all_remote_sessions` is bounded to 200 devices in one run. This keeps a
 misconfigured schedule from holding the worker indefinitely; a larger account
