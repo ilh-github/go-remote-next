@@ -8,6 +8,11 @@ import { createServer } from 'vite'
 // run; the E2E only decides when to ask it.
 import { buildSamplingPlan, intervalAt, denseResolution } from '../../js/soak/samplingPlan.js'
 
+// The allocation-profile rules live in a module for the same reason: what
+// counts as a period is the part worth testing, and it cannot be tested from
+// inside a two-hour run.
+import { periodicity, summarizeAllocationProfile } from '../../js/soak/allocationProfile.js'
+
 const WEB_ROOT = new URL('../../', import.meta.url).pathname
 const DEVICE_COUNT = positiveInteger(process.env.QD_WALL_DEVICES, 40)
 const SOAK_SECONDS = positiveInteger(process.env.QD_WALL_SOAK_SECONDS, 12)
@@ -41,6 +46,12 @@ const DENSE_SAMPLE_MS = positiveInteger(process.env.QD_WALL_DENSE_SAMPLE_MS, 100
 // reading, the growth is real and the allocator hunt is worth doing. Either way
 // the answer comes from a number rather than from an argument.
 const PEAK_TRACK_MS = positiveInteger(process.env.QD_WALL_PEAK_TRACK_MS, 1000)
+// How many heap readings the periodicity analysis keeps. The peak tracker runs
+// for the whole soak, so an uncapped series is 7200 points on the documented
+// two-hour run: unreadable in a summary and no faster to analyse. The most
+// recent readings are the ones that matter, because a period is a property of
+// the recent allocation behaviour rather than of the startup.
+const HEAP_SERIES_LIMIT = positiveInteger(process.env.QD_WALL_HEAP_SERIES_LIMIT, 600)
 const MIN_MAIN_FPS = positiveNumber(process.env.QD_WALL_MIN_MAIN_FPS, 1)
 const MAX_HEAP_GROWTH_MB = positiveNumber(process.env.QD_WALL_MAX_HEAP_GROWTH_MB, 256)
 // Startup for hundreds of animated iframes plus the final sampling pass takes
@@ -202,14 +213,41 @@ test(
       const samples = []
       const peak = { heapBytes: baseline.JSHeapUsedSize || 0, nodes: baseline.Nodes || 0, atMs: 0 }
       let peakReads = 0
+      let heapSeries = []
       let peakTracker = null
+      // Sampling allocation across the whole soak rather than snapshotting the
+      // heap at the end. A final snapshot says how much is live; it cannot say
+      // what allocated it, and a periodic allocator that has already been
+      // collected leaves no trace in one. `samplingHeap` is what costs something
+      // small on an interval, so the profile covers the run instead of a moment.
+      let allocationProfile = null
+      try {
+        await cdp.send('HeapProfiler.enable')
+        await cdp.send('HeapProfiler.startSampling', {
+          samplingInterval: 32768,
+        })
+      } catch (error) {
+        // A browser without the domain is not a failed run: the heap series and
+        // the FPS trace still gate it, and the profile is reported as absent
+        // rather than as zero, because those are different statements.
+        console.log('WALL_SOAK_ALLOCATION_PROFILE_UNAVAILABLE', String(error))
+      }
       if (PEAK_TRACK_MS > 0) {
+        // The peak tracker already reads the heap on its own interval, so the
+        // series the periodicity analysis needs is a by-product rather than a
+        // second measurement. Kept bounded: a two-hour run at one read per
+        // second is 7200 points, and a series that large is neither readable nor
+        // faster to analyse.
+        heapSeries = []
         // Deliberately not awaited inside the sampling loop: the point is that
         // this runs independently of it, so a slow sample cannot starve it.
         peakTracker = setInterval(async () => {
           try {
             const m = await performanceMetrics(cdp)
             peakReads += 1
+          if (heapSeries.length < HEAP_SERIES_LIMIT) {
+            heapSeries.push({ atMs: Date.now() - startedAt, bytes: m.JSHeapUsedSize || 0 })
+          }
             if ((m.JSHeapUsedSize || 0) > peak.heapBytes) {
               peak.heapBytes = m.JSHeapUsedSize || 0
               peak.nodes = m.Nodes || 0
@@ -289,6 +327,14 @@ test(
       }
 
       if (peakTracker) clearInterval(peakTracker)
+
+      try {
+        const taken = await cdp.send('HeapProfiler.stopSampling')
+        allocationProfile = taken?.profile || null
+        await cdp.send('HeapProfiler.disable')
+      } catch (error) {
+        console.log('WALL_SOAK_ALLOCATION_PROFILE_STOP_FAILED', String(error))
+      }
 
       const rotateToolbar = await page.evaluate(() => {
         const wall = document.querySelector('.wall-tools')
@@ -371,6 +417,25 @@ test(
             ((peak.heapBytes - (finalMetrics.JSHeapUsedSize || 0)) / 1024 / 1024).toFixed(1),
           ),
         },
+        // What the heap series says about a repeating allocation source. This is
+        // the question the 2026-10-24 run left open: FPS collapsed while the
+        // heap was still climbing, so the allocator is outside the frame loop,
+        // and "outside the frame loop" is a place to look rather than a name.
+        //
+        // A period is reported only when the correlation is decisive against
+        // the series' own noise. The heap was measured swinging across 111% of
+        // its mean while nothing was wrong, so a weak hit would be a finding in
+        // name only. `periodMs` of 0 therefore means "no cycle established",
+        // which is an answer, not a missing field.
+        allocationCycle: {
+          samples: heapSeries.length,
+          ...periodicity(heapSeries),
+        },
+        // Where the allocation actually came from, when the browser could say.
+        // `null` top means nothing was sampled, which is reported as absent
+        // rather than as a zero share: a run that could not profile is not a run
+        // that profiled nothing.
+        allocationProfile: summarizeAllocationProfile(allocationProfile),
         pageErrors,
         // The series is what tells a gradual slide from a step change: the
         // average above cannot. Kept coarse on purpose - one point per sample
