@@ -1,10 +1,15 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"quickdesk/signaling/internal/service"
+
+	"github.com/alicebob/miniredis/v2"
+	"github.com/redis/go-redis/v9"
 )
 
 // newControlTestConn builds a controller socket wired to a buffered out queue,
@@ -264,5 +269,91 @@ func TestCanControlFollowsTheDeviceMode(t *testing.T) {
 	}
 	if h.canControl("111111111", "cli-b") {
 		t.Fatal("a controller that does not hold the grant was allowed to drive")
+	}
+}
+
+// The handshake consults the store through the handler, not the service
+// directly, so what is pinned here is the wiring: an instance whose local map
+// knows nothing must still answer correctly when the holder is elsewhere.
+func TestHandshakeSeesAHolderAnotherInstanceIsHolding(t *testing.T) {
+	server := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: server.Addr()})
+	defer rdb.Close()
+
+	store := service.NewControlGrantStore(rdb, 5*time.Minute)
+	instanceA := (&RealtimeHandler{controlGrants: service.NewControlGrants()}).
+		WithControlGrantStore(store)
+	instanceB := (&RealtimeHandler{controlGrants: service.NewControlGrants()}).
+		WithControlGrantStore(store)
+
+	const deviceID = "111111111"
+	instanceA.controlGrants.Request(deviceID, "cli-a", service.ControlModeExclusive)
+
+	if !instanceB.canControl(deviceID, "cli-a") {
+		t.Fatal("the holder was refused control on the instance that did not grant it")
+	}
+	if instanceB.canControl(deviceID, "cli-b") {
+		t.Fatal("a second controller was told it may drive an exclusive machine")
+	}
+
+	// A takeover from either instance must be visible from the other, which is
+	// the whole point of putting the holder somewhere shared.
+	instanceB.controlGrants.Request(deviceID, "cli-b", service.ControlModeExclusive)
+	if instanceA.canControl(deviceID, "cli-a") {
+		t.Fatal("the displaced holder still believed it held control")
+	}
+	if !instanceA.canControl(deviceID, "cli-b") {
+		t.Fatal("the new holder was refused control on the other instance")
+	}
+}
+
+// A release from the holding instance frees the machine everywhere. Without it
+// a controller that disconnected would keep the device reserved on the other
+// instance, and the next controller would wait for a turn that never comes.
+func TestHandshakeReleaseFreesTheMachineEverywhere(t *testing.T) {
+	server := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: server.Addr()})
+	defer rdb.Close()
+
+	store := service.NewControlGrantStore(rdb, 5*time.Minute)
+	instanceA := (&RealtimeHandler{controlGrants: service.NewControlGrants()}).
+		WithControlGrantStore(store)
+	instanceB := (&RealtimeHandler{controlGrants: service.NewControlGrants()}).
+		WithControlGrantStore(store)
+
+	const deviceID = "111111111"
+	instanceA.controlGrants.Request(deviceID, "cli-a", service.ControlModeExclusive)
+	instanceA.releaseControl(deviceID, "cli-a")
+
+	grant := instanceB.controlGrants.Get(deviceID)
+	if grant.Mode != service.ControlModeExclusive {
+		t.Fatalf("mode = %q, want exclusive: a released machine is free, not shared", grant.Mode)
+	}
+	if grant.Holder != "" {
+		t.Fatalf("holder = %q, want empty after release", grant.Holder)
+	}
+}
+
+// A host going away drops the holder from the shared store too, so the next
+// controller is not told to wait for a machine whose host is gone.
+func TestHandshakeHostDisconnectDropsTheSharedHolder(t *testing.T) {
+	server := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: server.Addr()})
+	defer rdb.Close()
+
+	store := service.NewControlGrantStore(rdb, 5*time.Minute)
+	h := (&RealtimeHandler{controlGrants: service.NewControlGrants()}).
+		WithControlGrantStore(store)
+
+	const deviceID = "111111111"
+	h.controlGrants.Request(deviceID, "cli-a", service.ControlModeExclusive)
+	h.controlGrants.ForgetDevice(deviceID)
+
+	stored, err := store.Get(context.Background(), deviceID)
+	if err != nil {
+		t.Fatalf("Get(): %v", err)
+	}
+	if stored.Holder != "" {
+		t.Fatalf("a gone host still reported holder %q", stored.Holder)
 	}
 }

@@ -1,7 +1,9 @@
 package service
 
 import (
+	"context"
 	"errors"
+	"log"
 	"strings"
 	"sync"
 )
@@ -75,6 +77,10 @@ type ControlGrants struct {
 	mu      sync.Mutex
 	grants  map[string]ControlGrant
 	revoked map[string]string // device_id -> client_id that just lost control
+	// shared is the cross-instance store, nil on a single-instance install.
+	// When it exists the local map is a cache and Redis is the truth: a
+	// takeover on one instance must be visible to every other.
+	shared *ControlGrantStore
 }
 
 func NewControlGrants() *ControlGrants {
@@ -82,6 +88,28 @@ func NewControlGrants() *ControlGrants {
 		grants:  map[string]ControlGrant{},
 		revoked: map[string]string{},
 	}
+}
+
+// WithShared attaches the cross-instance store. Passing nil leaves the grants
+// per-instance, which is the behaviour every existing install has.
+func (c *ControlGrants) WithShared(store *ControlGrantStore) *ControlGrants {
+	if c == nil {
+		return c
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.shared = store
+	return c
+}
+
+// Shared exposes the attached store, or nil when there is none.
+func (c *ControlGrants) Shared() *ControlGrantStore {
+	if c == nil {
+		return nil
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.shared
 }
 
 // Request asks for control on behalf of clientID and returns the grant that
@@ -92,16 +120,21 @@ func (c *ControlGrants) Request(deviceID, clientID, mode string) ControlGrant {
 		return ControlGrant{Mode: NormalizeControlMode(mode)}
 	}
 	mode = NormalizeControlMode(mode)
+	// Read the shared store first: the holder may be on another instance, and
+	// asking only the local map would answer "nobody holds it" to a machine
+	// somebody else is driving.
+	current := c.read(deviceID)
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	grant := ControlGrant{Mode: mode}
 	if mode == ControlModeExclusive {
-		if previous, ok := c.grants[deviceID]; ok && previous.Holder != "" && previous.Holder != clientID {
-			c.revoked[deviceID] = previous.Holder
+		if current.Holder != "" && current.Holder != clientID {
+			c.revoked[deviceID] = current.Holder
 		}
 		grant.Holder = clientID
 	}
 	c.grants[deviceID] = grant
+	c.write(deviceID, grant)
 	return grant
 }
 
@@ -116,9 +149,43 @@ func (c *ControlGrants) Get(deviceID string) ControlGrant {
 	if c == nil {
 		return ControlGrant{Mode: ControlModeShared}
 	}
+	return c.read(deviceID)
+}
+
+// read prefers the shared store. The local map is only consulted when there is
+// none, so an instance that has not been wired to Redis behaves exactly as it
+// did before.
+func (c *ControlGrants) read(deviceID string) ControlGrant {
+	if c == nil {
+		return ControlGrant{Mode: ControlModeShared}
+	}
+	if store := c.Shared(); store != nil {
+		grant, err := store.Get(context.Background(), deviceID)
+		if err == nil {
+			c.mu.Lock()
+			c.grants[deviceID] = grant
+			c.mu.Unlock()
+			return grant
+		}
+		// A Redis outage must not turn into a wrong answer, so fall through to
+		// the local map: worst case this instance is one revoke notice behind,
+		// which is the pre-fleet behaviour rather than a false grant.
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.grants[deviceID]
+}
+
+// write mirrors the grant into the shared store. Errors are dropped by the
+// caller's perspective: the local answer is still correct for this instance,
+// and a failed write only costs the fleet the notification.
+func (c *ControlGrants) write(deviceID string, grant ControlGrant) {
+	if c == nil || c.shared == nil {
+		return
+	}
+	if err := c.shared.Put(context.Background(), deviceID, grant); err != nil {
+		log.Printf("[control-grant] shared write for device %s failed: %v", deviceID, err)
+	}
 }
 
 // TakeRevoked returns the client_id that lost control since the last call, and
@@ -143,18 +210,20 @@ func (c *ControlGrants) Release(deviceID, clientID string) {
 	if c == nil {
 		return
 	}
+	current := c.read(deviceID)
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	grant, ok := c.grants[deviceID]
-	if !ok || grant.Mode != ControlModeExclusive {
+	if current.Mode != ControlModeExclusive {
 		return
 	}
-	if grant.Holder != clientID {
+	if current.Holder != clientID {
 		return
 	}
 	// The mode stays; only the holder goes. A released exclusive machine is
 	// free, not shared.
-	c.grants[deviceID] = ControlGrant{Mode: ControlModeExclusive}
+	released := ControlGrant{Mode: ControlModeExclusive}
+	c.grants[deviceID] = released
+	c.write(deviceID, released)
 }
 
 // ForgetDevice drops a device's grant and any pending notice for it. The host
@@ -168,4 +237,9 @@ func (c *ControlGrants) ForgetDevice(deviceID string) {
 	defer c.mu.Unlock()
 	delete(c.grants, deviceID)
 	delete(c.revoked, deviceID)
+	if c.shared != nil {
+		if err := c.shared.Forget(context.Background(), deviceID); err != nil {
+			log.Printf("[control-grant] shared forget for device %s failed: %v", deviceID, err)
+		}
+	}
 }

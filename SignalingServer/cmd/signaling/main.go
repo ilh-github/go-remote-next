@@ -563,6 +563,14 @@ func main() {
 	fileTransferAuditHandler := handler.NewFileTransferAuditHandler(deviceService, auditService)
 	clipboardAuditHandler := handler.NewClipboardAuditHandler(deviceService, auditService)
 	hostHandler := handler.NewHostHandler(deviceService, tokenService, presenceService, settingsService, rateLimitService, deviceAccessService, deviceAccessPolicyService, deviceAccessGrantService, deviceAccessApprovalService, bus, cfg)
+	// How long an exclusive-control holder survives in the shared store. It is
+	// deliberately generous for one socket: the socket itself outliving its
+	// process is impossible, so this is only the ceiling on a crashed
+	// instance's stale answer, not a promise the holder is still connected.
+	controlGrantTTL := 10 * time.Minute
+	if seconds := cfg.RemoteSession.ControlGrantTTLSeconds; seconds > 0 {
+		controlGrantTTL = time.Duration(seconds) * time.Second
+	}
 	realtimeHandler := handler.NewRealtimeHandler(tokenService, bus, presenceService, db, deviceService, favoriteService, metricsService, deviceAccessService, deviceAccessPolicyService, remoteSessionService, redisClient)
 	// A revoked controller must not walk straight back in with the same access
 	// code; the window is per device + observed source, so it cannot lock out
@@ -572,7 +580,15 @@ func main() {
 	// only has to be true for as long as the socket that holds it, and a socket
 	// cannot outlive the process that admitted it. A handler without one keeps
 	// the shared behaviour every existing install already has.
+	// With Redis attached the holder is a fleet-wide fact rather than one
+	// process's memory: two instances holding two controllers on the same
+	// exclusive machine would otherwise each answer "you may drive it". Without
+	// Redis the behaviour above is unchanged.
 	realtimeHandler.WithControlGrants(service.NewControlGrants())
+	realtimeHandler.WithControlGrantStore(service.NewControlGrantStore(redisClient, controlGrantTTL))
+	if ttl := controlGrantTTL; ttl > 0 {
+		log.Printf("Exclusive control holder is shared across instances (TTL %s)", ttl)
+	}
 	if cfg.RemoteSession.RevokeCooldownSeconds > 0 {
 		log.Printf("Session revoke cooldown: %ds (a kicked source is refused for this long)",
 			cfg.RemoteSession.RevokeCooldownSeconds)
@@ -581,6 +597,11 @@ func main() {
 	// socket lives on the one that admitted it. Subscribe to this instance's own
 	// channel so the other instance can hand the close over.
 	realtimeHandler.StartSessionRevokeBus(context.Background())
+	// QD-314: a takeover notice has to reach the controller that just lost
+	// control, and in a fleet that controller is usually on another instance -
+	// the asker connected somewhere else. Subscribe to this instance's channel
+	// so the takeover is visible rather than silent. No-op without Redis.
+	realtimeHandler.WithControlFrameBus(context.Background(), redisClient)
 	// realtimeHandler is built first because the session surfaces use it to close
 	// a live socket: a revoke has to reach the connection, not just the row.
 	remoteSessionHandler := handler.NewRemoteSessionHandler(remoteSessionService, sessionRecordingService, deviceAccessService, deviceService, realtimeHandler, auditService)

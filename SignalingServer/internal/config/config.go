@@ -176,6 +176,12 @@ type RemoteSessionConfig struct {
 	// back in with the same access code. It is keyed by device and observed
 	// source address, and 0 disables it (immediate reconnects allowed).
 	RevokeCooldownSeconds int
+	// ControlGrantTTLSeconds is how long an exclusive-control holder is
+	// remembered across instances. It only matters in a fleet: single-instance
+	// deployments keep the holder in process memory, where it cannot outlive
+	// the socket. A TTL is what stops a crashed instance from leaving a machine
+	// reserved for a connection that is gone. 0 uses the default.
+	ControlGrantTTLSeconds int
 }
 
 // InstanceLogConfig controls shipping this process's log lines into the shared
@@ -637,8 +643,9 @@ func Load() *Config {
 		SweepIntervalMin: viper.GetInt("INSTANCE_LOG_SWEEP_INTERVAL_MINUTES"),
 	}
 	cfg.RemoteSession = RemoteSessionConfig{
-		SweepIntervalMin:      viper.GetInt("REMOTE_SESSION_SWEEP_INTERVAL_MINUTES"),
-		RevokeCooldownSeconds: viper.GetInt("REVOKE_COOLDOWN_SECONDS"),
+		SweepIntervalMin:       viper.GetInt("REMOTE_SESSION_SWEEP_INTERVAL_MINUTES"),
+		RevokeCooldownSeconds:  viper.GetInt("REVOKE_COOLDOWN_SECONDS"),
+		ControlGrantTTLSeconds: viper.GetInt("CONTROL_GRANT_TTL_SECONDS"),
 	}
 	cfg.OfflineAlert = OfflineAlertConfig{
 		IntervalSeconds: viper.GetInt("OFFLINE_ALERT_INTERVAL_SECONDS"),

@@ -60,6 +60,10 @@ type RealtimeHandler struct {
 	// revokeCooldown refuses a controller that was just thrown out for a short
 	// window, so the kick is not cosmetic. Nil (or a zero TTL) disables it.
 	revokeCooldown *service.RevokeCooldown
+	// controlFrameBus carries takeover notices to a controller whose socket
+	// lives in another instance. Nil on a single-instance install, where every
+	// controller is local and the frame is delivered directly.
+	controlFrameBus *ControlFrameBus
 	// controlGrants decides which controller may drive a device when the owner
 	// set it to exclusive. Nil means shared, which is the historical behaviour
 	// and what an instance that was never wired up must keep doing.
@@ -1096,6 +1100,10 @@ func (h *RealtimeHandler) registerSignalConn(sc *signalConn) error {
 			h.signalClient[sc.deviceID] = clients
 		}
 		clients[sc.clientID] = sc
+		// Publish where this socket lives so a takeover notice raised on another
+		// instance can find it. Best effort: a stale entry costs one wasted
+		// publish, never a wrong grant.
+		rememberSocketInstance(context.Background(), h.rdb, sc.deviceID, sc.clientID, h.InstanceID())
 		h.metrics.MarkSignalConnected(sc.role, sc.deviceID, sc.clientID)
 	default:
 		return fmt.Errorf("unknown role %q", sc.role)
@@ -1121,6 +1129,7 @@ func (h *RealtimeHandler) unregisterSignalConn(sc *signalConn) {
 		if m := h.signalClient[sc.deviceID]; m != nil {
 			if cur := m[sc.clientID]; cur == sc {
 				delete(m, sc.clientID)
+				forgetSocketInstance(context.Background(), h.rdb, sc.deviceID, sc.clientID, h.InstanceID())
 				h.metrics.MarkSignalDisconnected(sc.role, sc.deviceID, sc.clientID)
 				if len(m) == 0 {
 					delete(h.signalClient, sc.deviceID)
