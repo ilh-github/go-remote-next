@@ -26,11 +26,6 @@ import (
 func newUpdateArtifactTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db := openTestPostgres(t)
-	t.Cleanup(func() {
-		if sqlDB, err := db.DB(); err == nil {
-			sqlDB.Close()
-		}
-	})
 	migrateTestSchema(t, db, &models.UpdateRelease{}, &models.AuditLog{})
 	if err := db.Exec("TRUNCATE update_releases").Error; err != nil {
 		t.Fatalf("truncate: %v", err)

@@ -28,7 +28,7 @@ func (f *fakePresence) IsOnline(_ context.Context, deviceID string) bool {
 func newOfflineAlertTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db := openTestPostgres(t)
-	migrateTestSchema(t, db, &models.DeviceOfflineAlertRule{}, &models.Device{})
+	applyTestMigration(t, db)
 	if err := db.Exec("DELETE FROM device_offline_alert_rules").Error; err != nil {
 		t.Fatalf("clear rules: %v", err)
 	}

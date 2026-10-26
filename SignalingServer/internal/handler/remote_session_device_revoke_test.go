@@ -17,11 +17,6 @@ import (
 func newDeviceRevokeTestDB(t *testing.T, slot int) (*gorm.DB, string) {
 	t.Helper()
 	db := openTestPostgres(t)
-	t.Cleanup(func() {
-		if sqlDB, err := db.DB(); err == nil {
-			sqlDB.Close()
-		}
-	})
 	migrateTestSchema(t, db, &models.RemoteSession{}, &models.Device{}, &models.User{})
 	// One device id per test, passed in, so two tests in this file cannot
 	// collide and the ids do not silently move when a test is renamed.

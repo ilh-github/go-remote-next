@@ -29,6 +29,13 @@ func NewRemoteSessionService(db *gorm.DB) *RemoteSessionService {
 	return &RemoteSessionService{db: db}
 }
 
+// errRemoteSessionExists is the in-transaction signal that the insert lost to a
+// row that is already there. It never reaches a caller: Open turns it into the
+// existing row. It has to be an error rather than a flag because a Create that
+// failed leaves the transaction unusable on Postgres, so the transaction has to
+// be rolled back before the existing row can be read.
+var errRemoteSessionExists = errors.New("remote session already exists")
+
 func (s *RemoteSessionService) WithOutbox(outbox EventOutboxWriter) *RemoteSessionService {
 	s.outbox = outbox
 	return s
@@ -74,13 +81,26 @@ func (s *RemoteSessionService) Open(ctx context.Context, in OpenRemoteSessionInp
 		}
 		if err := tx.Create(&row).Error; err != nil {
 			if isUniqueViolation(err) {
-				return tx.Where("session_id = ?", sessionID).First(&row).Error
+				return errRemoteSessionExists
 			}
 			return err
 		}
 		row.Decorate()
 		return s.enqueueRemoteSessionEvent(ctx, tx, EventRemoteSessionStarted, &row)
 	})
+	if errors.Is(err, errRemoteSessionExists) {
+		// A failed Create aborts the transaction on Postgres, so the row that is
+		// already there is read back outside it. Reporting the error instead
+		// would work on SQLite, which does not abort, and would fail every
+		// retried handshake on Postgres.
+		if err := s.db.WithContext(ctx).
+			Where("session_id = ?", sessionID).
+			First(&row).Error; err != nil {
+			return nil, err
+		}
+		row.Decorate()
+		return &row, nil
+	}
 	if err != nil {
 		return nil, err
 	}

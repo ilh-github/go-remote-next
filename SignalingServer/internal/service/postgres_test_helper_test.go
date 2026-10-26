@@ -55,3 +55,21 @@ func migrateTestSchema(t *testing.T, db *gorm.DB, models ...interface{}) {
 		t.Fatalf("migrate: %v", err)
 	}
 }
+
+// applyTestMigration replays migrations/001_init.sql, which the file itself
+// calls the source of truth for column types, indexes and defaults.
+//
+// Prefer this over migrateTestSchema for a table the SQL file already defines.
+// GORM names a uniqueIndex uni_<table>_<column> while the SQL file leaves
+// Postgres to name it, so AutoMigrate on a table the SQL file created spends
+// every run trying to drop an index that was never there.
+func applyTestMigration(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	migration, err := os.ReadFile("../../migrations/001_init.sql")
+	if err != nil {
+		t.Fatalf("read migration: %v", err)
+	}
+	if err := db.Exec(string(migration)).Error; err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+}

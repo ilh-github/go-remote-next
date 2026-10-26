@@ -19,11 +19,6 @@ func newGrantTestDB(t *testing.T) *gorm.DB {
 	db := openTestPostgres(t)
 	// One pool per test against a scratch Postgres with a connection limit;
 	// closing it with the test keeps a long package run from exhausting them.
-	t.Cleanup(func() {
-		if sqlDB, err := db.DB(); err == nil {
-			sqlDB.Close()
-		}
-	})
 	migrateTestSchema(t, db, &models.DeviceAccessGrant{})
 	if err := db.Exec("TRUNCATE device_access_grants").Error; err != nil {
 		t.Fatalf("truncate: %v", err)
