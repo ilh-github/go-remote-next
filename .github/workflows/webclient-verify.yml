@@ -101,6 +101,13 @@ jobs:
       - name: Install dependencies
         working-directory: WebClient
         run: npm install
+      - name: Build the client
+        working-directory: WebClient
+        # `control-mode.e2e.mjs` serves `dist/` rather than a Vite dev server, so
+        # it exercises the artifact that ships instead of the source. That is the
+        # point of it, which is why the build belongs here rather than being
+        # swapped for a dev server.
+        run: npm run build
       - name: Install the browser the E2E drive
         working-directory: WebClient
         run: npx playwright install --with-deps chromium
