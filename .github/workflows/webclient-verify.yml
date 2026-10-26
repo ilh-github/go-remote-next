@@ -1,0 +1,102 @@
+name: WebClient verify
+
+# The macOS and Windows workflows list `WebClient/**` as a trigger path and then
+# only build it, so a change to the control client could land with nothing
+# running its tests. This is the gate that was missing: unit tests, the browser
+# E2E that only needs a mocked API, and the E2E that needs a real signaling
+# server and Redis.
+#
+# Split into two jobs on purpose. The unit and mocked-browser tests are the ones
+# a contributor waits on, so they run without a database or a browser download.
+# The server-backed E2E needs Go, Redis and a browser, and is the slower half.
+on:
+  push:
+    paths:
+      - 'WebClient/**'
+      - 'SignalingServer/**'
+      - '.github/workflows/webclient-verify.yml'
+  pull_request:
+    paths:
+      - 'WebClient/**'
+      - 'SignalingServer/**'
+      - '.github/workflows/webclient-verify.yml'
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  unit:
+    name: Unit tests and mocked-browser E2E
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: WebClient/package-lock.json
+      - name: Install dependencies
+        working-directory: WebClient
+        run: npm ci
+      - name: Unit tests
+        working-directory: WebClient
+        run: npm test
+      - name: Install the browser the E2E drive
+        working-directory: WebClient
+        # Playwright's bundled Chromium rather than a system Chrome: the tests
+        # take their channel from QD_BROWSER_CHANNEL, and leaving it unset here
+        # means "whatever Playwright installed", which is reproducible.
+        run: npx playwright install --with-deps chromium
+      # Every E2E here serves a mocked API, so none of them needs the signaling
+      # server or Redis. Listed individually rather than by glob because
+      # `wall-soak` is a two-hour gate and must never run in a normal pipeline.
+      - name: Mocked-browser E2E
+        working-directory: WebClient
+        run: |
+          node --test test/e2e/annotation.e2e.mjs
+          node --test test/e2e/file-manager.e2e.mjs
+          node --test test/e2e/reconnect.e2e.mjs
+          node --test test/e2e/tab-coordinator.e2e.mjs
+          node --test test/e2e/devices.e2e.mjs
+          node --test test/e2e/sessions-audit-ui.e2e.mjs
+          node --test test/e2e/wall.e2e.mjs
+
+  integration:
+    name: Server-backed E2E
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: WebClient/package-lock.json
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: SignalingServer/go.mod
+          cache-dependency-path: SignalingServer/go.sum
+      - name: Install dependencies
+        working-directory: WebClient
+        run: npm ci
+      - name: Install the browser the E2E drive
+        working-directory: WebClient
+        run: npx playwright install --with-deps chromium
+      - name: Install redis-server
+        # These tests spawn their own `redis-server` on a free port rather than
+        # reading a service's host and port, so the service container is no use
+        # here - the runner needs the binary itself.
+        run: sudo apt-get update && sudo apt-get install -y redis-server
+      # These build and boot a real signaling server over a real Redis, so they
+      # are the ones that catch a contract drift between the client and the
+      # server - the failure mode a mocked API cannot see.
+      - name: Server-backed E2E
+        working-directory: WebClient
+        run: |
+          node --test test/e2e/audit-log-client.e2e.mjs
+          node --test test/e2e/clipboard-audit.e2e.mjs
+          node --test test/e2e/owner-audit.e2e.mjs
+          node --test test/e2e/control-grant.e2e.mjs
+          node --test test/e2e/control-mode.e2e.mjs
+          node --test test/e2e/control-grant-fleet.e2e.mjs
+          node --test test/e2e/selfhost.e2e.mjs
