@@ -102,6 +102,17 @@ jobs:
         shell: cmd
         run: call scripts\build_skill_host_win.bat Release
 
+      # Same gap as the MCP bridge, and here it matters more: file-ops is the
+      # skill that deletes things on a remote machine, and its trash logic is
+      # the part where a mistake destroys data. Its tests only compile under
+      # cfg(test), so a build says nothing about them.
+      - name: Test Skill Host
+        shell: cmd
+        run: |
+          cd quickdesk-skill-host
+          cargo test --offline
+          if errorlevel 1 exit /b 1
+
       - name: Build WebClient
         shell: cmd
         run: call scripts\build_webclient_win.bat

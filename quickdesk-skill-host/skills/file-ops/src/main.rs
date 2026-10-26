@@ -433,16 +433,33 @@ fn trash_path(args: Value) -> Result<Value> {
         .parent()
         .ok_or_else(|| anyhow::anyhow!("cannot trash a path without a parent"))?;
     let trash_dir = parent.join(".quickdesk-trash");
-    if source == trash_dir {
+    let file_name = source
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default();
+    if file_name == ".quickdesk-trash" {
         anyhow::bail!("the trash directory cannot trash itself");
+    }
+    // A path already inside the trash must be refused rather than nested. The
+    // test is on the *parent*, not on the destination: for an already-trashed
+    // path the parent is itself a trash directory, so the destination would be
+    // `.quickdesk-trash/.quickdesk-trash/...` and every repeat buries the file
+    // one level deeper, where nothing that cleans the trash will ever look.
+    // A caller asking to trash a trashed path has a bug, and quietly
+    // accommodating it hides that instead of surfacing it.
+    if parent.file_name().and_then(|value| value.to_str()) == Some(".quickdesk-trash") {
+        anyhow::bail!(
+            "'{}' is already in the trash; refusing to nest it deeper",
+            source.display()
+        );
     }
     fs::create_dir_all(&trash_dir)?;
 
-    let name = source
-        .file_name()
-        .and_then(|value| value.to_str())
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| anyhow::anyhow!("path has no usable file name"))?;
+    let name = if file_name.is_empty() {
+        anyhow::bail!("path has no usable file name");
+    } else {
+        file_name
+    };
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
@@ -586,6 +603,70 @@ mod tests {
         assert_eq!(fs::read(second_trash).unwrap(), b"second");
 
         let _ = fs::remove_dir_all(dir);
+    }
+
+    // The tool's own description says "file or directory", and a directory is
+    // where the data-loss risk actually lives: a rename that lands on an
+    // existing path either fails or, worse, replaces it. Two trashes inside the
+    // same millisecond are the case that forces the collision loop to do real
+    // work rather than rely on the clock being slow enough.
+    #[test]
+    fn trash_path_moves_a_directory_without_losing_either_copy() {
+        let dir = temp_dir();
+        let source = dir.join("project");
+        fs::create_dir_all(source.join("nested")).unwrap();
+        fs::write(source.join("nested").join("keep.txt"), b"keep me").unwrap();
+
+        let result = trash_path(json!({"path": source.to_string_lossy()})).unwrap();
+        let trashed = Path::new(result["trash_path"].as_str().unwrap());
+        assert!(!source.exists(), "the original directory is still in place");
+        assert_eq!(
+            fs::read(trashed.join("nested").join("keep.txt")).unwrap(),
+            b"keep me",
+            "the directory's contents did not survive the move",
+        );
+    }
+
+    // Same millisecond, same name. The stamp cannot separate these two, so the
+    // suffix loop is the only thing standing between them - and if it silently
+    // overwrote, the second trash would destroy the first one's contents with no
+    // error anywhere.
+    #[test]
+    fn trash_path_keeps_both_copies_when_the_stamp_collides() {
+        let dir = temp_dir();
+        let original = dir.join("same.txt");
+
+        fs::write(&original, b"one").unwrap();
+        let first = trash_path(json!({"path": original.to_string_lossy()})).unwrap();
+        let first_trash = Path::new(first["trash_path"].as_str().unwrap()).to_path_buf();
+
+        // Recreate and trash again immediately: close enough that the millisecond
+        // stamp is the same one, which is what makes the suffix loop matter.
+        fs::write(&original, b"two").unwrap();
+        let second = trash_path(json!({"path": original.to_string_lossy()})).unwrap();
+        let second_trash = Path::new(second["trash_path"].as_str().unwrap()).to_path_buf();
+
+        assert_ne!(first_trash, second_trash, "both trashes landed on one path");
+        assert_eq!(fs::read(&first_trash).unwrap(), b"one", "the first copy was overwritten");
+        assert_eq!(fs::read(&second_trash).unwrap(), b"two", "the second copy is missing");
+    }
+
+    // Trashing something already inside the trash would nest the trash inside
+    // itself, and a second trash of that would walk a tree that grows on every
+    // call.
+    #[test]
+    fn trash_path_refuses_to_nest_the_trash_inside_itself() {
+        let dir = temp_dir();
+        let source = dir.join("outer.txt");
+        fs::write(&source, b"data").unwrap();
+        let result = trash_path(json!({"path": source.to_string_lossy()})).unwrap();
+        let trashed = Path::new(result["trash_path"].as_str().unwrap()).to_path_buf();
+
+        let again = trash_path(json!({"path": trashed.to_string_lossy()}));
+        assert!(
+            again.is_err(),
+            "trashing an already-trashed path should be refused, not nested",
+        );
     }
 
     #[test]

@@ -93,6 +93,14 @@ jobs:
       - name: Build Skill Host
         run: bash scripts/build_skill_host_mac.sh Release ${{ matrix.arch }}
 
+      # file-ops deletes things on a remote machine and its trash logic is where
+      # a mistake destroys data. Its tests only compile under cfg(test), so the
+      # build above says nothing about them.
+      - name: Test Skill Host
+        run: |
+          cd quickdesk-skill-host
+          cargo test --offline
+
       - name: Build WebClient
         run: bash scripts/build_webclient_mac.sh
 
