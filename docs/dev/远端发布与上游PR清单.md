@@ -1,6 +1,27 @@
 # 远端发布与上游 PR 清单
 
-**更新时间**: 2026-10-21 01:05 CST
+**更新时间**: 2026-10-26 12:50 CST
+
+## 本轮推送（2026-10-26 12:50 CST）
+
+- `bc47d45`、`5ea85dd`、`dba6721`、`8ec5fed`、`998aae2` 五连提交已推送：
+  `git push origin dev master` 成功，两个分支均从 `caf4ae5` 前进到 `998aae2`，
+  `git rev-list --left-right --count origin/dev...dev` = `0 0`。
+- **`SignalingServer verify` 首次全绿**（run `40270895099`，head `8ec5fed`，
+  四个 job 全过）。该 workflow 自 10-16 加入 `QD_TEST_DATABASE_URL` 起连败十天，
+  根因是 `gorm.io/driver/postgres` 的驱动缺陷，详情见清单 QD-909 行。
+- 其中两个是产品缺陷，不只是测试问题：`RemoteSessionService.Open` 的幂等重试
+  在 Postgres 上必然失败（回查在已被失败 INSERT 中止的同一事务里），以及
+  `cmd/signaling` 的 AutoMigrate 对已存在的表全部静默跳过。
+- **上游候选已建**：`codex/upstream-signaling-postgres-migrate` = `3db3ad9`，
+  基于 `upstream/dev@88d4d36`，只含 `database.AutoMigrate` 辅助（30 行）与
+  `cmd/signaling` 一处调用改动，未掺入任何 fork 专有内容。
+  **PR #34**（`barry-ran/QuickDesk`，base `dev`）已创建：OPEN / MERGEABLE。
+  上游 `SignalingServer` 全文没有任何 `PrepareStmt`，同一个缺陷在上游同样存在。
+- 上游 `internal/database` 没有测试文件、CI 也没有 `QD_TEST_DATABASE_URL`，
+  所以候选只带一个不依赖数据库的单测（`AutoMigrate` 的 nil 防护）。
+  需要真实 Postgres 的那条迁移回归测试留在 fork 侧，见
+  `SignalingServer/internal/database/postgres_test.go` 的历史版本。
 
 这份清单记录本地验证完成后的远端写入与 PR 状态。远端状态必须以实际
 `origin/*` ref、push 结果和 GitHub PR 为准，不能把本地候选写成已共享。
