@@ -778,3 +778,12 @@ PR 描述至少写明：
 - 仍未取得 issue #7 的原始坏安装包，因此这是对该类失败的防护，不是对那个具体包的确认修复。
 - 此前记录「push/PR 被策略阻塞」已不成立：PR #31 与本次 PR #32 均成功创建，
   远端写入可用。后续候选直接推送并开 PR，不必再按阻塞处理。
+
+## QD-314 独占控制跨实例（2026-10-26）
+
+- fork 提交：`fb43070`，`dev` 与 `master` 已同步。
+- 上游候选：**未准备**。`ControlGrantStore` 依赖 fork 已有的
+  `RevokeCooldown` 同类 Redis 基建与 `remote_sessions` 控制面基线，且上游
+  `quickdesk-mcp` 没有对应模块；`control_grant` / `control_revoked` 两个帧
+  本身是上游可独立审查的纯函数，可作为后续最小候选从 `upstream/dev` 切出。
+- 远端写入当前可用（PR #31、#32 均已成功创建），本条不是阻塞记录。
