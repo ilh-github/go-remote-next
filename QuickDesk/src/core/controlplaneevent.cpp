@@ -27,6 +27,10 @@ bool isWorkflowTriggerEvent(const QString& type) {
         QStringLiteral("recording.updated"),
         QStringLiteral("recording.deleted"),
         QStringLiteral("scheduled_task.failed"),
+        // QD-607: a scheduled connection prompt. Without it the event cannot
+        // trigger a workflow, which is the one automated thing an owner might
+        // reasonably want a scheduled connection to do.
+        QStringLiteral("device.connect_prompted"),
     };
     return allowed.contains(type);
 }

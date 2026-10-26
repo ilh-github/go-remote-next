@@ -207,12 +207,29 @@ void ScheduledTaskManager::deleteTask(int taskId)
 
 void ScheduledTaskManager::handleRealtimeEvent(const QVariantMap& message)
 {
-    if (message.value(QStringLiteral("type")).toString()
-        != QStringLiteral("scheduled_task.failed")) {
+    const QString type = message.value(QStringLiteral("type")).toString();
+    if (type != QStringLiteral("scheduled_task.failed")
+        && type != QStringLiteral("device.connect_prompted")) {
         return;
     }
     const QVariantMap data =
         message.value(QStringLiteral("data")).toMap();
+    // QD-607: a scheduled connection came due. The server publishes it and the
+    // web client consumes it; without this the desktop client is the one place
+    // the owner is not told, which is the same shape as the notification
+    // subscription gap and the missing userSync branch before it.
+    //
+    // A prompt with no task id is dropped rather than surfaced: the page would
+    // have nothing to open, so an empty row is worse than no row.
+    if (type == QStringLiteral("device.connect_prompted")) {
+        const int taskId = data.value(QStringLiteral("task_id")).toInt();
+        if (taskId <= 0) {
+            return;
+        }
+        emit realtimeConnectPrompted(taskId);
+        emit realtimeRefreshRequested();
+        return;
+    }
     emit realtimeTaskFailed(
         data.value(QStringLiteral("kind")).toString(),
         data.value(QStringLiteral("task_id")).toInt(),

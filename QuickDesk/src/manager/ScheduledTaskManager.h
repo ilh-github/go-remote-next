@@ -59,6 +59,9 @@ signals:
     void taskDeleted(int taskId);
     void realtimeTaskFailed(const QString& kind, int taskId,
                             const QString& error);
+    // QD-607: a scheduled connection came due. Carries only the task id, because
+    // the page reads the schedule and status from the list it refreshes.
+    void realtimeConnectPrompted(int taskId);
     void realtimeRefreshRequested();
 
 private:

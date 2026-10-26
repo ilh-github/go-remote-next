@@ -32,6 +32,13 @@ int main() {
     Expect(!quickdesk::isWorkflowTriggerEvent(
                QStringLiteral("favorite.updated")),
            "unrelated domain events must not be broadcast");
+    // QD-607: a scheduled connection prompt is the one control-plane event an
+    // owner would most plausibly want to automate on, so it has to survive the
+    // whitelist. Without this the event is invisible to the workflow engine even
+    // though it reaches the client.
+    Expect(quickdesk::isWorkflowTriggerEvent(
+               QStringLiteral("device.connect_prompted")),
+           "a scheduled connection prompt is an automation event");
 
     const QJsonObject message{
         {QStringLiteral("id"), QStringLiteral("evt-1")},

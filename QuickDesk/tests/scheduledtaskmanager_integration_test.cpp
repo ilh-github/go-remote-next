@@ -178,6 +178,39 @@ int main(int argc, char** argv) {
     Expect(failedArgs.at(2).toString() == QStringLiteral("worker failed"),
            QStringLiteral("failed event carries the last error"));
 
+    // QD-607: the server publishes device.connect_prompted, the WebClient
+    // consumes it, and this manager already handles scheduled_task.failed over
+    // the same realtime path - so the Qt side had no reason to be missing it and
+    // no test that would have noticed. A prompt that reaches the web client and
+    // stops before the desktop one is the fourth layer of the same gap.
+    QSignalSpy promptedSpy(
+        &manager, SIGNAL(realtimeConnectPrompted(int)));
+ QSignalSpy promptRefreshSpy(&manager, SIGNAL(realtimeRefreshRequested()));
+    promptedSpy.clear();
+    promptRefreshSpy.clear();
+    manager.handleRealtimeEvent(QVariantMap{
+        {QStringLiteral("type"), QStringLiteral("device.connect_prompted")},
+        {QStringLiteral("data"),
+         QVariantMap{{QStringLiteral("task_id"), 77}}},
+    });
+    Expect(promptedSpy.count() == 1,
+           QStringLiteral("connect prompt is surfaced to the page"));
+    Expect(promptRefreshSpy.count() == 1,
+           QStringLiteral("connect prompt requests a task refresh"));
+    Expect(promptedSpy.takeFirst().at(0).toInt() == 77,
+           QStringLiteral("connect prompt carries the task id"));
+
+    // A prompt with no task id is not actionable: the page would have nothing to
+    // open, so it is dropped rather than surfaced as an empty row.
+    promptedSpy.clear();
+    promptRefreshSpy.clear();
+    manager.handleRealtimeEvent(QVariantMap{
+        {QStringLiteral("type"), QStringLiteral("device.connect_prompted")},
+        {QStringLiteral("data"), QVariantMap{}},
+    });
+    Expect(promptedSpy.count() == 0,
+           QStringLiteral("a prompt with no task id is dropped"));
+
     std::cout << "scheduled task manager integration tests passed\n";
     return 0;
 }

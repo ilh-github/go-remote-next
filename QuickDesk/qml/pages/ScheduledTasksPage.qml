@@ -35,6 +35,8 @@ Item {
             return qsTr("Revoke all remote sessions")
         if (kind === "sign_out_all_sessions")
             return qsTr("Sign out all sessions")
+        if (kind === "connect_prompt")
+            return qsTr("Prompt to connect")
         return kind || qsTr("Unknown action")
     }
 
@@ -132,7 +134,13 @@ Item {
         kindModel.clear()
         var values = root.manager && root.manager.supportedKinds.length > 0
                      ? root.manager.supportedKinds
-                     : ["revoke_all_remote_sessions", "sign_out_all_sessions"]
+                    // The same fallback the web client had to be corrected for:
+                    // a second copy of the kind list that omits the newer kind
+                    // means the create dialog cannot offer it before
+                    // supported_kinds arrives.
+                    : ["sign_out_all_sessions",
+                       "revoke_all_remote_sessions",
+                       "connect_prompt"]
         for (var i = 0; i < values.length; ++i) {
             kindModel.append({ value: values[i], text: root.kindLabel(values[i]) })
         }
@@ -261,6 +269,15 @@ Item {
             root.showToast(qsTr("%1 task failed: %2")
                            .arg(root.kindLabel(kind)).arg(error),
                            QDToast.Type.Error)
+        }
+
+        // QD-607: a scheduled connection came due. The server publishes it, the
+        // web client consumes it, and the desktop client is the last place it has
+        // to reach - the same layer-by-layer gap the notification subscription
+        // and the userSync branch were.
+        function onRealtimeConnectPrompted(taskId) {
+            root.showToast(qsTr("A scheduled connection is due. Open the task to connect."),
+                           QDToast.Type.Info)
         }
 
         function onRealtimeRefreshRequested() {
