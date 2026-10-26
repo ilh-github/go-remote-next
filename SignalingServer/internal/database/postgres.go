@@ -64,3 +64,27 @@ func RunMigrations(db *gorm.DB) error {
 	log.Println("Database migrations completed")
 	return nil
 }
+
+// AutoMigrate runs GORM's schema sync for these models through a session that
+// has PrepareStmt on.
+//
+// Use this rather than db.AutoMigrate on a Postgres handle opened without
+// PrepareStmt. gorm.io/driver/postgres's Migrator.GetRows injects
+// pgx.QueryExecModeSimpleProtocol as a query argument whenever PrepareStmt is
+// off, and it does that for `SELECT * FROM "t" LIMIT 1`, a statement with no
+// placeholder. pgx's sanitizer then rejects the query with "insufficient
+// arguments", so any table that already exists cannot be migrated.
+//
+// The failure is quiet: callers that migrate one model at a time log a warning
+// and carry on, so an existing installation silently stops receiving schema
+// updates while a fresh one creates its tables and looks healthy.
+//
+// PrepareStmt is scoped to this session rather than the handle because it
+// changes how every later statement is executed, and a prepared session refuses
+// a multi-statement Exec such as the migrations/001_init.sql file.
+func AutoMigrate(db *gorm.DB, models ...interface{}) error {
+	if db == nil {
+		return fmt.Errorf("no database handle to migrate")
+	}
+	return db.Session(&gorm.Session{PrepareStmt: true}).AutoMigrate(models...)
+}

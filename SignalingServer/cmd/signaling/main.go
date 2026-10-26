@@ -130,7 +130,7 @@ func main() {
 			&models.UpdateRelease{},
 			&models.Preset{},
 		} {
-			if err := db.AutoMigrate(model); err != nil {
+			if err := database.AutoMigrate(db, model); err != nil {
 				log.Printf("Warning: AutoMigrate %T failed (continuing with the remaining tables): %v", model, err)
 			}
 		}
