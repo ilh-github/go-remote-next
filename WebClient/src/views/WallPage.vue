@@ -163,6 +163,7 @@ import { useI18n } from 'vue-i18n'
 import { userApi } from '../api/userApi'
 import { openRemoteSession, prepareRemoteSession } from '../utils/remoteLauncher'
 import { WallAudioSelector } from '../../js/ui/wall-audio.js'
+import { resolveTiles } from '../../js/wall/tileModel.js'
 
 const { t } = useI18n()
 const showToast = inject('showToast')
@@ -192,27 +193,16 @@ const frameRefs = new Map()
 // the session really came up, so it reports back over postMessage.
 const live = reactive({})
 
-const tiles = computed(() => selected.value.map((id) => {
-  const device = devices.value.find((d) => d.device_id === id)
-  const state = live[id] || {}
-  const base = {
-    deviceId: id,
-    name: device ? (device.remark || device.device_name || id) : id,
-    url: state.url || '',
-    detail: state.detail || '',
-    reason: '',
-    state: 'connecting',
-  }
-  if (!device) {
-    return { ...base, state: 'error', reason: t('wall.tileUnknown') }
-  }
-  if (!device.online) {
-    return { ...base, url: '', state: 'offline', reason: t('wall.reasonOffline') }
-  }
-  if (!device.logged_in) {
-    return { ...base, url: '', state: 'idle', reason: t('wall.reasonIdle') }
-  }
-  return { ...base, state: state.state || 'connecting', reason: state.reason || '' }
+// Resolved through js/wall/tileModel.js rather than inline. The inline version
+// did `devices.value.find(...)` inside the map over the selection, which is
+// quadratic in the number of tiles - and a wall is a grid of hundreds of tiles by
+// design, so that was the common case, not an edge. The measured 200-viewer peak
+// sat far above what 100 viewers produced, which is where this started.
+const tiles = computed(() => resolveTiles({
+  selectedIds: selected.value,
+  devices: devices.value,
+  live,
+  translate: t,
 }))
 
 function readSelection() {
