@@ -87,6 +87,17 @@ jobs:
         # asserted anything. Downloading here keeps the build quiet and the
         # failure mode honest.
         run: go mod download
+      - name: Satisfy the embedded admin UI
+        working-directory: SignalingServer
+        # `//go:embed web/dist/*` needs at least one matching file, and web/dist
+        # is a build artifact the repository does not carry. The same two lines
+        # appear in signaling-server-verify.yml for the same reason. A placeholder
+        # is enough: these E2E exercise the API, not the admin SPA, and building
+        # the real one here would mean running the WebClient build inside a job
+        # whose point is to test the WebClient.
+        run: |
+          mkdir -p web/dist
+          printf '<!doctype html><title>ci placeholder</title>\n' > web/dist/index.html
       - name: Install dependencies
         working-directory: WebClient
         run: npm install
