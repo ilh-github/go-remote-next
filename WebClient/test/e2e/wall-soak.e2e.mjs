@@ -4,10 +4,26 @@ import net from 'node:net'
 import { chromium } from 'playwright'
 import { createServer } from 'vite'
 
+// The interval rule lives in a module so it can be tested without a two-hour
+// run; the E2E only decides when to ask it.
+import { buildSamplingPlan, intervalAt } from '../../js/soak/samplingPlan.js'
+
 const WEB_ROOT = new URL('../../', import.meta.url).pathname
 const DEVICE_COUNT = positiveInteger(process.env.QD_WALL_DEVICES, 40)
 const SOAK_SECONDS = positiveInteger(process.env.QD_WALL_SOAK_SECONDS, 12)
 const SAMPLE_MS = positiveInteger(process.env.QD_WALL_SAMPLE_MS, 1000)
+// Dense sampling inside one window of the soak, coarse outside it.
+//
+// The 2026-10-24 two-hour run showed FPS stepping down between 267 and 681
+// seconds rather than sliding, and a one-second series over two hours cannot
+// say what happened at the step - it only says the average is bad. These three
+// variables carve out a window where the sampling interval drops to
+// `DENSE_SAMPLE_MS`, so a short run inside the interesting stretch yields the
+// resolution the full-length run cannot. Zero-width defaults (start == end)
+// disable the feature, which is what every existing run gets.
+const DENSE_FROM_MS = positiveInteger(process.env.QD_WALL_DENSE_FROM_MS, 0)
+const DENSE_TO_MS = positiveInteger(process.env.QD_WALL_DENSE_TO_MS, 0)
+const DENSE_SAMPLE_MS = positiveInteger(process.env.QD_WALL_DENSE_SAMPLE_MS, 100)
 const MIN_MAIN_FPS = positiveNumber(process.env.QD_WALL_MIN_MAIN_FPS, 1)
 const MAX_HEAP_GROWTH_MB = positiveNumber(process.env.QD_WALL_MAX_HEAP_GROWTH_MB, 256)
 // Startup for hundreds of animated iframes plus the final sampling pass takes
@@ -22,6 +38,15 @@ const MAX_HEAP_GROWTH_MB = positiveNumber(process.env.QD_WALL_MAX_HEAP_GROWTH_MB
 // run this default was sized against. When the wrapper times out, node:test
 // fails the whole thing — including the two hours that already passed.
 const SOAK_TIMEOUT_HEADROOM_MS = positiveNumber(process.env.QD_WALL_TIMEOUT_HEADROOM_MS, 2 * 60 * 60 * 1000)
+// Built once from the environment: a plan that was assembled per sample would
+// make the interval a function of when the loop happened to ask, which is the
+// opposite of reproducible.
+const SAMPLING_PLAN = buildSamplingPlan({
+  intervalMs: SAMPLE_MS,
+  fromMs: DENSE_FROM_MS,
+  toMs: DENSE_TO_MS,
+  denseIntervalMs: DENSE_SAMPLE_MS,
+})
 const DEVICES = Array.from({ length: DEVICE_COUNT }, (_, index) => {
   const suffix = String(index + 1).padStart(3, '0')
   return {
@@ -209,7 +234,12 @@ test(
         previousFrames = frames
         previousSampleAt = now
         index += 1
-        const remaining = SAMPLE_MS - (Date.now() - sampleStarted)
+        // The interval is chosen per sample, not fixed for the run: inside the
+        // dense window the loop tightens so a step change lands on several
+        // points instead of being interpolated between two of them.
+        const elapsedNow = Date.now() - startedAt
+        const interval = intervalAt(SAMPLING_PLAN, elapsedNow)
+        const remaining = interval - (Date.now() - sampleStarted)
         if (remaining > 0) await new Promise((resolve) => setTimeout(resolve, remaining))
       }
 
@@ -256,6 +286,17 @@ test(
         devices: DEVICE_COUNT,
         durationSeconds: elapsedMs / 1000,
         samples: samples.length,
+        // Echoed so a summary is self-describing: a trace read without knowing
+        // where the dense window was cannot tell a real step from an artefact of
+        // the sampling rate changing.
+        dense: {
+          fromMs: DENSE_FROM_MS,
+          toMs: DENSE_TO_MS,
+          intervalMs: DENSE_SAMPLE_MS,
+          samples: samples.filter((sample) => (
+            sample.elapsedMs >= DENSE_FROM_MS && sample.elapsedMs < DENSE_TO_MS
+          )).length,
+        },
         mainFps: Number(mainFps.toFixed(2)),
         heapGrowthMb: Number(heapGrowthMb.toFixed(2)),
         heapEndMb: Number(((finalMetrics.JSHeapUsedSize || 0) / 1024 / 1024).toFixed(2)),
