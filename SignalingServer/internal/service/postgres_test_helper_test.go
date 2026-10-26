@@ -10,6 +10,11 @@ import (
 
 // openTestPostgres opens the scratch Postgres that QD_TEST_DATABASE_URL points
 // at, skipping the test when the variable is unset.
+//
+// The pool is closed with the test. The scratch database is shared by every
+// Postgres-backed test in this package, and Postgres has a small connection
+// limit, so a handle left idle after its test finishes is a connection the
+// tests still to run cannot have.
 func openTestPostgres(t *testing.T) *gorm.DB {
 	t.Helper()
 	dsn := os.Getenv("QD_TEST_DATABASE_URL")
@@ -20,6 +25,11 @@ func openTestPostgres(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
+	t.Cleanup(func() {
+		if sqlDB, err := db.DB(); err == nil {
+			_ = sqlDB.Close()
+		}
+	})
 	return db
 }
 

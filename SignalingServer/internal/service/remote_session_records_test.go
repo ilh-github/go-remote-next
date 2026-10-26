@@ -15,9 +15,7 @@ import (
 // may hand back a neighbour's row just because the session id matched.
 func TestRemoteSessionRelatedRecordsBatchFilters(t *testing.T) {
 	db := newRemoteSessionTestDB(t)
-	if err := db.AutoMigrate(&models.SessionRecording{}, &models.DeviceAccessLog{}); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	migrateTestSchema(t, db, &models.SessionRecording{}, &models.DeviceAccessLog{})
 	ctx := context.Background()
 	const (
 		deviceID   = "700000006"
@@ -107,9 +105,7 @@ func TestRemoteSessionRelatedRecordsBatchFilters(t *testing.T) {
 // else: the session id is the boundary that keeps a cross-user page honest.
 func TestRemoteSessionRelatedRecordsAdminBatchSpansOwners(t *testing.T) {
 	db := newRemoteSessionTestDB(t)
-	if err := db.AutoMigrate(&models.SessionRecording{}, &models.DeviceAccessLog{}); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	migrateTestSchema(t, db, &models.SessionRecording{}, &models.DeviceAccessLog{})
 	ctx := context.Background()
 	const (
 		deviceA = "700000016"

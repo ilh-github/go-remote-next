@@ -10,6 +10,11 @@ import (
 
 // openTestPostgres opens the scratch Postgres that QD_TEST_DATABASE_URL points
 // at, skipping the test when the variable is unset.
+//
+// The pool is closed with the test. The scratch database is shared by every
+// Postgres-backed test in this package, and Postgres has a small connection
+// limit, so a handle left idle after its test finishes is a connection the
+// tests still to run cannot have.
 func openTestPostgres(t *testing.T) *gorm.DB {
 	t.Helper()
 	dsn := os.Getenv("QD_TEST_DATABASE_URL")
@@ -20,6 +25,11 @@ func openTestPostgres(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
+	t.Cleanup(func() {
+		if sqlDB, err := db.DB(); err == nil {
+			_ = sqlDB.Close()
+		}
+	})
 	return db
 }
 
@@ -34,6 +44,11 @@ func openTestPostgres(t *testing.T) *gorm.DB {
 // scratch database run after run, so it always reaches the "table exists"
 // branch, while a developer without the variable set has every one of these
 // tests skipped.
+//
+// Turning PrepareStmt on for the whole handle would also fix it, but a prepared
+// session refuses a multi-statement Exec, and several tests replay
+// migrations/001_init.sql verbatim. So the flag belongs on the migration
+// session alone and the caller keeps a plain handle for everything else.
 func migrateTestSchema(t *testing.T, db *gorm.DB, models ...interface{}) {
 	t.Helper()
 	if err := db.Session(&gorm.Session{PrepareStmt: true}).AutoMigrate(models...); err != nil {

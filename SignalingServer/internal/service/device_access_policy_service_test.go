@@ -265,9 +265,7 @@ func TestDeletingDeviceRemovesItsAccessPolicy(t *testing.T) {
 		deviceID = "880000004"
 		userID   = uint(990304)
 	)
-	if err := db.AutoMigrate(&models.User{}, &models.Device{}); err != nil {
-		t.Fatalf("migrate device tables: %v", err)
-	}
+	migrateTestSchema(t, db, &models.User{}, &models.Device{})
 	if err := db.Exec("DELETE FROM devices WHERE device_id = ?", deviceID).Error; err != nil {
 		t.Fatalf("clear device: %v", err)
 	}
