@@ -246,6 +246,21 @@ class UserSync extends EventTarget {
       }))
       return
     }
+    if (type === 'device.connect_prompted') {
+      if (!this._shouldApplyFrame(type, msg.server_rev)) return
+      const data = msg.data || {}
+      // A prompt that cannot name its task is not actionable: the owner would be
+      // told a connection is due with nothing to open, which is worse than not
+      // being told.
+      if (!data.task_id) return
+      this.dispatchEvent(new CustomEvent('connect-prompted', {
+        detail: {
+          task_id: data.task_id,
+          data,
+        },
+      }))
+      return
+    }
     if (
       type === 'device.access_approval.requested'
       || type === 'device.access_approval.decided'

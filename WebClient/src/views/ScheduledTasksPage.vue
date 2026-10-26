@@ -252,6 +252,7 @@ import {
   normalizeScheduledTaskList,
   toScheduledTaskLocalValue,
 } from '../api/scheduledTaskModels'
+import { fallbackScheduledKinds, scheduledKindLabelKey } from '../../js/scheduled/kindLabels'
 
 const { t } = useI18n()
 const authState = inject('authState')
@@ -302,7 +303,7 @@ const weekdays = computed(() => [
 const availableKinds = computed(() => (
   supportedKinds.value.length
     ? supportedKinds.value
-    : ['revoke_all_remote_sessions', 'sign_out_all_sessions']
+    : fallbackScheduledKinds
 ))
 const activeCount = computed(() => tasks.value.filter((task) => task.enabled).length)
 const recurringCount = computed(() => tasks.value.filter((task) => (
@@ -316,10 +317,10 @@ const payloadPreview = computed(() => {
   return JSON.stringify(payload, null, 2)
 })
 
+// The map lives in a module so a kind without a label is a failing test rather
+// than a raw wire name in a table cell.
 function kindLabel(kind) {
-  if (kind === 'sign_out_all_sessions') return t('scheduled.kinds.signOutAllSessions')
-  if (kind === 'revoke_all_remote_sessions') return t('scheduled.kinds.revokeAllRemoteSessions')
-  return kind || t('scheduled.kinds.unknown')
+  return t(`scheduled.kinds.${scheduledKindLabelKey(kind)}`)
 }
 
 function weekdayLabel(value) {
@@ -500,18 +501,31 @@ function onTaskChanged(event) {
   scheduleRefresh()
 }
 
+// A scheduled connection came due. The server published it; this is the half the
+// client owes. Without a listener the prompt stops at the socket, which is the
+// same half-wired shape the notification-subscription gap had a round earlier.
+function onConnectPrompted() {
+  // Refresh rather than build the toast from the frame alone: the row's schedule,
+  // last_run_at and status are what the owner needs to act on, and they are
+  // already on the server. The frame only carries the task id.
+  scheduleRefresh()
+  showToast(t('scheduled.promptEvent'), 'info')
+}
+
 onMounted(() => {
   if (authState.isLoggedIn) {
     loadTasks()
     pollTimer = setInterval(loadTasks, 30_000)
   }
   userSync.addEventListener('scheduled-task-changed', onTaskChanged)
+  userSync.addEventListener('connect-prompted', onConnectPrompted)
 })
 
 onBeforeUnmount(() => {
   clearTimeout(refreshTimer)
   clearInterval(pollTimer)
   userSync.removeEventListener('scheduled-task-changed', onTaskChanged)
+  userSync.removeEventListener('connect-prompted', onConnectPrompted)
 })
 </script>
 

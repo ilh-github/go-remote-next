@@ -346,6 +346,7 @@ export const en = {
     deleted: 'Scheduled task deleted',
     deleteConfirm: 'Delete the “{kind}” scheduled task? Any pending occurrence is cancelled immediately.',
     failedEvent: 'The “{kind}” task exhausted its retries. Check the last error.',
+    promptEvent: 'A scheduled connection is due. Open the task below to connect.',
     close: 'Close',
     never: 'Never',
     summary: {
@@ -361,6 +362,7 @@ export const en = {
     kinds: {
       revokeAllRemoteSessions: 'Revoke all remote sessions',
       signOutAllSessions: 'Sign out all sessions',
+      connectPrompt: 'Prompt to connect',
       unknown: 'Unknown task kind',
     },
     mode: {

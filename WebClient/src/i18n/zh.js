@@ -349,6 +349,7 @@ export const zh = {
     deleted: '计划任务已删除',
     deleteConfirm: '删除计划任务“{kind}”？尚未执行的排期会立即取消。',
     failedEvent: '计划任务“{kind}”重试次数已耗尽，请检查最后错误。',
+    promptEvent: '计划连接已到点，请在下方查看该任务并开始连接。',
     close: '关闭',
     never: '从未',
     summary: {
@@ -364,6 +365,7 @@ export const zh = {
     kinds: {
       revokeAllRemoteSessions: '清理所有远程控制会话',
       signOutAllSessions: '退出所有登录会话',
+      connectPrompt: '到点提醒连接',
       unknown: '未知任务类型',
     },
     mode: {
