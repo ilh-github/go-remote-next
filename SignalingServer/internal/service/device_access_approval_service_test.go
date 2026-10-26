@@ -4,14 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"sync"
 	"testing"
 	"time"
 
 	"quickdesk/signaling/internal/models"
 
-	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
@@ -66,17 +64,8 @@ func TestApprovalEffectiveStatusAt(t *testing.T) {
 // points at a database the caller is happy to truncate.
 func newApprovalTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	dsn := os.Getenv("QD_TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("set QD_TEST_DATABASE_URL to a throwaway Postgres to run the approval tests")
-	}
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open db: %v", err)
-	}
-	if err := db.AutoMigrate(&models.DeviceAccessApproval{}, &models.Device{}); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	db := openTestPostgres(t)
+	migrateTestSchema(t, db, &models.DeviceAccessApproval{}, &models.Device{})
 	if err := db.Exec("TRUNCATE device_access_approvals").Error; err != nil {
 		t.Fatalf("truncate: %v", err)
 	}

@@ -2,13 +2,11 @@ package service
 
 import (
 	"context"
-	"os"
 	"testing"
 	"time"
 
 	"quickdesk/signaling/internal/models"
 
-	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
@@ -17,14 +15,7 @@ import (
 // behaviour, not application behaviour.
 func newInstanceLogTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	dsn := os.Getenv("QD_TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("set QD_TEST_DATABASE_URL to a throwaway Postgres to run the log-shipping tests")
-	}
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open db: %v", err)
-	}
+	db := openTestPostgres(t)
 	// The scratch Postgres has a connection limit and this package opens a pool
 	// per test; leaving them idle would eventually make an unrelated test fail
 	// with "too many clients".
@@ -33,9 +24,7 @@ func newInstanceLogTestDB(t *testing.T) *gorm.DB {
 			sqlDB.Close()
 		}
 	})
-	if err := db.AutoMigrate(&models.InstanceLogEntry{}); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	migrateTestSchema(t, db, &models.InstanceLogEntry{})
 	if err := db.Exec("TRUNCATE instance_log_entries").Error; err != nil {
 		t.Fatalf("truncate: %v", err)
 	}

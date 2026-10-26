@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -13,7 +12,6 @@ import (
 
 	"quickdesk/signaling/internal/models"
 
-	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
@@ -72,22 +70,13 @@ func timePointer(value time.Time) *time.Time {
 // claim is `FOR UPDATE SKIP LOCKED`.
 func newScheduledTaskTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	dsn := os.Getenv("QD_TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("set QD_TEST_DATABASE_URL to a throwaway Postgres to run the scheduler tests")
-	}
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open db: %v", err)
-	}
-	if err := db.AutoMigrate(
+	db := openTestPostgres(t)
+	migrateTestSchema(t, db,
 		&models.ScheduledTask{},
 		&models.RemoteSession{},
 		&models.Device{},
 		&models.User{},
-	); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	)
 	if err := db.Exec("TRUNCATE scheduled_tasks").Error; err != nil {
 		t.Fatalf("truncate: %v", err)
 	}

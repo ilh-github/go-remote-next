@@ -3,13 +3,11 @@ package service
 import (
 	"context"
 	"fmt"
-	"os"
 	"testing"
 	"time"
 
 	"quickdesk/signaling/internal/models"
 
-	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
@@ -17,14 +15,7 @@ import (
 // filter resolves an end-user name through it.
 func auditFilterTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	dsn := os.Getenv("QD_TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("set QD_TEST_DATABASE_URL to a throwaway Postgres to run the audit-filter tests")
-	}
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open db: %v", err)
-	}
+	db := openTestPostgres(t)
 	// The scratch Postgres has a connection limit and this package opens a pool
 	// per test, so the pool is closed with the test rather than left idle.
 	t.Cleanup(func() {
@@ -32,9 +23,7 @@ func auditFilterTestDB(t *testing.T) *gorm.DB {
 			sqlDB.Close()
 		}
 	})
-	if err := db.AutoMigrate(&models.AuditLog{}, &models.User{}); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	migrateTestSchema(t, db, &models.AuditLog{}, &models.User{})
 	if err := db.Exec("DELETE FROM audit_logs").Error; err != nil {
 		t.Fatalf("clear audit logs: %v", err)
 	}

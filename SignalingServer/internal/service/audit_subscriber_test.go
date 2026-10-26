@@ -2,28 +2,17 @@ package service
 
 import (
 	"context"
-	"os"
 	"testing"
 
 	"quickdesk/signaling/internal/models"
 
-	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
 func newAuditTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	dsn := os.Getenv("QD_TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("set QD_TEST_DATABASE_URL to a throwaway Postgres to run the audit-trail tests")
-	}
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open db: %v", err)
-	}
-	if err := db.AutoMigrate(&models.AuditLog{}); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	db := openTestPostgres(t)
+	migrateTestSchema(t, db, &models.AuditLog{})
 	if err := db.Exec("DELETE FROM audit_logs").Error; err != nil {
 		t.Fatalf("clear audit logs: %v", err)
 	}

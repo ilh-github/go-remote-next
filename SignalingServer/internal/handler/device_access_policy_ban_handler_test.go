@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
 	"testing"
 
@@ -16,23 +15,13 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
-	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
 func newPolicyHandlerTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	dsn := os.Getenv("QD_TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("set QD_TEST_DATABASE_URL to a throwaway Postgres to run access-policy handler tests")
-	}
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open db: %v", err)
-	}
-	if err := db.AutoMigrate(&models.User{}, &models.Device{}, &models.DeviceAccessPolicy{}); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	db := openTestPostgres(t)
+	migrateTestSchema(t, db, &models.User{}, &models.Device{}, &models.DeviceAccessPolicy{})
 	return db
 }
 

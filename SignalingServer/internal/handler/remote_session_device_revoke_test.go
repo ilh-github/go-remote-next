@@ -3,13 +3,11 @@ package handler
 import (
 	"context"
 	"fmt"
-	"os"
 	"testing"
 
 	"quickdesk/signaling/internal/models"
 	"quickdesk/signaling/internal/service"
 
-	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
@@ -18,22 +16,13 @@ import (
 // a fake database would only be testing the fake.
 func newDeviceRevokeTestDB(t *testing.T, slot int) (*gorm.DB, string) {
 	t.Helper()
-	dsn := os.Getenv("QD_TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("set QD_TEST_DATABASE_URL to a throwaway Postgres to run the device revoke tests")
-	}
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open db: %v", err)
-	}
+	db := openTestPostgres(t)
 	t.Cleanup(func() {
 		if sqlDB, err := db.DB(); err == nil {
 			sqlDB.Close()
 		}
 	})
-	if err := db.AutoMigrate(&models.RemoteSession{}, &models.Device{}, &models.User{}); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	migrateTestSchema(t, db, &models.RemoteSession{}, &models.Device{}, &models.User{})
 	// One device id per test, passed in, so two tests in this file cannot
 	// collide and the ids do not silently move when a test is renamed.
 	deviceID := fmt.Sprintf("7000000%02d", slot)

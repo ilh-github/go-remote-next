@@ -3,29 +3,18 @@ package service
 import (
 	"context"
 	"errors"
-	"os"
 	"testing"
 	"time"
 
 	"quickdesk/signaling/internal/models"
 
-	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
 func newNotificationAckTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	dsn := os.Getenv("QD_TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("set QD_TEST_DATABASE_URL to a throwaway Postgres to run the acknowledgement tests")
-	}
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open db: %v", err)
-	}
-	if err := db.AutoMigrate(&models.NotificationDelivery{}); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	db := openTestPostgres(t)
+	migrateTestSchema(t, db, &models.NotificationDelivery{})
 	if err := db.Exec("TRUNCATE notification_deliveries").Error; err != nil {
 		t.Fatalf("truncate: %v", err)
 	}

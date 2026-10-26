@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strconv"
 	"testing"
 
@@ -13,28 +12,18 @@ import (
 	"quickdesk/signaling/internal/service"
 
 	"github.com/gin-gonic/gin"
-	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
 func newUserDeviceGroupsHandlerTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	dsn := os.Getenv("QD_TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("set QD_TEST_DATABASE_URL to a throwaway Postgres to run user-device-group handler tests")
-	}
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open db: %v", err)
-	}
-	if err := db.AutoMigrate(
+	db := openTestPostgres(t)
+	migrateTestSchema(t, db,
 		&models.User{},
 		&models.Device{},
 		&models.UserDeviceGroup{},
 		&models.UserDeviceGroupMember{},
-	); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	)
 	return db
 }
 

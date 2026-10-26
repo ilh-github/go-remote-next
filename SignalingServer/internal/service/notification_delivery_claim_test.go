@@ -13,7 +13,6 @@ import (
 
 	"quickdesk/signaling/internal/models"
 
-	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
@@ -26,17 +25,8 @@ import (
 // skipped unless QD_TEST_DATABASE_URL points at a *throwaway* database — it
 // truncates notification_deliveries first.
 func TestClaimDueIsExclusiveAcrossWorkers(t *testing.T) {
-	dsn := os.Getenv("QD_TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("set QD_TEST_DATABASE_URL to a throwaway Postgres to run the claim-safety test")
-	}
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open db: %v", err)
-	}
-	if err := db.AutoMigrate(&models.NotificationDelivery{}); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	db := openTestPostgres(t)
+	migrateTestSchema(t, db, &models.NotificationDelivery{})
 	// The database is ours alone; start from a known empty table.
 	if err := db.Exec("TRUNCATE notification_deliveries").Error; err != nil {
 		t.Fatalf("truncate: %v", err)
@@ -121,17 +111,8 @@ func TestClaimDueIsExclusiveAcrossWorkers(t *testing.T) {
 // parked `failed` row is retryable, and replaying it resets the attempt budget
 // and returns it to `pending` so the worker picks it up on its next pass.
 func TestRetryRearmsFailedDelivery(t *testing.T) {
-	dsn := os.Getenv("QD_TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("set QD_TEST_DATABASE_URL to a throwaway Postgres to run the retry test")
-	}
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open db: %v", err)
-	}
-	if err := db.AutoMigrate(&models.NotificationDelivery{}); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	db := openTestPostgres(t)
+	migrateTestSchema(t, db, &models.NotificationDelivery{})
 	if err := db.Exec("TRUNCATE notification_deliveries").Error; err != nil {
 		t.Fatalf("truncate: %v", err)
 	}
@@ -181,17 +162,8 @@ func TestRetryRearmsFailedDelivery(t *testing.T) {
 // finished (delivered/failed) rows past the cutoff may be deleted, and
 // in-flight rows are never mistaken for history no matter how old they look.
 func TestPurgeTerminalKeepsInFlightAndRecent(t *testing.T) {
-	dsn := os.Getenv("QD_TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("set QD_TEST_DATABASE_URL to a throwaway Postgres to run the retention test")
-	}
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open db: %v", err)
-	}
-	if err := db.AutoMigrate(&models.NotificationDelivery{}); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	db := openTestPostgres(t)
+	migrateTestSchema(t, db, &models.NotificationDelivery{})
 	if err := db.Exec("TRUNCATE notification_deliveries").Error; err != nil {
 		t.Fatalf("truncate: %v", err)
 	}
@@ -251,17 +223,8 @@ func TestPurgeTerminalKeepsInFlightAndRecent(t *testing.T) {
 // `failed` row for the channel is re-armed, and delivered/pending rows are left
 // exactly as they were.
 func TestRetryAllFailedRequeuesOnlyFailedRows(t *testing.T) {
-	dsn := os.Getenv("QD_TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("set QD_TEST_DATABASE_URL to a throwaway Postgres to run the bulk-retry test")
-	}
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open db: %v", err)
-	}
-	if err := db.AutoMigrate(&models.NotificationDelivery{}); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	db := openTestPostgres(t)
+	migrateTestSchema(t, db, &models.NotificationDelivery{})
 	if err := db.Exec("TRUNCATE notification_deliveries").Error; err != nil {
 		t.Fatalf("truncate: %v", err)
 	}
@@ -322,17 +285,8 @@ func TestRetryAllFailedRequeuesOnlyFailedRows(t *testing.T) {
 // shared preamble for the retention tests.
 func newPurgeTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	dsn := os.Getenv("QD_TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("set QD_TEST_DATABASE_URL to a throwaway Postgres to run the retention tests")
-	}
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open db: %v", err)
-	}
-	if err := db.AutoMigrate(&models.NotificationDelivery{}); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	db := openTestPostgres(t)
+	migrateTestSchema(t, db, &models.NotificationDelivery{})
 	if err := db.Exec("TRUNCATE notification_deliveries").Error; err != nil {
 		t.Fatalf("truncate: %v", err)
 	}
@@ -570,17 +524,8 @@ func TestRetryAllFailedForUserIsUserScoped(t *testing.T) {
 // should not drag a healthy device's backlog back through the worker. These
 // tests pin the filters, the dry run and the batch cap.
 func TestRetryFailedFiltersDryRunAndLimit(t *testing.T) {
-	dsn := os.Getenv("QD_TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("set QD_TEST_DATABASE_URL to a throwaway Postgres to run the replay-filter tests")
-	}
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open db: %v", err)
-	}
-	if err := db.AutoMigrate(&models.NotificationDelivery{}); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	db := openTestPostgres(t)
+	migrateTestSchema(t, db, &models.NotificationDelivery{})
 	if err := db.Exec("TRUNCATE notification_deliveries").Error; err != nil {
 		t.Fatalf("truncate: %v", err)
 	}

@@ -4,13 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"testing"
 	"time"
 
 	"quickdesk/signaling/internal/models"
 
-	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
@@ -29,17 +27,8 @@ func (f *fakePresence) IsOnline(_ context.Context, deviceID string) bool {
 // the evaluator skips devices the owner has logged out of.
 func newOfflineAlertTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	dsn := os.Getenv("QD_TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("set QD_TEST_DATABASE_URL to a throwaway Postgres to run the offline-alert tests")
-	}
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open db: %v", err)
-	}
-	if err := db.AutoMigrate(&models.DeviceOfflineAlertRule{}, &models.Device{}); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	db := openTestPostgres(t)
+	migrateTestSchema(t, db, &models.DeviceOfflineAlertRule{}, &models.Device{})
 	if err := db.Exec("DELETE FROM device_offline_alert_rules").Error; err != nil {
 		t.Fatalf("clear rules: %v", err)
 	}

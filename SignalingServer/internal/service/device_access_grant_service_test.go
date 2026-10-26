@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"errors"
-	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -11,21 +10,13 @@ import (
 
 	"quickdesk/signaling/internal/models"
 
-	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
 // newGrantTestDB opens the throwaway database and clears the grants table.
 func newGrantTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	dsn := os.Getenv("QD_TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("set QD_TEST_DATABASE_URL to a throwaway Postgres to run the grant tests")
-	}
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open db: %v", err)
-	}
+	db := openTestPostgres(t)
 	// One pool per test against a scratch Postgres with a connection limit;
 	// closing it with the test keeps a long package run from exhausting them.
 	t.Cleanup(func() {
@@ -33,9 +24,7 @@ func newGrantTestDB(t *testing.T) *gorm.DB {
 			sqlDB.Close()
 		}
 	})
-	if err := db.AutoMigrate(&models.DeviceAccessGrant{}); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	migrateTestSchema(t, db, &models.DeviceAccessGrant{})
 	if err := db.Exec("TRUNCATE device_access_grants").Error; err != nil {
 		t.Fatalf("truncate: %v", err)
 	}

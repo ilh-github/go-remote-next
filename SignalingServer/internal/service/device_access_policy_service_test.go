@@ -4,13 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"os"
 	"testing"
 
 	"quickdesk/signaling/internal/models"
 	"quickdesk/signaling/internal/repository"
 
-	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
@@ -173,17 +171,8 @@ func TestRemoveDeniedIP(t *testing.T) {
 
 func newAccessPolicyTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	dsn := os.Getenv("QD_TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("set QD_TEST_DATABASE_URL to a throwaway Postgres to run access-policy persistence tests")
-	}
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open db: %v", err)
-	}
-	if err := db.AutoMigrate(&models.DeviceAccessPolicy{}); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	db := openTestPostgres(t)
+	migrateTestSchema(t, db, &models.DeviceAccessPolicy{})
 	return db
 }
 

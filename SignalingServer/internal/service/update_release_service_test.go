@@ -3,13 +3,11 @@ package service
 import (
 	"context"
 	"errors"
-	"os"
 	"testing"
 	"time"
 
 	"quickdesk/signaling/internal/models"
 
-	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
@@ -47,22 +45,13 @@ func TestCompareUpdateVersions(t *testing.T) {
 
 func newUpdateReleaseTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	dsn := os.Getenv("QD_TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("set QD_TEST_DATABASE_URL to a throwaway Postgres to run the update-channel tests")
-	}
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open db: %v", err)
-	}
+	db := openTestPostgres(t)
 	t.Cleanup(func() {
 		if sqlDB, err := db.DB(); err == nil {
 			sqlDB.Close()
 		}
 	})
-	if err := db.AutoMigrate(&models.UpdateRelease{}); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	migrateTestSchema(t, db, &models.UpdateRelease{})
 	if err := db.Exec("TRUNCATE update_releases").Error; err != nil {
 		t.Fatalf("truncate: %v", err)
 	}
