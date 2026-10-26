@@ -945,3 +945,337 @@ rotation 的事件写入同一数据库事务，`6386a48` 又把 TURN/STUN setti
 | QD-907 | 协议异常、权限异常、重连耗尽 | `[~]` | 已补信令 auth_ok 超时、认证前 payload/send 门禁、访问策略/错误访问码/排队/签名失败分类、上传 transport/503 重试耗尽，以及 WebSocket 断线后重新签发 token 的有界 `0/1/3/7s` 重连与耗尽状态。Playwright E2E 已覆盖第 1~3 次恢复、四次耗尽、不可重试策略拒绝、上传中断与信令重连并行、旧 Session 迟到事件隔离；`39ea81c` 补弱网证据：在既有 WebSocket harness 上按固定模式丢 auth 回复，覆盖「首次回复丢失后仍重连成功」和「链路始终不应答时仍走完四次并落到耗尽状态」两端；破坏「失败不重试」这条边界时两个新测试连同原有重连测试一起失败，恢复后全绿（`node --test test/e2e/reconnect.e2e.mjs` 11 项、`npm test` 147 项）。未用 Chrome CDP 网络节流：Playwright 接管后的 WebSocket 不受其影响，已实测确认。剩余：代理切换、进程级断网和长时间抖动仍未验证 |
 | QD-908 | 2h+ 桌面长稳和几百路观看 | `[~]` | 200 路 7200 秒正式跑已两次执行完毕并拿到带时间序列的 `WALL_SOAK_SUMMARY`：时长、118 次采样、三个采样 iframe 帧持续推进、零页面错误均通过；`mainFps` 0.71~0.77（阈值 1）与 `heapGrowthMb` 535~554 MiB（阈值 256）未过；同参数 42 秒短跑对照为 9.17 FPS 和 -118 MiB。按采样打点后退化形状确定：**FPS 在 267~681 秒之间阶跃崩塌**（前 267 秒稳定 7~8.7 FPS，681 秒已跌到 3.51，之后贴 0.4），不是渐进；**DOM 节点数在 267 秒见顶 9241 后不再增长**，稳定在 9132~9137，因此节点增长不是原因（上一轮的猜测被推翻）；**heap 增长与 FPS 崩塌是两条独立劣化**——FPS 归零后 heap 仍以约每分钟 3 MB 线性增长，说明分配源不依赖主线程帧循环。headroom 已从 1 小时提到 2 小时使跑完不被 `node:test` 掐断。**不调阈值**：调松会把 QD-908 要抓的退化藏掉。`dd79ef2` 补上加密采样能力：`js/soak/samplingPlan.js` 决定任一时刻用哪个采样间隔，密集窗口半开区间 `[from, to)`，不覆盖任何时间的窗口直接丢弃而不是半配置——否则摘要会声称有密集窗口而实际全程粗粒度，那是一份误导性记录；密集间隔若不细于粗粒度也拒绝，因为花了采样预算却买不到分辨率。规则抽成模块而不是写在 E2E 里，因为规则才是值得测的部分，而埋在两小时测试里的函数不跑两小时测不到。9 条单测覆盖，含两处边界（半开区间、零宽窗口丢弃）；红绿两次：把上界改成闭区间、接受零宽窗口，各自被对应测试抓住。20 秒实测：窗口 8~14 秒、密集 100ms，73 个样本中 59 个落在窗口内；关闭时 12 个样本，默认路径逐字节不变。正式跑需在 267~681 秒窗口内设 `QD_WALL_DENSE_FROM_MS=267000 QD_WALL_DENSE_TO_MS=681000 QD_WALL_DENSE_SAMPLE_MS=100`，并需夜间低负载窗口（白天 load 3~5.6，会污染 FPS 数据）。**本轮实证推翻两个前提**。其一，劣化不是规模无关的：40 路 90 秒全程密集采样（180 点）heap 仅 -0.4 MiB、FPS 稳在 52，完全不复现，所以「在小规模上找分配源」这条路不存在，必须用 200 路。其二，密集采样在 200 路下不可达：单次采样（`page.evaluate` + CDP `Performance.getMetrics`）实测约 6.5~7 秒，200 ms 的密集间隔被超出 14 倍，配置 240 点的窗口只产出 9 点。`denseResolution()` 因此把「配置的间隔」和「达到的间隔」分别报进摘要——一份声称密集而实际全程粗粒度的记录，比没有这个功能更糟。60 路实测可达（142 点、实际 211ms/请求 200ms，`achievable: true`），200 路正确报 `false`。**heap 增长被证明是测量噪声，不是劣化**。`QD_WALL_PEAK_TRACK_MS`（默认 1000，可关）用一个只读 `JSHeapUsedSize` 的廉价心跳在整轮内独立持有峰值，不参与完整采样所以不被其开销拖累。同样 200 路三次跑：`heapGrowthMb` 分别为 **-156.19、-11.48、+295.50**，峰值 384 MiB 时而高于终值 250 MiB、时而低于终值 13 MiB。一个在相同参数下摆动 300 MiB 的指标测的是噪声，不是泄漏。这直接推翻此前「heap 增长与 FPS 崩塌是两条独立劣化」的论断——那条结论建立在这个数字上。峰值读数为 118~175 次，证明跟踪器本身跑得起来，问题在被跟踪的指标。**门禁含义**：`heapGrowthMb` 不能再作为 QD-908 的通过条件，继续用它会把随机波动当成回归、也会把真回归藏进噪声。峰值门禁已落地并抓到真缺陷。门禁改判峰值（整轮最大值）而非首末差，两者仍都报进摘要。**200 路峰值 heap 超线性增长**：40 路 33.1 MiB、100 路 75.3 MiB、200 路 369~384 MiB——规模翻倍而峰值涨 4 倍，这不是每路恒定开销。根因是 `WallPage.vue` 的 `tiles` computed 里对每个选中设备做 `devices.find(...)`，即 O(n²)，而屏幕墙本就是几百瓦片的设计，每次设备轮询和每次 live 状态更新都会全量重算。`1f5e7f1` 改为先建索引再一次遍历（`js/wall/tileModel.js`）：200 路峰值从 369~384 MiB 降到 **117.3 MiB**，峰值增长从 129~274 MiB 降到约 0，门禁由 FAIL 转 PASS。测试计数「设备列表被搜索几次」而非计时——计时守卫试过但无效：V8 对 400 元素 `find` 优化到二次版只花 9.1ms（索引版 3.6ms），任何值得设的阈值两者都能过，那会是一个永远绿的守卫；把 `find` 放回去该测试立刻红。FPS 与 `pageErrors` 门禁始终有效，未动。剩余：200 路 7200 秒夜间正式跑仍未做。 |
 | QD-909 | 安全审计：文件、剪贴板、权限 | `[~]` | 访问、会话和文件传输已有 attributable 上报；`e04451c` 补剪贴板：`POST /v1/me/clipboard-audits` 记方向、MIME 类型和字节数，**契约里没有存放文本的字段**——剪贴板内容照例是密码、恢复码或私信，「14:03 拷走 1.2 KB 文本」足以回答调查问题，而存文本会把审计链变成每个后来读库者都继承的凭据库；客户端 builder 只取文本用于测量，从构造上就没有内容进入审计行的路径；真机 E2E 直接回读 SQLite 文件，断言行存在、带字节数、且既不含文本也不含片段；本地写入失败也按 failed 上报（字节确实过了数据通道）。读侧已补：此前 owner 能写文件/剪贴板审计行，却只能经 `/v1/admin` 读回——「14:03 我的控制器拷走了什么」这个问题，唯一能据此行动的人反而问不到答案，审计链成了只写日志。新增 `GET /v1/me/audit-logs`：按调用者自己的 actor id 收敛，两个写端点本就拒绝非属主设备，所以行上的 actor 即该设备 owner，这个收敛不会变成别人传输的视图；`action` 是白名单而非自由匹配——不在本链路上的动作返回 400 而不是空页，因为「你什么都没做」不该是拼写错误能产出的结论；分页沿用通用 cursor。`details` 以 JSON 字符串返回，写端点「永不存剪贴板文本」的性质因此对客户端可见，而不是被类型化字段藏起来。真机 E2E 在同服务器上 seed 第二个账号，证明「我的行」确实只含我的；红绿在单测与 E2E 两级都做过。七套 SDK 已随源 spec 重新生成，freshness 门禁七种语言全部通过；`sdk/go` vet/build、Python 导入、Java package、Kotlin build 本机实跑通过，C#/PHP 需 dotnet 与 php，交 CI。剩余：权限侧边界随 QD-115 收口 |
+
+| QD-910 | 需求、上游与实现持续对账 | `[~]` | 每次上游合并、issue/PR 变化或功能完成时，同步本清单、状态证据和上游贡献决策 |
+| QD-911 | 上游私密安全披露入口 | `[~]` | fork 提交 `3021ca9` 与上游候选（已 rebase 到 `upstream/dev@5db316c` 成为 `68d4a38`）新增 `SECURITY.md`，覆盖私密邮箱兜底、公开 issue 禁令、范围、协调披露和 maintainer 检查项；已创建上游 PR #33（OPEN）。PR 说明已明确：加文件不会启用 GitHub Private Vulnerability Reporting，那是只有维护者能开的仓库设置，开启前兜底邮箱是唯一私密路径；issue #6 仍 OPEN，该设置仍 disabled |
+## 13. 明确不做
+
+- `[-]` RDP：会锁被控端本机会话。
+- `[-]` 重写 Chromium Remoting 媒体内核。
+- `[-]` 自研 WebRTC / ICE / STUN / TURN。
+- `[>]` Linux 被控端：上游 Roadmap 已列出；本 fork 暂缓，接口和验证基线保留。
+- `[>]` iOS/Android 原生控制端：上游 Roadmap 已列出；本 fork 暂缓。
+- `[-]` 多租户、SSO、计费。
+- `[-]` 通用插件市场和完整插件权限模型。
+
+## 14. 推荐执行顺序
+
+执行顺序按“先解除上游重复投入，再完成本地闭环，最后做协议扩展”排列：
+
+1. **上游同步闸门**：持续跟踪 PR #22 / #23 / #24 / #25；已有 PR 的功能不重复实现。
+   远端写入恢复后，先推送已准备好的 QD-002/QD-403、QD-003、QD-114、QD-212、QD-213、
+   QD-214、QD-215 最小候选。
+2. **把 QD-204 回馈上游**：PR #25 的控制面/ API 基线确认后，先推送 owner-scoped
+   服务端、OpenAPI 和 SDK 候选，再推送 Web/Qt 客户端候选；不把 fork 文档带入 PR。
+3. **补任务和更新真机链路**：QD-607 的批量远控清场已完成；继续定义定时连接和广义
+   批量 agent 指令/回执，补 QD-005 / QD-808 Windows 与 macOS 安装、重启、签名和
+   公证验证。QD-215 已补发布依赖校验、正负向回归和上游候选 `f449b87`，剩余原始坏包复现与远端 PR。
+4. **准备 Remoting 需求单**：QD-004 Host 权威录制、
+   QD-114 真实 CertVerifier 均已有需求单（`docs/dev/Host权威录制Remoting需求.md`、
+   `docs/dev/自托管TLS真实CertVerifier需求.md`、`docs/dev/图片剪贴板Remoting需求.md`）。
+   至此第 4 项列出的 Remoting 需求单已全部成文。
+   每项写清协议、宿主生命周期、权限、
+   兼容性和验收用例，先交上游维护者评估。
+5. **安全与可观测性**：QD-911 候选等上游启用 Private Vulnerability Reporting；
+   QD-115 威胁模型已完成，下一阶段是 Host 身份密钥和 Owner 签名授权；之后补 QD-909
+   文件/剪贴板审计。
+6. **规模与长稳**：QD-906 真机矩阵、QD-907 异常路径、QD-908 2h+ 和几百路观看，
+   以实际发布门槛补证据，不把压测数字当宣传口径。
+7. **Roadmap 暂缓项**：QD-318 Linux、QD-319 iOS/Android 跟随上游，不提前承诺。
+8. 每次完成或合并后更新 QD-910：重新 fetch 上游、核对 issue/PR、更新本清单状态与证据。
+
+## 15. 完成定义
+
+一个功能只有同时满足以下条件才可标记为 `[x]`：
+
+- 有用户可发现的入口，不是只有内部 API。
+- 有失败路径和权限边界，不只验证成功路径。
+- 有自动化测试或明确的只读/真机验收记录。
+- 不破坏已有会话、审计、通知和权限语义。
+- 文档、API 契约、SDK 或客户端类型在涉及接口时同步更新。
+- 变更已记录到本清单，并留下验证命令或证据路径。
+
+## 16. 上游 QuickDesk 待办映射
+
+### 16.1 上游来源
+
+- 上游仓库：<https://github.com/barry-ran/QuickDesk>
+- 上游基线（2026-10-24 复核）：`master` = `5969ae3`（PR #22 的线程亲和性修复）、
+  `dev` = `5db316c`（PR #24 的 skill-host 运行库修复）。两个分支已不同线，
+  `master` 领先 `f6651f0` 一个提交。
+- 上游 Roadmap：Windows、macOS、P2P/TURN、MCP、虚拟屏、隐私屏、文件传输、音频、无人值守已完成；Linux、iOS/Android、Address book & device groups 未完成
+- `Multi-tab multi-connection` 在上游已勾选；QD-003 补的是同一设备多个标签的控制/音频互斥，不重复“多连接”能力
+- 维护计划：issue #21，维护者明确“持续维护、暂缓更新、重点偏 MCP、欢迎从 dev 切分支贡献、Remoting 改动由维护者处理”
+- 当前 11 个 open issue：#6、#7、#9、#10、#13、#18、#19、#20、#21、#29、#30；其中
+  #13、#18、#19、#20、#29、#30 是用户问题或 Roadmap 入口，#6、#10、#19、#20 已经拆入
+  QD-911、QD-115、QD-212/213/214、QD-114 的交付队列。#17 已不在 open 列表——维护者在
+  PR #22 合并后关闭了它，QD-113 随之满足「上游已修且已回灌」。新增的 #29（信令服务器 WSS）
+  与 #30（与 Local Commander 配合的说明）尚未拆解，属 `Upstream-Open`。
+- 当前 8 个 open PR：#23 录像与回放、#25 自托管控制面/OpenAPI/SDK、#26 file-ops 分块与
+  版本化回收、#27 WebClient 远程文件管理器、#31 MCP 存储锁自死锁、#32 Windows 发布依赖校验、
+  #33 私密安全披露策略
+  （均 base `dev`），#28 意大利语翻译与永久访问密码（base `master`，上游维护者自己的提交）。
+  #22 和 #24 已分别合并为 `5969ae3` 和 `5db316c`。
+  其中 #26、#27、#31、#32、#33 是本 fork 回贡的 QD-002/QD-403、MCP 死锁、QD-215 与 QD-911。
+- 2026-10-25 00:40 复核：上游 `dev` 为 `5db316c`，11 个 open issue、8 个 open PR。
+  新增 #29（WSS 何时支持，与 #20 同一诉求）与 #30（Local Commander "Works with" 互链请求，
+  第三方项目，属文档决策）。远端写入已确认可用：PR #31 与 #32 均创建成功，
+  此前记录"push/PR 被策略阻塞"不再成立。
+- 历史记录 2026-10-17 23:04：上游两个分支为 `f6651f0`，10 个 open issue、4 个 open PR
+  无漂移；四个 PR 均为 `mergeable=true`、`mergeable_state=unstable`，不能把
+  “可合并”写成 CI 已通过。上游待办与本 fork 的统一拆解以 3.3 为执行入口。
+- QD-006 是通用自托管增强，但当前上游没有对应 open issue/PR；候选
+  `codex/upstream-qd-006-sqlite@7758456` 已基于 PR #25 基线准备并验证，等 #25 合并后
+  rebase 到 `upstream/dev` 才能开不重复 #25 提交的正式 PR。
+- 本次融合结论：当前上游没有“必须由本 fork 立即重复开发”的 open issue；真正需要决策的是
+  哪些工作作为独立小 PR 先贡献、哪些等 #25 合并后再拆、哪些只能向 Remoting 提需求。
+  QD-608 已完成，立即实施顺序改为 QD-610；独立上游候选和 Remoting 需求按 3.3 的批次执行。
+
+### 16.2 上游待办与本 fork 的统一决策矩阵
+
+这张表覆盖当前所有上游 open issue、open PR 和未完成 Roadmap 项。`现在做` 表示不依赖上游
+合并即可在 fork 完成；`等待` 表示上游已有实现或 PR，不能重复提交；`边界` 表示需要
+Remoting 或协议改造；`不重复` 表示上游已经具备，只需验证或回复 issue。
+
+| 上游项 | 本 fork 对应项 | 当前决定 | 交付方式 | 下一步 |
+|---|---|---|---|---|
+| #21 维护计划与参与方式 | QD-001、QD-910 | 立即执行 | `Upstream-Open` | 所有新功能从 `upstream/dev` 切最小分支；持续同步清单 |
+| #20 自托管 WSS 失败 | QD-114 | 双轨推进 | `UP-Ready` + `UP-Remoting` | Qt/Windows SPKI 已落地；真实 CertVerifier 需求单已成文（`docs/dev/自托管TLS真实CertVerifier需求.md`），交 Remoting 实现 |
+| #29 WSS 何时支持 | QD-114 | 与 #20 合并 | `Upstream-Open` | 与 #20 是同一诉求的第二次提问，说明自托管 TLS 是真实阻塞；根因同上，不单独立项 |
+| #30 "Works with" 互链请求 | QD-910 | 待维护者决定 | `Upstream-Open` | 第三方项目（Local Commander，MIT）请求 README/docs 互链；属文档决策，不涉及代码，等维护者表态 |
+| #19 设备列表问题 | QD-212、QD-213、QD-214 | 拆分处理 | `UP-Ready` + `UP-Remoting` | 本机标识、访问码回源分别提；上传错误诊断可独立提，Windows 用户上下文根因交 Host/Remoting |
+| #18 连接历史 | QD-206 | 不重复实现 | `Upstream-Open` | 核验现有 WebClient/Qt 入口，整理版本证据后回复 issue |
+| #17 Auto Approve 失效 | QD-113 | 已合并，测试已补跑 | `UP-PR#22` | `5969ae3` 已进 `upstream/master`，fork `3d44dfc` 已回灌；`trust_handler_test` 已在 Windows CI 实跑通过（`f956d17`，17/17），QD-113 转 `[x]`；不在 fork 重写第二套线程亲和性修复 |
+| #13 Linux 支持 | QD-318 | 暂缓 | `Upstream-Open` | 保留跨平台接口，不承诺当前迭代实现 |
+| #10 信令服务设备密钥信任 | QD-115 | 设计完成，待协议 | `UP-Ready` + `Upstream-Open` | 安全边界候选 `1ca2543` 可直接提 PR；实现侧需要 Host 身份密钥、Owner 签名 grant 和 Host 本地验证 |
+| #9 主机连接失败 | QD-216 | 先排障 | `Upstream-Open` | 收集 host/signaling/TLS 日志，确认可复现 bug 后再提单 |
+| #7 Windows Qt 插件启动失败 | QD-215 | PR 已提 | `UP-Ready` | 候选 rebase 到 `upstream/dev@5db316c` 成为 `8385856`，已创建上游 PR #32；仍未取得原始坏包 |
+| #6 私密安全披露入口 | QD-911 | PR 已提 | `UP-Ready` | `codex/upstream-qd-911-security@68d4a38` 只新增 `SECURITY.md`，已创建上游 PR #33；仍需维护者启用 Private Vulnerability Reporting，否则兜底邮箱是唯一私密路径 |
+| PR #22 自动审批线程亲和性 | QD-113 | 已合并、已回灌、测试已跑 | `UP-PR#22` | `5969ae3` 已于 2026-10-21 合并；fork 经 `3d44dfc` 合入 `upstream/master`，与上游零差异；CTest 补跑已完成，`trust_handler_thread_affinity` 在 Windows CI 通过（17/17） |
+| PR #23 会话录像与回放 | QD-501~509 | 等待同步 | `UP-PR#23` | 不重复提交；合并后回灌，Host 权威录制另走 Remoting |
+| PR #24 skill-host Windows 运行库 | QD-402、QD-609 | 等待同步 | `UP-PR#24` | 合并后同步，避免维护第二套 PATH/stderr 逻辑 |
+| PR #25 自托管控制面/OpenAPI/SDK | QD-101~110、201~211、501、601~608、801~808 | 等待审查 | `UP-PR#25` | 维护者要求时按 access/alerting/recording/ops/update 拆分 |
+| Roadmap: Address book & device groups | QD-204 | 已完成，准备上游 | `UP-Ready` | API/SDK 与 Web/Qt 已验收；等 PR #25 基线确认后拆两个最小 PR |
+| Roadmap: Linux support | QD-318 | 暂缓 | `Upstream-Open` | 跟随上游，不把 Web 触摸或跨平台构建冒充 Linux 被控端 |
+| Roadmap: iOS / Android clients | QD-319 | 暂缓 | `Upstream-Open` | 当前 Web 触摸输入不等于原生客户端 |
+
+### 16.3 上游已完成能力的继承边界
+
+上游 README 的 `[x]` 表示“上游项目已经具备”，不等于本 fork 的产品入口、权限、测试和
+发布证据都已完成。以下能力不重复开发，只做 fork 侧验证和产品化补口：
+
+| 上游已完成能力 | 本 fork 处理 | 不能重复做什么 |
+|---|---|---|
+| Windows/macOS 远控主链路 | QD-301、QD-304、QD-705 | 不重写采集、编码、WebRTC 或输入注入 |
+| P2P、STUN、TURN | QD-803 | 不自研 NAT 穿透或 TURN 协议 |
+| 多标签多连接 | QD-313 | 不重新发明连接协议；只补控制/音频抢占和产品边界 |
+| 访问码自动刷新 | QD-213 | 不在 Qt 和 Web 各写一套不同回源逻辑 |
+| MCP、技能宿主、工具与安全确认 | QD-402、QD-609、QD-113 | 不复制 MCP 工具集；只在管理面和业务接入层扩展 |
+| 设备记忆、工作流、虚拟屏、隐私屏、文件传输、音频 | QD-203、QD-307、QD-308、QD-312、QD-401~405、QD-510 | 不另造媒体/文件通道；只补本 fork 的页面、审计和验收 |
+
+### 16.4 上游贡献状态的统一口径
+
+上游贡献状态：
+
+| 标记 | 含义 |
+|---|---|
+| `UP-PR#n` | 已经在上游 open PR 中，先同步审查，不重复提交 |
+| `UP-Ready` | 可作为独立最小 PR 提交到 `upstream/dev` |
+| `UP-Remoting` | 需要修改 `quickdesk-remoting`，优先提需求给维护者 |
+| `Fork-only` | 产品品牌、部署配置或本 fork 专属业务，不进入上游 |
+| `Upstream-Open` | 上游 issue/Roadmap 仍开放，当前 fork 可有本地实现，但需要单独拆 PR |
+
+### 16.5 上游 PR 映射
+
+| 上游项 | 状态 | 涉及 QD | 当前处理 | 后续动作 |
+|---|---|---|---|---|
+| PR #25 self-hosted control plane | OPEN，MERGEABLE / UNSTABLE，无 reported checks | QD-101~110、QD-201~211、QD-501、QD-601~608、QD-801~808 | 服务端、契约、SDK、smoke 和 Qt 更新消费已在本 fork；本地不重复造一套 | 等维护者审查；若要求拆分，按 access / alerting / recording / ops / update 拆 |
+| PR #23 session recordings | OPEN，MERGEABLE / UNSTABLE，无 reported checks | QD-501~507 | 控制端手动录制、索引、回放、生命周期已具备 | 先等 PR #23；Host 权威录制另走 `UP-Remoting` |
+| PR #24 skill-host runtime path | OPEN，MERGEABLE / UNSTABLE，无 reported checks | QD-402、QD-609 | 本 fork 已包含 PATH/stderr 修复，和上游补丁同向 | 上游合并后同步回 fork，避免二套实现 |
+| PR #22 auto-approve thread affinity | MERGED 2026-10-21 为 `5969ae3`，基于 master | QD-113 | fork `3d44dfc` 已回灌，与上游零差异 | 不要重复提交 issue #17；补跑 `test/trust` CTest |
+
+### 16.6 上游 issue / Roadmap 映射
+
+| 上游项 | 类型 | 涉及 QD | 判断 | 动作 |
+|---|---|---|---|---|
+| #21 维护计划与参与维护意向 | 维护策略 | QD-001、QD-609 | 上游优先 MCP、从 dev 贡献、Remoting 由维护者改 | 所有新功能按 dev 最小分支准备；涉及 Remoting 先提需求 |
+| #20 自托管 HTTPS/WSS 失败 | Bug / 自托管 | QD-114 | 证书验证器在 Remoting 内未绑定；Qt-only SPKI 已支持子进程和服务安装参数 | 推送候选并补 Windows/Qt 回归；长期向 Remoting 提 CertVerifier 修复 |
+| #18 连接历史列表 | Feature | QD-206 | WebClient 已有 `ConnectionHistory`，Qt 已有 `RemoteDeviceManager` 历史下拉、删除和重连；issue 仍开放 | 在 issue 回复现有入口和版本证据，建议关闭；不再重复实现 |
+| #19 设备列表相关问题 | Bug cluster | QD-212、QD-213、QD-214 | 本机标识和访问码回源已完成；上传日志确认 Windows Host 无法取得交互用户 token，普通用户为 `0x522/type=2`，SYSTEM/session 0 为 `type=7` | 推送三个独立诊断候选；QD-214 根因按 Host 服务或 Remoting 用户上下文单独提交，不混成一个“设备列表”大修 |
+| #17 自动审批被忽略 | Bug | QD-113 | 已由 PR #22 覆盖；`5969ae3` 已合并进 `upstream/master`，fork `3d44dfc` 已回灌且与上游零差异 | 不再重复实现；补跑上游 `test/trust` CTest 后可建议关闭 issue |
+| #13 Linux 支持 | Roadmap | QD-318 | 上游 Roadmap 已列出，本 fork 暂缓 | 保持跨平台接口，不在当前迭代投入 Linux 被控端 |
+| #10 信令服务器设备密钥信任 | Security | QD-115 | device_secret 只有哈希；但明文 access_code + server token/审批意味着被攻陷服务器仍可冒充 Controller | 推送 `signal-trust-model` 候选并在 issue 讨论协议升级；不能把哈希化 device_secret 当作已修复 |
+| #9 主机连接失败 | Support / Bug | QD-216 | 需要真实环境日志，不宜直接猜实现 | 收集 host/signaling/TLS 日志后再拆 bug |
+| #7 Windows 启动 Qt platform plugin 错误 | Packaging | QD-215 | Qt 插件/运行库打包问题；Windows publish/package 与缺 DLL 负向测试已通过，候选 `f449b87` 仅 3 个文件 | 推送候选并开 issue #7 PR；取得原始坏包后做直接复现 |
+| #6 私密安全披露入口 | Process | QD-911 | 候选已 rebase 为 `68d4a38` 并创建上游 PR #33；上游仍无该文件且 Private Vulnerability Reporting 关闭 | 请维护者合并 PR #33 并启用 GitHub 私密报告；不在公开 issue 贴利用细节 |
+
+### 16.7 上游 Roadmap 映射
+
+| 上游 Roadmap | 当前 fork | 状态 | 备注 |
+|---|---|---|---|
+| Address book & device groups | QD-204 | `[x]` | fork 已完成 owner-scoped API/SDK、Web/Qt 和真实 smoke；上游 Roadmap 仍未勾选，等待拆分 PR 回馈 |
+| Linux support | QD-318 | `[>]` | 上游已列计划，fork 暂缓；不能把 Linux 写成永久不做 |
+| iOS / Android clients | QD-319 | `[>]` | 上游已列计划，fork 暂缓；现有 Web 触摸输入不等于原生客户端 |
+| MCP / AI 自动化 | QD-609 | `[x]` | 上游当前最高优先级；我们的新增业务能力尽量不破坏 MCP 兼容 |
+
+## 17. 上游贡献与 PR 策略
+
+### 17.1 分支与合并
+
+- 从 `upstream/dev` 创建最小功能分支，不把整个 fork `dev` 直接推成一个巨型 PR。
+- 不直接向 `barry-ran/QuickDesk` 的 `dev` 推送；先推到自己的 fork，再以
+  `upstream/dev` 为目标分支创建 PR。
+- 每个 PR 只包含一个功能或一个 bug；服务端、OpenAPI、生成 SDK、smoke 必须同 PR。
+- 上游合并后，把 `upstream/dev` 合回 fork `dev`，重新跑受影响测试，不在两边维护不同实现。
+- 具有本 fork 品牌、部署环境、私有业务规则的页面和文档留在 fork；通用能力优先上游。
+
+### 17.2 可直接准备的上游 PR
+
+| 顺序 | PR 主题 | 来源 | 前置条件 |
+|---|---|---|---|
+| 0a | `feat(file-ops): add browser-safe chunking and versioned trash` | QD-002 / QD-403 | 本轮实现已完成；从 `upstream/dev` 只取 `file-ops` crate、SKILL.md 和 `Cargo.lock`，先独立提交 |
+| 0b | `feat(webclient): add remote file manager over skill bridge` | QD-002 / QD-403 | stacked 在 0a 之后；只取 `SkillBridgeClient`、文件管理器模块、remote-main 接线、样式、双语和 Node 测试 |
+| 1 | `feat(webclient): coordinate cross-tab control and audio` | QD-003 | 当前功能已测试；补上游 WebClient 约定和截图 |
+| 2 | `fix(self-host): allow pinned SPKI for self-hosted WSS` | QD-114 / issue #20 | 候选已准备；需推送、创建 PR，并补 Qt 构建和 Windows service 实机验证 |
+| 3 | `feat(qt): mark the local device in device lists` | QD-212 / issue #19 | 候选已准备并通过上游基线构建；等远端写入后直接创建 PR |
+| 4 | `fix(qt): refresh missing access codes before connecting` | QD-213 / issue #19 | 候选已准备并通过上游基线构建；等远端写入后直接创建 PR |
+| 5 | `fix(webclient): match BoringSSL SPAKE2 password scalar` | QD-214 / issue #19 | 候选 `ed5437b`；Chromium 140 固定向量、真实 macOS/Windows Host 均通过 |
+| 6 | `fix(webclient): explain host file transfer failures` | QD-214 / issue #19 | 0~7 错误码候选 `60837af`；Windows 根因需要 Host/Remoting 用户上下文修复 |
+| 7 | `fix(win): reject incomplete Qt runtime releases` | QD-215 / issue #7 | 候选 `f449b87` 只含 verifier 和 publish/package 失败关闭；校验器正负向测试通过 |
+| 8 | `feat(scheduled): add batch remote-session revoke` | QD-607 | 纯服务端候选 `badf990` 已基于 PR #25 独立验证；远端写入恢复后作为 stacked PR 提交 |
+| 9 | `feat(webclient): control-plane management pages` | QD-108/605/607/703 | 依赖 PR #25 合并；按页面拆成多个 PR |
+| 10 | `feat(qt): remote session and management pages` | QD-706/708 | 依赖 PR #25 合并；审批页 `7c23f13`、会话实时消费 `ea5a65f` 和计划任务页 `42b6c61` 可先拆，再补通知页 |
+| 11 | `feat(qt): consume self-hosted update channel` | QD-005 / QD-808 | 依赖 PR #25 合并；Windows 重启修复已包含在 fork `a982a10`。直接 cherry-pick `cae77ff` 到 `upstream/dev` 已实测冲突，必须在更新通道基线上重做最小增量，不携带 fork 私有文档 |
+| 12 | `feat(signaling): support SQLite minimal mode` | QD-006 / QD-809 | 候选 `codex/upstream-qd-006-sqlite@7758456` 已基于 PR #25 基线通过完整验证；等 #25 合并后 rebase 到 `upstream/dev`，不带 fork 清单 |
+| 13 | `feat(ops): backup restore and storage quotas` | QD-810 | fork 提交 `64ab93a` 已完成；依赖 PR #25 与 QD-006 SQLite 候选。等 #25 合并且 SQLite 候选先落地后，再拆备份 CLI、配额与存储视图最小增量 |
+| 14 | `feat(signaling): report host metrics and alert on sustained thresholds` | QD-604 | 服务端候选 `codex/upstream-qd-604-metrics@0ea9e7c` 已基于 `codex/upstream-qd-006-sqlite@7758456` 独立验证；含 SignalingServer、OpenAPI、四套 SDK、smoke 和真实 SQLite+Webhook E2E。fork 功能提交为 `37dd8aa` | 远端写入恢复后推送并作为 QD-006 的 stacked PR；Web/Qt 等 PR #25 客户端基线确认后单独拆 |
+| 15 | `docs: add private security disclosure policy` | QD-911 / issue #6 | 候选 `codex/upstream-qd-911-security@9862717` 直接基于 `upstream/dev@f6651f0`，只新增根目录 `SECURITY.md`；上游 Private Vulnerability Reporting 仍 disabled | 推送后创建 issue #6 PR；请维护者同时启用 GitHub Private Vulnerability Reporting |
+| 16 | `docs(security): define signaling trust boundary` | QD-115 / issue #10 | 候选 `codex/upstream-qd-115-trust-model@1ca2543` 直接基于 `upstream/dev@f6651f0`，只新增 `docs/security/signaling-trust-model.md` | 推送并关联 issue #10；文档批准后再按 Host 身份密钥与 Owner 签名授权拆协议 PR |
+| 17 | `feat(audit): record controller file transfers` | QD-111 / QD-408 | 候选 `codex/upstream-qd-111-file-transfer-audit@c57a2f4` 基于 PR #25 的 `8998466`，44 个文件，只含文件传输审计和四套基线 SDK；候选自身 Go/SDK/Web 构建通过，Qt 源码编译到既有 `AGL` 链接限制 | 推送后以 `feat/signaling-control-plane` 为基线创建 stacked PR；PR #25 合入后再 rebase 到 `upstream/dev` |
+
+QD-002 / QD-403 的上游候选已经推送并开 PR：
+
+- `codex/upstream-qd-002-file-ops` = `e106be4`：基于 `upstream/dev@f6651f0`，只含 host
+  `file-ops` 的分块读写、默认目录、版本保留软删除、SKILL.md 和 Rust 测试；
+  上游 PR <https://github.com/barry-ran/QuickDesk/pull/26>，OPEN / MERGEABLE / CLEAN。
+- `codex/upstream-qd-403-webclient` = `796e4cb`：stacked 在 file-ops 分支上，只含浏览器
+  `qd-skill-bridge` 客户端、Web 文件管理器 UI、remote-main 接线、样式、双语和 Node 测试；
+  上游 PR <https://github.com/barry-ran/QuickDesk/pull/27>，当前 base 为 `dev`。
+- 验证基线：候选分支上 file-ops 4/4、Clippy `-D warnings`、WebClient 12/12、生产构建、
+  接线检查（完整能力集打开菜单入口）和 diff check 全部通过；fork 主线另跑 62/62 与
+  桌面/移动 Chrome 烟测。
+- 上游 `#22`~`#25` 的既有候选分支已全部推送到 fork，等维护者审查。
+
+QD-003 的上游候选已经单独准备：
+
+- 分支：`codex/upstream-cross-tab-coordination`
+- 基线：`upstream/dev` = `f6651f0`
+- 本地提交：`93eee37`
+- 范围：仅 `TabCoordinator`、WebClient 接入、双语文案、Node 测试、真实 Chrome
+  多标签 E2E 和 ESM 构建兼容
+- 验证：`npm test` 6/6、`npm run test:e2e:tab-coordinator` 1/1、`npm run build`
+  和 `git diff --check` 均通过
+- 未完成：远端推送仍被策略拒绝，尚未创建 upstream PR
+
+QD-114 的上游候选已经单独准备：
+
+- 分支：`codex/upstream-qd-114-spki`
+- 基线：`upstream/dev` = `f6651f0`
+- 本地提交：`13559e6`
+- 范围：SPKI 解析/校验与单测、Qt 设置页、Host/Client 子进程参数、
+  Windows 服务安装参数、英文/中文部署文档
+- 验证：纯 C++ 单测通过、翻译 `.ts` XML 校验通过、`git diff --check` 通过
+- 未完成：该候选自身的完整 Qt 构建、Inno Setup 编译、Windows 服务和真实 `wss://` 回归；
+  远端推送仍被策略拒绝，尚未创建 upstream PR
+
+QD-212 的上游候选已经单独准备：
+
+- 分支：`codex/upstream-qd-212-local-device`
+- 基线：`upstream/dev` = `f6651f0`
+- 本地提交：`f1ce096`
+- 范围：设备显示 JS、我的设备/收藏接线、中英文、QML QuickTest 与最小 CMake 测试入口
+- 验证：干净上游基线完整 Qt 构建通过、QML 测试 1/1、`QuickDesk_qmllint` 退出 0、
+  `git diff --check upstream/dev...HEAD` 通过
+- 未完成：远端推送仍被策略拒绝，尚未创建 upstream PR
+
+QD-213 的上游候选已经单独准备：
+
+- 分支：`codex/upstream-qd-213-access-code-refresh`
+- 基线：`upstream/dev` = `f6651f0`
+- 本地提交：`6928d24`
+- 范围：单设备访问码回源、Qt 点击自动续连、并发请求合并、失败提示与集成测试
+- 验证：干净上游基线完整 Qt 构建通过、设备管理集成测试 1/1、
+  `QuickDesk_qmllint` 退出 0、`git diff --check upstream/dev...HEAD` 通过
+- 未完成：远端推送仍被策略拒绝，尚未创建 upstream PR
+
+QD-214 的 SPAKE2 上游候选已经单独准备：
+
+- 分支：`codex/upstream-qd-214-spake2-webclient`
+- 基线：`upstream/dev` = `f6651f0`
+- 本地提交：`ed5437b`
+- 范围：BoringSSL password-scalar 兼容修正、Chromium 140 固定向量和 Node 测试入口
+- 验证：固定向量 1/1、`npm run build`、真实 macOS/Windows Host SPAKE2 均通过
+- 未完成：远端推送仍被策略拒绝，尚未创建 upstream PR
+
+QD-214 的文件传输错误码上游候选已经单独准备：
+
+- 分支：`codex/upstream-qd-214-file-transfer-errors`
+- 基线：`upstream/dev` = `f6651f0`
+- 本地提交：`94d3ec3` + `60837af`
+- 范围：宿主错误码 0~7 解释、上传取消协议值、Node 测试入口
+- 验证：错误码测试 6/6、`npm run build`、`git diff --check` 通过
+- 根因证据：Windows 普通用户 Host 报 `Failed to get current user token: 0x522`，
+  SYSTEM/session 0 报 `type=7 NOT_LOGGED_IN`；macOS Host 同文件上传成功且字节一致
+- 未完成：诊断 PR 待远端写入恢复；根因修复需要 QuickDesk Windows 服务在活动交互
+  session 中启动 Host worker，或由 Remoting 解析活动用户 token
+
+QD-215 的上游候选已经单独准备：
+
+- 分支：`codex/upstream-qd-215-win-runtime-check`
+- 基线：`upstream/dev` = `f6651f0`
+- 本地提交：`f449b87`
+- 范围：x64 PE、Qt 插件、VC Runtime、Qt 直接依赖校验，以及 publish/package 缺依赖失败关闭
+- 验证：Windows 11 正常发布包通过；缺 `vcruntime140_1.dll`、`platforms/qwindows.dll`
+  或 `Qt6Network.dll` 时均拒绝；候选只有 3 个文件
+- 未完成：远端推送仍被策略拒绝，尚未创建 issue #7 PR；原始坏安装包未取得
+
+### 17.3 需要上游 Remoting 处理的 PR
+
+以下能力不在本 fork 强行修改预编译 Remoting，先准备需求、协议草案、验证用例，再交给维护者：
+
+| 能力 | 来源 | 为什么不能只改 Qt/Web |
+|---|---|---|
+| Host 权威录制 | QD-004 | 当前 PR #23 只做控制端录制；Host 侧录制需要 Remoting/宿主生命周期。断线收尾的控制端部分已完成（QD-505） |
+| 双向图片剪贴板 | QD-007 | `ClipboardEvent` 当前只承载 UTF-8 文本，需要新格式/分片协议 |
+| 真实证书校验 | QD-114 | `quickdesk_network_service.cc` 的 CertVerifier 管道在 Remoting 内 |
+| Windows 文件传输用户上下文 | QD-214 | `EnsureUserContext()` 依赖 `WTSQueryUserToken(WTS_CURRENT_SESSION)`；服务/session 0 或普通用户 Host 都无法满足 |
+
+### 17.4 明确留在 fork 的内容
+
+- 本 fork 的品牌、产品名称、部署地址、默认服务器和运营配置。
+- 上游不接受的产品化页面，若依赖 fork 专属业务数据或品牌，先保留在 fork，再把可复用的底层 API 抽成上游 PR。
+- 旧 Go-Remote 历史迁移文档、回退说明和本仓库的运营清单，不进入上游。
+
+### 17.5 当前判断
+
+上游不是要我们另起一套远程桌面协议，而是接受“控制面、MCP、可靠性和通用客户端能力”的增量贡献。当前最合理的组合是：
+
+- 继续使用上游 Chromium Remoting 作为核心，不在 fork 里重写媒体栈；
+- 把 QD-003、连接历史、TLS 临时修复先做成上游可审查的小 PR；
+- 把 QD-212 本机标识作为 issue #19 的第一个独立增量，先合这个再做访问码/上传问题；
+- 把 QD-213 访问码回源自愈作为 issue #19 的第二个独立增量；
+- 把 QD-214 的 SPAKE2 兼容修复和 0~7 错误诊断分别作为独立增量；Windows 上传根因作为 Host 服务/
+  Remoting 用户上下文需求提交，不在 WebClient 内绕过；
+- 把 QD-005 的 Qt 更新消费作为 PR #25 的后续增量，先保证跨平台安装行为和签名链；
+- 把 QD-006 的 SQLite 单进程模式作为 PR #25 的独立 stacked 候选，明确“单实例、进程内
+  Redis 易失”的边界；候选已在 `7758456` 验证，等 #25 合并后 rebase 再提交；
+- 把 QD-604 指标告警作为 PR #25 后的 stacked 增量：服务端保持“单设备最新快照 + 独立
+  episode + 持久 outbox”，客户端只消费稳定 API，不在上游重建第二套监控系统；
+- 把 QD-911 的 `SECURITY.md` 作为独立文档 PR，明确 GitHub 私密报告优先、公开 issue
+  禁止贴利用细节，同时请维护者启用 Private Vulnerability Reporting；
+- 把 QD-115 的信任边界文档单独提 PR，先把“服务器不能恢复 device_secret”与“服务器
+  仍可冒充 Controller”区分清楚，再推进签名授权协议；
+- 把 Host 自动录制、图片剪贴板整理成 Remoting 需求，由维护者评估；Web 文件管理器已经
+  通过现有 `qd-skill-bridge` 完成，并作为两个最小上游增量准备；
+- 把 PR #25 的控制面能力先等上游审查，避免重复提交；
+- fork 的 Web/Qt 业务页面在 #25 合并后按页面拆成增量 PR，而不是塞进一个巨型控制面 PR。
