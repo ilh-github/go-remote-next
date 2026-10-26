@@ -482,6 +482,23 @@ class UserApi {
     return this._req('POST', '/v1/me/clipboard-audits', body)
   }
 
+  // QD-909: the read side of the same trail. Scoped to the caller's own rows -
+  // both reporting endpoints refuse a device the caller does not own, so this
+  // cannot become a view of anybody else's transfers.
+  //
+  // `action` is sent only when it is one of the four the server accepts: an
+  // unsupported value is a 400, and a client that offers what the server will
+  // reject turns a typo into an error the user cannot act on. See
+  // `api/auditLogModel.js` for the allow-list and for how a row is described.
+  fetchAuditLogs({ action = '', cursor = '', limit } = {}) {
+    const params = new URLSearchParams()
+    if (action) params.set('action', action)
+    if (cursor) params.set('cursor', cursor)
+    if (limit) params.set('limit', String(limit))
+    const query = params.toString()
+    return this._req('GET', `/v1/me/audit-logs${query ? `?${query}` : ''}`)
+  }
+
   // Full replace, not a partial update: the server resets every field this body
   // omits. Callers therefore send the whole policy back - see
   // `api/controlModeModel.js`, which builds that body from the stored row so a

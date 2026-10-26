@@ -31,12 +31,47 @@
         <button class="btn btn-secondary btn-sm" :disabled="loading" @click="refresh">
           🔄 {{ $t('sessions.refresh') }}
         </button>
+        <!-- QD-909: the audit trail was write-only until now - transfers could be
+             reported but never read back from the client. Toggling rather than
+             always-open because the list is only interesting when somebody is
+             investigating, and it costs a request. -->
+        <button
+          class="btn btn-secondary btn-sm"
+          :class="{ active: auditOpen }"
+          @click="toggleAudit"
+        >{{ $t('sessions.transferAudit') }}</button>
         <button
           v-if="deviceFilter"
           class="btn btn-danger btn-sm"
           :disabled="clearBusy"
           @click="clearDevice"
         >{{ clearBusy ? '...' : $t('sessions.clearDevice') }}</button>
+      </div>
+
+      <div v-if="auditOpen" class="card audit-panel">
+        <div class="audit-panel-title">{{ $t('sessions.transferAuditTitle') }}</div>
+        <!-- A ref is unwrapped by the template, so these are `audit.loading` and
+             not `audit.loading.value` - the latter is the script-side spelling and
+             renders nothing here. -->
+        <div v-if="auditLoading" class="hint">{{ $t('sessions.loading') }}</div>
+        <!-- A failed read is shown as a failure, not as an empty list: "no
+             transfers" and "we could not ask" are different facts. -->
+        <div v-else-if="auditError" class="hint audit-error">
+          {{ $t('sessions.auditReadFailed') }}: {{ auditError }}
+        </div>
+        <div v-else-if="auditRows.length === 0" class="hint">
+          {{ $t('sessions.auditEmpty') }}
+        </div>
+        <div v-else class="audit-list">
+          <div v-for="row in auditRows" :key="row.id" class="audit-row">
+            <span>{{ formatTime(row.at) }}</span>
+            <span>{{ auditRowLabel(row) }}</span>
+            <span v-if="row.error" class="audit-row-error">{{ row.error }}</span>
+            <span v-else-if="row.status === 'failed'" class="audit-row-error">
+              {{ $t('sessions.auditFailed') }}
+            </span>
+          </div>
+        </div>
       </div>
 
       <div v-if="deviceFilter" class="card ban-panel">
@@ -138,6 +173,8 @@ import { computed, inject, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { userApi } from '../api/userApi'
 import { userSync } from '../api/userSync'
+import { useSessionAudit } from '../composables/useSessionAudit'
+import { auditRowLabel } from '../api/auditLogModel'
 
 const { t } = useI18n()
 const showLogin = inject('showLogin')
@@ -158,6 +195,22 @@ const busy = ref('')
 const clearBusy = ref(false)
 const blockedSources = ref([])
 const banRemoving = ref('')
+
+// QD-909: the data-channel audit trail, read back for the first time. See the
+// composable's header for why this is labelled as the account's trail rather
+// than the session's - the row's resource id is a transfer id, and the server has
+// no session filter, so the narrower question is not one the contract answers.
+//
+// The refs are unwrapped here rather than reached through in the template. Vue
+// unwraps a ref returned from setup, but not a ref nested inside an object that
+// setup returned: `audit.loading` in a template reads the Ref wrapper itself,
+// which is always truthy, so a loading panel would never leave its loading state.
+// Spreading the refs into top-level names is what makes the template see values.
+const auditState = useSessionAudit()
+const auditRows = auditState.rows
+const auditLoading = auditState.loading
+const auditError = auditState.error
+const auditLoaded = auditState.loaded
 
 const statusOptions = [
   { value: 'active', label: 'sessions.filter.active' },
@@ -192,6 +245,17 @@ function formatDuration(seconds) {
   const sec = s % 60
   const pad = (n) => String(n).padStart(2, '0')
   return h > 0 ? `${h}:${pad(m)}:${pad(sec)}` : `${m}:${pad(sec)}`
+}
+
+const auditOpen = ref(false)
+
+async function toggleAudit() {
+  auditOpen.value = !auditOpen.value
+  // Loaded on first open, and on every open after a failure, so a retry is one
+  // click rather than a page reload. A successful read is not repeated.
+  if (auditOpen.value && !auditLoaded.value && !auditLoading.value) {
+    await auditState.load()
+  }
 }
 
 async function loadDevices() {
@@ -541,6 +605,38 @@ onUnmounted(() => {
   font-size: 14px;
   font-weight: 600;
   margin-bottom: 8px;
+}
+/* QD-909: the transfer audit panel. Deliberately the same shape as the access
+   log list above it - one line per event, time first - so a reader scanning a
+   session's records does not have to relearn the layout for the third kind. */
+.audit-panel-title {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.audit-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.audit-row {
+  display: grid;
+  grid-template-columns: minmax(150px, auto) minmax(0, 1fr) minmax(0, auto);
+  gap: 12px;
+  align-items: baseline;
+  font-size: 13px;
+  padding: 6px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+}
+.audit-row-error {
+  color: var(--error, #f44336);
+}
+.audit-error {
+  color: var(--error, #f44336);
 }
 .ban-list {
   display: flex;

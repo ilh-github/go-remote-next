@@ -197,6 +197,21 @@ class UserApi {
     });
   }
 
+  // -------- QD-909: reading the data-channel audit trail back --------
+  //
+  // The remote page reports transfers through this same client, so it is also
+  // where a controller can read back what it reported. Scoped to the caller's
+  // own rows by the server, for the reason the write endpoints refuse a foreign
+  // device.
+  async fetchAuditLogs({ action = '', cursor = '', limit } = {}) {
+    const params = new URLSearchParams();
+    if (action) params.set('action', action);
+    if (cursor) params.set('cursor', cursor);
+    if (limit) params.set('limit', String(limit));
+    const query = params.toString();
+    return this._request('GET', `/v1/me/audit-logs${query ? `?${query}` : ''}`);
+  }
+
   // -------- access-code verification (§2.6 / §2.18) --------
 
   async verifyAccessCode(deviceId, code) {
