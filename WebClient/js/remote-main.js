@@ -41,6 +41,7 @@ import {
 class RemoteDesktopApp {
     constructor() {
         this.session = null;
+        this._lastConnectFailure = null;
         this.dcHandler = null;
         this.mouseHandler = null;
         this.keyboardHandler = null;
@@ -464,11 +465,17 @@ class RemoteDesktopApp {
             });
 
             await this.session.connect(deviceId, accessCode, signalToken);
+            this._lastConnectFailure = null;
             return true;
 
         } catch (error) {
             this._log(t('log.connectFailed', { error: error.message }), 'error');
             this._setConnectionState('failed', error.message);
+            // Kept for the caller to rethrow: _connect answers false rather
+            // than propagating, so a non-retryable reason would otherwise be
+            // flattened into a generic failure the retry loop treats as
+            // retryable.
+            this._lastConnectFailure = error;
             return false;
         }
     }
@@ -548,7 +555,26 @@ class RemoteDesktopApp {
             config.iceServers,
             config.preferredVideoCodec,
         )
-        if (!connected) throw new Error('reconnect attempt failed')
+        if (!connected) {
+            // _connect swallows the error and answers false, so the reason it
+            // failed would otherwise be lost here - including a non-retryable
+            // one, which must stop the run instead of spending the whole budget
+            // rediscovering the same rejection four times.
+            const failure = this._lastConnectFailure
+            this._lastConnectFailure = null
+            if (failure && failure.retryable === false) {
+                // Carry the server's code so the status pill can name the
+                // rejection rather than show the generic exhausted message. An
+                // operator told "the network kept failing" about a credential
+                // the server refused will wait for a link that was never broken.
+                const rejected = new Error(failure.message)
+                rejected.retryable = false
+                rejected.code = failure.code
+                rejected.messageKey = `status.reason.${failure.code}`
+                throw rejected
+            }
+            throw new Error('reconnect attempt failed')
+        }
     }
 
     _resetSessionForReconnect() {

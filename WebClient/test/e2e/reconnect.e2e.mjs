@@ -139,6 +139,106 @@ test('still reports exhaustion when the link never answers', async () => {
   }
 })
 
+// QD-907's remaining boundary: sustained jitter. A link that answers late but
+// does answer is neither the clean case nor the dead one, and it is the shape a
+// real operator on a bad connection lives in for minutes at a time. The client
+// has to treat it as usable: recover, settle, and stop asking.
+//
+// The distinction under test is between "slow" and "broken". The retry backoff
+// exists so a link that never answers is not hammered; if jitter were mistaken
+// for failure, an operator on a merely bad link would be told the session is
+// over while the server is still there.
+test('survives sustained jitter and settles instead of retrying', async (t) => {
+  // Late, but never lost, across four consecutive reconnects. The pattern is
+  // fixed rather than random so a failure names a specific attempt.
+  const jitter = [120, 260, 400, 180]
+  await t.test('every reply is late and none is lost', async () => {
+    const harness = await createHarness()
+    try {
+      await harness.openRemote()
+      await harness.waitForConnected()
+
+      for (const [index, latencyMs] of jitter.entries()) {
+        harness.state.signalLoss = {
+          latencyMs,
+          dropPattern: [false],
+          attempts: 0,
+        }
+        await harness.closeCurrentSocket()
+
+        // One new socket per reconnect, so the count is how many attempts the
+        // client actually made - it must be exactly one per injected drop, not
+        // a retry storm on top of it.
+        await until(
+          () => harness.sockets.length === index + 2,
+          { timeoutMs: 25000, label: `reconnect ${index + 1} of ${jitter.length}` },
+        )
+        await harness.waitForConnected({ expectedSignalConnections: index + 2 })
+
+        assert.equal(
+          await harness.reconnectTaskActive(),
+          false,
+          `attempt ${index + 1}: a link that answered must not leave a retry running`,
+        )
+        assert.equal(
+          await harness.statusText(),
+          'Connected',
+          `attempt ${index + 1}: a slow reply is not a failed session`,
+        )
+        assert.ok(
+          !harness.state.connections.some((entry) => entry.error_msg === 'reconnect_exhausted'),
+          `attempt ${index + 1}: jitter must not be recorded as an exhausted reconnect`,
+        )
+      }
+    } finally {
+      await harness.close()
+    }
+  })
+
+  // The other end of jitter: late *and* eventually lost. The client must spend
+  // its whole retry budget rather than giving up on the first slow reply, and
+  // must land in the exhausted state once the link stops answering.
+  //
+  // Every attempt is dropped here, but each one hangs first - which is the
+  // point. A link that stalls before failing is where a client with short
+  // patience declares the session dead while the server is still reachable, and
+  // the backoff has to be what carries it to a real answer.
+  await t.test('jitter that ends in a hang still exhausts', async () => {
+    const harness = await createHarness()
+    try {
+      await harness.openRemote()
+      await harness.waitForConnected()
+
+      harness.state.signalLoss = {
+        latencyMs: 150,
+        dropPattern: [true],
+        attempts: 0,
+      }
+      await harness.closeCurrentSocket()
+
+      // Four attempts is the whole budget, so waiting for all of them is what
+      // proves the client did not settle for "one slow reply, therefore broken".
+      await until(
+        () => harness.state.authFrames.length >= 5,
+        { timeoutMs: 60000, label: 'the full retry budget against a hanging link' },
+      )
+      await harness.page.waitForFunction(
+        () => document.querySelector('#connStatus')?.textContent
+          === 'Connection could not be restored after multiple attempts. Please reconnect.',
+        null,
+        { timeout: 15000 },
+      )
+      const exhausted = await harness.state.connections.filter(
+        (entry) => entry.error_msg === 'reconnect_exhausted',
+      ).length
+      assert.equal(exhausted, 1, `expected one exhausted row, got ${exhausted}`)
+      assert.equal(await harness.dotClass(), 'conn-dot failed')
+    } finally {
+      await harness.close()
+    }
+  })
+})
+
 test('recovers on the first three reconnect attempts and ignores stale session events', async (t) => {
   for (const successAt of [1, 2, 3]) {
     await t.test(`attempt ${successAt}`, async () => {
@@ -246,6 +346,59 @@ test('stops immediately for a non-retryable access policy rejection', async () =
     assert.equal(harness.state.verifyCalls, 1)
     assert.equal(harness.state.authFrames.length, 1)
     assert.equal(await harness.reconnectTaskActive(), false)
+  } finally {
+    await harness.close()
+  }
+})
+
+// The non-retryable case that used to be swallowed. A rejection raised *inside*
+// the session connect - not while issuing the token - was caught by _connect,
+// which answers false, so _attemptReconnect turned it into a generic
+// "reconnect attempt failed" and the retry loop spent the whole budget
+// rediscovering the same rejection. Four attempts where one would do, and an
+// audit trail that says exhausted instead of rejected.
+test('stops immediately for a non-retryable rejection inside the session connect', async () => {
+  const harness = await createHarness()
+  try {
+    await harness.openRemote()
+    await harness.waitForConnected()
+
+    // The next connect fails the way a policy rejection does: the transport
+    // closes before auth, which is where the retryable marker lives.
+    harness.state.signalLoss = {
+      latencyMs: 0,
+      dropPattern: [true],
+      attempts: 0,
+      rejectAsNonRetryable: true,
+    }
+    await harness.closeCurrentSocket()
+
+    // What the operator sees has to name the rejection, not the generic
+    // exhausted message: the difference between "your access was denied" and
+    // "the network kept failing" is the difference between fixing a policy and
+    // waiting for a link.
+    // The status has to name the rejection, not the generic exhausted message:
+    // "signaling auth failed" sends the operator to their credentials, while
+    // "could not be restored after multiple attempts" sends them to wait for a
+    // network that was never broken.
+    await harness.page.waitForFunction(
+      () => (document.querySelector('#connStatus')?.textContent || '').includes('Signaling auth failed'),
+      null,
+      { timeout: 10000 },
+    )
+    await until(
+      () => harness.state.connections.some((entry) => entry.error_msg === 'reconnect_rejected'),
+      { timeoutMs: 5000, label: 'rejected connection audit row' },
+    )
+
+    // One attempt, not four. The initial connect is the only auth frame, so a
+    // second one means the client retried a rejection it had already been told
+    // was final.
+    assert.equal(await harness.reconnectTaskActive(), false)
+    assert.ok(
+      harness.state.authFrames.length <= 2,
+      `expected the rejection to stop the run, got ${harness.state.authFrames.length} auth frames`,
+    )
   } finally {
     await harness.close()
   }
@@ -423,6 +576,16 @@ async function createHarness() {
             const shouldDrop = loss.dropPattern[attempt % loss.dropPattern.length]
             if (shouldDrop) {
               if (loss.latencyMs > 0) await sleep(loss.latencyMs)
+              // The server states why before it hangs up, which is what makes
+              // this a rejection rather than a loss: the client is told the
+              // credential is bad, and retrying it would ask the same question.
+              if (loss.rejectAsNonRetryable) {
+                socket.send(JSON.stringify({
+                  type: 'error',
+                  code: 'AUTH_INVALID',
+                  message: 'The device access policy denied this connection',
+                }))
+              }
               await socket.close({ code: 1006, reason: 'injected packet loss' })
               return
             }

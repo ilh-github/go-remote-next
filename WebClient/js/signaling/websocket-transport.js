@@ -39,6 +39,7 @@ export class WebSocketTransport {
         this._authOk = false;
         this._closed = false;
         this._authTimer = null;
+        this._authRejection = null;
 
         // Auth params for the first-frame handshake.
         this._deviceId = null;
@@ -61,6 +62,7 @@ export class WebSocketTransport {
         this._role        = params.role || 'client';
         this._closed = false;
         this._authOk = false;
+        this._authRejection = null;
 
         return this._doConnect();
     }
@@ -111,7 +113,17 @@ export class WebSocketTransport {
                 this.onClose(code, reason);
                 if (!this._authOk && this._reject) {
                     // Closed before auth succeeded — treat as connect failure.
-                    this._reject(new Error(`WS closed before auth (code=${code})`));
+                    const rejection = this._authRejection;
+                    const error = rejection
+                        ? new Error(rejection.message)
+                        : new Error(`WS closed before auth (code=${code})`);
+                    if (rejection) {
+                        // The server said why. A retry would ask the same
+                        // question and get the same answer.
+                        error.code = rejection.code;
+                        error.retryable = false;
+                    }
+                    this._reject(error);
                     this._reject = this._resolve = null;
                 }
                 this.ws = null;
@@ -152,6 +164,13 @@ export class WebSocketTransport {
                 if (json.type === 'error') {
                     const code = json.code || (json.data && json.data.code) || '';
                     console.warn(`[WebSocket] server error code=${code}`);
+                    // A rejected credential is not a bad link. Retrying it
+                    // spends the whole backoff budget rediscovering a
+                    // rejection the server has already stated, so the reason
+                    // has to travel with the failure.
+                    if (code === 'TOKEN_INVALID' || code === 'AUTH_INVALID') {
+                        this._authRejection = { code, message: json.message || code };
+                    }
                     // Surface to session as a message for state-machine logic
                     // (PEER_DISCONNECTED / HOST_OFFLINE etc. — §2.15).
                     this.onMessage(trimmed);
