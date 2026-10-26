@@ -648,18 +648,87 @@ fn describe_observation(expect: &StepExpectation, observed_hash: &str, observed_
     }
 }
 
+/// What kind of mismatch this is, and therefore where to look first.
+///
+/// The four kinds are deliberately not interchangeable. A hash mismatch means
+/// the screen genuinely changed; a missing keyword means the wording changed or
+/// OCR did not read it; an empty value means the assertion was recorded wrong;
+/// an unknown kind means the recording came from a version that understood a
+/// check this build does not. Reporting all four as "expected X, observed Y"
+/// tells the operator what happened and nothing about which of those it is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MismatchKind {
+    /// The frame hash differs, so the screen is not the one that was recorded.
+    ScreenChanged,
+    /// The expected text is not on screen.
+    TextMissing,
+    /// The assertion itself has no value to compare against.
+    EmptyExpectation,
+    /// The assertion names a check this build does not implement.
+    UnsupportedKind,
+}
+
+/// Classify a mismatch from the expectation that produced it.
+///
+/// Takes the expectation rather than inspecting the outcome: the outcome carries
+/// only the two strings, and an unsupported kind looks exactly like a genuine
+/// mismatch there. The expectation still knows which check was asked for.
+pub fn classify_mismatch(expect: &StepExpectation) -> MismatchKind {
+    if expect.kind != "screen_hash" && expect.kind != "screen_contains" {
+        return MismatchKind::UnsupportedKind;
+    }
+    if expect.value.trim().is_empty() {
+        return MismatchKind::EmptyExpectation;
+    }
+    match expect.kind.as_str() {
+        "screen_hash" => MismatchKind::ScreenChanged,
+        _ => MismatchKind::TextMissing,
+    }
+}
+
+/// One line of guidance for a mismatch kind: what to check, in the operator's
+/// terms. Kept separate from the reason so the reason stays a factual record and
+/// this stays advice that can change without rewriting history.
+fn mismatch_guidance(kind: MismatchKind) -> &'static str {
+    match kind {
+        MismatchKind::ScreenChanged => {
+            "the screen is not the one recorded; check whether the app moved on \
+             before the replay reached this step"
+        }
+        MismatchKind::TextMissing => {
+            "the expected text is not on screen; check whether the wording changed \
+             or OCR missed it"
+        }
+        MismatchKind::EmptyExpectation => {
+            "the assertion has no value to compare against; re-record this step's \
+             expectation"
+        }
+        MismatchKind::UnsupportedKind => {
+            "this expectation names a check this build does not implement; \
+             re-record it as screen_hash or screen_contains"
+        }
+    }
+}
+
 /// Human-readable reason used in run reports when a step is parked.
+///
+/// The first half is the factual record - which step, how many checks, what was
+/// expected and observed. The second half is guidance derived from the kind of
+/// mismatch, because a reason that stops at the facts leaves the operator to
+/// work out which of four very different problems they have.
 pub fn expectation_mismatch_reason(
     seq: u32,
     outcome: &ExpectationOutcome,
     attempt: u32,
     retries: u32,
+    expect: &StepExpectation,
 ) -> String {
     match outcome {
         ExpectationOutcome::Matched => String::new(),
         ExpectationOutcome::Mismatched { expected, observed } => format!(
             "step {seq} screen state did not match after {attempt}/{retries} checks \
-             (expected {expected:?}, observed {observed:?})"
+             (expected {expected:?}, observed {observed:?}); {}",
+            mismatch_guidance(classify_mismatch(expect))
         ),
     }
 }
@@ -1116,9 +1185,100 @@ mod tests {
             },
         );
 
-        let reason = expectation_mismatch_reason(3, &outcome, 2, 3);
+        let reason = expectation_mismatch_reason(3, &outcome, 2, 3, &empty);
         assert!(reason.contains("step 3"), "{reason}");
         assert!(reason.contains("2/3"), "{reason}");
+    }
+
+    /// Each kind of failure should say what to look at, not just what happened.
+    /// "Expected X, observed Y" is a fact; it does not tell the operator whether
+    /// the screen really changed, whether OCR missed the text, or whether the
+    /// assertion was recorded wrong in the first place - and those send you to
+    /// three different places.
+    #[test]
+    fn each_mismatch_kind_gets_its_own_guidance() {
+        let hash = expectation("screen_hash", "abc123");
+        let text = expectation("screen_contains", "Save");
+        let empty = expectation("screen_contains", "   ");
+        let unknown = expectation("screen_pixel", "10,20");
+
+        let cases = [
+            ("screen_hash", &hash),
+            ("screen_contains", &text),
+            ("empty value", &empty),
+            ("unknown kind", &unknown),
+        ];
+
+        // Classify directly as well as through the rendered reason. Asserting
+        // only on the rendered strings is not enough: collapsing two kinds into
+        // one can still leave three distinct strings, which passes a
+        // pairwise-distinct check while the operator loses a distinction.
+        let mut kinds = Vec::new();
+        let mut reasons = Vec::new();
+        for (label, expect) in cases {
+            let outcome = evaluate_expectation(expect, "observed-hash", "observed text");
+            kinds.push((label, classify_mismatch(expect)));
+            let reason = expectation_mismatch_reason(7, &outcome, 2, 3, expect);
+            assert!(!reason.is_empty(), "{label}: a parked step must explain itself");
+            assert!(reason.contains("step 7"), "{label}: keeps the step number");
+            reasons.push((label, reason));
+        }
+
+        // The point of the feature: no two kinds collapse into one sentence.
+        for (i, (label, reason)) in reasons.iter().enumerate() {
+            for (other_label, other_reason) in reasons.iter().skip(i + 1) {
+                assert_ne!(
+                    reason, other_reason,
+                    "{label} and {other_label} must not share one explanation"
+                );
+            }
+        }
+        for (i, (label, kind)) in kinds.iter().enumerate() {
+            for (other_label, other_kind) in kinds.iter().skip(i + 1) {
+                assert_ne!(
+                    kind, other_kind,
+                    "{label} and {other_label} must not be the same kind"
+                );
+            }
+        }
+
+        // And distinct kinds are still not enough: the guidance has to differ, or
+        // the classification is bookkeeping that never reaches the operator.
+        for (i, (label, kind)) in kinds.iter().enumerate() {
+            for (other_label, other_kind) in kinds.iter().skip(i + 1) {
+                assert_ne!(
+                    mismatch_guidance(*kind),
+                    mismatch_guidance(*other_kind),
+                    "{label} and {other_label} must not share guidance"
+                );
+            }
+        }
+    }
+
+    /// A mismatch whose expectation asks for text must point at the text path,
+    /// not at the screen as a whole. A hash mismatch means the screen changed; a
+    /// missing keyword means either the wording changed or OCR did not read it.
+    #[test]
+    fn guidance_names_the_specific_thing_to_check() {
+        let text = expectation("screen_contains", "Save");
+        let outcome = evaluate_expectation(&text, "hash", "nothing here");
+        let text_reason = expectation_mismatch_reason(1, &outcome, 1, 1, &text);
+
+        let hash = expectation("screen_hash", "abc123");
+        let outcome = evaluate_expectation(&hash, "different", "ignored");
+        let hash_reason = expectation_mismatch_reason(1, &outcome, 1, 1, &hash);
+
+        // Two separate single-string assertions would each pass while both were
+        // served the same generic advice, so compare them against each other.
+        assert_ne!(text_reason, hash_reason, "text and hash need different guidance");
+        assert!(
+            text_reason.contains("text") || text_reason.contains("OCR"),
+            "a text assertion should point at the text or OCR: {text_reason}"
+        );
+        assert!(
+            hash_reason.contains("screen"),
+            "a hash assertion should point at the screen: {hash_reason}"
+        );
     }
 
     #[test]

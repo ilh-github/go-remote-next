@@ -842,7 +842,7 @@ impl QuickDeskMcpServer {
                         success: false,
                         pending: true,
                         result: serde_json::Value::Null,
-                        error: expectation_mismatch_reason(step.seq, &outcome, retries, retries),
+                        error: expectation_mismatch_reason(step.seq, &outcome, retries, retries, expect),
                         duration_ms: step_started.elapsed().as_millis() as u64,
                     });
                     // Leave the handover after the step result is recorded, so
