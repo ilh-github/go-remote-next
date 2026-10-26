@@ -4,8 +4,13 @@
 
 ## 本轮推送（2026-10-26 16:20 CST）
 
-- 本轮改动（计划任务编辑：`PATCH /v1/me/scheduled-tasks/:id` + WebClient/Qt 消费）
-  **尚未推送**，先在本地完成全部验证再推。推送命令与结果见下一节。
+- `b0cf3f4`（feat(scheduled): let an owner correct a task instead of recreating it）
+  已推送：`git push origin dev` 成功，`origin/dev` 从 `87a4be7` 前进到 `b0cf3f4`，
+  `git rev-list --left-right --count origin/dev...dev` = `0 0`；本地 `master`
+  已同步到同一提交。工作树只剩三个约定不提交的未跟踪路径。
+- 该提交含 C++/QML 改动，本机无 Qt 工具链，构建与测试证据来自 CI
+  （`QuickDesk Windows` / `QuickDesk macOS` workflow，触发路径含 `QuickDesk/**`）。
+  **这两条 run 的结果需在上传后核对**，通过前不把 Qt 侧标记为已验证。
 - 上游 PR 状态本轮复核：#34 `CLEAN`/`MERGEABLE` 且 `build` SUCCESS，#33/#32/#31/#26 均
   `CLEAN`，#25 仍 `DIRTY`/`CONFLICTING`（base `dev`，与上游 `dev` 已分叉），未动作。
 - 上游 `dev` 仍为 `88d4d36`。
