@@ -4,6 +4,7 @@
 #include "RemoteFileManager.h"
 
 #include "ClientManager.h"
+#include "common/remotepath.h"
 #include "infra/log/log.h"
 
 #include <QJsonDocument>
@@ -11,51 +12,13 @@
 
 namespace quickdesk {
 
-namespace {
-
-// The control machine may be Windows, macOS or Linux while the host is any of
-// them, so path splitting cannot rely on the local separator.
-int lastSeparator(const QString& path)
-{
-    const int slash = path.lastIndexOf(QLatin1Char('/'));
-    const int backslash = path.lastIndexOf(QLatin1Char('\\'));
-    return qMax(slash, backslash);
-}
-
-QString parentOf(const QString& path)
-{
-    const int index = lastSeparator(path);
-    if (index < 0) {
-        return QString();
-    }
-    if (index == 0) {
-        return path.left(1);
-    }
-    // "C:\dir" -> "C:" (the drive root keeps its colon).
-    if (index == 2 && path.at(1) == QLatin1Char(':')) {
-        return path.left(2);
-    }
-    return path.left(index);
-}
-
-QString joinPath(const QString& directory, const QString& name)
-{
-    if (directory.isEmpty()) {
-        return name;
-    }
-    const QChar last = directory.at(directory.size() - 1);
-    const QChar separator =
-        (last == QLatin1Char('\\') || directory.contains(QLatin1Char('\\')))
-            && !directory.contains(QLatin1Char('/'))
-        ? QLatin1Char('\\')
-        : QLatin1Char('/');
-    if (last == QLatin1Char('/') || last == QLatin1Char('\\')) {
-        return directory + name;
-    }
-    return directory + separator + name;
-}
-
-} // namespace
+// Path arithmetic lives in common/remotepath.h so the rules are testable without
+// a connection: the drive-relative case ("C:docs") has no separator at all, and
+// the inline version of these helpers returned an empty parent there, which made
+// a rename deliver a bare relative name to the host.
+using quickdesk::RemoteBaseName;
+using quickdesk::RemoteJoinPath;
+using quickdesk::RemoteParentPath;
 
 RemoteFileManager::RemoteFileManager(ClientManager* clientManager, QObject* parent)
     : QObject(parent)
@@ -98,7 +61,7 @@ void RemoteFileManager::renamePath(const QString& deviceId, const QString& path,
     pending.op = QStringLiteral("rename");
     pending.deviceId = deviceId;
     pending.path = path;
-    const QString destination = joinPath(parentOf(path), newName);
+    const QString destination = RemoteJoinPath(RemoteParentPath(path), newName);
     QJsonObject args;
     args[QStringLiteral("source")] = path;
     args[QStringLiteral("destination")] = destination;

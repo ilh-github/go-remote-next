@@ -106,6 +106,27 @@ add_test(
     COMMAND quickdesk_urlencode_test
 )
 
+# Header-only for the same reason as the url encode test: the rules are inline
+# and the point is the path arithmetic, not the build.
+add_executable(quickdesk_remotepath_test
+    remotepath_test.cpp
+)
+
+target_include_directories(quickdesk_remotepath_test
+    PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src
+)
+
+target_link_libraries(quickdesk_remotepath_test
+    PRIVATE
+    Qt6::Core
+)
+
+add_test(
+    NAME quickdesk_remotepath_test
+    COMMAND quickdesk_remotepath_test
+)
+
 add_executable(quickdesk_recording_lifecycle_test
     recordinglifecycle_test.cpp
     ../src/core/recordinglifecycle.cpp
