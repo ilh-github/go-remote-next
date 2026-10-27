@@ -13,6 +13,7 @@ import { TouchHandler } from './input/touch-handler.js';
 import { ClipboardHandler } from './input/clipboard-handler.js';
 import { watchForRelease } from './input/visibilityRelease.js';
 import { selectDisplayTrack } from './videoLayout.js';
+import { TransferProgress, reconcileTotal } from './transferProgress.js';
 import { CursorRenderer } from './ui/cursor-renderer.js';
 import { MouseButton } from './protocol/protobuf-messages.js';
 import { addTrackOnce } from './protocol/media-stream.js';
@@ -76,6 +77,9 @@ class RemoteDesktopApp {
         this.controlGrant = null;
         this._recordingUploading = false;
         this._fileTransferAudit = new Map();
+        // Per-transfer progress, kept separately from the audit state because the
+        // remembered total is what stops the bar jumping backwards.
+        this._transferProgress = new Map();
         this._connectionConfig = null;
         this._reconnectTask = null;
         this._manualDisconnect = false;
@@ -418,15 +422,28 @@ class RemoteDesktopApp {
                     totalBytes: Number(e.detail.totalBytes) || 0,
                 });
                 this._addTransferItem(e.detail.transferId, e.detail.filename, e.detail.totalBytes);
+                // The total announced at the start, including zero: a zero here
+                // says the file is empty, which is complete rather than 0%.
+                const progress = new TransferProgress();
+                progress.announceTotal(e.detail.totalBytes);
+                this._transferProgress.set(e.detail.transferId, progress);
             });
 
             this.dcHandler.addEventListener('fileTransferProgress', (e) => {
                 const state = this._fileTransferAudit.get(e.detail.transferId);
                 if (state) {
                     state.bytesTransferred = Number(e.detail.bytesSent) || 0;
-                    state.totalBytes = Number(e.detail.totalBytes) || state.totalBytes;
+                    // A zero or missing total on a later event must not undo the
+                    // one announced at the start, or the audit row and the bar
+                    // disagree about how big this transfer is.
+                    state.totalBytes = reconcileTotal(state.totalBytes, e.detail.totalBytes);
                 }
-                this._updateTransferProgress(e.detail.transferId, e.detail.bytesSent, e.detail.totalBytes);
+                // The bar keeps its own remembered total for the same reason.
+                const progress = this._transferProgress.get(e.detail.transferId)
+                    || new TransferProgress();
+                progress.update(e.detail.bytesSent, e.detail.totalBytes);
+                this._transferProgress.set(e.detail.transferId, progress);
+                this._updateTransferProgress(e.detail.transferId, progress.percent());
             });
 
             this.dcHandler.addEventListener('fileTransferComplete', (e) => {
@@ -450,6 +467,9 @@ class RemoteDesktopApp {
                     totalBytes: Number(e.detail.totalBytes) || 0,
                 });
                 this._addTransferItem(e.detail.transferId, e.detail.filename, e.detail.totalBytes, 'download');
+                const progress = new TransferProgress();
+                progress.announceTotal(e.detail.totalBytes);
+                this._transferProgress.set(e.detail.transferId, progress);
                 this._log(t('log.downloadStarted', { filename: e.detail.filename }));
             });
 
@@ -457,9 +477,15 @@ class RemoteDesktopApp {
                 const state = this._fileTransferAudit.get(e.detail.transferId);
                 if (state) {
                     state.bytesTransferred = Number(e.detail.bytesReceived) || 0;
-                    state.totalBytes = Number(e.detail.totalBytes) || state.totalBytes;
+                    // Same as the upload path: a zero or missing total must not
+                    // undo the one announced at the start.
+                    state.totalBytes = reconcileTotal(state.totalBytes, e.detail.totalBytes);
                 }
-                this._updateTransferProgress(e.detail.transferId, e.detail.bytesReceived, e.detail.totalBytes);
+                const progress = this._transferProgress.get(e.detail.transferId)
+                    || new TransferProgress();
+                progress.update(e.detail.bytesReceived, e.detail.totalBytes);
+                this._transferProgress.set(e.detail.transferId, progress);
+                this._updateTransferProgress(e.detail.transferId, progress.percent());
             });
 
             this.dcHandler.addEventListener('fileDownloadComplete', (e) => {
@@ -1674,10 +1700,13 @@ class RemoteDesktopApp {
         this._showTransferPanel();
     }
 
-    _updateTransferProgress(transferId, bytesSent, totalBytes) {
+    /**
+     * @param {string} transferId
+     * @param {number} percent already-clamped 0-100
+     */
+    _updateTransferProgress(transferId, percent) {
         const item = this._transferItems?.get(transferId);
         if (!item) return;
-        const pct = totalBytes > 0 ? Math.round(bytesSent / totalBytes * 100) : 0;
         const pctEl = item.querySelector('.transfer-item-pct');
         if (pctEl) pctEl.textContent = `${pct}%`;
         const fill = item.querySelector('.transfer-item-fill');
@@ -1842,6 +1871,7 @@ class RemoteDesktopApp {
         // The session is over, so its media state goes with it - the same reason
         // as the reconnect path.
         this._media.reset();
+        this._transferProgress.clear();
         this.skillBridge?.close();
         this.chatPanel?.close();
         this.tabCoordinator?.releaseAll();
