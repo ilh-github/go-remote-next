@@ -134,6 +134,17 @@ func validateFileTransferAudit(req fileTransferAuditRequest) error {
 	if utf8.RuneCountInString(req.Filename) > 255 {
 		return fmt.Errorf("filename must not exceed 255 characters")
 	}
+	// The length bound above is the one this always had; this is the one it was
+	// missing. A filename that carries a directory is a path, and a path is
+	// information about the controlled machine rather than about the transfer:
+	// `/Users/someone/.ssh/id_rsa` tells every later reader of this table where
+	// that user keeps their keys. The clipboard side of this same trail holds
+	// the line by having no field for the text at all; this is the file side's
+	// version of it, and it is a shape check because the offending thing is the
+	// separators, not the length.
+	if isPathLikeFilename(req.Filename) {
+		return fmt.Errorf("filename must be a name, not a path")
+	}
 	if utf8.RuneCountInString(req.Error) > 1000 {
 		return fmt.Errorf("error must not exceed 1000 characters")
 	}
@@ -147,4 +158,33 @@ func validateFileTransferAudit(req fileTransferAuditRequest) error {
 		return fmt.Errorf("a completed transfer must include every declared byte")
 	}
 	return nil
+}
+
+// isPathLikeFilename reports whether a filename carries any part of a path.
+//
+// Both separator families are checked because a controller can be reporting a
+// transfer to or from either kind of machine, and the concern is the same on
+// both: a name with a separator in it is a path, whatever the platform.
+//
+// A leading separator is the case that matters most - an absolute path - but a
+// relative one is refused too, because `docs/../../etc/passwd` is still telling
+// the reader about the machine's layout.
+func isPathLikeFilename(filename string) bool {
+	if filename == "" {
+		// An empty name is refused elsewhere; treating it as a path here would
+		// produce a confusing error for a different problem.
+		return false
+	}
+	if strings.ContainsAny(filename, `/\`) {
+		return true
+	}
+	// A bare drive letter (`C:`) is a path with no separator in it at all, so
+	// the separator check alone would let it through.
+	if len(filename) >= 2 && filename[1] == ':' {
+		drive := filename[0]
+		if (drive >= 'a' && drive <= 'z') || (drive >= 'A' && drive <= 'Z') {
+			return true
+		}
+	}
+	return false
 }

@@ -25,6 +25,7 @@ import { AnnotationLayer } from './ui/annotationLayer.js';
 import { AnnotationChannel } from './ui/annotationChannel.js';
 import { ControlGrantState } from './ui/control-grant.js';
 import { SessionMediaState } from './sessionMediaState.js';
+import { auditLeafName } from './audit/audit-leaf-name.js';
 import { IceConfigFetcher } from './ice-config-fetcher.js';
 import { t, applyI18n, getLocale, setLocale } from './i18n.js';
 import { userApi } from './api/user-api.js';
@@ -990,7 +991,10 @@ class RemoteDesktopApp {
             transferId,
             direction,
             status,
-            filename: filename || state?.filename || '',
+            // The leaf only. A host can hand back a full path, and the server
+            // now refuses one - but the client is the first place the path
+            // exists, and the audit trail's whole point is that it never did.
+            filename: auditLeafName(filename || state?.filename || ''),
             bytesTransferred,
             totalBytes,
             error: errorMessage || '',
