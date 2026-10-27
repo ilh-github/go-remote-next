@@ -7,6 +7,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -41,6 +42,21 @@ import (
 //
 // Defaults to "dev" when unset (搂2.20).
 var Version string
+
+// revokeCommandChannel adapts the realtime handler to the deliverer's channel
+// interface. It is a type rather than a method on the handler because the
+// handler's own publish path reports whether the command left, which is what
+// the deliverer needs, while the handler itself is a much larger surface.
+type revokeCommandChannel struct {
+	handler *handler.RealtimeHandler
+}
+
+func (c revokeCommandChannel) Publish(ctx context.Context, instanceID, sessionID string) error {
+	if c.handler == nil {
+		return errors.New("realtime handler is not configured")
+	}
+	return c.handler.AskInstanceRevoke(ctx, instanceID, sessionID)
+}
 
 func main() {
 	cfg := config.Load()
@@ -106,6 +122,7 @@ func main() {
 			&models.UserFavorite{},
 			&models.SessionRecording{},
 			&models.RemoteSession{},
+			&models.SessionRevokeCommand{},
 			&models.AdminUser{},
 			&models.AuditLog{},
 			&models.Settings{},
@@ -662,6 +679,24 @@ func main() {
 	adminRemoteSessionHandler := handler.NewAdminRemoteSessionHandler(
 		remoteSessionService, sessionRecordingService, deviceAccessService, deviceService,
 		realtimeHandler, auditService, deviceAccessPolicyService)
+	// The durable half of a cross-instance revoke. The publish to the owning
+	// instance is fire-and-forget, so a process that died between reading the
+	// session row and publishing left the operator's kick nowhere - the socket
+	// stayed open until the presence-lease sweep closed it about a minute later,
+	// which is a statement about the instance dying rather than about this
+	// revoke. Recording the command first means the decision outlives the process
+	// that made it, and the deliverer below is what acts on what survives.
+	revokeCommandStore := service.NewSessionRevokeCommandStore(db)
+	remoteSessionHandler.WithRevokeCommands(revokeCommandStore)
+	adminRemoteSessionHandler.WithRevokeCommands(revokeCommandStore)
+	go service.NewSessionRevokeCommandDeliverer(
+		revokeCommandStore,
+		revokeCommandChannel{handler: realtimeHandler},
+		func(sessionID string) {
+			log.Printf("[session-revoke] delivered a recorded command for session=%s", sessionID)
+		},
+	).Run(context.Background())
+	log.Println("Session revoke command deliverer started")
 	adminNotificationDeliveryHandler := handler.NewAdminNotificationDeliveryHandler(
 		notificationDeliveryService, auditService,
 		cfg.Notification.RetentionDays, cfg.Notification.ArchiveRetentionDays)

@@ -42,6 +42,7 @@ func newEventOutboxTestDB(t *testing.T) *gorm.DB {
 		&models.UserFavorite{},
 		&models.Device{},
 		&models.RemoteSession{},
+		&models.SessionRevokeCommand{},
 		&models.SessionRecording{},
 	); err != nil {
 		t.Fatalf("migrate: %v", err)

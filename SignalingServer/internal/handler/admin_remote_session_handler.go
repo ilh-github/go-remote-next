@@ -33,6 +33,9 @@ type AdminRemoteSessionHandler struct {
 	revoker    SessionRevoker
 	audit      *service.AuditService
 	policies   *service.DeviceAccessPolicyService
+	// commands is the durable half of a cross-instance revoke, shared with the
+	// owner-facing handler so both routes leave the same trail.
+	commands *service.SessionRevokeCommandStore
 }
 
 func NewAdminRemoteSessionHandler(
@@ -48,6 +51,13 @@ func NewAdminRemoteSessionHandler(
 		sessions: sessions, recordings: recordings, access: access, devices: devices,
 		revoker: revoker, audit: audit, policies: policies,
 	}
+}
+
+// WithRevokeCommands wires in the durable command store, the same setter and the
+// same nil-means-single-instance rule the owner-facing handler uses.
+func (h *AdminRemoteSessionHandler) WithRevokeCommands(commands *service.SessionRevokeCommandStore) *AdminRemoteSessionHandler {
+	h.commands = commands
+	return h
 }
 
 // List handles GET /v1/admin/remote-sessions.
@@ -165,7 +175,7 @@ func (h *AdminRemoteSessionHandler) Revoke(c *gin.Context) {
 		ProblemInternal(c, err.Error())
 		return
 	}
-	if !revokeSessionSocket(c, h.sessions, h.revoker, row) {
+	if !revokeSessionSocketWithCommands(c, h.sessions, h.revoker, row, h.commands) {
 		return
 	}
 	if h.audit != nil {

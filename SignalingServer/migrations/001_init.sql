@@ -824,3 +824,40 @@ CREATE INDEX IF NOT EXISTS idx_remote_sessions_instance_id
     ON remote_sessions (instance_id);
 CREATE INDEX IF NOT EXISTS idx_remote_sessions_ended_at
     ON remote_sessions (ended_at);
+
+-- ---------------------------------------------------------------
+-- Session revoke commands
+-- ---------------------------------------------------------------
+-- A cross-instance revoke is delivered over Redis pub/sub, which is
+-- fire-and-forget. This table is the durable half: the command is written
+-- before it is published, so a process that dies in between leaves the
+-- operator's decision in the database rather than nowhere. The presence-lease
+-- sweep still closes the session about a minute later, so nothing is reported
+-- as a success that did not happen - this only shortens that window from
+-- "about a minute" to "about two seconds".
+--
+-- Deliberately not the event_outbox: an event fans out to subscribers, a
+-- command is addressed at exactly one instance and acts once.
+CREATE TABLE IF NOT EXISTS session_revoke_commands (
+    id                BIGSERIAL     PRIMARY KEY,
+    session_id        VARCHAR(64)   NOT NULL,
+    instance_id       VARCHAR(64)   NOT NULL DEFAULT '',
+    reason            VARCHAR(32)   NOT NULL DEFAULT '',
+    delivered         BOOLEAN       NOT NULL DEFAULT FALSE,
+    delivered_at      TIMESTAMPTZ,
+    attempts          INTEGER       NOT NULL DEFAULT 0,
+    claim_expires_at  TIMESTAMPTZ,
+    last_error        VARCHAR(255)  NOT NULL DEFAULT '',
+    created_at        TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+    updated_at        TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+);
+
+-- One command per session. A second revoke for a session that already has an
+-- undelivered command returns that command instead of queueing a duplicate:
+-- two commands that close the same socket is one close plus a row nobody can
+-- explain.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_session_revoke_commands_session_id
+    ON session_revoke_commands (session_id);
+-- The delivery loop's query: undelivered commands whose claim has expired.
+CREATE INDEX IF NOT EXISTS idx_session_revoke_commands_pending
+    ON session_revoke_commands (delivered, claim_expires_at);

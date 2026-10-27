@@ -17,7 +17,16 @@ import (
 func newDeviceRevokeTestDB(t *testing.T, slot int) (*gorm.DB, string) {
 	t.Helper()
 	db := openTestPostgres(t)
-	migrateTestSchema(t, db, &models.RemoteSession{}, &models.Device{}, &models.User{})
+	// The command table is here because Close clears it: a session that ends on
+	// its own has nothing left to revoke. Without the table the cleanup fails,
+	// the row is never stamped, and the caller waits out its confirmation
+	// timeout - which reads as a revoke that did nothing.
+	migrateTestSchema(t, db,
+		&models.RemoteSession{},
+		&models.SessionRevokeCommand{},
+		&models.Device{},
+		&models.User{},
+	)
 	// One device id per test, passed in, so two tests in this file cannot
 	// collide and the ids do not silently move when a test is renamed.
 	deviceID := fmt.Sprintf("7000000%02d", slot)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -29,6 +30,9 @@ type RemoteSessionHandler struct {
 	devices    *service.DeviceService
 	revoker    SessionRevoker
 	audit      *service.AuditService
+	// commands is the durable half of a cross-instance revoke. Nil on a
+	// single-instance deployment, where a revoke never leaves this process.
+	commands *service.SessionRevokeCommandStore
 }
 
 func NewRemoteSessionHandler(
@@ -43,6 +47,14 @@ func NewRemoteSessionHandler(
 		sessions: sessions, recordings: recordings, access: access, devices: devices,
 		revoker: revoker, audit: audit,
 	}
+}
+
+// WithRevokeCommands wires in the durable command store. It is a setter for the
+// same reason WithRevokeCooldown is: only the revoke path needs it, and leaving
+// it nil keeps the behaviour of a deployment that never runs a second instance.
+func (h *RemoteSessionHandler) WithRevokeCommands(commands *service.SessionRevokeCommandStore) *RemoteSessionHandler {
+	h.commands = commands
+	return h
 }
 
 // SessionRevoker closes the live signaling socket behind a session id, wherever
@@ -79,17 +91,42 @@ const (
 	revokeNotConnectedHere
 	revokePublishFailed
 	revokeNotConfirmed
+	revokeRecordFailed
 )
 
 // revokeOne closes one session - here if this instance holds it, otherwise by
 // asking the instance that does - and reports the outcome plus a detail string.
 // It never writes a response, because a batch caller needs every row's result
 // rather than the first failure.
+//
+// The remote path records the command before it publishes it. Publishing is
+// fire-and-forget, so a process that died between reading this row and
+// publishing would otherwise leave the operator's kick nowhere: the socket stays
+// open and the only thing that eventually closes it is the presence-lease sweep
+// about a minute later, which is a statement about the instance dying rather
+// than about this revoke. The recorded row outlives the process, so a revoke
+// that was decided but not delivered survives the crash and is delivered by
+// whichever instance picks it up.
 func revokeOne(
 	ctx context.Context,
 	sessions *service.RemoteSessionService,
 	revoker SessionRevoker,
 	row *models.RemoteSession,
+) (revokeOutcome, string) {
+	return revokeOneWithCommands(ctx, sessions, revoker, row, nil)
+}
+
+// revokeOneWithCommands is revokeOne with the durable command store wired in.
+// The store is a parameter rather than a field on the handler so the existing
+// callers - and their tests - keep working unchanged when no store is
+// configured, which is what a deployment that never runs more than one instance
+// looks like.
+func revokeOneWithCommands(
+	ctx context.Context,
+	sessions *service.RemoteSessionService,
+	revoker SessionRevoker,
+	row *models.RemoteSession,
+	commands *service.SessionRevokeCommandStore,
 ) (revokeOutcome, string) {
 	if revoker == nil {
 		return revokeNotConfigured, "session revocation is not configured"
@@ -118,13 +155,49 @@ func revokeOne(
 	if row.InstanceID == "" || row.InstanceID == revoker.InstanceID() {
 		return revokeNotConnectedHere, "Session is not connected to this instance"
 	}
+	// Durable first, publish second. If this process dies between the two, the
+	// command is still owed; if it died first, nothing was ever decided.
+	if commands != nil {
+		if _, err := commands.Record(ctx, row.SessionID, row.InstanceID, revokeReasonFor(row)); err != nil {
+			// Recording is what makes the command survive this process, so a
+			// failure here is reported rather than swallowed: publishing without
+			// it would put us back in the window this exists to close.
+			return revokeRecordFailed, err.Error()
+		}
+	}
 	if err := revoker.AskInstanceRevoke(ctx, row.InstanceID, row.SessionID); err != nil {
 		return revokePublishFailed, err.Error()
+	}
+	if commands != nil {
+		// Marked delivered, not deleted: a command that reached the instance but
+		// whose close was never confirmed has to stay distinguishable from one
+		// nobody attempted, or the retry loop cannot tell them apart.
+		if delivered, err := commands.MarkDeliveredBySession(ctx, row.SessionID); err != nil {
+			log.Printf("[session-revoke] marking %s delivered failed: %v", row.SessionID, err)
+		} else if delivered == 0 {
+			// Nothing to mark: the row was cleared because the session ended
+			// while we were publishing, which is the outcome we wanted anyway.
+			log.Printf("[session-revoke] %s ended before its command was marked delivered", row.SessionID)
+		}
 	}
 	if waitForSessionEnd(ctx, sessions, row.SessionID, sessionRevokeTimeout) {
 		return revokeDone, ""
 	}
 	return revokeNotConfirmed, "The instance holding the session did not close it in time"
+}
+
+// revokeReasonFor says who asked, so a delivered command and the session's own
+// end_reason can be read together rather than guessed at.
+func revokeReasonFor(row *models.RemoteSession) string {
+	if row == nil {
+		return models.SessionRevokeReasonUnknown
+	}
+	if row.UserID == 0 {
+		// The device was unbound before the session started, so there is no owner
+		// to attribute it to.
+		return models.SessionRevokeReasonAdmin
+	}
+	return models.SessionRevokeReasonOwner
 }
 
 // revokeSessionSocket is the single-session body of the owner and administrator
@@ -137,11 +210,30 @@ func revokeSessionSocket(
 	revoker SessionRevoker,
 	row *models.RemoteSession,
 ) bool {
-	outcome, detail := revokeOne(c.Request.Context(), sessions, revoker, row)
+	return revokeSessionSocketWithCommands(c, sessions, revoker, row, nil)
+}
+
+// revokeSessionSocketWithCommands is revokeSessionSocket with the durable
+// command store wired in. A nil store is the single-instance deployment, where a
+// revoke never leaves this process and there is nothing to make durable.
+func revokeSessionSocketWithCommands(
+	c *gin.Context,
+	sessions *service.RemoteSessionService,
+	revoker SessionRevoker,
+	row *models.RemoteSession,
+	commands *service.SessionRevokeCommandStore,
+) bool {
+	outcome, detail := revokeOneWithCommands(c.Request.Context(), sessions, revoker, row, commands)
 	switch outcome {
 	case revokeDone:
 		return true
 	case revokeNotConfigured, revokePublishFailed:
+		ProblemInternal(c, detail)
+	case revokeRecordFailed:
+		// The command could not be made durable, which means publishing it would
+		// put us back in the window where a crash loses the operator's kick. A
+		// 500 is the honest answer: nothing was decided, so nothing can be
+		// reported as done.
 		ProblemInternal(c, detail)
 	default:
 		ProblemConflict(c, ProblemCodeConflict, detail)
@@ -195,6 +287,20 @@ func revokeDeviceSessions(
 	deviceID string,
 	limit int,
 ) (revoked int, failed int, truncated bool, results []gin.H, err error) {
+	return revokeDeviceSessionsWithCommands(ctx, sessions, revoker, deviceID, limit, nil)
+}
+
+// revokeDeviceSessionsWithCommands is revokeDeviceSessions with the durable
+// command store wired in, for the same reason and with the same nil rule as the
+// single-session path.
+func revokeDeviceSessionsWithCommands(
+	ctx context.Context,
+	sessions *service.RemoteSessionService,
+	revoker SessionRevoker,
+	deviceID string,
+	limit int,
+	commands *service.SessionRevokeCommandStore,
+) (revoked int, failed int, truncated bool, results []gin.H, err error) {
 	if limit <= 0 {
 		limit = maxBatchRevokeSessions
 	}
@@ -215,7 +321,7 @@ func revokeDeviceSessions(
 	}
 	results = make([]gin.H, 0, len(rows))
 	for i := range rows {
-		outcome, detail := revokeOne(ctx, sessions, revoker, &rows[i])
+		outcome, detail := revokeOneWithCommands(ctx, sessions, revoker, &rows[i], commands)
 		entry := gin.H{"session_id": rows[i].SessionID}
 		if outcome == revokeDone {
 			revoked++
@@ -507,7 +613,7 @@ func (h *RemoteSessionHandler) Revoke(c *gin.Context) {
 		ProblemInternal(c, err.Error())
 		return
 	}
-	if !revokeSessionSocket(c, h.sessions, h.revoker, row) {
+	if !revokeSessionSocketWithCommands(c, h.sessions, h.revoker, row, h.commands) {
 		return
 	}
 	if h.audit != nil {

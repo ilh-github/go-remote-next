@@ -14,7 +14,13 @@ import (
 func newRemoteSessionTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db := openTestPostgres(t)
-	migrateTestSchema(t, db, &models.RemoteSession{}, &models.Device{}, &models.User{})
+	// The command table is here because Close clears it in the same transaction.
+	migrateTestSchema(t, db,
+		&models.RemoteSession{},
+		&models.SessionRevokeCommand{},
+		&models.Device{},
+		&models.User{},
+	)
 	if err := db.Exec("DELETE FROM remote_sessions").Error; err != nil {
 		t.Fatalf("clear remote sessions: %v", err)
 	}

@@ -197,6 +197,15 @@ func (s *RemoteSessionService) Close(ctx context.Context, sessionID string, reas
 		if !changed {
 			return nil
 		}
+		// A session that ended on its own has nothing left to revoke, so its
+		// recorded command goes with it - in the same transaction, because a
+		// command that outlived its session would be re-examined by the deliverer
+		// forever and would eventually be delivered against a socket that is
+		// already gone.
+		if err := tx.Where("session_id = ?", sessionID).
+			Delete(&models.SessionRevokeCommand{}).Error; err != nil {
+			return err
+		}
 		row.Decorate()
 		return s.enqueueRemoteSessionEvent(ctx, tx, EventRemoteSessionEnded, &row)
 	})
