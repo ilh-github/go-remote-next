@@ -208,7 +208,7 @@
 
 最近验证：
 
-- `TODO9`（部署手册的默认值和代码不是一回事，`.env.example` 连数据库名都建不出来）：给两份部署
+- `f3719a39`（部署手册的默认值和代码不是一回事，`.env.example` 连数据库名都建不出来）：给两份部署
   手册补「完整环境变量参考」时逐条对 `viper.SetDefault` 核，抓到**一处会让首次部署直接起不来**
   和**四处会把操作员引向错误安全假设**的文档缺陷。真缺陷：`.env.example` 写着
   `DB_NAME=quickdesk_signaling`，而代码默认 `quickdesk`，`start.sh` 也只
