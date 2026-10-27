@@ -662,6 +662,12 @@ if (smokeDevice) {
     enabled: alertBefore.json.enabled,
     after_minutes: alertBefore.json.after_minutes,
     repeat_minutes: alertBefore.json.repeat_minutes,
+    // The PUT treats an omitted or null snooze as "clear the snooze", so leaving
+    // it out of the restore body does not restore anything - it wipes a snooze
+    // the probe found in place. The spec promises this rule is put back exactly
+    // as it was, and the metric-alert restore below already carries the same
+    // field for the same reason.
+    snoozed_until: alertBefore.json.snoozed_until ?? null,
     maintenance_windows: alertBefore.json.maintenance_windows ?? [],
     maintenance_timezone: alertBefore.json.maintenance_timezone ?? '',
   };
