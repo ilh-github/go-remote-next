@@ -179,6 +179,34 @@ ALTER TABLE audit_logs
 
 CREATE INDEX IF NOT EXISTS idx_audit_logs_actor_user_id ON audit_logs(actor_user_id);
 
+-- One row per user-actor identity. `LogActorOnce` promises that the same
+-- (actor, action, resource type, resource id) is accepted once, and the
+-- transfer-report endpoints depend on it: a controller retries a report and the
+-- trail must not gain a second row for the same transfer. The check it performs
+-- is a count followed by an insert, so two concurrent reports both see zero and
+-- both write - the one moment a retry makes likely.
+--
+-- Partial three ways, and each one is load-bearing.
+--
+-- actor_user_id > 0, because admin rows are a different story: an admin
+-- legitimately performs the same action on the same resource more than once, and
+-- a unique constraint there would silently drop those rows.
+--
+-- resource_id <> '', because a row that names no resource has no stable identity
+-- to be unique on, and several genuinely distinct events carry an empty one.
+--
+-- action IN ('file.transfer','clipboard.sync') is the part that keeps two
+-- features alive at once. Media reads (recording.download and friends)
+-- deliberately write several rows for the same resource over a time window - that
+-- is what a window is for - so an index covering every actor row would forbid
+-- exactly that. Only the two transfer actions, whose rows are one per transfer
+-- id, are constrained.
+CREATE UNIQUE INDEX IF NOT EXISTS uni_audit_logs_actor_identity
+    ON audit_logs(actor_user_id, action, resource_type, resource_id)
+    WHERE actor_user_id > 0
+      AND action IN ('file.transfer', 'clipboard.sync')
+      AND resource_id <> '';
+
 -- ---------------------------------------------------------------
 -- Dynamic settings (single row)
 -- ---------------------------------------------------------------

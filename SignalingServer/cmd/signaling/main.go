@@ -159,6 +159,16 @@ func main() {
 	} else {
 		log.Println("AutoMigrate disabled (set RUN_AUTO_MIGRATE=true to enable).")
 	}
+	// Outside the AutoMigrate branch on purpose: this index is what makes the audit
+	// trail's "one row per transfer id" hold, and an operator who disabled
+	// AutoMigrate to manage schema by hand still needs it. The two statements are
+	// not interchangeable - SQLite cannot express a partial index - so each driver
+	// gets the shape it can actually create.
+	if minimalMode {
+		database.EnsureAuditActorIdentitySQLite(context.Background(), db)
+	} else {
+		database.EnsureAuditActorIdentity(context.Background(), db)
+	}
 
 	// -------------------------------------------------------------------
 	// Services

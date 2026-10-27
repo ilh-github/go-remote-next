@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -13,6 +14,7 @@ import (
 
 	"quickdesk/signaling/internal/models"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"gorm.io/gorm"
 )
 
@@ -647,6 +649,9 @@ func (s *AuditService) LogActorOnce(
 	actorUserID uint,
 	action, resourceType, resourceID, details, ip string,
 ) (bool, error) {
+	// The count below is still worth doing: it answers the common case without
+	// relying on a failed insert, and a failed insert has to be recognised as
+	// "somebody else already wrote this" rather than surfaced as an error.
 	var existing int64
 	if err := s.db.WithContext(ctx).Model(&models.AuditLog{}).
 		Where("actor_user_id = ? AND action = ? AND resource_type = ? AND resource_id = ?",
@@ -667,9 +672,40 @@ func (s *AuditService) LogActorOnce(
 		CreatedAt:    time.Now(),
 	}
 	if err := s.db.WithContext(ctx).Create(entry).Error; err != nil {
+		// Two concurrent reports of the same transfer both pass the count above,
+		// because neither has committed yet. The partial unique index
+		// (models.AuditActorIdentity) is what makes the second insert fail, and
+		// that failure is the answer to the question the caller asked - not an
+		// error to report. A retry is exactly when two reports overlap, so this is
+		// the path that matters.
+		//
+		// The index is scoped to the actions in models.AuditOnceActions, so an
+		// insert that fails here is one this function actually made; anything else
+		// failing on a unique constraint is a real error and is returned as one.
+		if isAuditIdentityConflict(err) {
+			return false, nil
+		}
 		return false, err
 	}
 	return true, nil
+}
+
+// isAuditIdentityConflict reports whether an insert failed because another row
+// already holds the same actor identity.
+//
+// Postgres surfaces this as SQLSTATE 23505 and SQLite as a message containing
+// "UNIQUE constraint failed", because the two drivers do not share an error
+// type. Matching on both is what lets the same code path serve the production
+// database and the SQLite minimal-mode deployment.
+func isAuditIdentityConflict(err error) bool {
+	if err == nil {
+		return false
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return pgErr.Code == "23505"
+	}
+	return strings.Contains(err.Error(), "UNIQUE constraint failed")
 }
 
 // LogActorDeduped writes a user-side audit row only when the same actor has not

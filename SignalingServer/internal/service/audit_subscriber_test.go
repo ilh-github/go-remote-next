@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"quickdesk/signaling/internal/database"
 	"quickdesk/signaling/internal/models"
 
 	"gorm.io/gorm"
@@ -13,6 +14,11 @@ func newAuditTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db := openTestPostgres(t)
 	migrateTestSchema(t, db, &models.AuditLog{})
+	// The partial unique index behind `LogActorOnce`. AutoMigrate cannot express
+	// one, so the tests have to ensure it the same way the server does - otherwise
+	// the concurrency guarantee under test does not exist in the test database
+	// either.
+	database.EnsureAuditActorIdentity(context.Background(), db)
 	if err := db.Exec("DELETE FROM audit_logs").Error; err != nil {
 		t.Fatalf("clear audit logs: %v", err)
 	}

@@ -3,6 +3,9 @@ package database
 import (
 	"context"
 	"log"
+	"strings"
+
+	"quickdesk/signaling/internal/models"
 
 	"gorm.io/gorm"
 )
@@ -61,4 +64,68 @@ func EnsureLogSearchIndexes(ctx context.Context, db *gorm.DB) {
 		return
 	}
 	log.Println("Log search index: full-text (match=) queries are index-backed")
+}
+
+// createAuditActorIdentity is the partial unique index behind `LogActorOnce`.
+//
+// AutoMigrate cannot express a partial index, and the "accepted only once"
+// promise is worthless without one: the service checks with a count and then
+// inserts, so two concurrent reports of the same transfer both see zero and both
+// write. This is what makes the second insert fail instead.
+//
+// Partial on actor_user_id > 0 because admin rows are a different story - an
+// admin legitimately repeats the same action on the same resource, and a unique
+// constraint there would silently drop those rows.
+//
+// Also partial on a non-empty resource_id: a row that names no resource has no
+// stable identity to be unique on, and several genuinely distinct events carry an
+// empty one. The two callers that rely on this guarantee - the file-transfer and
+// clipboard reports - always supply a transfer id.
+var createAuditActorIdentity = `CREATE UNIQUE INDEX IF NOT EXISTS ` + models.AuditActorIdentity + `
+	ON audit_logs (actor_user_id, action, resource_type, resource_id)
+	WHERE actor_user_id > 0
+	  AND action IN ('` + strings.Join(models.AuditOnceActions, "','") + `')
+	  AND resource_id <> ''`
+
+// EnsureAuditActorIdentity creates the partial unique index if it is not there
+// yet, and reports whether it is in place.
+//
+// Unlike the log-search indexes this one is not merely a performance concern:
+// without it the audit trail can gain a second row for one transfer id whenever
+// two reports overlap. It still does not abort startup, because a server that
+// boots without it is strictly better than one that does not boot - but the
+// caller is told, so a deployment is not left believing a guarantee it does not
+// have.
+func EnsureAuditActorIdentity(ctx context.Context, db *gorm.DB) bool {
+	if db == nil {
+		return false
+	}
+	if err := db.WithContext(ctx).Exec(createAuditActorIdentity).Error; err != nil {
+		log.Printf("Warning: could not create %s (%v); a retried report can produce a second audit row",
+			models.AuditActorIdentity, err)
+		return false
+	}
+	return true
+}
+
+// createAuditActorIdentitySQLite is the same statement for SQLite. SQLite does
+// support partial indexes, so the shape is identical rather than a workaround -
+// which matters, because two different shapes are two different guarantees and
+// the one that gets tested should be the one that ships.
+var createAuditActorIdentitySQLite = createAuditActorIdentity
+
+// EnsureAuditActorIdentitySQLite applies the index on a SQLite handle. Separate
+// from the Postgres entry point so a caller picks the driver explicitly rather
+// than relying on a fallback that would leave a deployment running a different
+// shape than the one that was tested.
+func EnsureAuditActorIdentitySQLite(ctx context.Context, db *gorm.DB) bool {
+	if db == nil {
+		return false
+	}
+	if err := db.WithContext(ctx).Exec(createAuditActorIdentitySQLite).Error; err != nil {
+		log.Printf("Warning: could not create %s on SQLite (%v); a retried report can produce a second audit row",
+			models.AuditActorIdentity, err)
+		return false
+	}
+	return true
 }
