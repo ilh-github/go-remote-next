@@ -233,7 +233,7 @@ test('the client reads back a transfer it reported', async () => {
   const items = read.data?.items ?? []
   const row = items.find((candidate) => candidate.resource_id === transferId)
   assert.ok(row, `the reported transfer was not readable through the client: ${JSON.stringify(items)}`)
-  assert.equal(row.action, 'clipboard.sync.upload')
+  assert.equal(row.action, 'clipboard.sync')
 
   // The byte count survives the round trip through the client, which is the
   // number an investigator actually needs.
@@ -247,10 +247,10 @@ test('the client reads back a transfer it reported', async () => {
 // refuse an invalid one.
 test('the client can filter by action and the server refuses an unknown one', async () => {
   const tk = await token()
-  const read = await userApi.fetchAuditLogs({ action: 'clipboard.sync.upload', limit: 20 })
+  const read = await userApi.fetchAuditLogs({ action: 'clipboard.sync', limit: 20 })
   assert.equal(read.ok, true, `filtered read failed: ${JSON.stringify(read)}`)
   for (const row of read.data?.items ?? []) {
-    assert.equal(row.action, 'clipboard.sync.upload', `the filter let through ${row.action}`)
+    assert.equal(row.action, 'clipboard.sync', `the filter let through ${row.action}`)
   }
 
   const raw = await fetch(`${backendUrl}/v1/me/audit-logs?action=recording.delete`, {

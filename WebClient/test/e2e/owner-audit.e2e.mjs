@@ -206,15 +206,19 @@ test('the owner reads back the transfers they reported', async () => {
   const items = list.json?.items ?? []
   const clipboard = items.find((row) => row.resource_id === transferId)
   assert.ok(clipboard, `the reported clipboard sync was not readable back: ${JSON.stringify(items)}`)
-  assert.equal(clipboard.action, 'clipboard.sync.upload')
+  // The direction is no longer part of the action name: one transfer id is one
+  // audit row whichever way it went, so the direction lives in the details. The
+  // aggregate action is what the filter is built on.
+  assert.equal(clipboard.action, 'clipboard.sync')
 
   const details = JSON.parse(clipboard.details)
   assert.equal(details.bytes, 128, 'the byte count must survive the round trip')
   assert.equal(details.mime_type, 'text/plain')
+  assert.deepEqual(details.directions, ['upload'], 'the direction must survive the round trip')
 
   const file = items.find((row) => row.resource_id === fileId)
   assert.ok(file, `the reported file transfer was not readable back: ${JSON.stringify(items)}`)
-  assert.equal(file.action, 'file.transfer.download')
+  assert.equal(file.action, 'file.transfer')
   assert.equal(JSON.parse(file.details).filename, 'quarterly.pdf')
 })
 
@@ -285,7 +289,7 @@ test('the action filter narrows and refuses what it does not cover', async () =>
     '/v1/me/audit-logs?action=clipboard.sync.upload&limit=50', undefined, token)
   assert.equal(clipboardOnly.status, 200, `filtered read status ${clipboardOnly.status}`)
   for (const row of clipboardOnly.json?.items ?? []) {
-    assert.equal(row.action, 'clipboard.sync.upload',
+    assert.equal(row.action, 'clipboard.sync',
       `the action filter let through ${row.action}`)
   }
   assert.ok((clipboardOnly.json?.items ?? []).some((row) => row.resource_id === clipId),

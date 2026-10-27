@@ -182,8 +182,8 @@ test('a reported clipboard sync lands in the audit trail without its text', asyn
   }, token)
   assert.equal(report.status, 204, `report status ${report.status}`)
 
-  const rows = await readAuditDetails('clipboard.sync.upload')
-  assert.ok(rows.length > 0, 'no clipboard.sync.upload row was written')
+  const rows = await readAuditDetails('clipboard.sync')
+  assert.ok(rows.length > 0, 'no clipboard.sync row was written')
   for (const details of rows) {
     assert.equal(details.includes(secret), false,
       'the clipboard text reached the audit row')
