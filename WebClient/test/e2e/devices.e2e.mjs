@@ -77,6 +77,7 @@ test('devices page drives connection, favorites, logs, and private groups', asyn
       {
         id: 1,
         device_id: 'device-a',
+        device_name: 'Desk Alpha',
         status: 'success',
         duration: 125,
         created_at: '2026-10-18T10:00:00Z',
@@ -84,7 +85,9 @@ test('devices page drives connection, favorites, logs, and private groups', asyn
       {
         id: 2,
         device_id: 'device-c',
+        device_name: 'Old Laptop',
         status: 'failed',
+        error_msg: 'access code rejected',
         duration: 0,
         created_at: '2026-10-18T09:30:00Z',
       },
@@ -247,6 +250,14 @@ test('devices page drives connection, favorites, logs, and private groups', asyn
     assert.equal(await favoritesCard(page).locator('.device-item').count(), 1)
     assert.equal(await logsCard(page).locator('.device-item').count(), 2)
     assert.equal(await groupCount(page, 'All'), '4')
+
+    // The log rows are the only place an owner learns why a connection did not
+    // happen, so the device name and the recorded failure reason both have to
+    // reach the page. Counting rows alone would pass while both were dropped.
+    const logText = await logsCard(page).textContent()
+    assert.match(logText, /Desk Alpha/, 'a log row shows the device name the server sent')
+    assert.match(logText, /2m5s/, 'a log row renders its duration')
+    assert.match(logText, /access code rejected/, 'a failed log row shows the reason the server recorded')
     assert.equal(await groupCount(page, 'Lab'), '1')
     assert.equal(await groupCount(page, 'Empty'), '0')
 

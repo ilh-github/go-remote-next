@@ -140,11 +140,16 @@
           <div class="empty-icon">📋</div>
           <p>{{ $t('devices.noLogs') }}</p>
         </div>
-        <div v-for="log in logs.slice(0, 20)" :key="log.id" class="device-item">
-          <div :class="['device-status', log.status === 'success' ? 'online' : 'offline']"></div>
+        <div v-for="log in describedLogs.slice(0, 20)" :key="log.id" class="device-item">
+          <div :class="['device-status', log.failed ? 'offline' : 'online']"></div>
           <div class="device-info">
-            <div class="device-name">{{ log.device_id }}</div>
-            <div class="device-id">{{ formatTime(log.created_at) }}{{ log.duration ? ` · ${Math.floor(log.duration/60)}m${log.duration%60}s` : '' }}</div>
+            <div class="device-name">{{ log.name }}</div>
+            <div class="device-id">
+              {{ formatTime(log.createdAt) }}<span v-if="log.duration"> · {{ log.duration }}</span>
+            </div>
+            <!-- The reason a connection failed. The server records it on the row;
+                 without it a failed entry says only that something went wrong. -->
+            <div v-if="log.reason" class="device-log-reason">{{ log.reason }}</div>
           </div>
     </div>
       </div>
@@ -442,6 +447,7 @@ import {
   buildAccessPolicyBody,
 } from '../api/controlModeModel'
 import { deviceQuotaReached, deviceQuotaSummary } from '../../js/devices/quota'
+import { describeConnectionLog } from '../connectionLogModel'
 
 const { t } = useI18n()
 const showToast = inject('showToast')
@@ -451,6 +457,11 @@ const authState = inject('authState')
 const myDevices = ref([])
 const myFavorites = ref([])
 const logs = ref([])
+
+// Described once per row so the template reads named fields instead of reaching
+// into the raw API shape: name, reason and duration are derived, and a failed
+// row's reason is the part that justifies opening this list.
+const describedLogs = computed(() => logs.value.map((log) => describeConnectionLog(log)))
 const remarkDialog = ref({ show: false, device: null, value: '' })
 const connecting = ref(null)
 const loading = ref(false)
@@ -900,6 +911,10 @@ onBeforeUnmount(() => {
 .device-info { flex: 1; min-width: 0; }
 .device-name { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .device-id { font-size: 12px; color: var(--text-secondary); font-family: 'Consolas', monospace; margin-top: 2px; }
+/* The reason a connection failed. It is prose, not an identifier, so it does not
+   take the monospace treatment, and it has to wrap rather than ellipsize: a
+   truncated error message is not an explanation. */
+.device-log-reason { font-size: 12px; color: var(--warning); margin-top: 3px; line-height: 1.4; overflow-wrap: anywhere; }
 .badge { margin-left: 6px; padding: 1px 6px; border-radius: 4px; font-size: 11px; font-family: inherit; }
 .badge.offline { background: rgba(255,255,255,0.1); color: var(--text-secondary); }
 .badge.idle    { background: rgba(255,193,7,0.15); color: var(--warning); }
