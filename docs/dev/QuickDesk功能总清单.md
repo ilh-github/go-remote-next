@@ -208,6 +208,22 @@
 
 最近验证：
 
+- QD-904 浏览器 E2E 覆盖对账（第 12 节，无代码改动，三条假设全部查伪）：按
+  「哪些 `src/views/` 页面有真实浏览器 E2E」逐页核对。有 fixture 驱动真实 Vue 页面的是
+  Devices、Recordings、ScheduledTasks、Wall 五个，加上 `session-chat.html` 驱动的
+  ChatPanel/FloatingToolbar 与 `remote.html` 全页；**没有浏览器 E2E 的是 NotificationsPage
+  （1652 行，最大）、AccessApprovalsPage（912 行）、AccountPage、SettingsPage、
+  ResetPasswordPage、AboutPage**。后两者有模型层单测（`notificationModels` /
+  `accessApprovalModels`）。对 AccessApprovalsPage 提了三个假设，**三个都被查伪**，记录判据
+  以免下轮重复：①「确认按钮的 busy 文案是裸 `'...'` 而非 i18n」——`'...'` 是全仓库统一的
+  busy 约定（DevicesPage 六处、NotificationsPage 两处同样形状），不是缺陷；②「关闭对话框后
+  `decision.approve` 不清零会污染下一次」——`openDecision` 每次都写 `approve`，对话框在它被写
+  之前不读它，陈旧值不可达；③「轮询刷新会替换列表而使打开中的对话框持有陈旧副本」——服务端对
+  已决定的审批回 409，UI 有专门的 `approvals.alreadyDecided` 分支并按服务端回报的状态渲染，
+  这条路径是收口的。**方法学**：这一轮三次据表面形状提出缺陷、三次被代码查伪。共同点是都停在
+  「这段代码看着不对」而没有走到「这个不对会造成什么」。真正的缺陷前几轮全都满足后者：
+  切标签页 host 按着键、drive-relative 重命名落到工作目录、进度条倒退——每一个都能说出用户
+  看到什么。说不出来的，就该继续查而不是动手改。
 - 事件覆盖对账（第 9 节通知与任务的 WebClient 消费侧，无代码改动，结论已查证）：
   33 个服务端事件常量中 12 个在 `SupportedUserNotificationEvents` 内，19 个用户域事件不在。
   逐条查证后**没有发现缺口**，其中三条此前看着像疏漏：①`device.secret.rotated` 由管理员
