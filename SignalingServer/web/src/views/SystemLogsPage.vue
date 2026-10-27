@@ -125,6 +125,7 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
+import { formatSize } from './storage-size.js'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { Refresh, Search } from '@element-plus/icons-vue'
@@ -191,17 +192,6 @@ function formatEntryTime(row) {
   return row.timestamp ? new Date(row.timestamp).toLocaleString(locale.value) : '-'
 }
 
-function formatSize(value) {
-  if (!Number.isFinite(value)) return '-'
-  const units = ['B', 'KB', 'MB', 'GB']
-  let size = value
-  let unit = 0
-  while (size >= 1024 && unit < units.length - 1) {
-    size /= 1024
-    unit += 1
-  }
-  return `${size.toFixed(unit ? 1 : 0)} ${units[unit]}`
-}
 
 async function loadLogs() {
   loading.value = true

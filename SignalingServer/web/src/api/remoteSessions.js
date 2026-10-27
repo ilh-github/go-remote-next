@@ -55,3 +55,28 @@ export function unbanAccessSource(deviceId, source) {
     body: JSON.stringify({ source }),
   })
 }
+
+// GET /v1/admin/recordings:storage — what the recording directory costs on disk.
+//
+// Distinct from the per-session recording counts: those index rows, this walks
+// the real directory and so also counts thumbnails and .part staging files that
+// no row points at. An operator deciding whether a quota is about to be hit
+// needs the walked number.
+const RECORDING_BASE = '/v1/admin/recordings'
+
+export function getRecordingStorage() {
+  return authJson(`${RECORDING_BASE}:storage`)
+}
+
+// POST /v1/admin/recordings:sweep — run the stale + retention + orphan pass now.
+//
+// Takes no arguments on purpose: it runs the configured window, so what an
+// operator sees here is exactly what the periodic runner will do, rather than a
+// one-off window that only this call uses.
+//
+// Returns {stale_marked_failed, artifacts_purged, bytes_freed, orphans_removed,
+// uploads_reaped}. uploads_reaped counts abandoned resumable-upload staging
+// files, which is the count most likely to be non-zero on a busy server.
+export function sweepRecordings() {
+  return authJson(`${RECORDING_BASE}:sweep`, { method: 'POST' })
+}

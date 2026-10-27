@@ -149,6 +149,7 @@
 
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
+import { formatSize } from './storage-size.js'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Refresh } from '@element-plus/icons-vue'
@@ -190,17 +191,6 @@ function shortDigest(value) {
   return value.length > 16 ? `${value.slice(0, 8)}…${value.slice(-6)}` : value
 }
 
-function formatSize(value) {
-  if (!Number.isFinite(value) || value <= 0) return '-'
-  const units = ['B', 'KB', 'MB', 'GB']
-  let size = value
-  let unit = 0
-  while (size >= 1024 && unit < units.length - 1) {
-    size /= 1024
-    unit += 1
-  }
-  return `${size.toFixed(unit ? 1 : 0)} ${units[unit]}`
-}
 
 function formatTime(value) {
   return value ? new Date(value).toLocaleString() : '-'

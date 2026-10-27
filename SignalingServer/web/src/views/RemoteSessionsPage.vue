@@ -24,7 +24,7 @@
           @keyup.enter="load(true)"
           @clear="load(true)"
         />
-        <el-button :icon="Refresh" size="small" @click="load(true)">{{ t('common.refresh') }}</el-button>
+        <el-button :icon="Refresh" size="small" @click="load(true); loadStorage()">{{ t('common.refresh') }}</el-button>
         <el-button
           v-if="deviceId"
           type="danger"
@@ -38,6 +38,36 @@
           @click="unbanSource"
         >{{ t('remoteSessions.unbanSource') }}</el-button>
       </div>
+    </div>
+
+    <!-- What the recording directory actually costs on disk. The two byte
+         totals differ on purpose: the index only knows about rows, the disk walk
+         also counts thumbnails and .part staging files, and that gap is exactly
+         what a quota is measured against. -->
+    <div v-if="recordingStorage" class="storage-summary" :class="{ 'storage-over': storageRows(recordingStorage).over }">
+      <span class="storage-title">{{ t('remoteSessions.storageTitle') }}</span>
+      <span>{{ t('remoteSessions.storageArtifacts') }}: {{ storageRows(recordingStorage).artifacts }}</span>
+      <span>{{ t('remoteSessions.storageFiles') }}: {{ storageRows(recordingStorage).files }}</span>
+      <span>{{ t('remoteSessions.storageIndexed') }}: {{ storageRows(recordingStorage).indexed }}</span>
+      <span>{{ t('remoteSessions.storageDisk') }}: {{ storageRows(recordingStorage).disk }}</span>
+      <span
+        v-if="storageGap(recordingStorage).hasGap"
+        :title="t('remoteSessions.storageUnindexedHint')"
+      >{{ t('remoteSessions.storageUnindexed') }}: {{ formatSize(storageGap(recordingStorage).hidden) }}</span>
+      <span>{{ t('remoteSessions.storageQuota') }}: {{ storageRows(recordingStorage).quota }}</span>
+      <span v-if="storageRows(recordingStorage).hasQuota">
+        {{ t('remoteSessions.storageRemaining') }}: {{ storageRows(recordingStorage).remaining }}
+      </span>
+      <span>{{ t('remoteSessions.storageRetention') }}: {{ storageRows(recordingStorage).retention }}</span>
+      <span>{{ t('remoteSessions.storageStale') }}: {{ storageRows(recordingStorage).stale }}</span>
+      <el-tag v-if="storageRows(recordingStorage).over" type="danger" size="small">
+        {{ t('remoteSessions.overQuota') }}
+      </el-tag>
+      <el-button
+        size="small"
+        :loading="sweeping"
+        @click="sweepRecordingsNow"
+      >{{ t('remoteSessions.sweep') }}</el-button>
     </div>
 
     <el-card shadow="never">
@@ -149,12 +179,16 @@ import { ref, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
+import { formatSize } from './storage-size.js'
+import { storageRows, storageGap } from './recording-storage-model.js'
 import {
   listRemoteSessions,
   revokeRemoteSession,
   revokeDeviceSessions,
   banAccessSource,
   unbanAccessSource,
+  getRecordingStorage,
+  sweepRecordings,
 } from '../api/remoteSessions.js'
 
 const { t } = useI18n()
@@ -168,6 +202,8 @@ const deviceId = ref('')
 const kickingId = ref('')
 const clearing = ref(false)
 const unbanning = ref(false)
+const recordingStorage = ref(null)
+const sweeping = ref(false)
 let loadSeq = 0
 
 function formatTime(value) {
@@ -184,15 +220,38 @@ function formatDuration(seconds) {
   return h > 0 ? `${h}:${pad(m)}:${pad(sec)}` : `${m}:${pad(sec)}`
 }
 
-function formatSize(bytes) {
-  const b = Number(bytes) || 0
-  if (b <= 0) return '-'
-  if (b < 1024) return `${b} B`
-  const units = ['KB', 'MB', 'GB']
-  let v = b / 1024
-  let i = 0
-  while (v >= 1024 && i < units.length - 1) { v /= 1024; i += 1 }
-  return `${v.toFixed(v >= 10 ? 0 : 1)} ${units[i]}`
+
+async function loadStorage() {
+  try {
+    recordingStorage.value = await getRecordingStorage()
+  } catch (e) {
+    ElMessage.error(t('common.loadFailed') + ': ' + e.message)
+  }
+}
+
+async function sweepRecordingsNow() {
+  try {
+    await ElMessageBox.confirm(t('remoteSessions.sweepConfirm'), t('common.confirm'), { type: 'warning' })
+  } catch {
+    return
+  }
+  sweeping.value = true
+  try {
+    const r = await sweepRecordings()
+    let msg = t('remoteSessions.sweepDone', {
+      purged: r.artifacts_purged ?? 0,
+      freed: formatSize(r.bytes_freed ?? 0),
+      orphans: r.orphans_removed ?? 0,
+      uploads: r.uploads_reaped ?? 0,
+    })
+    if (r.stale_marked_failed) msg += ' ' + t('remoteSessions.sweepStale', { stale: r.stale_marked_failed })
+    ElMessage.success(msg)
+    await loadStorage()
+  } catch (e) {
+    ElMessage.error(t('common.failed') + ': ' + e.message)
+  } finally {
+    sweeping.value = false
+  }
 }
 
 async function load(reset = true, silent = false) {
@@ -347,6 +406,7 @@ async function unbanSource() {
 
 onMounted(() => {
   load(true)
+  loadStorage()
   startPolling()
 })
 
@@ -361,6 +421,19 @@ onUnmounted(() => {
   padding: 20px;
   box-sizing: border-box;
 }
+.storage-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  border: 1px solid var(--el-border-color);
+  border-radius: 6px;
+  font-size: 13px;
+}
+.storage-summary.storage-over { border-color: var(--el-color-danger); }
+.storage-title { color: var(--el-text-color-primary); font-weight: 600; }
 .page-header {
   display: flex;
   flex-wrap: wrap;
