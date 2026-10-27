@@ -208,6 +208,19 @@
 
 最近验证：
 
+- `7057d09c`（Qt 侧重命名 drive-relative 路径会把裸名送给 host）：WebClient 早前在
+  `12b91bd` 修过同一个形状，Qt 侧的 helper 是内联复制的那一份，洞一模一样。
+  `parentOf` 用 `lastIndexOf` 找最后一个分隔符，而 `C:docs` **根本没有分隔符**，
+  查找落空返回空串；调用方把「没有父目录」读成「没有目录部分」，于是
+  `joinPath('', 'renamed.txt')` 产出裸名 `renamed.txt`——一个相对路径，按 host 进程的
+  工作目录解析。文件落到没人看的地方，而操作员被告知重命名成功。修为抽出
+  `src/common/remotepath.h`（header-only，与 `common/urlencode.h` 同一取舍：规则是
+  inline 的，值得测的是算术不是构建），drive-relative 情形的父目录取驱动器根。
+  实现 `RemoteBaseName` 时又踩到并修掉自己的第二个问题：尾部分隔符没有先剥掉，
+  `/home/user/` 的名字会是空串，用空名去重命名等于指向目录本身。新测试
+  `tests/remotepath_test.cpp` 按 `urlencode_test.cpp` 的既有形状写成独立 CMake target。
+  本地无 Qt 工具链，因此除语法检查外另用一份最小 QString stub 编译并跑通全部断言，
+  两个守卫各自反向验证过（去掉尾分隔符剥除即红）；Qt 侧构建与 ctest 交 CI。
 - `493a10ae`（批量上传里一个文件失败会掩盖已经落地的那些）：`_uploadSelected` 用裸循环
   逐个 await，第一个异常被 `_run` 捕获后只渲染错误——四个文件里第三个失败时，前两个已经
   在 host 上，而操作员看到的只有一句错误，既不知道到了几个，也不知道是哪个失败，重试则会把
