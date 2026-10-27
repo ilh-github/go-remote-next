@@ -181,20 +181,44 @@ func (s *NotificationChannelService) Delete(ctx context.Context, userID, id uint
 // delivery runs in its own goroutine and only the delivery itself writes the
 // last_triggered / last_status bookkeeping.
 func (s *NotificationChannelService) DispatchEvent(ctx context.Context, evt Event) {
-	if evt.UserID == 0 || !IsSupportedUserNotificationEvent(evt.Type) {
+	if s.dispatchOnce(ctx, evt) {
 		return
+	}
+	// The channel load is the only thing between the event and its channels,
+	// and a failure here used to drop the event with a log line as the only
+	// trace. The outbox row that carried it was already marked delivered by
+	// then, so nothing anywhere retried it: the user's webhook went quiet and
+	// the only evidence was one line in a log nobody was reading.
+	//
+	// Retrying in place is the right shape rather than writing a channel-less
+	// delivery row. That row cannot work: the delivery worker resolves
+	// ChannelID with First() and parks anything unresolvable as `failed`, so
+	// "unrouted" would be indistinguishable from "the channel was deleted". A
+	// read that failed is not a delivery that failed.
+	if !s.dispatchWithRetry(ctx, evt) {
+		log.Printf("[notification] dispatch %s for user %d failed after %d attempts",
+			evt.Type, evt.UserID, dispatchLoadAttempts)
+	}
+}
+
+// dispatchOnce performs one complete fan-out pass and reports whether it ran to
+// the end. It is the retryable unit: everything that can fail is inside it, and
+// the caller decides what a failure means.
+func (s *NotificationChannelService) dispatchOnce(ctx context.Context, evt Event) bool {
+	if evt.UserID == 0 || !IsSupportedUserNotificationEvent(evt.Type) {
+		return true // nothing to do is not a failure
 	}
 	var channels []models.UserNotificationChannel
 	if err := s.db.WithContext(ctx).
 		Where("user_id = ? AND enabled = ?", evt.UserID, true).
 		Find(&channels).Error; err != nil {
-		log.Printf("[notification] load channels for user %d: %v", evt.UserID, err)
-		return
+		return false
 	}
 	if len(channels) == 0 {
-		return
+		return true
 	}
 	payload := notificationEventPayload(evt)
+	complete := true
 	for _, ch := range channels {
 		if !channelSubscribes(ch.Events, evt.Type) {
 			continue
@@ -206,8 +230,48 @@ func (s *NotificationChannelService) DispatchEvent(ctx context.Context, evt Even
 		}
 		if err := s.deliveries.Enqueue(ctx, ch, evt.Type, evt.DeviceID, payload); err != nil {
 			log.Printf("[notification] enqueue %s for channel %d failed: %v", evt.Type, ch.ID, err)
+			// One channel's failure must not fail the pass: the others are
+			// still worth delivering to, and a retry would re-deliver the ones
+			// that already succeeded. The log line is the trace for this one.
+			complete = false
 		}
 	}
+	return complete
+}
+
+// dispatchLoadAttempts is how many times the channel load is retried before the
+// event is given up on. Small on purpose: the load is one indexed SELECT on the
+// subscriber worker, and the worker is shared with every other subscriber, so a
+// long retry budget would hold up unrelated events while it burned.
+const dispatchLoadAttempts = 3
+
+// dispatchWithRetry re-attempts the whole fan-out after the channel load failed.
+// It reports whether any attempt succeeded, so the caller knows whether there is
+// anything left to log.
+//
+// The retry covers the load and the enqueues together rather than just the read,
+// because the failure that matters is "this pass could not complete", and a
+// second pass that fails on a different step has learned something the first
+// one could not have.
+func (s *NotificationChannelService) dispatchWithRetry(ctx context.Context, evt Event) bool {
+	for attempt := 1; attempt < dispatchLoadAttempts; attempt++ {
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(dispatchRetryBackoff(attempt)):
+		}
+		if s.dispatchOnce(ctx, evt) {
+			return true
+		}
+	}
+	return false
+}
+
+func dispatchRetryBackoff(attempt int) time.Duration {
+	// 200ms, 400ms. Long enough for a connection pool to hand out a fresh
+	// connection, short enough that a three-attempt budget finishes inside a
+	// second - the same order as the tick the delivery worker runs on.
+	return time.Duration(attempt) * 200 * time.Millisecond
 }
 
 // notificationEventPayload is the body posted to a user's channel. The top

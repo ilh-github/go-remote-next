@@ -155,6 +155,24 @@
   和没有 publisher 是同一件事，而接线才是会烂的那部分。红绿双向：把心跳里的调用摘掉，
   路由级测试立刻以 `outbox rows = 0, want 1` 失败。`go test ./...` 全绿、`go vet ./...`
   干净、`gofmt` 对本次改动文件干净、`git diff --check` 通过。
+- QD-610 通知 fan-out 自身补齐重试：`NotificationChannelService.DispatchEvent` 跑在事件总线的
+  单个 subscriber worker 上，而它开头的那个「读这个用户有哪些 channel」和后面的 enqueue 打的是
+  同一个库。此前这一次读失败就**整件事只有一行日志**——携带该事件的 outbox 行那时早已被标记
+  delivered，于是没有任何东西会重试：用户的 webhook 静默了，唯一证据是一行没人在看的日志。
+  这与前两轮 presence 的缺口同形：durable 的是发布，决定「谁该被告知」的那一半根本没有第二次机会。
+  修法是**原地重试整个 fan-out**（3 次，退避 200/400ms），而不是写一条没有 channel 的投递行——
+  后者行不通：投递 worker 用 `First()` 解析 `ChannelID`，解析不了就记为 `failed`，
+  「没能路由」会和「channel 已被删除」混为一谈，而一次失败的读不是一次失败的投递。
+  `dispatchOnce` 成为可重试单元，返回「这一遍是否跑完」；单个 channel 的 enqueue 失败**不算**
+  这一遍失败，因为其他 channel 仍然值得送达，且重试会把已成功的那些再投一次。
+  验证：3 条新测试（第一次读失败第二次成功时重试后确实落一行、读始终不恢复时在预算内放弃且不落行、
+  成功路径逐字节不变且无重试延迟），红绿双向（摘掉重试调用，只有重试那条红）。
+  `go test ./...` 全绿、`go vet ./...` 干净、`gofmt` 干净、`git diff --check` 通过。
+  **过程中修正了自己一个错误设计**：第一版写成「每次 fan-out 先落一条无 channel 的 intent 行」，
+  那会让成功路径也多出一行、造成重复投递；且 channel 0 的行会被 worker 立刻判 failed。
+  已回退重做。测试也从 SQLite 不支持的 `BEFORE SELECT` 触发器改为隐藏表名——同一个目的，
+  但不会假装一种不存在的机制。
+
 - QD-610 数据库事务 event outbox 已落地：业务事务可通过 `EventOutbox.EnqueueTx`
   原子写入事件；worker 使用条件 claim、2 分钟过期恢复和退避重试发布，发布成功后标记
   delivered。`scheduled_task.failed` 已迁移，outbox 写入失败会回滚任务终态
