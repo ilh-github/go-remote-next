@@ -208,6 +208,28 @@
 
 最近验证：
 
+- `0260dbb3`（切标签页或切应用会让 host 一直按着键）：把两端对账后发现的真实缺口。
+  Qt 客户端守住四种情形——失去焦点、窗口失活、视图不可见、窗口本身失活——注释写明了
+  理由：系统快捷键或焦点变化会让 QML 收不到配对的 key-up，而下一个坐到机器前的人会
+  打进卡住的修饰键里。WebClient 只监听了**接收键盘的那个元素的 blur**，那只覆盖「在页面
+  内点到别处」。切浏览器标签页、切应用程序、最小化、锁屏，四种全都不在那个元素上产生
+  blur，host 于是持续拿着当时按着的东西，而操作员毫无线索。其中锁屏尤其值得单独说：
+  它根本不产生 window blur，只有 `visibilitychange` 会报。修为补
+  `js/input/visibilityRelease.js`：三个触发条件（`visibilitychange` 且 hidden、window
+  `blur`、`pagehide`），事件集合是可断言的而不是散落在代码里。`pagehide` 而不是只靠
+  `beforeunload`：后者在移动浏览器不可靠，且标签页被丢弃时根本不触发。8 条单测，
+  反向验证（整个删掉 visibilitychange 触发条件）三条同时红。
+- `7057d09c`（Qt 侧重命名 drive-relative 路径会把裸名送给 host）：WebClient 早前在
+  `12b91bd` 修过同一个形状，Qt 侧的 helper 是内联复制的那一份，洞一字不差。
+  `C:docs` 根本没有分隔符，`parentOf` 的索引查找落空返回空串，调用方读作「没有目录部分」，
+  于是 `joinPath('', 'renamed.txt')` 产出裸名——一个按 host 进程工作目录解析的相对路径。
+  文件落到没人看的地方，而操作员被告知重命名成功。修为抽出 `src/common/remotepath.h`
+  （header-only，与 `common/urlencode.h` 同一取舍），drive-relative 的父目录取驱动器根。
+  实现 `RemoteBaseName` 时又踩到并修掉自己的第二个问题：尾部分隔符没先剥掉，
+  `/home/user/` 的名字会是空串，用空名重命名等于指向目录本身——这是跑测试才红的，
+  不是从需求里读出来的。新测试 `tests/remotepath_test.cpp` 按 `urlencode_test.cpp` 的
+  既有形状写成独立 CMake target；本地无 Qt 工具链，另用最小 QString stub 编译并跑通全部
+  断言，两个守卫各自反向验证过。
 - `7057d09c`（Qt 侧重命名 drive-relative 路径会把裸名送给 host）：WebClient 早前在
   `12b91bd` 修过同一个形状，Qt 侧的 helper 是内联复制的那一份，洞一模一样。
   `parentOf` 用 `lastIndexOf` 找最后一个分隔符，而 `C:docs` **根本没有分隔符**，
