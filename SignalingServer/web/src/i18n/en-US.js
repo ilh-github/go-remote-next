@@ -317,6 +317,8 @@ export default {
     details: 'Details',
     filterAction: 'Action Type',
     filterAdmin: 'Admin',
+    filterUsername: 'Username (admin or end user)',
+    filterActorUserId: 'Actor user ID',
     startDate: 'Start Date',
     endDate: 'End Date',
     exportCsv: 'Export CSV',

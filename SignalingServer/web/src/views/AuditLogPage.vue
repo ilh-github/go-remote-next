@@ -98,6 +98,27 @@
           @clear="handleFilter"
           @keyup.enter="handleFilter"
         />
+        <!-- The filter the server has always accepted and this screen never
+             sent. It matches an end user's account as well as an
+             administrator's in one pass, so without it "what did this account
+             do" has no answer here - which is the question the screen exists
+             to answer. -->
+        <el-input
+          v-model="filters.username"
+          :placeholder="t('auditLog.filterUsername')"
+          clearable
+          style="width: 160px"
+          @clear="handleFilter"
+          @keyup.enter="handleFilter"
+        />
+        <el-input
+          v-model.number="filters.actorUserId"
+          :placeholder="t('auditLog.filterActorUserId')"
+          clearable
+          style="width: 130px"
+          @clear="handleFilter"
+          @keyup.enter="handleFilter"
+        />
         <el-date-picker
           v-model="dateRange"
           type="daterange"
@@ -254,7 +275,7 @@ const exporting = ref(false)
 const logs = ref([])
 const dateRange = ref(null)
 
-const filters = reactive({ action: '', admin: '', dateFrom: '', dateTo: '' })
+const filters = reactive({ action: '', admin: '', username: '', actorUserId: '', dateFrom: '', dateTo: '' })
 // §3.1 cursor pagination state.
 const pagination = reactive({
   cursorStack: [''],
@@ -276,6 +297,8 @@ async function loadLogs() {
       limit: pagination.limit,
       action: filters.action,
       admin: filters.admin,
+      username: filters.username,
+      actorUserId: filters.actorUserId,
       dateFrom: filters.dateFrom,
       dateTo: filters.dateTo
     })

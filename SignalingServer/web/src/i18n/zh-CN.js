@@ -320,6 +320,8 @@ export default {
     details: '详情',
     filterAction: '操作类型',
     filterAdmin: '管理员',
+    filterUsername: '用户名（管理员或终端用户）',
+    filterActorUserId: '操作者用户 ID',
     startDate: '开始日期',
     endDate: '结束日期',
     exportCsv: '导出 CSV',

@@ -1,20 +1,16 @@
 // /v1/admin/audit-logs (§2.2).
 import { authJson } from './auth.js'
 import { downloadFile } from './system.js'
+import { auditLogParams } from '../views/audit-filter.js'
 
 const BASE = '/v1/admin/audit-logs'
 
+// The full filter set lives in views/audit-filter.js, including the two this
+// used to drop: `username` (which matches an end user's account as well as an
+// administrator's, so "what did this account do" was unanswerable here) and
+// `actor_user_id`.
 export function getAuditLogs(params = {}) {
-  const q = new URLSearchParams()
-  if (params.cursor) q.set('cursor', params.cursor)
-  if (params.limit)  q.set('limit',  params.limit)
-  if (params.size && !params.limit) q.set('limit', params.size)
-  if (params.action)   q.set('action', params.action)
-  if (params.admin)    q.set('admin',  params.admin)
-  // Server reads snake_case date_from / date_to.
-  if (params.dateFrom) q.set('date_from', params.dateFrom)
-  if (params.dateTo)   q.set('date_to',   params.dateTo)
-  const qs = q.toString()
+  const qs = auditLogParams(params).toString()
   return authJson(`${BASE}${qs ? `?${qs}` : ''}`)
 }
 
