@@ -203,6 +203,9 @@ const zh = {
     // working, so the client would otherwise keep showing "Connected" over a
     // link that is gone.
     'log.networkOffline': '本机网络已断开，等待恢复',
+    // The host was told to drop the keys it thought were held, because this
+    // controller stopped being the thing the operator drives with.
+    'log.inputReleased': '窗口失去焦点，已释放远端按键',
     'log.networkOnline': '本机网络已恢复，正在重连',
     'log.reconnectFailed': '第 {attempt}/{total} 次重连失败: {error}',
     'status.connectFailed': '连接失败',
@@ -537,6 +540,7 @@ const en = {
     'log.reconnecting': 'Signaling disconnected, starting reconnect (code={code}, reason={reason})',
     'log.reconnectAttempt': 'Reconnect attempt {attempt}/{total}',
     'log.networkOffline': 'This machine lost its network connection, waiting for it to return',
+    'log.inputReleased': 'Window lost focus; remote keys released',
     'log.networkOnline': 'This machine is back online, reconnecting',
     'log.reconnectFailed': 'Reconnect attempt {attempt}/{total} failed: {error}',
     'status.connectFailed': 'Connection failed',

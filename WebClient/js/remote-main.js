@@ -11,6 +11,7 @@ import { MouseHandler } from './input/mouse-handler.js';
 import { KeyboardHandler } from './input/keyboard-handler.js';
 import { TouchHandler } from './input/touch-handler.js';
 import { ClipboardHandler } from './input/clipboard-handler.js';
+import { watchForRelease } from './input/visibilityRelease.js';
 import { CursorRenderer } from './ui/cursor-renderer.js';
 import { MouseButton } from './protocol/protobuf-messages.js';
 import { addTrackOnce } from './protocol/media-stream.js';
@@ -322,6 +323,7 @@ class RemoteDesktopApp {
         this._setupTabCoordinator(deviceId);
         this._setupControlGrant();
         this._setupNetworkStateHandlers();
+        this._setupVisibilityRelease();
 
         // Set up userApi base URL for connection recording
         userApi.setBaseUrl(serverUrl);
@@ -825,6 +827,21 @@ class RemoteDesktopApp {
             if (!this._connectionConfig) return;
             this._log(t('log.networkOnline'), 'info');
             this._startReconnect({ code: 'network_restored', reason: 'online' });
+        });
+    }
+
+    // The host keeps its own record of which keys and buttons are down, and none
+    // of the ways an operator stops paying attention produce a blur on the
+    // element that receives keys: switching tabs, switching applications,
+    // minimising and locking the screen all leave the host holding whatever was
+    // down. The Qt client guards all four; this is the web client's equivalent.
+    _setupVisibilityRelease() {
+        if (this._detachVisibilityRelease) return;
+        this._detachVisibilityRelease = watchForRelease(window, () => {
+            // Releasing the handlers already sends releaseAllInput, which is the
+            // part that reaches the host.
+            this._cleanupInputHandlers();
+            this._log(t('log.inputReleased'), 'info');
         });
     }
 
@@ -1825,6 +1842,10 @@ class RemoteDesktopApp {
         this._manualDisconnect = true
         // Release held input while the event data channel is still writable.
         this._cleanupInputHandlers();
+        if (this._detachVisibilityRelease) {
+            this._detachVisibilityRelease();
+            this._detachVisibilityRelease = null;
+        }
         // The session is over, so its media state goes with it - the same reason
         // as the reconnect path.
         this._media.reset();
