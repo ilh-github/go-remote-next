@@ -463,8 +463,13 @@ export class TouchHandler {
 
         const rect = this.video.getBoundingClientRect();
         const containerRect = this.video.parentElement.getBoundingClientRect();
-        const vw = this.video.videoWidth || this.remoteWidth;
-        const vh = this.video.videoHeight || this.remoteHeight;
+        // Same rule as the mouse handler: a resolution this handler was told is
+        // authoritative, because the element keeps reporting the previous
+        // stream's intrinsic size until the new metadata arrives. The cursor
+        // dot is what tells the finger where the remote pointer is, so a stale
+        // size draws it in the wrong place.
+        const vw = this.remoteWidth || this.video.videoWidth;
+        const vh = this.remoteHeight || this.video.videoHeight;
         if (vw <= 0 || vh <= 0) return;
 
         // Compute rendered video area within the (transformed) video element

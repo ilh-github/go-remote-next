@@ -158,6 +158,34 @@ test('wheel deltas are normalised to pixels for every deltaMode', () => {
   }
 })
 
+// Switching monitors replaces the stream under the same <video> element. The
+// element keeps reporting the *previous* stream's intrinsic size until the new
+// metadata arrives, and the coordinate maths prefers that stale size over the
+// resolution it was told. Every click then lands at a fraction of where the
+// operator aimed, on a machine whose layout just changed.
+test('a resolution told to the handler wins over a stale videoWidth', () => {
+  const element = new FakeElement({
+    clientWidth: 1000, clientHeight: 500,
+    videoWidth: 1920, videoHeight: 1080,
+  })
+  const recorder = makeRecorder()
+  const handler = new MouseHandler(element, recorder, element)
+
+  handler.setRemoteResolution(1000, 500)
+  handler.enable()
+
+  element.emit('mousemove', { clientX: 750, clientY: 250 })
+
+  assert.equal(recorder.events.length, 1)
+  // With the stale 1920x1080 the picture is letterboxed to 888.9 wide and the
+  // click maps to x=1000. With the told 1000x500 the picture fills the box and
+  // the same click maps to x=750.
+  assert.equal(recorder.events[0].x, 750, 'the stale video size was used instead of the new resolution')
+  assert.equal(recorder.events[0].y, 250)
+
+  handler.destroy()
+})
+
 // A drag that wanders off the video element must keep reporting the button as
 // held. Without pointer capture the mouseup lands on whatever is under the
 // cursor, the handler never sees it, and the remote machine is left with a

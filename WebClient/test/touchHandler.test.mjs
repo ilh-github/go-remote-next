@@ -89,6 +89,46 @@ function touches(...list) {
   return { length: list.length, ...list, item: (i) => list[i] }
 }
 
+// The cursor dot is drawn from the same letterbox maths as the mouse handler,
+// so it inherits the same trap: after a monitor switch the element still
+// reports the previous stream's intrinsic size, and the dot would be drawn
+// where the old desktop's scaling put it rather than where the new one does.
+test('the cursor dot follows the resolution it was told, not a stale videoWidth', () => {
+  const { target, handler } = makeHandler({ remoteWidth: 1000, remoteHeight: 500 })
+
+  // The element still reports the previous monitor's size.
+  target.videoWidth = 1920
+  target.videoHeight = 1080
+
+  // Park the remote pointer a quarter of the way across the new desktop. The
+  // centre would be a useless probe here: the centre of the picture is the
+  // centre of the picture under either scaling, so both the stale and the
+  // correct value put the dot in the same place.
+  handler._cursorX = 250
+  handler._cursorY = 125
+  handler._updateCursorElement()
+
+  // The dot hangs off the video's container, not off the event target.
+  const cursor = (target.parentElement?.children || target.children)
+    .find((el) => el.id === 'virtualCursor')
+  assert.ok(cursor, 'the cursor element was never positioned')
+
+  // The dot is placed with left/top. The fake box is portrait (400x800) while
+  // the new desktop is landscape (1000x500), so the picture is letterboxed to
+  // 400x200 and a quarter of the way across the desktop sits at 100,350. With
+  // the stale 1920x1080 the picture would be 400x225 and the same point would
+  // land at 100,412 instead.
+  console.error('DBG', JSON.stringify({vw: target.videoWidth, vh: target.videoHeight, rw: handler.remoteWidth, rh: handler.remoteHeight, left: cursor.style.left, top: cursor.style.top}))
+  const offsetX = Number.parseFloat(cursor.style.left)
+  const offsetY = Number.parseFloat(cursor.style.top)
+  assert.ok(
+    Math.abs(offsetX - 100) < 0.5 && Math.abs(offsetY - 350) < 0.5,
+    `cursor placed at ${offsetX},${offsetY} instead of where the new desktop puts it`,
+  )
+
+  handler.destroy()
+})
+
 // A touch that starts a drag and then gets cancelled by the OS (an incoming
 // call, a notification, the browser taking the gesture over) must release the
 // button. The remote machine has no idea the touch is gone.

@@ -94,8 +94,13 @@ export class MouseHandler {
         if (this.remoteWidth <= 0 || this.remoteHeight <= 0) return null;
 
         const rect = this.videoElement.getBoundingClientRect();
-        const videoWidth = this.videoElement.videoWidth || this.remoteWidth;
-        const videoHeight = this.videoElement.videoHeight || this.remoteHeight;
+        // The intrinsic size is only a fallback. When a resolution has been
+        // told to this handler it is authoritative: the element keeps reporting
+        // the previous stream's videoWidth until the new metadata lands, and
+        // after a monitor switch that stale value would scale every click to
+        // the wrong place on the desktop.
+        const videoWidth = this.remoteWidth || this.videoElement.videoWidth;
+        const videoHeight = this.remoteHeight || this.videoElement.videoHeight;
 
         if (videoWidth <= 0 || videoHeight <= 0) return null;
 
