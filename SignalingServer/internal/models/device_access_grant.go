@@ -61,6 +61,14 @@ func (DeviceAccessGrant) TableName() string {
 }
 
 // UsableAt reports whether the grant may admit a controller at the given time.
+//
+// MaxUses <= 0 means "no cap within the window", which is what the field has
+// meant since before the cap existed. The redeem SQL spells the same rule as
+// "max_uses = 0 OR uses < max_uses", so a negative cap would read as usable
+// here and unreachable there. Create rejects a negative cap for exactly that
+// reason; if this comparison ever changes to `< 0`, that rejection becomes the
+// only thing keeping the two readings apart, and it should be revisited rather
+// than assumed.
 func (g DeviceAccessGrant) UsableAt(now time.Time) bool {
 	if g.RevokedAt != nil {
 		return false
