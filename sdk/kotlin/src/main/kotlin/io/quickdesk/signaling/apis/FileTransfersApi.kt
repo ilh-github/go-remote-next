@@ -196,6 +196,8 @@ class FileTransfersApi(basePath: kotlin.String = defaultBasePath, client: Call.F
      * enum for parameter action
      */
      enum class ActionListMyAuditLogs(val value: kotlin.String) {
+         @Json(name = "file.transfer") filePeriodTransfer("file.transfer"),
+         @Json(name = "clipboard.sync") clipboardPeriodSync("clipboard.sync"),
          @Json(name = "file.transfer.upload") filePeriodTransferPeriodUpload("file.transfer.upload"),
          @Json(name = "file.transfer.download") filePeriodTransferPeriodDownload("file.transfer.download"),
          @Json(name = "clipboard.sync.upload") clipboardPeriodSyncPeriodUpload("clipboard.sync.upload"),
@@ -214,8 +216,8 @@ class FileTransfersApi(basePath: kotlin.String = defaultBasePath, client: Call.F
     /**
      * GET /v1/me/audit-logs
      * Read back the data-channel audit trail that belongs to the caller
-     * The read side of the two reporting endpoints above. File and clipboard transfers travel peer to peer over the Remoting data channel, so the control plane can only record what a controller tells it afterwards; this is how the device owner reads those records back without going through the administrator console.  Rows are scoped to the caller&#39;s own actor id. Both reporting endpoints refuse a device the caller does not own, so the actor on a row is that device&#39;s owner and this scope cannot expose anybody else&#39;s transfers.  &#x60;action&#x60; is an allow-list rather than a free-form filter: an action this trail does not hold is refused with 400 rather than answered with an empty page, because \&quot;you did nothing\&quot; must not be a conclusion a typo can produce. Supported values are &#x60;file.transfer.upload&#x60;, &#x60;file.transfer.download&#x60;, &#x60;clipboard.sync.upload&#x60; and &#x60;clipboard.sync.download&#x60;.  Cursor-paginated, newest first. &#x60;next_cursor&#x60; is opaque: pass it back as &#x60;?cursor&#x3D;&#x60; to fetch the next page and stop when it is absent. 
-     * @param action Narrow to one audit action. An unsupported value is a 400. (optional)
+     * The read side of the two reporting endpoints above. File and clipboard transfers travel peer to peer over the Remoting data channel, so the control plane can only record what a controller tells it afterwards; this is how the device owner reads those records back without going through the administrator console.  Rows are scoped to the caller&#39;s own actor id. Both reporting endpoints refuse a device the caller does not own, so the actor on a row is that device&#39;s owner and this scope cannot expose anybody else&#39;s transfers.  &#x60;action&#x60; is an allow-list rather than a free-form filter: an action this trail does not hold is refused with 400 rather than answered with an empty page, because \&quot;you did nothing\&quot; must not be a conclusion a typo can produce. Supported values are &#x60;file.transfer&#x60; and &#x60;clipboard.sync&#x60; (one row per transfer, whichever way it went) plus the direction-scoped &#x60;file.transfer.upload&#x60;, &#x60;file.transfer.download&#x60;, &#x60;clipboard.sync.upload&#x60; and &#x60;clipboard.sync.download&#x60;.  The direction is not part of a row&#39;s identity: a transfer id reported with both directions is one row whose &#x60;details.directions&#x60; lists both. The direction-scoped filters still work - they resolve to the aggregate action plus that direction - because \&quot;what did I upload\&quot; is a real question.  Cursor-paginated, newest first. &#x60;next_cursor&#x60; is opaque: pass it back as &#x60;?cursor&#x3D;&#x60; to fetch the next page and stop when it is absent. 
+     * @param action Narrow to one audit action. An unsupported value is a 400. The aggregate names return one row per transfer; the direction-scoped names return the rows that went that way.  (optional)
      * @param cursor  (optional)
      * @param limit  (optional)
      * @return OwnerAuditLogPage
@@ -248,8 +250,8 @@ class FileTransfersApi(basePath: kotlin.String = defaultBasePath, client: Call.F
     /**
      * GET /v1/me/audit-logs
      * Read back the data-channel audit trail that belongs to the caller
-     * The read side of the two reporting endpoints above. File and clipboard transfers travel peer to peer over the Remoting data channel, so the control plane can only record what a controller tells it afterwards; this is how the device owner reads those records back without going through the administrator console.  Rows are scoped to the caller&#39;s own actor id. Both reporting endpoints refuse a device the caller does not own, so the actor on a row is that device&#39;s owner and this scope cannot expose anybody else&#39;s transfers.  &#x60;action&#x60; is an allow-list rather than a free-form filter: an action this trail does not hold is refused with 400 rather than answered with an empty page, because \&quot;you did nothing\&quot; must not be a conclusion a typo can produce. Supported values are &#x60;file.transfer.upload&#x60;, &#x60;file.transfer.download&#x60;, &#x60;clipboard.sync.upload&#x60; and &#x60;clipboard.sync.download&#x60;.  Cursor-paginated, newest first. &#x60;next_cursor&#x60; is opaque: pass it back as &#x60;?cursor&#x3D;&#x60; to fetch the next page and stop when it is absent. 
-     * @param action Narrow to one audit action. An unsupported value is a 400. (optional)
+     * The read side of the two reporting endpoints above. File and clipboard transfers travel peer to peer over the Remoting data channel, so the control plane can only record what a controller tells it afterwards; this is how the device owner reads those records back without going through the administrator console.  Rows are scoped to the caller&#39;s own actor id. Both reporting endpoints refuse a device the caller does not own, so the actor on a row is that device&#39;s owner and this scope cannot expose anybody else&#39;s transfers.  &#x60;action&#x60; is an allow-list rather than a free-form filter: an action this trail does not hold is refused with 400 rather than answered with an empty page, because \&quot;you did nothing\&quot; must not be a conclusion a typo can produce. Supported values are &#x60;file.transfer&#x60; and &#x60;clipboard.sync&#x60; (one row per transfer, whichever way it went) plus the direction-scoped &#x60;file.transfer.upload&#x60;, &#x60;file.transfer.download&#x60;, &#x60;clipboard.sync.upload&#x60; and &#x60;clipboard.sync.download&#x60;.  The direction is not part of a row&#39;s identity: a transfer id reported with both directions is one row whose &#x60;details.directions&#x60; lists both. The direction-scoped filters still work - they resolve to the aggregate action plus that direction - because \&quot;what did I upload\&quot; is a real question.  Cursor-paginated, newest first. &#x60;next_cursor&#x60; is opaque: pass it back as &#x60;?cursor&#x3D;&#x60; to fetch the next page and stop when it is absent. 
+     * @param action Narrow to one audit action. An unsupported value is a 400. The aggregate names return one row per transfer; the direction-scoped names return the rows that went that way.  (optional)
      * @param cursor  (optional)
      * @param limit  (optional)
      * @return ApiResponse<OwnerAuditLogPage?>
@@ -269,7 +271,7 @@ class FileTransfersApi(basePath: kotlin.String = defaultBasePath, client: Call.F
     /**
      * To obtain the request config of the operation listMyAuditLogs
      *
-     * @param action Narrow to one audit action. An unsupported value is a 400. (optional)
+     * @param action Narrow to one audit action. An unsupported value is a 400. The aggregate names return one row per transfer; the direction-scoped names return the rows that went that way.  (optional)
      * @param cursor  (optional)
      * @param limit  (optional)
      * @return RequestConfig

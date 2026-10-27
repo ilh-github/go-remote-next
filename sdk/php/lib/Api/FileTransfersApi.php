@@ -652,7 +652,7 @@ class FileTransfersApi
      *
      * Read back the data-channel audit trail that belongs to the caller
      *
-     * @param  string|null $action Narrow to one audit action. An unsupported value is a 400. (optional)
+     * @param  string|null $action Narrow to one audit action. An unsupported value is a 400. The aggregate names return one row per transfer; the direction-scoped names return the rows that went that way. (optional)
      * @param  string|null $cursor cursor (optional)
      * @param  int|null $limit limit (optional)
      * @param  string $contentType The value for the Content-Type header. Check self::contentTypes['listMyAuditLogs'] to see the possible values for this operation
@@ -672,7 +672,7 @@ class FileTransfersApi
      *
      * Read back the data-channel audit trail that belongs to the caller
      *
-     * @param  string|null $action Narrow to one audit action. An unsupported value is a 400. (optional)
+     * @param  string|null $action Narrow to one audit action. An unsupported value is a 400. The aggregate names return one row per transfer; the direction-scoped names return the rows that went that way. (optional)
      * @param  string|null $cursor (optional)
      * @param  int|null $limit (optional)
      * @param  string $contentType The value for the Content-Type header. Check self::contentTypes['listMyAuditLogs'] to see the possible values for this operation
@@ -787,7 +787,7 @@ class FileTransfersApi
      *
      * Read back the data-channel audit trail that belongs to the caller
      *
-     * @param  string|null $action Narrow to one audit action. An unsupported value is a 400. (optional)
+     * @param  string|null $action Narrow to one audit action. An unsupported value is a 400. The aggregate names return one row per transfer; the direction-scoped names return the rows that went that way. (optional)
      * @param  string|null $cursor (optional)
      * @param  int|null $limit (optional)
      * @param  string $contentType The value for the Content-Type header. Check self::contentTypes['listMyAuditLogs'] to see the possible values for this operation
@@ -810,7 +810,7 @@ class FileTransfersApi
      *
      * Read back the data-channel audit trail that belongs to the caller
      *
-     * @param  string|null $action Narrow to one audit action. An unsupported value is a 400. (optional)
+     * @param  string|null $action Narrow to one audit action. An unsupported value is a 400. The aggregate names return one row per transfer; the direction-scoped names return the rows that went that way. (optional)
      * @param  string|null $cursor (optional)
      * @param  int|null $limit (optional)
      * @param  string $contentType The value for the Content-Type header. Check self::contentTypes['listMyAuditLogs'] to see the possible values for this operation
@@ -862,7 +862,7 @@ class FileTransfersApi
     /**
      * Create request for operation 'listMyAuditLogs'
      *
-     * @param  string|null $action Narrow to one audit action. An unsupported value is a 400. (optional)
+     * @param  string|null $action Narrow to one audit action. An unsupported value is a 400. The aggregate names return one row per transfer; the direction-scoped names return the rows that went that way. (optional)
      * @param  string|null $cursor (optional)
      * @param  int|null $limit (optional)
      * @param  string $contentType The value for the Content-Type header. Check self::contentTypes['listMyAuditLogs'] to see the possible values for this operation

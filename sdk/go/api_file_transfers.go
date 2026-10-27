@@ -368,7 +368,7 @@ type ApiListMyAuditLogsRequest struct {
 	limit *int32
 }
 
-// Narrow to one audit action. An unsupported value is a 400.
+// Narrow to one audit action. An unsupported value is a 400. The aggregate names return one row per transfer; the direction-scoped names return the rows that went that way. 
 func (r ApiListMyAuditLogsRequest) Action(action string) ApiListMyAuditLogsRequest {
 	r.action = &action
 	return r
@@ -404,9 +404,16 @@ device's owner and this scope cannot expose anybody else's transfers.
 `action` is an allow-list rather than a free-form filter: an action this
 trail does not hold is refused with 400 rather than answered with an
 empty page, because "you did nothing" must not be a conclusion a typo
-can produce. Supported values are `file.transfer.upload`,
-`file.transfer.download`, `clipboard.sync.upload` and
-`clipboard.sync.download`.
+can produce. Supported values are `file.transfer` and `clipboard.sync`
+(one row per transfer, whichever way it went) plus the direction-scoped
+`file.transfer.upload`, `file.transfer.download`, `clipboard.sync.upload`
+and `clipboard.sync.download`.
+
+The direction is not part of a row's identity: a transfer id reported
+with both directions is one row whose `details.directions` lists both.
+The direction-scoped filters still work - they resolve to the aggregate
+action plus that direction - because "what did I upload" is a real
+question.
 
 Cursor-paginated, newest first. `next_cursor` is opaque: pass it back as
 `?cursor=` to fetch the next page and stop when it is absent.

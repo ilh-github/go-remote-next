@@ -46,7 +46,7 @@ import java.util.Set;
 import org.openapitools.client.JSON;
 
 /**
- * A controller report about one file transferred outside the signaling data path. The server stores the action as &#x60;file.transfer.upload&#x60; or &#x60;file.transfer.download&#x60;, the resource as &#x60;file_transfer/{transfer_id}&#x60;, and the remaining fields as JSON details. 
+ * A controller report about one file transferred outside the signaling data path. The server stores the action as &#x60;file.transfer&#x60;, the resource as &#x60;file_transfer/{transfer_id}&#x60;, and the remaining fields - the direction included - as JSON details. The direction is deliberately not part of the action: the transfer id is what identifies a transfer, and a transfer reported with both directions is one row, not two. 
  */
 @javax.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", comments = "Generator version: 7.14.0")
 public class FileTransferAuditInput {

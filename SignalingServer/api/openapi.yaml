@@ -265,9 +265,16 @@ paths:
         `action` is an allow-list rather than a free-form filter: an action this
         trail does not hold is refused with 400 rather than answered with an
         empty page, because "you did nothing" must not be a conclusion a typo
-        can produce. Supported values are `file.transfer.upload`,
-        `file.transfer.download`, `clipboard.sync.upload` and
-        `clipboard.sync.download`.
+        can produce. Supported values are `file.transfer` and `clipboard.sync`
+        (one row per transfer, whichever way it went) plus the direction-scoped
+        `file.transfer.upload`, `file.transfer.download`, `clipboard.sync.upload`
+        and `clipboard.sync.download`.
+
+        The direction is not part of a row's identity: a transfer id reported
+        with both directions is one row whose `details.directions` lists both.
+        The direction-scoped filters still work - they resolve to the aggregate
+        action plus that direction - because "what did I upload" is a real
+        question.
 
         Cursor-paginated, newest first. `next_cursor` is opaque: pass it back as
         `?cursor=` to fetch the next page and stop when it is absent.
@@ -275,10 +282,15 @@ paths:
         - name: action
           in: query
           required: false
-          description: Narrow to one audit action. An unsupported value is a 400.
+          description: |
+            Narrow to one audit action. An unsupported value is a 400. The
+            aggregate names return one row per transfer; the direction-scoped
+            names return the rows that went that way.
           schema:
             type: string
             enum:
+              - file.transfer
+              - clipboard.sync
               - file.transfer.upload
               - file.transfer.download
               - clipboard.sync.upload
@@ -3068,9 +3080,11 @@ components:
       type: object
       description: |
         A controller report about one file transferred outside the signaling
-        data path. The server stores the action as
-        `file.transfer.upload` or `file.transfer.download`, the resource as
-        `file_transfer/{transfer_id}`, and the remaining fields as JSON details.
+        data path. The server stores the action as `file.transfer`, the resource
+        as `file_transfer/{transfer_id}`, and the remaining fields - the
+        direction included - as JSON details. The direction is deliberately not
+        part of the action: the transfer id is what identifies a transfer, and a
+        transfer reported with both directions is one row, not two.
       required: [device_id, transfer_id, direction, status]
       properties:
         device_id:
@@ -3332,8 +3346,8 @@ components:
         action:
           type: string
           description: |
-            One of `file.transfer.upload`, `file.transfer.download`,
-            `clipboard.sync.upload`, `clipboard.sync.download`.
+            `file.transfer` or `clipboard.sync`. The direction is not part of the
+            action; it is in `details.directions`.
         resource_type:
           type: string
           description: |

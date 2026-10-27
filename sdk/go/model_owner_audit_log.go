@@ -25,7 +25,7 @@ type OwnerAuditLog struct {
 	Id int64 `json:"id"`
 	// The account that reported the transfer. Always the caller.
 	ActorUserId *int64 `json:"actor_user_id,omitempty"`
-	// One of `file.transfer.upload`, `file.transfer.download`, `clipboard.sync.upload`, `clipboard.sync.download`. 
+	// `file.transfer` or `clipboard.sync`. The direction is not part of the action; it is in `details.directions`. 
 	Action string `json:"action"`
 	// `file_transfer` or `clipboard_sync`. 
 	ResourceType string `json:"resource_type"`

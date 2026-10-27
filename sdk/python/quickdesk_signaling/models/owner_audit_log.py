@@ -29,7 +29,7 @@ class OwnerAuditLog(BaseModel):
     """ # noqa: E501
     id: StrictInt
     actor_user_id: Optional[StrictInt] = Field(default=None, description="The account that reported the transfer. Always the caller.")
-    action: StrictStr = Field(description="One of `file.transfer.upload`, `file.transfer.download`, `clipboard.sync.upload`, `clipboard.sync.download`. ")
+    action: StrictStr = Field(description="`file.transfer` or `clipboard.sync`. The direction is not part of the action; it is in `details.directions`. ")
     resource_type: StrictStr = Field(description="`file_transfer` or `clipboard_sync`. ")
     resource_id: StrictStr = Field(description="The transfer id the reporter supplied, which is the idempotency key.")
     details: Optional[StrictStr] = Field(default=None, description="JSON-encoded metadata: byte counts, direction, status and, for file transfers, the filename. Never the transferred content itself. ")

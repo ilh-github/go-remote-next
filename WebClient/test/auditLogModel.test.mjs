@@ -186,12 +186,12 @@ test('an unparsed row still gets a label', () => {
 
 // The action filter is an allow-list on the server, so the client must not offer
 // anything else - a 400 is a wasted round trip and a confusing error.
-test('only the four server actions are offered as filters', () => {
-  assert.equal(AUDIT_ACTIONS.length, 4)
+test('only the server actions are offered as filters', () => {
+  assert.equal(AUDIT_ACTIONS.length, 6)
   for (const action of AUDIT_ACTIONS) {
     assert.equal(isAuditAction(action), true, action)
   }
-  for (const action of ['recording.delete', 'session.revoke', '', 'file.transfer']) {
+  for (const action of ['recording.delete', 'session.revoke', '', 'file.transfer.all']) {
     assert.equal(isAuditAction(action), false, `${action} must not be offered`)
   }
 })

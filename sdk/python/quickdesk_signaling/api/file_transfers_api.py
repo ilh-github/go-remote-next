@@ -618,7 +618,7 @@ class FileTransfersApi:
     @validate_call
     def list_my_audit_logs(
         self,
-        action: Annotated[Optional[StrictStr], Field(description="Narrow to one audit action. An unsupported value is a 400.")] = None,
+        action: Annotated[Optional[StrictStr], Field(description="Narrow to one audit action. An unsupported value is a 400. The aggregate names return one row per transfer; the direction-scoped names return the rows that went that way. ")] = None,
         cursor: Optional[StrictStr] = None,
         limit: Optional[StrictInt] = None,
         _request_timeout: Union[
@@ -636,9 +636,9 @@ class FileTransfersApi:
     ) -> OwnerAuditLogPage:
         """Read back the data-channel audit trail that belongs to the caller
 
-        The read side of the two reporting endpoints above. File and clipboard transfers travel peer to peer over the Remoting data channel, so the control plane can only record what a controller tells it afterwards; this is how the device owner reads those records back without going through the administrator console.  Rows are scoped to the caller's own actor id. Both reporting endpoints refuse a device the caller does not own, so the actor on a row is that device's owner and this scope cannot expose anybody else's transfers.  `action` is an allow-list rather than a free-form filter: an action this trail does not hold is refused with 400 rather than answered with an empty page, because \"you did nothing\" must not be a conclusion a typo can produce. Supported values are `file.transfer.upload`, `file.transfer.download`, `clipboard.sync.upload` and `clipboard.sync.download`.  Cursor-paginated, newest first. `next_cursor` is opaque: pass it back as `?cursor=` to fetch the next page and stop when it is absent. 
+        The read side of the two reporting endpoints above. File and clipboard transfers travel peer to peer over the Remoting data channel, so the control plane can only record what a controller tells it afterwards; this is how the device owner reads those records back without going through the administrator console.  Rows are scoped to the caller's own actor id. Both reporting endpoints refuse a device the caller does not own, so the actor on a row is that device's owner and this scope cannot expose anybody else's transfers.  `action` is an allow-list rather than a free-form filter: an action this trail does not hold is refused with 400 rather than answered with an empty page, because \"you did nothing\" must not be a conclusion a typo can produce. Supported values are `file.transfer` and `clipboard.sync` (one row per transfer, whichever way it went) plus the direction-scoped `file.transfer.upload`, `file.transfer.download`, `clipboard.sync.upload` and `clipboard.sync.download`.  The direction is not part of a row's identity: a transfer id reported with both directions is one row whose `details.directions` lists both. The direction-scoped filters still work - they resolve to the aggregate action plus that direction - because \"what did I upload\" is a real question.  Cursor-paginated, newest first. `next_cursor` is opaque: pass it back as `?cursor=` to fetch the next page and stop when it is absent. 
 
-        :param action: Narrow to one audit action. An unsupported value is a 400.
+        :param action: Narrow to one audit action. An unsupported value is a 400. The aggregate names return one row per transfer; the direction-scoped names return the rows that went that way. 
         :type action: str
         :param cursor:
         :type cursor: str
@@ -695,7 +695,7 @@ class FileTransfersApi:
     @validate_call
     def list_my_audit_logs_with_http_info(
         self,
-        action: Annotated[Optional[StrictStr], Field(description="Narrow to one audit action. An unsupported value is a 400.")] = None,
+        action: Annotated[Optional[StrictStr], Field(description="Narrow to one audit action. An unsupported value is a 400. The aggregate names return one row per transfer; the direction-scoped names return the rows that went that way. ")] = None,
         cursor: Optional[StrictStr] = None,
         limit: Optional[StrictInt] = None,
         _request_timeout: Union[
@@ -713,9 +713,9 @@ class FileTransfersApi:
     ) -> ApiResponse[OwnerAuditLogPage]:
         """Read back the data-channel audit trail that belongs to the caller
 
-        The read side of the two reporting endpoints above. File and clipboard transfers travel peer to peer over the Remoting data channel, so the control plane can only record what a controller tells it afterwards; this is how the device owner reads those records back without going through the administrator console.  Rows are scoped to the caller's own actor id. Both reporting endpoints refuse a device the caller does not own, so the actor on a row is that device's owner and this scope cannot expose anybody else's transfers.  `action` is an allow-list rather than a free-form filter: an action this trail does not hold is refused with 400 rather than answered with an empty page, because \"you did nothing\" must not be a conclusion a typo can produce. Supported values are `file.transfer.upload`, `file.transfer.download`, `clipboard.sync.upload` and `clipboard.sync.download`.  Cursor-paginated, newest first. `next_cursor` is opaque: pass it back as `?cursor=` to fetch the next page and stop when it is absent. 
+        The read side of the two reporting endpoints above. File and clipboard transfers travel peer to peer over the Remoting data channel, so the control plane can only record what a controller tells it afterwards; this is how the device owner reads those records back without going through the administrator console.  Rows are scoped to the caller's own actor id. Both reporting endpoints refuse a device the caller does not own, so the actor on a row is that device's owner and this scope cannot expose anybody else's transfers.  `action` is an allow-list rather than a free-form filter: an action this trail does not hold is refused with 400 rather than answered with an empty page, because \"you did nothing\" must not be a conclusion a typo can produce. Supported values are `file.transfer` and `clipboard.sync` (one row per transfer, whichever way it went) plus the direction-scoped `file.transfer.upload`, `file.transfer.download`, `clipboard.sync.upload` and `clipboard.sync.download`.  The direction is not part of a row's identity: a transfer id reported with both directions is one row whose `details.directions` lists both. The direction-scoped filters still work - they resolve to the aggregate action plus that direction - because \"what did I upload\" is a real question.  Cursor-paginated, newest first. `next_cursor` is opaque: pass it back as `?cursor=` to fetch the next page and stop when it is absent. 
 
-        :param action: Narrow to one audit action. An unsupported value is a 400.
+        :param action: Narrow to one audit action. An unsupported value is a 400. The aggregate names return one row per transfer; the direction-scoped names return the rows that went that way. 
         :type action: str
         :param cursor:
         :type cursor: str
@@ -772,7 +772,7 @@ class FileTransfersApi:
     @validate_call
     def list_my_audit_logs_without_preload_content(
         self,
-        action: Annotated[Optional[StrictStr], Field(description="Narrow to one audit action. An unsupported value is a 400.")] = None,
+        action: Annotated[Optional[StrictStr], Field(description="Narrow to one audit action. An unsupported value is a 400. The aggregate names return one row per transfer; the direction-scoped names return the rows that went that way. ")] = None,
         cursor: Optional[StrictStr] = None,
         limit: Optional[StrictInt] = None,
         _request_timeout: Union[
@@ -790,9 +790,9 @@ class FileTransfersApi:
     ) -> RESTResponseType:
         """Read back the data-channel audit trail that belongs to the caller
 
-        The read side of the two reporting endpoints above. File and clipboard transfers travel peer to peer over the Remoting data channel, so the control plane can only record what a controller tells it afterwards; this is how the device owner reads those records back without going through the administrator console.  Rows are scoped to the caller's own actor id. Both reporting endpoints refuse a device the caller does not own, so the actor on a row is that device's owner and this scope cannot expose anybody else's transfers.  `action` is an allow-list rather than a free-form filter: an action this trail does not hold is refused with 400 rather than answered with an empty page, because \"you did nothing\" must not be a conclusion a typo can produce. Supported values are `file.transfer.upload`, `file.transfer.download`, `clipboard.sync.upload` and `clipboard.sync.download`.  Cursor-paginated, newest first. `next_cursor` is opaque: pass it back as `?cursor=` to fetch the next page and stop when it is absent. 
+        The read side of the two reporting endpoints above. File and clipboard transfers travel peer to peer over the Remoting data channel, so the control plane can only record what a controller tells it afterwards; this is how the device owner reads those records back without going through the administrator console.  Rows are scoped to the caller's own actor id. Both reporting endpoints refuse a device the caller does not own, so the actor on a row is that device's owner and this scope cannot expose anybody else's transfers.  `action` is an allow-list rather than a free-form filter: an action this trail does not hold is refused with 400 rather than answered with an empty page, because \"you did nothing\" must not be a conclusion a typo can produce. Supported values are `file.transfer` and `clipboard.sync` (one row per transfer, whichever way it went) plus the direction-scoped `file.transfer.upload`, `file.transfer.download`, `clipboard.sync.upload` and `clipboard.sync.download`.  The direction is not part of a row's identity: a transfer id reported with both directions is one row whose `details.directions` lists both. The direction-scoped filters still work - they resolve to the aggregate action plus that direction - because \"what did I upload\" is a real question.  Cursor-paginated, newest first. `next_cursor` is opaque: pass it back as `?cursor=` to fetch the next page and stop when it is absent. 
 
-        :param action: Narrow to one audit action. An unsupported value is a 400.
+        :param action: Narrow to one audit action. An unsupported value is a 400. The aggregate names return one row per transfer; the direction-scoped names return the rows that went that way. 
         :type action: str
         :param cursor:
         :type cursor: str

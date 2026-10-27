@@ -159,7 +159,7 @@ import (
 )
 
 func main() {
-	action := "action_example" // string | Narrow to one audit action. An unsupported value is a 400. (optional)
+	action := "action_example" // string | Narrow to one audit action. An unsupported value is a 400. The aggregate names return one row per transfer; the direction-scoped names return the rows that went that way.  (optional)
 	cursor := "cursor_example" // string |  (optional)
 	limit := int32(56) // int32 |  (optional)
 
@@ -186,7 +186,7 @@ Other parameters are passed through a pointer to a apiListMyAuditLogsRequest str
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **action** | **string** | Narrow to one audit action. An unsupported value is a 400. | 
+ **action** | **string** | Narrow to one audit action. An unsupported value is a 400. The aggregate names return one row per transfer; the direction-scoped names return the rows that went that way.  | 
  **cursor** | **string** |  | 
  **limit** | **int32** |  | 
 

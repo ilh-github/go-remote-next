@@ -7,7 +7,7 @@ Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
 **Id** | **long** |  | 
 **ActorUserId** | **long** | The account that reported the transfer. Always the caller. | [optional] 
-**Action** | **string** | One of &#x60;file.transfer.upload&#x60;, &#x60;file.transfer.download&#x60;, &#x60;clipboard.sync.upload&#x60;, &#x60;clipboard.sync.download&#x60;.  | 
+**Action** | **string** | &#x60;file.transfer&#x60; or &#x60;clipboard.sync&#x60;. The direction is not part of the action; it is in &#x60;details.directions&#x60;.  | 
 **ResourceType** | **string** | &#x60;file_transfer&#x60; or &#x60;clipboard_sync&#x60;.  | 
 **ResourceId** | **string** | The transfer id the reporter supplied, which is the idempotency key. | 
 **Details** | **string** | JSON-encoded metadata: byte counts, direction, status and, for file transfers, the filename. Never the transferred content itself.  | [optional] 

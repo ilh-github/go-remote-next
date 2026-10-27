@@ -5,7 +5,7 @@
 | Name | Type | Description | Notes |
 | ------------ | ------------- | ------------- | ------------- |
 | **id** | **kotlin.Long** |  |  |
-| **action** | **kotlin.String** | One of &#x60;file.transfer.upload&#x60;, &#x60;file.transfer.download&#x60;, &#x60;clipboard.sync.upload&#x60;, &#x60;clipboard.sync.download&#x60;.  |  |
+| **action** | **kotlin.String** | &#x60;file.transfer&#x60; or &#x60;clipboard.sync&#x60;. The direction is not part of the action; it is in &#x60;details.directions&#x60;.  |  |
 | **resourceType** | **kotlin.String** | &#x60;file_transfer&#x60; or &#x60;clipboard_sync&#x60;.  |  |
 | **resourceId** | **kotlin.String** | The transfer id the reporter supplied, which is the idempotency key. |  |
 | **createdAt** | [**java.time.OffsetDateTime**](java.time.OffsetDateTime.md) |  |  |

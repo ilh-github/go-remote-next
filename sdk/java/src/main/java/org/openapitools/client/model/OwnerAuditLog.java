@@ -138,7 +138,7 @@ public class OwnerAuditLog {
   }
 
   /**
-   * One of &#x60;file.transfer.upload&#x60;, &#x60;file.transfer.download&#x60;, &#x60;clipboard.sync.upload&#x60;, &#x60;clipboard.sync.download&#x60;. 
+   * &#x60;file.transfer&#x60; or &#x60;clipboard.sync&#x60;. The direction is not part of the action; it is in &#x60;details.directions&#x60;. 
    * @return action
    */
   @javax.annotation.Nonnull

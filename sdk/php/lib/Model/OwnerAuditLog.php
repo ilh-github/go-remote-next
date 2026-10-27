@@ -421,7 +421,7 @@ class OwnerAuditLog implements ModelInterface, ArrayAccess, \JsonSerializable
     /**
      * Sets action
      *
-     * @param string $action One of `file.transfer.upload`, `file.transfer.download`, `clipboard.sync.upload`, `clipboard.sync.download`.
+     * @param string $action `file.transfer` or `clipboard.sync`. The direction is not part of the action; it is in `details.directions`.
      *
      * @return self
      */

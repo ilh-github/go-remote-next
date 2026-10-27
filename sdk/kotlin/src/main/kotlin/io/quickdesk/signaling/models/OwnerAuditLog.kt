@@ -23,7 +23,7 @@ import com.squareup.moshi.JsonClass
  * One audit row. `admin_id` and `admin_username` are always empty here: this trail is written by end-user actors, and an administrator acting on the same resource lands in the admin-side trail instead. 
  *
  * @param id 
- * @param action One of `file.transfer.upload`, `file.transfer.download`, `clipboard.sync.upload`, `clipboard.sync.download`. 
+ * @param action `file.transfer` or `clipboard.sync`. The direction is not part of the action; it is in `details.directions`. 
  * @param resourceType `file_transfer` or `clipboard_sync`. 
  * @param resourceId The transfer id the reporter supplied, which is the idempotency key.
  * @param createdAt 
@@ -38,7 +38,7 @@ data class OwnerAuditLog (
     @Json(name = "id")
     val id: kotlin.Long,
 
-    /* One of `file.transfer.upload`, `file.transfer.download`, `clipboard.sync.upload`, `clipboard.sync.download`.  */
+    /* `file.transfer` or `clipboard.sync`. The direction is not part of the action; it is in `details.directions`.  */
     @Json(name = "action")
     val action: kotlin.String,
 

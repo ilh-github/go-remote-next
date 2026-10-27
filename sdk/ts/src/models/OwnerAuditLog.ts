@@ -35,8 +35,8 @@ export interface OwnerAuditLog {
      */
     actorUserId?: number;
     /**
-     * One of `file.transfer.upload`, `file.transfer.download`,
-     * `clipboard.sync.upload`, `clipboard.sync.download`.
+     * `file.transfer` or `clipboard.sync`. The direction is not part of the
+     * action; it is in `details.directions`.
      * 
      * @type {string}
      * @memberof OwnerAuditLog

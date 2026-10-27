@@ -25,7 +25,7 @@ from typing_extensions import Self
 
 class FileTransferAuditInput(BaseModel):
     """
-    A controller report about one file transferred outside the signaling data path. The server stores the action as `file.transfer.upload` or `file.transfer.download`, the resource as `file_transfer/{transfer_id}`, and the remaining fields as JSON details. 
+    A controller report about one file transferred outside the signaling data path. The server stores the action as `file.transfer`, the resource as `file_transfer/{transfer_id}`, and the remaining fields - the direction included - as JSON details. The direction is deliberately not part of the action: the transfer id is what identifies a transfer, and a transfer reported with both directions is one row, not two. 
     """ # noqa: E501
     device_id: Annotated[str, Field(min_length=1, strict=True, max_length=20)] = Field(description="A device owned by the authenticated caller.")
     transfer_id: Annotated[str, Field(min_length=1, strict=True, max_length=100)] = Field(description="Stable id used to make retries idempotent.")

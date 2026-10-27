@@ -227,9 +227,16 @@ device's owner and this scope cannot expose anybody else's transfers.
 `action` is an allow-list rather than a free-form filter: an action this
 trail does not hold is refused with 400 rather than answered with an
 empty page, because "you did nothing" must not be a conclusion a typo
-can produce. Supported values are `file.transfer.upload`,
-`file.transfer.download`, `clipboard.sync.upload` and
-`clipboard.sync.download`.
+can produce. Supported values are `file.transfer` and `clipboard.sync`
+(one row per transfer, whichever way it went) plus the direction-scoped
+`file.transfer.upload`, `file.transfer.download`, `clipboard.sync.upload`
+and `clipboard.sync.download`.
+
+The direction is not part of a row's identity: a transfer id reported
+with both directions is one row whose `details.directions` lists both.
+The direction-scoped filters still work - they resolve to the aggregate
+action plus that direction - because "what did I upload" is a real
+question.
 
 Cursor-paginated, newest first. `next_cursor` is opaque: pass it back as
 `?cursor=` to fetch the next page and stop when it is absent.
@@ -272,7 +279,7 @@ configuration = quickdesk_signaling.Configuration(
 with quickdesk_signaling.ApiClient(configuration) as api_client:
     # Create an instance of the API class
     api_instance = quickdesk_signaling.FileTransfersApi(api_client)
-    action = 'action_example' # str | Narrow to one audit action. An unsupported value is a 400. (optional)
+    action = 'action_example' # str | Narrow to one audit action. An unsupported value is a 400. The aggregate names return one row per transfer; the direction-scoped names return the rows that went that way.  (optional)
     cursor = 'cursor_example' # str |  (optional)
     limit = 56 # int |  (optional)
 
@@ -292,7 +299,7 @@ with quickdesk_signaling.ApiClient(configuration) as api_client:
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **action** | **str**| Narrow to one audit action. An unsupported value is a 400. | [optional] 
+ **action** | **str**| Narrow to one audit action. An unsupported value is a 400. The aggregate names return one row per transfer; the direction-scoped names return the rows that went that way.  | [optional] 
  **cursor** | **str**|  | [optional] 
  **limit** | **int**|  | [optional] 
 

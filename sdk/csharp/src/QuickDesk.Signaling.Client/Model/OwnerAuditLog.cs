@@ -42,7 +42,7 @@ namespace QuickDesk.Signaling.Client.Model
         /// </summary>
         /// <param name="id">id (required).</param>
         /// <param name="actorUserId">The account that reported the transfer. Always the caller..</param>
-        /// <param name="action">One of &#x60;file.transfer.upload&#x60;, &#x60;file.transfer.download&#x60;, &#x60;clipboard.sync.upload&#x60;, &#x60;clipboard.sync.download&#x60;.  (required).</param>
+        /// <param name="action">&#x60;file.transfer&#x60; or &#x60;clipboard.sync&#x60;. The direction is not part of the action; it is in &#x60;details.directions&#x60;.  (required).</param>
         /// <param name="resourceType">&#x60;file_transfer&#x60; or &#x60;clipboard_sync&#x60;.  (required).</param>
         /// <param name="resourceId">The transfer id the reporter supplied, which is the idempotency key. (required).</param>
         /// <param name="details">JSON-encoded metadata: byte counts, direction, status and, for file transfers, the filename. Never the transferred content itself. .</param>
@@ -89,9 +89,9 @@ namespace QuickDesk.Signaling.Client.Model
         public long ActorUserId { get; set; }
 
         /// <summary>
-        /// One of &#x60;file.transfer.upload&#x60;, &#x60;file.transfer.download&#x60;, &#x60;clipboard.sync.upload&#x60;, &#x60;clipboard.sync.download&#x60;. 
+        /// &#x60;file.transfer&#x60; or &#x60;clipboard.sync&#x60;. The direction is not part of the action; it is in &#x60;details.directions&#x60;. 
         /// </summary>
-        /// <value>One of &#x60;file.transfer.upload&#x60;, &#x60;file.transfer.download&#x60;, &#x60;clipboard.sync.upload&#x60;, &#x60;clipboard.sync.download&#x60;. </value>
+        /// <value>&#x60;file.transfer&#x60; or &#x60;clipboard.sync&#x60;. The direction is not part of the action; it is in &#x60;details.directions&#x60;. </value>
         [DataMember(Name = "action", IsRequired = true, EmitDefaultValue = true)]
         public string Action { get; set; }
 

@@ -12,14 +12,24 @@
 // it" is a fact an investigator needs, and silently omitting the row would make
 // the list look complete when it is not.
 
+// One row per transfer, whichever way it went. The direction used to be part of
+// the action name, which made a transfer reported with both directions produce
+// two rows; it lives in the row's `directions` now.
+export const AUDIT_ACTION_FILE = 'file.transfer'
+export const AUDIT_ACTION_CLIPBOARD = 'clipboard.sync'
+
+// The direction-scoped names stay valid filters, because "what did I upload" is
+// a real question - they are just not row identities any more.
 export const AUDIT_ACTION_FILE_UPLOAD = 'file.transfer.upload'
 export const AUDIT_ACTION_FILE_DOWNLOAD = 'file.transfer.download'
 export const AUDIT_ACTION_CLIPBOARD_UPLOAD = 'clipboard.sync.upload'
 export const AUDIT_ACTION_CLIPBOARD_DOWNLOAD = 'clipboard.sync.download'
 
-// The four actions the server accepts as an `action` filter. Kept here so a
-// client cannot send one the server will reject with a 400.
+// Every action the server accepts as an `action` filter. Kept here so a client
+// cannot send one the server will reject with a 400.
 export const AUDIT_ACTIONS = [
+  AUDIT_ACTION_FILE,
+  AUDIT_ACTION_CLIPBOARD,
   AUDIT_ACTION_FILE_UPLOAD,
   AUDIT_ACTION_FILE_DOWNLOAD,
   AUDIT_ACTION_CLIPBOARD_UPLOAD,
