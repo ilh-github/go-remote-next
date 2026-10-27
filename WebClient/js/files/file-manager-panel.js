@@ -4,6 +4,7 @@ import {
     formatFileSize,
     joinRemotePath,
 } from './file-manager-model.js';
+import { StatusLine } from './statusLine.js';
 
 export class FileManagerPanel {
     constructor(container, manager) {
@@ -11,13 +12,21 @@ export class FileManagerPanel {
         this.manager = manager;
         this._initialized = false;
         this._open = false;
+        // The status line has three writers and the last one used to win, which
+        // is how an upload's 100% readout got replaced by the refresh it
+        // triggers. See js/files/statusLine.js.
+        this._statusLine = new StatusLine();
         this._build();
 
         this.manager.addEventListener('listingChanged', (event) => {
             this._renderBreadcrumbs(event.detail.path);
             this._renderEntries(event.detail.entries);
             this._pathInput.value = event.detail.path;
-            this._setStatus(t('files.itemCount', { count: event.detail.entries.length }));
+            this._setStatus(
+                t('files.itemCount', { count: event.detail.entries.length }),
+                false,
+                'files.itemCount',
+            );
         });
         this.manager.addEventListener('busyChanged', (event) => {
             this._setBusy(event.detail.busy);
@@ -25,7 +34,11 @@ export class FileManagerPanel {
         this.manager.addEventListener('uploadProgress', (event) => {
             const { filename, written, total } = event.detail;
             const percent = total > 0 ? Math.round((written / total) * 100) : 100;
-            this._setStatus(t('files.uploading', { name: filename, percent }));
+            this._setStatus(
+                t('files.uploading', { name: filename, percent }),
+                false,
+                'files.uploading',
+            );
         });
     }
 
@@ -65,7 +78,7 @@ export class FileManagerPanel {
         this._promptConfirm.textContent = t('files.confirm');
         this._renderBreadcrumbs(this.manager.currentPath);
         this._renderEntries(this.manager.entries);
-        if (!this.manager.currentPath) this._setStatus(t('files.loading'));
+        if (!this.manager.currentPath) this._setStatus(t('files.loading'), false, 'files.loading');
     }
 
     _build() {
@@ -245,7 +258,7 @@ export class FileManagerPanel {
                     const writable = await handle.createWritable();
                     await writable.write(blob);
                     await writable.close();
-                    this._setStatus(t('files.downloaded', { name: result.filename }));
+                    this._setStatus(t('files.downloaded', { name: result.filename }), false, 'files.downloaded');
                     return;
                 } catch (error) {
                     if (error.name === 'AbortError') return;
@@ -259,7 +272,7 @@ export class FileManagerPanel {
             link.click();
             link.remove();
             URL.revokeObjectURL(url);
-            this._setStatus(t('files.downloaded', { name: result.filename }));
+            this._setStatus(t('files.downloaded', { name: result.filename }), false, 'files.downloaded');
         });
     }
 
@@ -405,10 +418,22 @@ export class FileManagerPanel {
             this._uploadButton, this._refreshButton].forEach(button => {
             button.disabled = busy;
         });
-        if (busy) this._setStatus(t('files.loading'));
+        if (busy) this._setStatus(t('files.loading'), false, 'files.loading');
     }
 
-    _setStatus(message, error = false) {
+    /**
+     * @param {string} message  rendered text
+     * @param {boolean} error   render as an error
+     * @param {string} [key]    i18n key the message came from; without it the
+     *                           message is always shown, which is what the
+     *                           one-off confirmations and idle hints want
+     */
+    _setStatus(message, error = false, key = '') {
+        // A message only displaces what is showing when the status line accepts
+        // it: a listing message does not clear a transfer's readout, because the
+        // refresh that produces it is part of finishing that transfer.
+        if (key && !this._statusLine.accepts(key)) return
+        if (key) this._statusLine.set(message, key, error)
         this._status.textContent = message;
         this._status.classList.toggle('error', error);
     }
