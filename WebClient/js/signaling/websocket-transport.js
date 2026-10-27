@@ -11,7 +11,20 @@
  * 旧版 URL 里带 access_code 的做法已废弃（第 1.3 节缺陷 #1/#3）。
  */
 
-const DEFAULT_AUTH_TIMEOUT_MS = 6000; // 稍大于服务端 5s，给 RTT 留余量
+const DEFAULT_AUTH_TIMEOUT_MS = 6000;
+// How long a link may stay silent before it is treated as dead.
+//
+// The server pings every 30s, so a healthy connection is never quiet for long.
+// The default leaves three ping intervals of room, which is loose enough that a
+// slow or lossy link is not killed for being slow - the failure this catches is
+// a link that stopped moving entirely, and only that.
+//
+// Why this exists at all: a socket that goes OPEN and then stops delivering is
+// indistinguishable from a healthy one by any property the browser exposes.
+// readyState stays OPEN, no error fires, no close fires. That is the shape of a
+// proxy or VPN switch, where the route moved underneath a live connection, and
+// without this the client reports "Connected" on a link that carries nothing.
+const DEFAULT_STALENESS_TIMEOUT_MS = 90000;
 
 export class WebSocketTransport {
     /**
@@ -23,6 +36,7 @@ export class WebSocketTransport {
      * @param {Function} options.onClose     - (code, reason)
      * @param {Function} options.onError     - (error)
      * @param {number} [options.authTimeoutMs=6000] - auth_ok 超时，测试可缩短
+     * @param {number} [options.stalenessTimeoutMs=90000] - 下行静默多久算链路已死
      */
     constructor(options) {
         this.signalingUrl = options.signalingUrl || 'ws://localhost:8000';
@@ -34,11 +48,15 @@ export class WebSocketTransport {
         this.authTimeoutMs = Number.isFinite(options.authTimeoutMs) && options.authTimeoutMs >= 0
             ? options.authTimeoutMs
             : DEFAULT_AUTH_TIMEOUT_MS;
+        this.stalenessTimeoutMs = Number.isFinite(options.stalenessTimeoutMs) && options.stalenessTimeoutMs > 0
+            ? options.stalenessTimeoutMs
+            : DEFAULT_STALENESS_TIMEOUT_MS;
 
         this.ws = null;
         this._authOk = false;
         this._closed = false;
         this._authTimer = null;
+        this._stalenessTimer = null;
         this._authRejection = null;
 
         // Auth params for the first-frame handshake.
@@ -110,6 +128,7 @@ export class WebSocketTransport {
                 const reason = event && event.reason;
                 console.log(`[WebSocket] Closed: code=${code}, reason=${reason}`);
                 clearTimeout(this._authTimer); this._authTimer = null;
+                this._disarmStalenessWatch();
                 this.onClose(code, reason);
                 if (!this._authOk && this._reject) {
                     // Closed before auth succeeded — treat as connect failure.
@@ -131,6 +150,30 @@ export class WebSocketTransport {
         });
     }
 
+    // A link that has gone quiet is closed from the client side, which is what
+    // turns an invisible failure into one the reconnect path can act on. Closing
+    // rather than reporting is deliberate: the session's close handler already
+    // knows how to retry, so this reuses that machinery instead of adding a
+    // second recovery path.
+    _armStalenessWatch() {
+        if (!this.stalenessTimeoutMs) return;
+        clearTimeout(this._stalenessTimer);
+        this._stalenessTimer = setTimeout(() => {
+            this._stalenessTimer = null;
+            if (!this._authOk || this._closed || !this.ws) return;
+            console.warn(`[WebSocket] no downstream traffic for ${this.stalenessTimeoutMs}ms; treating the link as dead`);
+            // An abnormal code, so the server side of this is not mistaken for a
+            // clean shutdown the operator asked for.
+            try { this.ws.close(4000, 'signaling link went silent'); }
+            catch { /* already closing; onclose will still run */ }
+        }, this.stalenessTimeoutMs);
+    }
+
+    _disarmStalenessWatch() {
+        clearTimeout(this._stalenessTimer);
+        this._stalenessTimer = null;
+    }
+
     _sendAuthFrame() {
         const frame = {
             type: 'auth',
@@ -144,6 +187,10 @@ export class WebSocketTransport {
     }
 
     _handleMessage(data) {
+        // Any traffic at all proves the link is alive, so the watch is re-armed
+        // here rather than only on auth_ok: a busy session keeps it alive frame
+        // by frame without the timer ever firing.
+        if (this._authOk) this._armStalenessWatch();
         const message = typeof data === 'string' ? data : data.toString();
         const trimmed = message.trim();
 
@@ -156,6 +203,7 @@ export class WebSocketTransport {
                 if (json.type === 'auth_ok') {
                     this._authOk = true;
                     clearTimeout(this._authTimer); this._authTimer = null;
+                    this._armStalenessWatch();
                     console.log('[WebSocket] auth_ok');
                     this.onAuthOk(json);
                     if (this._resolve) { this._resolve(); this._resolve = this._reject = null; }

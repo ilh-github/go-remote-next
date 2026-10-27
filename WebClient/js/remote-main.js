@@ -311,6 +311,12 @@ class RemoteDesktopApp {
         this._deviceId = deviceId;
         this._connectStartTime = Date.now();
         this._connectionRecorded = false;
+        // Test hook only: shortens how long a silent link may stay silent. Unset
+        // in production, where the transport's own default applies.
+        const stalenessRaw = Number(new URLSearchParams(window.location.search).get('staleness'));
+        const stalenessTimeoutMs = Number.isFinite(stalenessRaw) && stalenessRaw > 0
+            ? stalenessRaw
+            : undefined;
         this._setupTabCoordinator(deviceId);
         this._setupControlGrant();
         this._setupNetworkStateHandlers();
@@ -326,6 +332,9 @@ class RemoteDesktopApp {
                 signalingUrl: serverUrl,
                 iceServers,
                 preferredVideoCodec,
+                // Lets a test shorten the staleness window instead of waiting
+                // 90 real seconds for the default to fire.
+                stalenessTimeoutMs: stalenessTimeoutMs,
             });
             this.session = session;
 

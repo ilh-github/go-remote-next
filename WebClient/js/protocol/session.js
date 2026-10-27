@@ -38,6 +38,7 @@ export class Session extends EventTarget {
         this.signalingUrl = options.signalingUrl || 'ws://localhost:8000';
         this.iceServers = options.iceServers || [];
         this.preferredVideoCodec = options.preferredVideoCodec || '';
+        this.stalenessTimeoutMs = options.stalenessTimeoutMs;
 
         this.state = SessionState.IDLE;
         this.deviceId = null;
@@ -115,6 +116,7 @@ export class Session extends EventTarget {
                 onAuthOk: () => this._log('WebSocket auth_ok received'),
                 onClose: (code, reason) => this._onWebSocketClose(code, reason),
                 onError: (err) => this._onWebSocketError(err),
+                stalenessTimeoutMs: this.stalenessTimeoutMs,
             });
 
             await this.transport.connect({

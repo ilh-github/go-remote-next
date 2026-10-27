@@ -492,6 +492,54 @@ test('recovers after the whole process loses and regains the network', async () 
   }
 })
 
+// QD-907's last remaining boundary: the route changes under a live connection.
+//
+// This is neither of the two failures already covered. A close is an event. A
+// process-level outage is at least something the browser knows about. A proxy or
+// VPN switch is worse than both: the browser still believes it is online, the
+// socket is still OPEN, and nothing fires at all - packets simply stop arriving
+// because the path moved. The only thing that can reveal it is the client
+// noticing that the link has gone quiet.
+//
+// The server already pings every 30s, so a healthy link is never silent for
+// long. That makes "no traffic for a long time" a usable signal without adding
+// a heartbeat protocol: the silence itself is the evidence.
+test('notices a link that went quiet without ever closing', async () => {
+  const harness = await createHarness()
+  try {
+    await harness.openRemote({ stalenessTimeoutMs: 1500 })
+    await harness.waitForConnected()
+
+    assert.equal(await harness.isLiveSocketBlackholed(), false)
+
+    // The route changes: the socket stays open, the browser stays "online", and
+    // every reply from here on is swallowed.
+    await harness.blackholeLiveSocket()
+    assert.equal(await harness.isLiveSocketBlackholed(), true)
+
+    // The client has to conclude on its own that the link is dead. Waiting for a
+    // close event here would hang forever, which is the point of the case.
+    await harness.waitForConnected({ expectedSignalConnections: 2 })
+
+    assert.equal(
+      await harness.reconnectTaskActive(),
+      false,
+      'the client must settle once it has re-established the link',
+    )
+    assert.equal(
+      await harness.statusText(),
+      'Connected',
+      'a quiet link must be detected and replaced without an operator reload',
+    )
+    assert.ok(
+      !harness.state.connections.some((entry) => entry.error_msg === 'reconnect_exhausted'),
+      'a link that went quiet is a transport failure, not an exhausted retry budget',
+    )
+  } finally {
+    await harness.close()
+  }
+})
+
 async function createHarness() {
   const state = {
     accessMode: 'success',
@@ -598,6 +646,10 @@ async function createHarness() {
       const entry = { socket, auth: null, payloads: [] }
       sockets.push(entry)
       socket.onMessage(async (message) => {
+        // A blackholed link swallows everything without closing: the client's
+        // own sends still succeed locally, and the reply simply never lands.
+        // That is the shape of a route that vanished under a live connection.
+        if (entry.blackholed) return
         const text = typeof message === 'string' ? message : message.toString()
         let frame
         try {
@@ -664,11 +716,31 @@ async function createHarness() {
     async setProcessOffline(offline) {
       await context.setOffline(offline)
     },
-    async openRemote() {
-      await page.goto(
-        `${baseUrl}/remote.html?server=${encodeURIComponent(wsUrl)}&device=e2e-device&st=initial-token`,
-        { waitUntil: 'domcontentloaded' },
-      )
+    // A proxy or VPN switch, which is not the same failure as either a close or
+    // a process-level outage. The browser still believes it is online, the
+    // socket is still open, and nothing fires: the packets just stop arriving
+    // because the route changed underneath a live connection. So the only thing
+    // that can reveal it is the client trying to use the link and finding no
+    // answer - which is exactly what a heartbeat or the next send does.
+    async blackholeLiveSocket() {
+      await until(() => sockets.length > 0, { label: 'signaling socket' })
+      const current = sockets.at(-1)
+      current.blackholed = true
+      return current
+    },
+    async isLiveSocketBlackholed() {
+      return sockets.at(-1)?.blackholed === true
+    },
+    async openRemote({ stalenessTimeoutMs } = {}) {
+      const params = new URLSearchParams({
+        server: wsUrl,
+        device: 'e2e-device',
+        st: 'initial-token',
+      })
+      if (stalenessTimeoutMs != null) params.set('staleness', String(stalenessTimeoutMs))
+      await page.goto(`${baseUrl}/remote.html?${params.toString()}`, {
+        waitUntil: 'domcontentloaded',
+      })
     },
     async closeCurrentSocket() {
       await until(() => sockets.length > 0, { label: 'signaling socket' })
