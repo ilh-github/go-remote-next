@@ -208,6 +208,23 @@
 
 最近验证：
 
+- `7ad833f7`（AccessApprovalsPage 补上浏览器 E2E）：上一轮对账发现它是六个没有页面级
+  E2E 的页面之一（912 行，只有模型层单测），而它正是「点错一下就有后果」的那一页——
+  approve 放一个会话进屋，deny 把来源打进冷却期。按既有 fixture 形状（Vite + 真实
+  `.vue` + mock owner-scoped 接口）补 `test/fixtures/access-approvals.html` 与
+  `test/e2e/access-approvals.e2e.mjs`，E2E 门禁从 18 个文件增至 19 个。断言选的是单测
+  看不见的那几件事：①**对话框必须对应被点的那一行**——两行形状完全相同，用页面级选择器
+  会在决定了错误审批的情况下照样绿，所以点击限定在 `.approval-row` 的第 n 行内；
+  ②approve/deny 的按钮语义（confirm 取 primary、deny 的危险样式与冷却期警告）；
+  ③**409 时必须报服务端回报的状态**而不是笼统失败——「decision failed」会把操作员派去找
+  一个根本不存在的网络问题。反向验证：把 `submitDecision` 里 approve/deny 两个调用互换，
+  测试立刻红。
+  过程中三次被自己的错误假设带偏，都已查伪并记录：曾据 6 空格缩进的正则漏看嵌套
+  `status:` 块而误判「approvals.status.* 两个 locale 都缺键」——实际五个状态标签都在；
+  曾据调试脚本自造的 mock 报出 `approvals.status.` 空键警告而怀疑页面缺陷——实际服务端
+  `status` 列 `not null default pending`，空值不可达，警告来自我自己的假数据；
+  曾据 `.approval-item` 选不中而怀疑页面没渲染——实际类名是 `approval-row`。
+  三次共同点：都在「代码看着不对」停下来，没有先确认那个信号指向的对象是对的。
 - QD-904 浏览器 E2E 覆盖对账（第 12 节，无代码改动，三条假设全部查伪）：按
   「哪些 `src/views/` 页面有真实浏览器 E2E」逐页核对。有 fixture 驱动真实 Vue 页面的是
   Devices、Recordings、ScheduledTasks、Wall 五个，加上 `session-chat.html` 驱动的
