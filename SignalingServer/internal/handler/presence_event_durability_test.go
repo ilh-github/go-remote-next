@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
 	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 )
@@ -152,6 +154,94 @@ func TestHeartbeatRouteMakesOnlineTransitionDurable(t *testing.T) {
 	}
 }
 
+// The WS-disconnect producer was a fourth copy of the offline event, and the
+// only non-durable one. Keyspace expiry and the fallback scanner both go
+// through PresenceWatcher.publishOfflineIfRemembered, which commits the event
+// before it drops the remembered-online candidate; the disconnect path
+// published straight to the bus. A host closing its socket is the transition
+// that happens most often in practice, so it was the one most likely to be
+// lost - and losing it leaves the owner's device list showing online for a
+// machine that is gone.
+func TestSignalDisconnectOfflineEventIsDurable(t *testing.T) {
+	db, rdb, bus, outbox := newPresenceEventTestStack(t)
+	owner := uint(7305)
+	deviceID := "900000005"
+	seedOwnedDevice(t, db, owner, deviceID)
+
+	h := newRealtimeHandlerForPresenceEvent(db, rdb, bus).WithPresenceEventOutbox(outbox)
+
+	h.publishOfflinePresenceEvent(context.Background(), deviceID, owner)
+
+	rows := assertPresenceOutboxRows(t, db, 1)
+	if rows[0].DeviceID != deviceID || rows[0].UserID != owner {
+		t.Fatalf("outbox row = device %q user %d, want device %q user %d",
+			rows[0].DeviceID, rows[0].UserID, deviceID, owner)
+	}
+	var evt service.Event
+	if err := json.Unmarshal([]byte(rows[0].Payload), &evt); err != nil {
+		t.Fatalf("decode outbox payload: %v", err)
+	}
+	if online, _ := evt.Data["online"].(bool); online {
+		t.Fatal("the durable offline event carries online=true")
+	}
+	if _, err := service.NewEventOutbox(db, bus).Drain(context.Background(), time.Now().UTC(), 10); err != nil {
+		t.Fatalf("Drain(): %v", err)
+	}
+	assertPresenceEventDelivered(t, db, rows[0].ID)
+}
+
+// This one drives unregisterSignalConn rather than the helper, because the
+// wiring is the part that rots. Reverting the call site above leaves the
+// helper-level test green, which is exactly the false confidence the
+// heartbeat-route test was written to avoid.
+func TestSignalDisconnectRoutePublishesDurableOffline(t *testing.T) {
+	db, rdb, bus, outbox := newPresenceEventTestStack(t)
+	owner := uint(7306)
+	deviceID := "900000006"
+	seedOwnedDevice(t, db, owner, deviceID)
+
+	h := newRealtimeHandlerForPresenceEvent(db, rdb, bus).WithPresenceEventOutbox(outbox)
+
+	// The heartbeat key must be absent so the composite presence state is
+	// offline after the WS key is removed - that is what makes the producer
+	// believe there is a transition to report at all.
+	presence := service.NewPresenceService(rdb, "disconnect-route-test")
+	if err := presence.MarkWSConnected(context.Background(), deviceID); err != nil {
+		t.Fatalf("MarkWSConnected(): %v", err)
+	}
+	if !presence.RememberOnlineCandidate(context.Background(), deviceID) {
+		t.Fatal("RememberOnlineCandidate() = false, want true")
+	}
+
+	// unregisterSignalConn closes the socket it unregisters, so the connection
+	// has to be a real one rather than nil.
+	sc := newHostSignalConnForTest(t, h, deviceID)
+	h.signalMu.Lock()
+	h.signalHosts[deviceID] = sc
+	h.signalMu.Unlock()
+
+	h.unregisterSignalConn(sc)
+
+	rows := assertPresenceOutboxRows(t, db, 1)
+	if rows[0].DeviceID != deviceID {
+		t.Fatalf("outbox device_id = %q, want %q", rows[0].DeviceID, deviceID)
+	}
+	if rows[0].UserID != owner {
+		t.Fatalf("outbox user_id = %d, want %d", rows[0].UserID, owner)
+	}
+	var evt service.Event
+	if err := json.Unmarshal([]byte(rows[0].Payload), &evt); err != nil {
+		t.Fatalf("decode outbox payload: %v", err)
+	}
+	if online, _ := evt.Data["online"].(bool); online {
+		t.Fatal("the disconnect route published online=true")
+	}
+	if _, err := service.NewEventOutbox(db, bus).Drain(context.Background(), time.Now().UTC(), 10); err != nil {
+		t.Fatalf("Drain(): %v", err)
+	}
+	assertPresenceEventDelivered(t, db, rows[0].ID)
+}
+
 type failingPresenceOutbox struct{}
 
 func (failingPresenceOutbox) EnqueueTx(_ context.Context, _ *gorm.DB, _ service.Event) (service.Event, error) {
@@ -217,6 +307,60 @@ func seedOwnedDevice(t *testing.T, db *gorm.DB, owner uint, deviceID string) {
 		AccessCode: "135790",
 	}).Error; err != nil {
 		t.Fatalf("seed device: %v", err)
+	}
+}
+
+func newRealtimeHandlerForPresenceEvent(db *gorm.DB, rdb *redis.Client, bus *service.EventBus) *RealtimeHandler {
+	return NewRealtimeHandler(
+		service.NewTokenService(rdb),
+		bus,
+		service.NewPresenceService(rdb, "presence-offline-test"),
+		db,
+		service.NewDeviceService(repository.NewDeviceRepository(db), service.NewDeviceSecretService()),
+		service.NewFavoriteService(db),
+		service.NewMetricsService(),
+		service.NewDeviceAccessService(db),
+		service.NewDeviceAccessPolicyService(db),
+		nil,
+		rdb,
+	)
+}
+
+// newHostSignalConnForTest returns a host-role signalConn backed by a real
+// WebSocket. unregisterSignalConn closes what it unregisters, and a nil conn
+// panics in Close rather than failing the assertion the test cares about.
+func newHostSignalConnForTest(t *testing.T, h *RealtimeHandler, deviceID string) *signalConn {
+	t.Helper()
+	upgrader := websocket.Upgrader{}
+	serverConnCh := make(chan *websocket.Conn, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Errorf("upgrade: %v", err)
+			return
+		}
+		serverConnCh <- conn
+	}))
+	t.Cleanup(server.Close)
+
+	url := "ws" + strings.TrimPrefix(server.URL, "http")
+	clientConn, _, err := websocket.DefaultDialer.Dial(url, nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	serverConn := <-serverConnCh
+	t.Cleanup(func() {
+		_ = serverConn.Close()
+		_ = clientConn.Close()
+	})
+
+	return &signalConn{
+		h:        h,
+		conn:     clientConn,
+		role:     service.SignalRoleHost,
+		deviceID: deviceID,
+		out:      make(chan []byte, 4),
+		done:     make(chan struct{}),
 	}
 }
 

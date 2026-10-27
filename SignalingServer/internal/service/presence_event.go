@@ -50,6 +50,18 @@ func (p *PresenceEventPublisher) PublishOnline(ctx context.Context, deviceID str
 	return p.publish(ctx, deviceID, userID, true, loggedIn)
 }
 
+// PublishOffline enqueues or publishes one offline transition.
+//
+// It exists so the WS-disconnect producer stops being a fourth, non-durable
+// copy of the same event. The keyspace-expiry and fallback-scanner producers
+// go through PresenceWatcher.publishOfflineIfRemembered, which is durable; the
+// disconnect path in RealtimeHandler.unregisterSignalConn published straight
+// to the bus, so the transition that happens most often in practice - a host
+// closing its socket - was the one most likely to be lost.
+func (p *PresenceEventPublisher) PublishOffline(ctx context.Context, deviceID string, userID uint) error {
+	return p.publish(ctx, deviceID, userID, false, false)
+}
+
 func (p *PresenceEventPublisher) publish(
 	ctx context.Context, deviceID string, userID uint, online, loggedIn bool,
 ) error {

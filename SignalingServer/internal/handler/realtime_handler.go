@@ -1021,6 +1021,23 @@ func (h *RealtimeHandler) publishPresenceEvent(ctx context.Context, deviceID str
 	}
 }
 
+// publishOfflinePresenceEvent reports one offline transition durably.
+//
+// This used to be a direct bus.Publish, which made the disconnect path the only
+// non-durable offline producer: keyspace expiry and the fallback scanner both
+// go through PresenceWatcher.publishOfflineIfRemembered, but a host closing its
+// socket - the transition that happens most often in practice - lost its event
+// on any Redis failure, leaving the owner's device list showing online for a
+// machine that was gone.
+func (h *RealtimeHandler) publishOfflinePresenceEvent(ctx context.Context, deviceID string, userID uint) {
+	if h.presenceEvents == nil {
+		return
+	}
+	if err := h.presenceEvents.PublishOffline(ctx, deviceID, userID); err != nil {
+		log.Printf("[presence] offline event for device %s not durable: %v", deviceID, err)
+	}
+}
+
 // WithRevokeCooldown turns on the "you were just kicked out" window. It is a
 // setter rather than another constructor argument because only this handler
 // needs it, and a zero ttl leaves the behaviour exactly as it was.
@@ -1179,16 +1196,7 @@ func (h *RealtimeHandler) unregisterSignalConn(sc *signalConn) {
 		}
 		if !state.Online && h.presence.ForgetOnlineCandidate(context.Background(), sc.deviceID) {
 			if d, err := h.devices.GetByDeviceID(context.Background(), sc.deviceID); err == nil && d.UserID != nil {
-				h.bus.Publish(context.Background(), service.Event{
-					Type:     service.EventDeviceOnlineChanged,
-					UserID:   *d.UserID,
-					DeviceID: sc.deviceID,
-					Data: map[string]interface{}{
-						"device_id": sc.deviceID,
-						"online":    false,
-						"logged_in": false,
-					},
-				})
+				h.publishOfflinePresenceEvent(context.Background(), sc.deviceID, *d.UserID)
 			}
 		}
 	}

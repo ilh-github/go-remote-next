@@ -123,6 +123,21 @@
 - QD-610 服务端事件 retry 已补跨 worker claim：`LMOVE` 原子领取到 per-worker
   processing list，heartbeat 过期后其他实例恢复死 worker 遗留事件；正常 drain 也会先恢复
   自身 processing。语义为 at-least-once，完成 XADD 后崩溃可能重复但不会静默丢失
+- QD-610 `device.online.changed` 的**断线下线半边**也已收口：把上一轮的方法学（`bus.Publish`
+  全量扫描 + 逐条问「这个生产者承诺什么」）再跑一遍，发现离线方向其实有**四个**生产者，
+  其中三个是 durable 的（keyspace 过期、fallback scanner 走 `PresenceWatcher`，
+  离线告警和指标告警各自在自己的 claim 事务里），**只有 WS 断开那一个是裸发**——而它恰恰是
+  实际发生最频繁的那个：host 关闭 socket。后果和上线半边同形但更贵：一次 Redis 失败就让
+  属主的设备列表对一台已经不在的机器继续显示在线，直到下一次任意方向的翻转才被纠正。
+  现在 `PresenceEventPublisher` 同时提供 `PublishOnline` 与 `PublishOffline`，
+  `RealtimeHandler.unregisterSignalConn` 改走后者。**本轮新增的一条测试刻意驱动
+  `unregisterSignalConn` 而不是 helper**：把调用点摘掉之后，helper 级测试照样绿，
+  只有路由级测试以 `outbox rows = 0, want 1` 失败——这和上一轮心跳路由的教训是同一条，
+  「 publisher 没人调用」和「没有 publisher」在 helper 级测试里长得一模一样，
+  而会烂的永远是接线。该测试因此需要一个真实 WebSocket（`unregisterSignalConn`
+  会关闭它注销的连接，nil conn 会在 `Close` 里 panic 而不是死在断言上）。
+  验证：`go test ./...` 全绿、`go vet ./...` 干净、`gofmt` 对本次改动文件干净、
+  `git diff --check` 通过；红绿双向（摘掉调用点，仅路由级测试红）。
 - QD-610 `device.online.changed` 的**上线半边**已补齐，与下线半边同源：下线方向早就是
   durable 的（`PresenceWatcher.WithOutbox` 先提交事件再丢弃 remembered-online 候选），
   而上线方向一直在两边裸发总线——host WS 握手和 heartbeat 路由各一份 `bus.Publish`，
