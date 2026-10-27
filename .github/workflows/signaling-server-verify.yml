@@ -105,6 +105,14 @@ jobs:
           ./scripts/sdk/check-generated-sdk.sh csharp
           ./scripts/sdk/check-generated-sdk.sh php
           ./scripts/sdk/check-generated-sdk.sh kotlin
+      - name: Smoke restore bodies cannot clear a field
+        # Static, so it runs here rather than in the smoke job where a server is
+        # up: the question is what the smoke *would* send, not what a live one
+        # answers. Guards the promise the spec makes that touched rules are put
+        # back exactly as they were - a restore body that omits a field the PUT
+        # treats as "omitted means clear" changes the device's configuration
+        # while the smoke reports success.
+        run: ./scripts/sdk/check-smoke-restore-coverage.py
       - name: Generated Go client vets and compiles
         # `go vet ./...` type-checks the hand-written examples/ package too, so a
         # change to the client's API surface that the example no longer matches

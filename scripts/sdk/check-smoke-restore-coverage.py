@@ -21,7 +21,9 @@ import os
 import re
 import sys
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# This script lives in scripts/sdk/, one level deeper than the other checks in
+# scripts/, so the repo root is three parents up.
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 HANDLER_GLOB = os.path.join(ROOT, "SignalingServer", "internal", "handler")
 SMOKE = os.path.join(ROOT, "scripts", "sdk", "openapi-smoke.mjs")
 
