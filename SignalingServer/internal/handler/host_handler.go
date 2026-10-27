@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -30,6 +31,7 @@ import (
 //
 // See docs §2.5, §2.6, §2.10, §2.19, §2.23.
 type HostHandler struct {
+	db              *gorm.DB
 	devices         *service.DeviceService
 	tokens          *service.TokenService
 	presence        *service.PresenceService
@@ -42,9 +44,15 @@ type HostHandler struct {
 	bus             *service.EventBus
 	serverSince     time.Time
 	appConfig       *config.Config
+	// presenceEvents publishes the online half of device.online.changed. The
+	// offline half is already durable (PresenceWatcher.WithOutbox); this makes
+	// the two halves behave the same way. Nil-safe: without an outbox the
+	// publisher stays best-effort.
+	presenceEvents *service.PresenceEventPublisher
 }
 
 func NewHostHandler(
+	db *gorm.DB,
 	devices *service.DeviceService,
 	tokens *service.TokenService,
 	presence *service.PresenceService,
@@ -58,6 +66,7 @@ func NewHostHandler(
 	appConfig *config.Config,
 ) *HostHandler {
 	return &HostHandler{
+		db:              db,
 		devices:         devices,
 		tokens:          tokens,
 		presence:        presence,
@@ -70,7 +79,37 @@ func NewHostHandler(
 		bus:             bus,
 		serverSince:     time.Now().UTC(),
 		appConfig:       appConfig,
+		presenceEvents:  service.NewPresenceEventPublisher(db, bus),
 	}
+}
+
+// WithPresenceEventOutbox makes online transitions durable. Without one the
+// handler keeps publishing directly, which is what an install that never
+// configured an outbox already does.
+func (h *HostHandler) WithPresenceEventOutbox(outbox service.EventOutboxWriter) *HostHandler {
+	h.presenceEvents = h.presenceEvents.WithOutbox(outbox)
+	return h
+}
+
+// publishPresenceEvent reports one online transition to the owner.
+func (h *HostHandler) publishPresenceEvent(ctx context.Context, deviceID string, userID uint, loggedIn bool) {
+	if h.presenceEvents == nil {
+		return
+	}
+	if err := h.presenceEvents.PublishOnline(ctx, deviceID, userID, loggedIn); err != nil {
+		log.Printf("[presence] online event for device %s not durable: %v", deviceID, err)
+	}
+}
+
+// publishPresenceEventChecked is publishPresenceEvent with the failure handed
+// back instead of logged. The heartbeat route uses the logging form because a
+// presence event must never fail a heartbeat the device already made; a caller
+// that has something to do about the failure uses this one.
+func (h *HostHandler) publishPresenceEventChecked(ctx context.Context, deviceID string, userID uint, loggedIn bool) error {
+	if h.presenceEvents == nil {
+		return nil
+	}
+	return h.presenceEvents.PublishOnline(ctx, deviceID, userID, loggedIn)
 }
 
 // -----------------------------------------------------------------------
@@ -164,16 +203,7 @@ func (h *HostHandler) Heartbeat(c *gin.Context) {
 	if state.Online && rememberedNow {
 		log.Printf("[presence] device online via heartbeat device=%s presence={%s}", deviceID, state.String())
 		if d, err := h.devices.GetByDeviceID(c.Request.Context(), deviceID); err == nil && d.UserID != nil {
-			h.bus.Publish(c.Request.Context(), service.Event{
-				Type:     service.EventDeviceOnlineChanged,
-				UserID:   *d.UserID,
-				DeviceID: deviceID,
-				Data: map[string]interface{}{
-					"device_id": deviceID,
-					"online":    true,
-					"logged_in": d.LoggedIn,
-				},
-			})
+			h.publishPresenceEvent(c.Request.Context(), deviceID, *d.UserID, d.LoggedIn)
 		}
 	} else if state.Online {
 		log.Printf("[presence] heartbeat online_event_skipped device=%s presence={%s} remembered_now=%t",

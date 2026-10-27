@@ -40,15 +40,19 @@ import (
 type RealtimeHandler struct {
 	upgrader websocket.Upgrader
 
-	tokens       *service.TokenService
-	bus          *service.EventBus
-	presence     *service.PresenceService
-	db           *gorm.DB
-	devices      *service.DeviceService
-	favorites    *service.FavoriteService
-	metrics      *service.MetricsService
-	access       *service.DeviceAccessService
-	accessPolicy *service.DeviceAccessPolicyService
+	tokens   *service.TokenService
+	bus      *service.EventBus
+	presence *service.PresenceService
+	db       *gorm.DB
+	// presenceEvents publishes the online half of device.online.changed. The
+	// offline half is durable through PresenceWatcher.WithOutbox; this makes the
+	// two halves behave the same way. Nil-safe.
+	presenceEvents *service.PresenceEventPublisher
+	devices        *service.DeviceService
+	favorites      *service.FavoriteService
+	metrics        *service.MetricsService
+	access         *service.DeviceAccessService
+	accessPolicy   *service.DeviceAccessPolicyService
 	// remoteSessions is the queryable lifecycle record on top of the access
 	// timeline; nil turns the hooks into no-ops rather than breaking signaling.
 	remoteSessions *service.RemoteSessionService
@@ -98,6 +102,7 @@ func NewRealtimeHandler(
 		bus:            bus,
 		presence:       presence,
 		db:             db,
+		presenceEvents: service.NewPresenceEventPublisher(db, bus),
 		devices:        devices,
 		favorites:      favorites,
 		metrics:        metrics,
@@ -855,16 +860,7 @@ func (h *RealtimeHandler) HandleSignal(c *gin.Context) {
 				log.Printf("[presence] device online via host_ws device=%s session=%s presence={%s}",
 					sc.deviceID, sessionID, state.String())
 				if d, err := h.devices.GetByDeviceID(c.Request.Context(), sc.deviceID); err == nil && d.UserID != nil {
-					h.bus.Publish(c.Request.Context(), service.Event{
-						Type:     service.EventDeviceOnlineChanged,
-						UserID:   *d.UserID,
-						DeviceID: sc.deviceID,
-						Data: map[string]interface{}{
-							"device_id": sc.deviceID,
-							"online":    true,
-							"logged_in": d.LoggedIn,
-						},
-					})
+					h.publishPresenceEvent(c.Request.Context(), sc.deviceID, *d.UserID, d.LoggedIn)
 				}
 			} else {
 				log.Printf("[presence] host_ws online_event_skipped device=%s session=%s presence={%s} remembered_now=%t",
@@ -1002,6 +998,27 @@ func (h *RealtimeHandler) findSessionConn(sessionID string) *signalConn {
 // a revoke can be addressed at the instance that holds the socket.
 func (h *RealtimeHandler) InstanceID() string {
 	return h.presence.InstanceID()
+}
+
+// WithPresenceEventOutbox makes online transitions durable, matching the
+// offline half which PresenceWatcher already commits before it drops the
+// remembered-online candidate. Without one the handler keeps publishing
+// directly, which is what an install that never configured an outbox does.
+func (h *RealtimeHandler) WithPresenceEventOutbox(outbox service.EventOutboxWriter) *RealtimeHandler {
+	h.presenceEvents = h.presenceEvents.WithOutbox(outbox)
+	return h
+}
+
+// publishPresenceEvent reports one online transition to the owner. A presence
+// event must never fail the WS handshake it was observed on, so a durability
+// failure is logged rather than returned.
+func (h *RealtimeHandler) publishPresenceEvent(ctx context.Context, deviceID string, userID uint, loggedIn bool) {
+	if h.presenceEvents == nil {
+		return
+	}
+	if err := h.presenceEvents.PublishOnline(ctx, deviceID, userID, loggedIn); err != nil {
+		log.Printf("[presence] online event for device %s not durable: %v", deviceID, err)
+	}
 }
 
 // WithRevokeCooldown turns on the "you were just kicked out" window. It is a

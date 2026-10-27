@@ -123,6 +123,23 @@
 - QD-610 服务端事件 retry 已补跨 worker claim：`LMOVE` 原子领取到 per-worker
   processing list，heartbeat 过期后其他实例恢复死 worker 遗留事件；正常 drain 也会先恢复
   自身 processing。语义为 at-least-once，完成 XADD 后崩溃可能重复但不会静默丢失
+- QD-610 `device.online.changed` 的**上线半边**已补齐，与下线半边同源：下线方向早就是
+  durable 的（`PresenceWatcher.WithOutbox` 先提交事件再丢弃 remembered-online 候选），
+  而上线方向一直在两边裸发总线——host WS 握手和 heartbeat 路由各一份 `bus.Publish`，
+  于是「设备上线了」到「属主被告知」之间任何一次 Redis 失败都会让这次状态翻转**没有行可重试**，
+  属主的设备列表会一直显示离线直到下一次翻转，而离线告警判定器读的是 presence 不是事件，
+  早就走过去了。新增 `service.PresenceEventPublisher` 作为唯一实现，`HostHandler` 与
+  `RealtimeHandler` 共用，`main.go` 两侧都接上 `WithPresenceEventOutbox(eventOutbox)`。
+  三个判定：①**没有 outbox 的部署保持原行为**（直接 publish），这是升级而不是新要求，
+  有测试驱动真实 handler 断言这一点；②**心跳路由的失败只记日志不返回**，presence 事件
+  绝不能把设备已经做成的心跳变成 500；③**写失败必须能被看见**，`ErrPresenceEventNotDurable`
+  由 `publishPresenceEventChecked` 交还调用方，而不是被日志吞掉——「没告诉属主」和
+  「本可以以后告诉他的那份记录不存在」是两件不同的事。验证：4 条新测试（durable 路径断言
+  outbox 行、drain 后 delivered、无 outbox 时直接 publish 且零 outbox 行、失败被交还），
+  其中一条**驱动真实 `Heartbeat` HTTP handler**——只测 helper 的话，一个没人调用的 publisher
+  和没有 publisher 是同一件事，而接线才是会烂的那部分。红绿双向：把心跳里的调用摘掉，
+  路由级测试立刻以 `outbox rows = 0, want 1` 失败。`go test ./...` 全绿、`go vet ./...`
+  干净、`gofmt` 对本次改动文件干净、`git diff --check` 通过。
 - QD-610 数据库事务 event outbox 已落地：业务事务可通过 `EventOutbox.EnqueueTx`
   原子写入事件；worker 使用条件 claim、2 分钟过期恢复和退避重试发布，发布成功后标记
   delivered。`scheduled_task.failed` 已迁移，outbox 写入失败会回滚任务终态

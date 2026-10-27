@@ -618,7 +618,12 @@ func main() {
 	// their own rows back, which is what makes "what did my controller copy at
 	// 14:03?" answerable by the one person who can act on it.
 	ownerAuditHandler := handler.NewOwnerAuditHandler(auditService)
-	hostHandler := handler.NewHostHandler(deviceService, tokenService, presenceService, settingsService, rateLimitService, deviceAccessService, deviceAccessPolicyService, deviceAccessGrantService, deviceAccessApprovalService, bus, cfg)
+	hostHandler := handler.NewHostHandler(db, deviceService, tokenService, presenceService, settingsService, rateLimitService, deviceAccessService, deviceAccessPolicyService, deviceAccessGrantService, deviceAccessApprovalService, bus, cfg).
+		// The offline half of device.online.changed is already durable through
+		// PresenceWatcher.WithOutbox; this is the online half, which until now
+		// published straight to the bus and lost the transition on a Redis
+		// failure with no row to retry from.
+		WithPresenceEventOutbox(eventOutbox)
 	// How long an exclusive-control holder survives in the shared store. It is
 	// deliberately generous for one socket: the socket itself outliving its
 	// process is impossible, so this is only the ceiling on a crashed
@@ -628,6 +633,10 @@ func main() {
 		controlGrantTTL = time.Duration(seconds) * time.Second
 	}
 	realtimeHandler := handler.NewRealtimeHandler(tokenService, bus, presenceService, db, deviceService, favoriteService, metricsService, deviceAccessService, deviceAccessPolicyService, remoteSessionService, redisClient)
+	// Same reason as the host handler above: the WS handshake is the most
+	// common way a device is first seen online, and that transition has to be
+	// as durable as the offline one the watcher already commits.
+	realtimeHandler.WithPresenceEventOutbox(eventOutbox)
 	// A revoked controller must not walk straight back in with the same access
 	// code; the window is per device + observed source, so it cannot lock out
 	// anybody else. 0 leaves the historical behaviour (immediate reconnects).
