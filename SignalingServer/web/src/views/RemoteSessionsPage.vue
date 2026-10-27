@@ -89,7 +89,29 @@
                   {{ t('remoteSessions.none') }}
                 </div>
                 <div v-for="r in row.recordings" :key="r.id" class="detail-line mono">
-                  #{{ r.id }} · {{ r.status }} · {{ formatSize(r.size_bytes) }}
+                  <span>#{{ r.id }} · {{ r.status }} · {{ formatSize(r.size_bytes) }}</span>
+                  <!-- The bytes are a separate route, and a browser cannot put a
+                       Bearer token on a plain link, so this goes through
+                       authFetch and a blob URL. Only offered when the row
+                       actually holds media: a recording still being written has
+                       nothing to hand over. -->
+                  <el-button
+                    v-if="canDownload(r)"
+                    link
+                    type="primary"
+                    size="small"
+                    :loading="downloading === r.id"
+                    @click="downloadRecording(r)"
+                  >{{ t('remoteSessions.download') }}</el-button>
+                  <el-image
+                    v-else-if="canThumbnail(r)"
+                    :src="thumbnailSrc(r)"
+                    class="detail-thumb"
+                    fit="cover"
+                    :preview-src-list="[thumbnailSrc(r)]"
+                    preview-teleported
+                    hide-on-click-modal
+                  />
                 </div>
               </div>
               <div class="detail-block">
@@ -178,9 +200,11 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { authFetch, problemToError } from '../api/auth.js'
 import { Refresh } from '@element-plus/icons-vue'
 import { formatSize } from './storage-size.js'
 import { storageRows, storageGap } from './recording-storage-model.js'
+import { artifactUrl, thumbnailUrl, canDownload, canThumbnail, artifactName } from './recording-download-model.js'
 import {
   listRemoteSessions,
   revokeRemoteSession,
@@ -204,6 +228,8 @@ const clearing = ref(false)
 const unbanning = ref(false)
 const recordingStorage = ref(null)
 const sweeping = ref(false)
+const downloading = ref(null)
+const thumbCache = new Map()
 let loadSeq = 0
 
 function formatTime(value) {
@@ -220,6 +246,40 @@ function formatDuration(seconds) {
   return h > 0 ? `${h}:${pad(m)}:${pad(sec)}` : `${m}:${pad(sec)}`
 }
 
+
+// Blob URLs are minted per row and cached, because revoking them on re-render
+// would blank a thumbnail the operator is still looking at. They live as long as
+// the page does, which is the same lifetime as the list they belong to.
+function thumbnailSrc(row) {
+  const url = thumbnailUrl(row.id)
+  if (!url) return ''
+  if (!thumbCache.has(row.id)) {
+    authFetch(url)
+      .then((res) => (res.ok ? res.blob() : null))
+      .then((blob) => blob && thumbCache.set(row.id, URL.createObjectURL(blob)))
+      .catch(() => {})
+  }
+  return thumbCache.get(row.id) || ''
+}
+
+async function downloadRecording(row) {
+  downloading.value = row.id
+  try {
+    const res = await authFetch(artifactUrl(row.id))
+    if (!res.ok) throw problemToError(res, await res.json().catch(() => null))
+    const blob = await res.blob()
+    const href = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = href
+    a.download = artifactName(row.id)
+    a.click()
+    URL.revokeObjectURL(href)
+  } catch (e) {
+    ElMessage.error(t('common.failed') + ': ' + e.message)
+  } finally {
+    downloading.value = null
+  }
+}
 
 async function loadStorage() {
   try {

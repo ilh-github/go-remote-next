@@ -452,6 +452,7 @@ export default {
     recordings: 'Recordings',
     accessLog: 'Access log',
     none: 'None',
+    download: 'Download',
     loadMore: 'Load more',
     storageTitle: 'Recording storage',
     storageIndexed: 'Indexed bytes',

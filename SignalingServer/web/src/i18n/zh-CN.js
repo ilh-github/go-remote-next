@@ -455,6 +455,7 @@ export default {
     recordings: '录像',
     accessLog: '访问日志',
     none: '无',
+    download: '下载',
     loadMore: '加载更多',
     storageTitle: '录像存储',
     storageIndexed: '索引字节',
