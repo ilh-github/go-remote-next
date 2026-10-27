@@ -91,6 +91,17 @@ test('devices page drives connection, favorites, logs, and private groups', asyn
         duration: 0,
         created_at: '2026-10-18T09:30:00Z',
       },
+      {
+        id: 3,
+        // Not in the bound device list at all, so there is no code to offer and
+        // no way back to it: this row must render no connect button.
+        device_id: 'device-gone',
+        device_name: 'Retired Box',
+        status: 'failed',
+        error_msg: 'device not bound',
+        duration: 0,
+        created_at: '2026-10-18T08:00:00Z',
+      },
     ],
     groups: [
       {
@@ -248,7 +259,7 @@ test('devices page drives connection, favorites, logs, and private groups', asyn
 
     assert.equal(await myDevicesCard(page).locator('.device-item').count(), 4)
     assert.equal(await favoritesCard(page).locator('.device-item').count(), 1)
-    assert.equal(await logsCard(page).locator('.device-item').count(), 2)
+    assert.equal(await logsCard(page).locator('.device-item').count(), 3)
     assert.equal(await groupCount(page, 'All'), '4')
 
     // The log rows are the only place an owner learns why a connection did not
@@ -258,6 +269,30 @@ test('devices page drives connection, favorites, logs, and private groups', asyn
     assert.match(logText, /Desk Alpha/, 'a log row shows the device name the server sent')
     assert.match(logText, /2m5s/, 'a log row renders its duration')
     assert.match(logText, /access code rejected/, 'a failed log row shows the reason the server recorded')
+
+    // QD-206 promises quick connect as well as the history. The history row
+    // carries no access code by design (the API does not store one), so the
+    // reconnect joins against the device list on device_id.
+    await logsCard(page).getByRole('button', { name: 'Connect', exact: true }).first().click()
+    await page.waitForFunction(() => window.__openedRemote.length === 1)
+    const reconnect = await page.evaluate(() => {
+      const parsed = new URL(window.__openedRemote[0].url, location.href)
+      return {
+        device: parsed.searchParams.get('device'),
+        handoff: JSON.parse(sessionStorage.getItem(`quickdesk_remote_handoff__${parsed.searchParams.get('st')}`)),
+      }
+    })
+    assert.equal(reconnect.device, 'device-a')
+    assert.equal(reconnect.handoff.access_code, 'code-a')
+    assert.equal(reconnect.handoff.device_id, 'device-a')
+
+    // Two of the three rows are bound and carry a code; the third names a device
+    // that is not bound at all, so there is no code to offer and it renders no
+    // button rather than one that could only produce a "no access code" toast.
+    assert.equal(
+      await logsCard(page).getByRole('button', { name: 'Connect', exact: true }).count(),
+      2,
+    )
     assert.equal(await groupCount(page, 'Lab'), '1')
     assert.equal(await groupCount(page, 'Empty'), '0')
 

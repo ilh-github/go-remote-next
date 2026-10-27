@@ -19,11 +19,25 @@ function text(value) {
   return String(value).trim()
 }
 
-export function describeConnectionLog(row) {
+// QD-206 promises quick connect as well as the history itself, and the history
+// is the list an owner opens to find a machine they were on earlier. The access
+// code deliberately does not live on the history row -- the API does not store
+// it, which matches upstream issue #18's "do NOT persist verification-code" --
+// so it is joined from the device list, which does return it.
+export function describeConnectionLog(row, devices) {
   const log = row || {}
   const deviceId = text(log.device_id)
   const deviceName = text(log.device_name)
   const errorMsg = text(log.error_msg)
+
+  // Matched on device_id alone. A row whose id matches nothing stays
+  // unconnectable rather than borrowing a neighbour's code, and a device present
+  // but without a code is also unconnectable because connecting has to verify
+  // one -- offering the button there would only produce a "no access code" toast.
+  const bound = Array.isArray(devices)
+    ? devices.find((device) => text(device?.device_id) === deviceId && deviceId !== '')
+    : undefined
+  const accessCode = bound ? text(bound.access_code) : ''
 
   return {
     // The name is what the owner recognises; the id stays in the detail line
@@ -41,5 +55,7 @@ export function describeConnectionLog(row) {
     duration: formatDuration(log.duration),
     ip: text(log.connect_ip),
     failed: log.status !== 'success',
+    canConnect: accessCode !== '',
+    accessCode,
   }
 }

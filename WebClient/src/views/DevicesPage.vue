@@ -151,6 +151,21 @@
                  without it a failed entry says only that something went wrong. -->
             <div v-if="log.reason" class="device-log-reason">{{ log.reason }}</div>
           </div>
+          <!-- Quick connect. The history is the list someone opens to get back to
+               a machine they were on earlier, so it needs the same way back the
+               device list and favourites have. Only offered when the device is
+               still bound and its code is available, because connecting has to
+               verify one. -->
+          <div class="device-actions">
+            <button
+              v-if="log.canConnect"
+              class="btn btn-primary btn-sm"
+              :disabled="connecting === log.detail"
+              @click="connectDevice(log.detail, log.accessCode)"
+            >
+              {{ connecting === log.detail ? '...' : $t('devices.connect') }}
+            </button>
+          </div>
     </div>
       </div>
     </template>
@@ -461,7 +476,10 @@ const logs = ref([])
 // Described once per row so the template reads named fields instead of reaching
 // into the raw API shape: name, reason and duration are derived, and a failed
 // row's reason is the part that justifies opening this list.
-const describedLogs = computed(() => logs.value.map((log) => describeConnectionLog(log)))
+// Joined against the device list so a history row can offer a reconnect: the
+// history row itself carries no access code by design (the API does not store
+// one), and the device list does.
+const describedLogs = computed(() => logs.value.map((log) => describeConnectionLog(log, myDevices.value)))
 const remarkDialog = ref({ show: false, device: null, value: '' })
 const connecting = ref(null)
 const loading = ref(false)
