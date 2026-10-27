@@ -135,3 +135,24 @@ npm run test:e2e:control-grant
 
 Both need Go, `redis-server`, Node 22+ (built-in `WebSocket`), and a local
 Google Chrome for the first.
+
+## Running the whole suite
+
+```bash
+cd WebClient
+npm run test:e2e            # every file except the long soak
+npm run test:e2e:all        # everything, soak included
+npm run test:e2e -- --filter devices   # one file, or any substring
+npm run test:e2e:list       # what would run
+```
+
+The runner discovers `test/e2e/` rather than reading a hand-written list, and
+reports one aggregate verdict plus the name of every failing test. It exists
+because the alternative already failed once: the suite used to be a set of
+per-file npm scripts, and a file with no script was a file nobody ran. Three
+audit E2E files went red that way and stayed red for days, because the unit
+tests and the server were updated together while the browser tests were not.
+
+`wall-soak` is skipped by default and reported as skipped rather than passed -
+a suite that mostly did not run must not read as green. Run it explicitly with
+`npm run test:e2e:wall-soak`.

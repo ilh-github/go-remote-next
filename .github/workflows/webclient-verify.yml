@@ -54,21 +54,17 @@ jobs:
         # means "whatever Playwright installed", which is reproducible.
         run: npx playwright install --with-deps chromium
       # Every E2E here serves a mocked API, so none of them needs the signaling
-      # server or Redis. Listed individually rather than by glob because
-      # `wall-soak` is a two-hour gate and must never run in a normal pipeline.
+      # server or Redis.
+      #
+      # Through the runner rather than a hand-written list: this list was the
+      # reason three audit E2E files stayed red for days. The unit tests and the
+      # server were updated together, these were not, and nothing ran them as a
+      # set - a file with no line in this list was a file nobody ran. The runner
+      # discovers test/e2e/ so a new file is covered the day it lands, and skips
+      # the long soak explicitly rather than by omission.
       - name: Mocked-browser E2E
         working-directory: WebClient
-        run: |
-          node --test test/e2e/annotation.e2e.mjs
-          node --test test/e2e/file-manager.e2e.mjs
-          node --test test/e2e/reconnect.e2e.mjs
-          node --test test/e2e/tab-coordinator.e2e.mjs
-          node --test test/e2e/devices.e2e.mjs
-          node --test test/e2e/sessions-audit-ui.e2e.mjs
-          node --test test/e2e/wall.e2e.mjs
-          node --test test/e2e/scheduled-prompt.e2e.mjs
-          node --test test/e2e/recordings-live.e2e.mjs
-          node --test test/e2e/scheduled-edit.e2e.mjs
+        run: npm run test:e2e
 
   integration:
     name: Server-backed E2E
@@ -122,13 +118,17 @@ jobs:
       # These build and boot a real signaling server over a real Redis, so they
       # are the ones that catch a contract drift between the client and the
       # server - the failure mode a mocked API cannot see.
+      #
+      # The runner, for the same reason as the mocked job: a hand-written list is
+      # a file that can be forgotten. These are the files that need the server,
+      # so the filter names them rather than excluding anything - a new
+      # server-backed file still has to be added here, but now it fails loudly as
+      # "not run" instead of silently.
       - name: Server-backed E2E
         working-directory: WebClient
         run: |
-          node --test test/e2e/audit-log-client.e2e.mjs
-          node --test test/e2e/clipboard-audit.e2e.mjs
-          node --test test/e2e/owner-audit.e2e.mjs
-          node --test test/e2e/control-grant.e2e.mjs
-          node --test test/e2e/control-mode.e2e.mjs
-          node --test test/e2e/control-grant-fleet.e2e.mjs
-          node --test test/e2e/selfhost.e2e.mjs
+          node scripts/run-e2e.mjs --filter audit-log-client
+          node scripts/run-e2e.mjs --filter clipboard-audit
+          node scripts/run-e2e.mjs --filter owner-audit
+          node scripts/run-e2e.mjs --filter control
+          node scripts/run-e2e.mjs --filter selfhost
