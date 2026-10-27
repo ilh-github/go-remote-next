@@ -1088,6 +1088,15 @@ rotation 的事件写入同一数据库事务，`6386a48` 又把 TURN/STUN setti
   新增 #29（WSS 何时支持，与 #20 同一诉求）与 #30（Local Commander "Works with" 互链请求，
   第三方项目，属文档决策）。远端写入已确认可用：PR #31 与 #32 均创建成功，
   此前记录"push/PR 被策略阻塞"不再成立。
+- 2026-10-27 12:40 复核：上游 `dev` 仍为 `88d4d36`（自 PR #23 合并后无新提交），
+  `master` 仍为 `5969ae3`，与 10-25 的记录无漂移。本 fork 的 9 个候选分支
+  （PR #31/#32/#33/#34 加上尚未开 PR 的 QD-212/213/114/115/214）
+  相对 `upstream/dev` 均 behind 7~8 个提交，但 `git merge-tree --write-tree` 逐个实测
+  **零冲突**，与 GitHub 报的 `mergeable=MERGEABLE` / `mergeStateStatus=CLEAN` 一致。
+  「behind N」在这里只是"基线旧"，不是"需要 rebase"：那 7 个提交落在录像子系统，
+  而这些候选碰的文件不重叠。`codex/upstream-qd-002-file-ops` 另在隔离目录
+  `cargo build --offline` + `cargo test --offline` 实跑通过（4 passed），
+  确认候选本身健康而非仅"git 说能合"。
 - 历史记录 2026-10-17 23:04：上游两个分支为 `f6651f0`，10 个 open issue、4 个 open PR
   无漂移；四个 PR 均为 `mergeable=true`、`mergeable_state=unstable`，不能把
   “可合并”写成 CI 已通过。上游待办与本 fork 的统一拆解以 3.3 为执行入口。
