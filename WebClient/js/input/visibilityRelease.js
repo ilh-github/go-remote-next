@@ -92,6 +92,43 @@ export function watchForRelease(target, onRelease) {
   return () => detachers.forEach((detach) => detach())
 }
 
+/**
+ * The return path: attaches the events that mean "the operator is driving this
+ * machine again".
+ *
+ * Paired with watchForRelease because the release tears the input handlers down
+ * and something has to put them back. The keyboard does not need it - the
+ * operator's next keystroke goes through whatever handler exists - but the
+ * clipboard does, because the poller is a timer and a destroyed handler is a
+ * timer that never starts again.
+ *
+ * @param {Window} target
+ * @param {() => void} onReturn called when the page is visible and focused again
+ * @returns {() => void} detach
+ */
+export function watchForReturn(target, onReturn) {
+  if (!target || typeof target.addEventListener !== 'function') {
+    return () => {}
+  }
+
+  const detachers = []
+  const attach = (scope, event, handler) => {
+    scope.addEventListener(event, handler)
+    detachers.push(() => scope.removeEventListener(event, handler))
+  }
+
+  // Visible again. `hidden === false` rather than `!== true` because the state
+  // is read from the document, which is the same read the release uses.
+  attach(target.document || target, 'visibilitychange', () => {
+    if ((target.document || target).hidden === false) onReturn()
+  })
+  // Focused again. A window can stay visible while another application takes
+  // focus, so blur alone is not the only way to stop driving.
+  attach(target, 'focus', onReturn)
+
+  return () => detachers.forEach((detach) => detach())
+}
+
 function readState(scope) {
   return { hidden: scope.hidden === true, focused: scope.focused !== false }
 }

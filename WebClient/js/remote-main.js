@@ -11,7 +11,7 @@ import { MouseHandler } from './input/mouse-handler.js';
 import { KeyboardHandler } from './input/keyboard-handler.js';
 import { TouchHandler } from './input/touch-handler.js';
 import { ClipboardHandler } from './input/clipboard-handler.js';
-import { watchForRelease } from './input/visibilityRelease.js';
+import { watchForRelease, watchForReturn } from './input/visibilityRelease.js';
 import { selectDisplayTrack } from './videoLayout.js';
 import { TransferProgress, reconcileTotal } from './transferProgress.js';
 import { CursorRenderer } from './ui/cursor-renderer.js';
@@ -877,6 +877,33 @@ class RemoteDesktopApp {
             this._cleanupInputHandlers();
             this._log(t('log.inputReleased'), 'info');
         });
+        // The teardown above takes the clipboard with it. Putting it back is what
+        // stops the first blur from ending clipboard sync for the session.
+        this._detachVisibilityReturn = watchForReturn(window, () => {
+            this._restoreInputHandlers();
+        });
+    }
+
+    // The other half of the visibility release: putting back what the teardown
+    // took, once the operator is driving this machine again.
+    //
+    // The teardown exists for the keyboard - the host is left holding whatever
+    // was down and cannot notice this controller is gone. The clipboard is
+    // collateral damage in that call, and without this it stays dead for the
+    // rest of the session: the only paths that rebuild it are a new media track,
+    // the control-taken overlay and wall arming, and none of those happen when
+    // an operator switches back to the tab. The result is silent - the operator
+    // copies on the remote machine, nothing arrives locally, and no error
+    // appears anywhere.
+    _restoreInputHandlers() {
+        // Wall mode arms input explicitly; a tile is a monitor, not a console,
+        // and restoring here would hand control to whichever tile happens to be
+        // in the foreground.
+        if (this._wallMode) return;
+        if (!this.dcHandler || !this._deviceId) return;
+        // A session that has ended has nothing to restore into.
+        if (!this.session) return;
+        this._setupInputHandlers();
     }
 
     // QD-314: the server's answer on who may drive this machine. It is wired to
@@ -1899,6 +1926,10 @@ class RemoteDesktopApp {
         if (this._detachVisibilityRelease) {
             this._detachVisibilityRelease();
             this._detachVisibilityRelease = null;
+        }
+        if (this._detachVisibilityReturn) {
+            this._detachVisibilityReturn();
+            this._detachVisibilityReturn = null;
         }
         // The session is over, so its media state goes with it - the same reason
         // as the reconnect path.
