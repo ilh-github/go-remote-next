@@ -1193,6 +1193,20 @@ class RemoteDesktopApp {
         this._mobileKbInput = null;
         if (this.clipboardHandler) { this.clipboardHandler.destroy(); this.clipboardHandler = null; }
         if (this.cursorRenderer) { this.cursorRenderer.destroy(); this.cursorRenderer = null; }
+
+        // The host keeps its own record of which keys and buttons are down, and
+        // it has no way to notice that this controller is gone. Destroying the
+        // handlers drops the key-up events that were still pending, so the host
+        // is left holding them: the next person at the machine types into
+        // whatever modifier was stuck. The Qt client guards the same exposure
+        // with releaseAllInput on focus loss and teardown.
+        if (this.dcHandler) {
+            try {
+                this.dcHandler.sendAction('releaseAllInput');
+            } catch (_) {
+                // A channel that is already closed has nothing to release.
+            }
+        }
     }
 
     _sendInitialConfig() {

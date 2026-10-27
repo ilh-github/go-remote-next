@@ -315,6 +315,10 @@ export class DataChannelHandler extends EventTarget {
             'lockWorkstation': 2,
             'enablePrivacyScreen': 3,
             'disablePrivacyScreen': 4,
+            // Enum value taken from the ActionRequest descriptor embedded in
+            // the prebuilt host: the table reads ... privacyScreen = 3,
+            // (privacy screen off) = 4, releaseAllInput = 5.
+            'releaseAllInput': 5,
         };
         const actionEnum = actionMap[action];
         if (actionEnum === undefined) {
@@ -834,14 +838,20 @@ export class DataChannelHandler extends EventTarget {
 
         this.supportsSendAttentionSequence = hostSet.has('sendAttentionSequenceAction');
         this.supportsLockWorkstation = hostSet.has('lockWorkstationAction');
+        this.supportsReleaseAllInput = hostSet.has('releaseAllInputAction');
         this.supportsFileTransfer = hostSet.has('fileTransfer');
         this.supportsPrivacyScreen = hostSet.has('privacyScreen');
         this.supportsVirtualDisplay = hostSet.has('virtualDisplay');
 
-        console.log(`[DataChannel] Host caps: SAS=${this.supportsSendAttentionSequence} Lock=${this.supportsLockWorkstation} FileTransfer=${this.supportsFileTransfer} PrivacyScreen=${this.supportsPrivacyScreen} VD=${this.supportsVirtualDisplay}`);
+        console.log(`[DataChannel] Host caps: SAS=${this.supportsSendAttentionSequence} Lock=${this.supportsLockWorkstation} Release=${this.supportsReleaseAllInput} FileTransfer=${this.supportsFileTransfer} PrivacyScreen=${this.supportsPrivacyScreen} VD=${this.supportsVirtualDisplay}`);
 
         // Create "actions" outgoing data channel if any action is supported.
-        if ((this.supportsSendAttentionSequence || this.supportsLockWorkstation || this.supportsPrivacyScreen) && this._pc) {
+        // The release action has to be in this list on its own merits: a host
+        // that supports only releaseAllInput would otherwise get no actions
+        // channel at all, and the one action that prevents stuck input would be
+        // the one that cannot be sent.
+        if ((this.supportsSendAttentionSequence || this.supportsLockWorkstation ||
+             this.supportsPrivacyScreen || this.supportsReleaseAllInput) && this._pc) {
             this.actionsChannel = this._pc.createDataChannel('actions', { ordered: true });
             this.actionsChannel.binaryType = 'arraybuffer';
             this.actionsChannel.onopen = () => {
@@ -863,6 +873,7 @@ export class DataChannelHandler extends EventTarget {
             detail: {
                 supportsSendAttentionSequence: this.supportsSendAttentionSequence,
                 supportsLockWorkstation: this.supportsLockWorkstation,
+                supportsReleaseAllInput: this.supportsReleaseAllInput,
                 supportsFileTransfer: this.supportsFileTransfer,
                 supportsPrivacyScreen: this.supportsPrivacyScreen,
                 supportsVirtualDisplay: this.supportsVirtualDisplay,
