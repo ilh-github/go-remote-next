@@ -6,6 +6,7 @@
  */
 
 import { t } from '../i18n.js';
+import { deriveVideoRates, isComparableSample } from './videoRates.js';
 
 export class VideoStats {
     /**
@@ -151,23 +152,15 @@ export class VideoStats {
                 selectedRemote = remoteCandidates.find(c => c.id === activePairRemoteId) || null;
             }
 
-            let fps = 0;
-            let bitrate = 0;
-            let packetRate = 0;
-
-            if (this._prevStats && timeDelta > 0) {
-                const prevVideo = this._prevStats.video;
-                if (prevVideo) {
-                    const framesDelta = (videoStats.framesDecoded || 0) - (prevVideo.framesDecoded || 0);
-                    fps = Math.round(framesDelta / timeDelta);
-
-                    const bytesDelta = (videoStats.bytesReceived || 0) - (prevVideo.bytesReceived || 0);
-                    bitrate = Math.round((bytesDelta * 8) / timeDelta / 1000);
-
-                    const pktDelta = (videoStats.packetsReceived || 0) - (prevVideo.packetsReceived || 0);
-                    packetRate = Math.round(pktDelta / timeDelta);
-                }
-            }
+            // Switching monitors replaces the stream and its counters restart from
+            // zero, so the previous sample is dropped instead of subtracted from:
+            // a negative difference would put a negative frame rate on the overlay.
+            const previousVideo = isComparableSample(this._prevStats?.video, videoStats)
+                ? this._prevStats.video
+                : null;
+            const { fps, bitrateKbps: bitrate, packetRate } = deriveVideoRates(
+                previousVideo, videoStats, timeDelta,
+            );
 
             this._render({
                 video: videoStats,
