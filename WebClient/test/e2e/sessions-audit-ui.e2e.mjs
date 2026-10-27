@@ -89,7 +89,53 @@ function auditItems() {
   ]
 }
 
-async function openSessionsPage({ auditMode }) {
+// One ended session, so the detail panel can be opened against a row that is not
+// live.
+function sessionItems() {
+  return [{
+    id: 1,
+    session_id: 'sig_detail',
+    device_id: '700000009',
+    client_id: 'ctrl-1',
+    client_ip: '203.0.113.9',
+    active: false,
+    started_at: '2026-10-18T09:59:00Z',
+    ended_at: '2026-10-18T10:06:00Z',
+  }]
+}
+
+// Exactly the shape `detailEnvelope` returns: the recordings and access-log rows
+// themselves, plus the counts derived from them.
+function sessionDetail() {
+  return {
+    session: sessionItems()[0],
+    recordings: [
+      {
+        id: 11,
+        session_id: 'sig_detail',
+        status: 'completed',
+        duration: 90,
+        format: 'mp4',
+        created_at: '2026-10-18T10:00:00Z',
+        artifact_url: '/media/detail-a.mp4',
+      },
+      {
+        // Still being written, so there is no media to play yet.
+        id: 12,
+        session_id: 'sig_detail',
+        status: 'recording',
+        duration: 0,
+        created_at: '2026-10-18T10:05:00Z',
+      },
+    ],
+    access_log: [
+      { id: 21, session_id: 'sig_detail', result: 'session_started', ip: '203.0.113.9', created_at: '2026-10-18T09:59:00Z' },
+    ],
+    counts: { recordings: 2, access_log: 1 },
+  }
+}
+
+async function openSessionsPage({ auditMode, withSessions = false }) {
   // A fresh context per test. localStorage and route handlers live in the
   // context, so sharing one would let a previous test's token or mock decide
   // what this one sees - which is how a passing test starts failing only when
@@ -118,7 +164,12 @@ async function openSessionsPage({ auditMode }) {
       return
     }
     if (method === 'GET' && url.pathname === '/v1/me/remote-sessions') {
-      await fulfillJSON(route, { items: [], next_cursor: null })
+      await fulfillJSON(route, { items: withSessions ? sessionItems() : [], next_cursor: null })
+      return
+    }
+    const detail = url.pathname.match(/^\/v1\/me\/remote-sessions\/([^/]+)$/)
+    if (method === 'GET' && detail) {
+      await fulfillJSON(route, sessionDetail(decodeURIComponent(detail[1])))
       return
     }
     if (method === 'GET' && url.pathname === '/v1/me/audit-logs') {
@@ -146,6 +197,38 @@ async function openSessionsPage({ auditMode }) {
   await page.locator('.toolbar').first().waitFor({ state: 'visible', timeout: 10000 })
   return { page, context, pageErrors, requests: () => auditRequests }
 }
+
+// QD-208, the half that was missing: the session detail aggregates a session
+// with its recordings and its access log, and the server does send the recordings
+// themselves -- `detailEnvelope` puts the full array in the payload. The UI read
+// only `counts.recordings` and listed nothing, so a count was the whole story: it
+// told the owner a recording existed without telling them which one, when it was
+// made, or whether there was anything to play.
+test('the session detail lists its recordings, not just how many there are', async () => {
+  const { page, context, pageErrors } = await openSessionsPage({ auditMode: 'rows', withSessions: true })
+  try {
+    await page.getByRole('button', { name: 'Details', exact: true }).first().click()
+
+    const detail = page.locator('.session-detail')
+    await detail.waitFor({ state: 'visible', timeout: 5000 })
+    // The recordings have to appear as rows. Waiting for the first alone would
+    // pass on a page that rendered one and dropped the rest.
+    await detail.locator('.detail-row').nth(1).waitFor({ state: 'attached', timeout: 5000 })
+
+    const text = await detail.innerText()
+    // The timestamp is rendered in the viewer's local zone, so assert on the date
+    // and that a clock time is present rather than on a specific hour.
+    assert.ok(/2026\/10\/18\s+\d{2}:\d{2}/.test(text), `the recording timestamp is not shown: ${text}`)
+    assert.ok(/completed/.test(text), `the recording status is not shown: ${text}`)
+    assert.ok(/1m30s/.test(text), `the recording duration is not shown: ${text}`)
+    // The still-recording row has no media, so it must say so rather than offer a
+    // button that can only fail.
+    assert.ok(text.includes('No media yet'), `the unplayable row does not say why: ${text}`)
+    assert.deepEqual(pageErrors, [])
+  } finally {
+    await context.close()
+  }
+})
 
 // The entry point exists and opens the panel. A button that renders but does
 // nothing would pass a "button exists" assertion, so this also waits for a row.

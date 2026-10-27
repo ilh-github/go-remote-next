@@ -142,14 +142,30 @@
               <div v-if="detailLoading" class="hint">{{ $t('sessions.loading') }}</div>
               <template v-else-if="detail">
                 <div class="detail-line">
-                  <b>{{ $t('sessions.recordings') }}:</b> {{ detail.counts?.recordings ?? 0 }}
+                  <b>{{ $t('sessions.recordings') }}:</b> {{ describedDetail.counts.recordings }}
+                </div>
+                <!-- The recordings themselves, not just how many there are: a count
+                     tells the owner one exists, it does not tell them which, when, or
+                     whether there is anything to play. -->
+                <div v-if="describedDetail.recordings.length" class="detail-list">
+                  <div v-for="rec in describedDetail.recordings" :key="rec.id" class="detail-row">
+                    <span>{{ formatTime(rec.createdAt) }}</span>
+                    <span>{{ rec.status }}</span>
+                    <span v-if="rec.duration">{{ rec.duration }}</span>
+                    <button
+                      v-if="rec.playable"
+                      class="btn btn-secondary btn-sm"
+                      @click="playSessionRecording(rec)"
+                    >{{ $t('sessions.playRecording') }}</button>
+                    <span v-else class="hint">{{ $t('sessions.noMedia') }}</span>
+                  </div>
                 </div>
                 <div class="detail-line">
-                  <b>{{ $t('sessions.accessLog') }}:</b> {{ detail.counts?.access_log ?? 0 }}
+                  <b>{{ $t('sessions.accessLog') }}:</b> {{ describedDetail.counts.accessLog }}
                 </div>
-                <div v-if="(detail.access_log ?? []).length" class="detail-list">
-                  <div v-for="log in detail.access_log" :key="log.id" class="detail-row">
-                    <span>{{ formatTime(log.created_at) }}</span>
+                <div v-if="describedDetail.accessLog.length" class="detail-list">
+                  <div v-for="log in describedDetail.accessLog" :key="log.id" class="detail-row">
+                    <span>{{ formatTime(log.createdAt) }}</span>
                     <span>{{ log.result }}</span>
                     <span>{{ log.ip }}</span>
                   </div>
@@ -173,6 +189,7 @@ import { computed, inject, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { userApi } from '../api/userApi'
 import { userSync } from '../api/userSync'
+import { describeSessionDetail, resolveRecordingUrl } from '../sessionDetailModel'
 import { useSessionAudit } from '../composables/useSessionAudit'
 import { auditRowLabel } from '../api/auditLogModel'
 
@@ -191,6 +208,12 @@ const devices = ref([])
 const expanded = ref('')
 const detail = ref(null)
 const detailLoading = ref(false)
+
+// QD-208: the server sends the recordings and access-log rows themselves, so the
+// detail is described for display rather than read raw in the template. The
+// arrays win over the counts when the two disagree, because the rows are what the
+// owner acts on.
+const describedDetail = computed(() => (detail.value ? describeSessionDetail(detail.value) : null))
 const busy = ref('')
 const clearBusy = ref(false)
 const blockedSources = ref([])
@@ -318,6 +341,29 @@ async function toggleDetail(row) {
   if (expanded.value !== row.session_id) return
   detailLoading.value = false
   if (r.ok) detail.value = r.data
+}
+
+// Playing a recording from the session detail. A browser cannot attach the Bearer
+// token to a <video src> or window.open, so the server is asked for a short-lived
+// signed URL first; if tickets are unavailable on this deployment the plain
+// artifact URL still works when the server is reached without the API-key gate.
+async function playSessionRecording(rec) {
+  if (!rec?.playable) {
+    showToast(t('sessions.noMediaHint'), 'info')
+    return
+  }
+  let url = resolveRecordingUrl(rec, userApi.getServerUrl())
+  try {
+    const r = await userApi.createRecordingTicket(rec.id)
+    if (r.ok && r.data && r.data.url) {
+      url = resolveRecordingUrl({ ...rec, artifact_url: r.data.url }, userApi.getServerUrl())
+    }
+  } catch { /* fall through to the direct URL */ }
+  if (!url) {
+    showToast(t('sessions.noMediaHint'), 'info')
+    return
+  }
+  window.open(url, `quickdesk_recording_${rec.id}`)
 }
 
 async function revoke(row) {
