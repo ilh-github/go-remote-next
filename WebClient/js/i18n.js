@@ -154,6 +154,10 @@ const zh = {
     'files.previewTruncated': '仅显示文件开头部分。请下载后查看完整内容。',
     'files.downloaded': '已下载 {name}',
     'files.uploadedCount': '已上传 {count} 个文件',
+    // A batch where some files landed and one did not. Reporting only the count
+    // would read as a clean run; reporting only the error would hide the ones
+    // already on the host.
+    'files.uploadPartial': '已上传 {done}/{total} 个文件，其余失败：{name}',
     'files.empty': '此目录为空',
     'files.rename': '重命名',
     'files.download': '下载',
@@ -491,6 +495,7 @@ const en = {
     'files.previewTruncated': 'Only the beginning of the file is shown. Download it for the full content.',
     'files.downloaded': 'Downloaded {name}',
     'files.uploadedCount': 'Uploaded {count} files',
+    'files.uploadPartial': 'Uploaded {done} of {total} files; the rest failed: {name}',
     'files.empty': 'This directory is empty',
     'files.rename': 'Rename',
     'files.download': 'Download',

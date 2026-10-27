@@ -5,6 +5,7 @@ import {
     joinRemotePath,
 } from './file-manager-model.js';
 import { StatusLine } from './statusLine.js';
+import { runUploadBatch, uploadBatchStatus } from './uploadBatch.js';
 
 export class FileManagerPanel {
     constructor(container, manager) {
@@ -281,10 +282,11 @@ export class FileManagerPanel {
         this._uploadInput.value = '';
         if (files.length === 0) return;
         await this._run(async () => {
-            for (const file of files) {
-                await this.manager.upload(file, this.manager.currentPath);
-            }
-            this._setStatus(t('files.uploadedCount', { count: files.length }));
+            const result = await runUploadBatch(files, (file) =>
+                this.manager.upload(file, this.manager.currentPath));
+            if (result.failure && result.succeeded.length === 0) throw result.failure;
+            const status = uploadBatchStatus(result, files.length);
+            if (status) this._setStatus(t(status.key, status.params), status.isError, status.key);
         });
     }
 
