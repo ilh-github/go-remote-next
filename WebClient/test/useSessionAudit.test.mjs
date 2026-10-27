@@ -284,3 +284,94 @@ test('reset returns the composable to its unread state', async () => {
     restore()
   }
 })
+
+// QD-110: the server pages at 200 and hands back a `next` cursor. The panel asks
+// for 100 and stops there, so an account with more transfers than one page shows
+// only the newest slice - with nothing on screen saying there is more. The owner
+// reading "these are my transfers" is actually reading "these are my newest
+// transfers", and the difference matters exactly when they are looking for
+// something old.
+test('a read that has more pages follows the cursor', async () => {
+  const restore = stubFetchAuditLogs(async ({ cursor }) => {
+    if (cursor === 'page-2') {
+      return { ok: true, data: { items: [{ id: 2, action: 'file.transfer' }], next: '' } }
+    }
+    return { ok: true, data: { items: [{ id: 1, action: 'file.transfer' }], next: 'page-2' } }
+  })
+  const restoreArchive = stubFetchArchivedAuditLogs(async () => ({ ok: true, data: { items: [] } }))
+  try {
+    const audit = useSessionAudit()
+    await audit.load()
+
+    assert.equal(audit.rows.value.length, 2,
+      'the second page was never fetched, so an account with more transfers than one page shows only the newest')
+    assert.equal(audit.rows.value[0].id, 1)
+    assert.equal(audit.rows.value[1].id, 2)
+  } finally {
+    restore()
+    restoreArchive()
+  }
+})
+
+test('a read with no further page stops after one request', async () => {
+  let calls = 0
+  const restore = stubFetchAuditLogs(async () => {
+    calls += 1
+    return { ok: true, data: { items: [{ id: 1, action: 'file.transfer' }], next: '' } }
+  })
+  const restoreArchive = stubFetchArchivedAuditLogs(async () => ({ ok: true, data: { items: [] } }))
+  try {
+    const audit = useSessionAudit()
+    await audit.load()
+
+    assert.equal(calls, 1, 'a read with no next cursor issued another request')
+    assert.equal(audit.rows.value.length, 1)
+  } finally {
+    restore()
+    restoreArchive()
+  }
+})
+
+test('a failing later page does not discard the pages already read', async () => {
+  // The first page succeeded, so those rows are real. Throwing them away because
+  // the second request failed would turn a partial read into an empty one, which
+  // is the same lie the error path is careful not to tell.
+  const restore = stubFetchAuditLogs(async ({ cursor }) => {
+    if (cursor === 'page-2') return { ok: false, error: 'the second page failed' }
+    return { ok: true, data: { items: [{ id: 1, action: 'file.transfer' }], next: 'page-2' } }
+  })
+  const restoreArchive = stubFetchArchivedAuditLogs(async () => ({ ok: true, data: { items: [] } }))
+  try {
+    const audit = useSessionAudit()
+    await audit.load()
+
+    assert.equal(audit.rows.value.length, 1,
+      'a failed later page discarded the rows the first page already returned')
+  } finally {
+    restore()
+    restoreArchive()
+  }
+})
+
+test('a server that returns the same cursor forever does not spin', async () => {
+  // The guard is the `next === cursor` check. Without it a server that hands back
+  // the same cursor on every page - or one that never clears it - turns the read
+  // into an unbounded loop, and the panel never finishes loading.
+  let calls = 0
+  const restore = stubFetchAuditLogs(async () => {
+    calls += 1
+    if (calls > 20) return { ok: true, data: { items: [], next: '' } }
+    return { ok: true, data: { items: [{ id: calls, action: 'file.transfer' }], next: 'stuck' } }
+  })
+  const restoreArchive = stubFetchArchivedAuditLogs(async () => ({ ok: true, data: { items: [] } }))
+  try {
+    const audit = useSessionAudit()
+    await audit.load()
+
+    assert.ok(calls <= 3,
+      `the read issued ${calls} requests against a server repeating one cursor`)
+  } finally {
+    restore()
+    restoreArchive()
+  }
+})

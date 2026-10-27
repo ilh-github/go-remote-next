@@ -66,11 +66,7 @@ export function useSessionAudit(api) {
     error.value = ''
     try {
       const client = await resolveClient(api)
-      const response = await client.fetchAuditLogs({ limit: 100 })
-      if (!response || response.ok !== true) {
-        throw new Error(response?.error || 'the audit read failed')
-      }
-      rows.value = describeAuditRows(response.data?.items ?? [])
+      rows.value = describeAuditRows(await readEveryPage(client))
       loaded.value = true
       source.value = 'live'
       // An empty live table is not the whole answer once retention has run: the
@@ -90,6 +86,37 @@ export function useSessionAudit(api) {
       loading.value = false
     }
   }
+
+// The server pages at 200 and hands back a `next` cursor. Asking for one page
+// and stopping there would show an account with more transfers than that only
+// its newest slice, with nothing on screen saying there is more - the owner
+// reading "these are my transfers" would actually be reading "these are my
+// newest transfers", and the difference matters exactly when they are looking
+// for something old.
+//
+// The page size is the server's maximum rather than a number of our own, so a
+// busy account costs as few requests as the contract allows. The loop is bounded
+// by the cursor running out, and a page that fails after earlier pages succeeded
+// keeps those rows: a partial read is more honest than an empty one, and the
+// error path below is what handles a read that fails from the start.
+async function readEveryPage(client, limit = 200) {
+  const collected = []
+  let cursor = ''
+  for (;;) {
+    const response = await client.fetchAuditLogs({ limit, cursor })
+    if (!response || response.ok !== true) {
+      if (collected.length === 0) {
+        throw new Error(response?.error || 'the audit read failed')
+      }
+      return collected
+    }
+    const items = Array.isArray(response.data?.items) ? response.data.items : []
+    collected.push(...items)
+    const next = typeof response.data?.next === 'string' ? response.data.next : ''
+    if (!next || next === cursor) return collected
+    cursor = next
+  }
+}
 
   /**
    * Reads the archived half of the trail.
