@@ -208,6 +208,20 @@
 
 最近验证：
 
+- 事件覆盖对账（第 9 节通知与任务的 WebClient 消费侧，无代码改动，结论已查证）：
+  33 个服务端事件常量中 12 个在 `SupportedUserNotificationEvents` 内，19 个用户域事件不在。
+  逐条查证后**没有发现缺口**，其中三条此前看着像疏漏：①`device.secret.rotated` 由管理员
+  触发（`/v1/admin/devices/:id/secret:rotate`），已在 admin webhook 白名单与审计链内，
+  用户通知通道拿不到是划界而非遗漏；②`remote_session.started/ended` 无服务端订阅者、
+  也不可订阅，但 WebClient 的 `userSync` 已把它们派发为 `remote-session-changed` 供会话页
+  实时刷新——实时通路是通的，缺的只是「推送通知」这一条可选通道；③
+  `device.access_grant.used` 不在审计开关里、审计行数为 0，这一点清单 QD-513 与
+  `docs/dev/自托管端到端联调记录.md` 都已明确记录为**刻意设计**（它与
+  `access_grant.changed` 的目标就是 webhook/通知，不是审计 trail）。本轮顺带纠正自己一个
+  误判：曾以为 `SupportedUserNotificationEvents` 里 `EventScheduledTaskFailed` 与
+  `EventDeviceConnectPrompted` 两条注释互换，逐行比对后确认两条各自匹配其常量，是我的读错。
+  该对账的判据已由 `WebClient/test/eventCoverage.test.mjs` 固化为测试（驱动真实
+  `userSync._onMessage` 逐条灌入 33 个事件，断言 10 个「有页面在看」的必须派发）。
 - `8805474b`（首条 track 到达前会把猜出来的 1920x1080 焊进输入 handler）：
   `_setupInputHandlers` 的回退是 `this._remoteWidth || video.videoWidth || 1920`。两个回退都
   不诚实：`video.videoWidth` 在换流期间是**上一条流**的固有尺寸（正是此前修过的
