@@ -1133,6 +1133,9 @@ class RemoteDesktopApp {
         }
 
         if (this.floatingToolbar) {
+            // Same reason as the display switch above: "original" tracks the
+            // monitor being viewed, and this is the other path that changes it.
+            this.floatingToolbar.setRemoteResolution(selectedTrack.width, selectedTrack.height);
             this.floatingToolbar.updateDisplayList(displays, selectedIndex);
         }
     }
@@ -1335,6 +1338,14 @@ class RemoteDesktopApp {
 
         if (this.mouseHandler) this.mouseHandler.setRemoteResolution(track.width, track.height);
         if (this.touchHandler) this.touchHandler.setRemoteResolution(track.width, track.height);
+
+        // The toolbar's "original" entry and its resolution readout both follow
+        // the monitor being viewed. `onloadedmetadata` only fires for the first
+        // stream, so without this the toolbar keeps reporting the first monitor
+        // after a switch.
+        if (this.floatingToolbar) {
+            this.floatingToolbar.setRemoteResolution(track.width, track.height);
+        }
 
         const resEl = document.getElementById('connResolution');
         if (resEl) resEl.textContent = `${track.width}x${track.height}`;
@@ -1751,9 +1762,10 @@ class RemoteDesktopApp {
             case 'resolution': {
                 let width, height;
                 if (detail.value === 'original') {
-                    if (this.floatingToolbar?._originalWidth > 0) {
-                        width = this.floatingToolbar._originalWidth;
-                        height = this.floatingToolbar._originalHeight;
+                    const original = this.floatingToolbar?._originalResolution;
+                    if (original && original.width > 0) {
+                        width = original.width;
+                        height = original.height;
                     } else return;
                 } else {
                     const parts = detail.value.split('x');

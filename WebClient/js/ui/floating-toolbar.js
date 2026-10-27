@@ -6,6 +6,7 @@
  */
 
 import { t } from '../i18n.js';
+import { OriginalResolutionTracker } from './originalResolution.js';
 
 export class FloatingToolbar extends EventTarget {
     /**
@@ -46,8 +47,9 @@ export class FloatingToolbar extends EventTarget {
 
         this._remoteWidth = 0;
         this._remoteHeight = 0;
-        this._originalWidth = 0;
-        this._originalHeight = 0;
+        // Which desktop size "original" restores to. Tracks the monitor being
+        // viewed, so switching monitors keeps the entry honest.
+        this._originalResolution = new OriginalResolutionTracker();
 
         this._create();
     }
@@ -55,10 +57,11 @@ export class FloatingToolbar extends EventTarget {
     setRemoteResolution(width, height) {
         this._remoteWidth = width;
         this._remoteHeight = height;
-        if (!this._originalWidth && width > 0) {
-            this._originalWidth = width;
-            this._originalHeight = height;
-        }
+
+        // "Original" means the desktop being viewed right now, not the first one
+        // this toolbar ever heard about: switching monitors replaces the stream
+        // and the new monitor usually has a different native size.
+        this._originalResolution.observe(width, height);
     }
 
     /** @private */
@@ -299,8 +302,9 @@ export class FloatingToolbar extends EventTarget {
             } else if (key === 'resolution') {
                 const origItem = submenu.querySelector('#resOriginal .menu-text');
                 if (origItem) {
-                    origItem.textContent = this._originalWidth > 0
-                        ? `${t('menu.original')} (${this._originalWidth}×${this._originalHeight})`
+                    const label = this._originalResolution ? this._originalResolution.label() : '';
+                    origItem.textContent = label
+                        ? `${t('menu.original')} (${label})`
                         : t('menu.original');
                 }
             }
