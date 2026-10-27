@@ -723,6 +723,14 @@ type AuditListParams struct {
 	// which table that account lives in. Substring, case-insensitive, matching
 	// the existing `admin` filter.
 	Username string
+	// DetailsContains narrows to rows whose details JSON contains this literal.
+	// It exists for the data-channel trail: a file transfer's direction used to
+	// be part of its action, and moving it into the details means filtering by
+	// direction has to look there. Matching on the JSON text is deliberate - the
+	// details are a small fixed shape written by one handler, and a substring
+	// match avoids depending on a JSON operator that behaves differently across
+	// the SQLite and PostgreSQL drivers.
+	DetailsContains string
 }
 
 func (s *AuditService) List(ctx context.Context, p AuditListParams) ([]models.AuditLog, int64, error) {
@@ -746,6 +754,9 @@ func (s *AuditService) List(ctx context.Context, p AuditListParams) ([]models.Au
 	}
 	if p.ActorUserID > 0 {
 		query = query.Where("actor_user_id = ?", p.ActorUserID)
+	}
+	if p.DetailsContains != "" {
+		query = query.Where("details LIKE ?", "%"+p.DetailsContains+"%")
 	}
 	if p.DateFrom != "" {
 		if t, err := time.Parse(time.RFC3339, p.DateFrom); err == nil {

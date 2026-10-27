@@ -42,8 +42,8 @@ func TestOwnerAuditReadsBackTheirOwnTransfers(t *testing.T) {
 	if len(items) != 1 {
 		t.Fatalf("items = %d, want 1", len(items))
 	}
-	if items[0]["action"] != "clipboard.sync.upload" {
-		t.Fatalf("action = %v, want clipboard.sync.upload", items[0]["action"])
+	if items[0]["action"] != "clipboard.sync" {
+		t.Fatalf("action = %v, want clipboard.sync", items[0]["action"])
 	}
 	// The byte count is the point of the row: it answers "how much went where"
 	// without the text that would turn the trail into a credential store. It
@@ -145,11 +145,16 @@ func TestOwnerAuditCoversFileTransfersAndClipboardSyncs(t *testing.T) {
 		t.Fatalf("items = %d, want 2 (one file, one clipboard)", len(items))
 	}
 	body := rec.Body.String()
-	if !jsonContains(body, "file.transfer.download") {
+	// The action names the resource; the direction is in the details. A row whose
+	// action still carried the direction would split one transfer into two.
+	if !jsonContains(body, "file.transfer") {
 		t.Fatalf("the file transfer was missing: %s", body)
 	}
-	if !jsonContains(body, "clipboard.sync.upload") {
+	if !jsonContains(body, "clipboard.sync") {
 		t.Fatalf("the clipboard sync was missing: %s", body)
+	}
+	if !jsonContains(body, "download") {
+		t.Fatalf("the transfer's direction was not recorded: %s", body)
 	}
 }
 
@@ -181,13 +186,60 @@ func TestOwnerAuditFiltersByAction(t *testing.T) {
 		TotalBytes:       1,
 	})
 
+	// The direction-scoped name still filters - it resolves to the aggregate
+	// action plus that direction, which is matched against the details.
 	rec := listOwnerAudit(t, h, userID, "clipboard.sync.upload")
 	items := decodeOwnerAuditItems(t, rec)
 	if len(items) != 1 {
 		t.Fatalf("items = %d, want 1", len(items))
 	}
-	if items[0]["action"] != "clipboard.sync.upload" {
-		t.Fatalf("action = %v, want clipboard.sync.upload", items[0]["action"])
+	if items[0]["action"] != "clipboard.sync" {
+		t.Fatalf("action = %v, want clipboard.sync", items[0]["action"])
+	}
+	var details struct {
+		Directions []string `json:"directions"`
+	}
+	if err := json.Unmarshal([]byte(items[0]["details"].(string)), &details); err != nil {
+		t.Fatalf("details was not JSON: %v", err)
+	}
+	if len(details.Directions) != 1 || details.Directions[0] != "upload" {
+		t.Fatalf("directions = %v, want [upload]", details.Directions)
+	}
+}
+
+// The aggregate action is a valid filter too, and it returns rows whichever way
+// they went - which is the point of the aggregate existing.
+func TestOwnerAuditFiltersByTheAggregateAction(t *testing.T) {
+	db := newOwnerAuditTestDB(t)
+	const (
+		deviceID = "711111111"
+		userID   = uint(9706)
+	)
+	h, _ := newOwnerAuditHandler(t, db, deviceID, userID)
+
+	recordFileTransferAudit(t, h.Files, h.ctx, fileTransferAuditBody{
+		DeviceID:         deviceID,
+		TransferID:       "file-agg-up",
+		Direction:        "upload",
+		Status:           "completed",
+		Filename:         "a.txt",
+		BytesTransferred: 1,
+		TotalBytes:       1,
+	})
+	recordFileTransferAudit(t, h.Files, h.ctx, fileTransferAuditBody{
+		DeviceID:         deviceID,
+		TransferID:       "file-agg-down",
+		Direction:        "download",
+		Status:           "completed",
+		Filename:         "b.txt",
+		BytesTransferred: 2,
+		TotalBytes:       2,
+	})
+
+	rec := listOwnerAudit(t, h, userID, "file.transfer")
+	items := decodeOwnerAuditItems(t, rec)
+	if len(items) != 2 {
+		t.Fatalf("items = %d, want both directions under the aggregate action", len(items))
 	}
 }
 

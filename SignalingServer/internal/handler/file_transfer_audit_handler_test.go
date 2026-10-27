@@ -98,8 +98,12 @@ func TestFileTransferAuditHandlerRecordsOwnerUpload(t *testing.T) {
 	if err := db.First(&row).Error; err != nil {
 		t.Fatalf("load audit row: %v", err)
 	}
-	if row.ActorUserID != userID || row.Action != "file.transfer.upload" {
-		t.Fatalf("actor/action = %d/%q, want %d/file.transfer.upload",
+	// The action names the resource, not the direction: the transfer id is what
+	// identifies a transfer, and the direction is one of the things that happened
+	// during it. Putting the direction in the key made one transfer id reported
+	// with both directions produce two rows.
+	if row.ActorUserID != userID || row.Action != "file.transfer" {
+		t.Fatalf("actor/action = %d/%q, want %d/file.transfer",
 			row.ActorUserID, row.Action, userID)
 	}
 	if row.ResourceType != "file_transfer" || row.ResourceID != transferID {
@@ -119,6 +123,11 @@ func TestFileTransferAuditHandlerRecordsOwnerUpload(t *testing.T) {
 		details["bytes_transferred"] != float64(123) ||
 		details["total_bytes"] != float64(123) {
 		t.Fatalf("details = %#v", details)
+	}
+	// The direction is recorded, in the details rather than in the key.
+	directions, ok := details["directions"].([]any)
+	if !ok || len(directions) != 1 || directions[0] != "upload" {
+		t.Fatalf("directions = %#v, want [upload]", details["directions"])
 	}
 }
 

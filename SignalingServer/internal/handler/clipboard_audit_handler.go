@@ -85,13 +85,18 @@ func (h *ClipboardAuditHandler) Create(c *gin.Context) {
 	details, _ := json.Marshal(map[string]any{
 		"device_id": req.DeviceID,
 		"status":    req.Status,
-		"mime_type": req.MimeType,
-		"bytes":     req.Bytes,
+		// The direction belongs here rather than in the action, for the same
+		// reason as a file transfer: the transfer id is what identifies a sync,
+		// and the direction is one of the things that happened during it. In the
+		// action it split one sync reported both ways into two rows.
+		"directions": []string{req.Direction},
+		"mime_type":  req.MimeType,
+		"bytes":      req.Bytes,
 	})
 	if _, err := h.audit.LogActorOnce(
 		c.Request.Context(),
 		uid,
-		"clipboard.sync."+req.Direction,
+		clipboardSyncAuditAction,
 		"clipboard_sync",
 		req.TransferID,
 		string(details),
@@ -129,3 +134,8 @@ func validateClipboardAudit(req clipboardAuditRequest) error {
 	}
 	return nil
 }
+
+// clipboardSyncAuditAction is the audit action for a clipboard sync. It is
+// direction-free for the same reason the file transfer action is: the transfer id
+// identifies the sync, and the direction is recorded in the details.
+const clipboardSyncAuditAction = "clipboard.sync"

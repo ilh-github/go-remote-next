@@ -48,8 +48,12 @@ func TestClipboardAuditNeverStoresTheClipboardText(t *testing.T) {
 	if strings.Contains(rows[0].Details, "SUPER") {
 		t.Fatalf("a fragment of the clipboard text reached the audit row: %s", rows[0].Details)
 	}
-	if rows[0].Action != "clipboard.sync.upload" {
-		t.Fatalf("action = %q, want clipboard.sync.upload", rows[0].Action)
+	// The action names the resource; the direction is in the details.
+	if rows[0].Action != "clipboard.sync" {
+		t.Fatalf("action = %q, want clipboard.sync", rows[0].Action)
+	}
+	if !strings.Contains(rows[0].Details, "upload") {
+		t.Fatalf("the direction was not recorded: %s", rows[0].Details)
 	}
 }
 
@@ -92,8 +96,11 @@ func TestClipboardAuditRecordsTheMetadataThatIdentifiesTheTransfer(t *testing.T)
 	if details["bytes"] != float64(4096) {
 		t.Fatalf("bytes = %v, want 4096", details["bytes"])
 	}
-	if row.Action != "clipboard.sync.download" {
-		t.Fatalf("action = %q, want clipboard.sync.download", row.Action)
+	if row.Action != "clipboard.sync" {
+		t.Fatalf("action = %q, want clipboard.sync", row.Action)
+	}
+	if !strings.Contains(row.Details, "download") {
+		t.Fatalf("the direction was not recorded: %s", row.Details)
 	}
 }
 

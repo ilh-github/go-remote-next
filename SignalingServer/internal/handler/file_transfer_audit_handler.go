@@ -41,6 +41,12 @@ type fileTransferAuditRequest struct {
 	Error            string `json:"error"`
 }
 
+// fileTransferAuditAction is the audit action for a file transfer. It is
+// deliberately direction-free: the transfer id is what identifies a transfer,
+// and the direction is one of the things that happened during it - so it is
+// recorded in the details rather than in the identity key.
+const fileTransferAuditAction = "file.transfer"
+
 func (h *FileTransferAuditHandler) Create(c *gin.Context) {
 	uid := middleware.MustUserID(c)
 	var req fileTransferAuditRequest
@@ -77,9 +83,21 @@ func (h *FileTransferAuditHandler) Create(c *gin.Context) {
 		return
 	}
 
+	// The action names the resource, not the direction. QD-111 promises
+	// idempotency by transfer id, and the key LogActorOnce uses is (actor,
+	// action, resource type, resource id) - so `file.transfer.upload` and
+	// `file.transfer.download` were two different actions and one transfer id
+	// reported with both directions produced two rows. A sync that pushes then
+	// pulls the same file, or a retry after a direction change, reads as two
+	// transfers in the trail.
+	//
+	// The direction still has to be recorded: it belongs in the details, where
+	// it describes the transfer, rather than in the key, where it splits it.
+	// A transfer that went both ways lists both, so neither leg is lost.
 	details, _ := json.Marshal(map[string]any{
 		"device_id":         req.DeviceID,
 		"status":            req.Status,
+		"directions":        []string{req.Direction},
 		"filename":          req.Filename,
 		"bytes_transferred": req.BytesTransferred,
 		"total_bytes":       req.TotalBytes,
@@ -88,7 +106,7 @@ func (h *FileTransferAuditHandler) Create(c *gin.Context) {
 	if _, err := h.audit.LogActorOnce(
 		c.Request.Context(),
 		uid,
-		"file.transfer."+req.Direction,
+		fileTransferAuditAction,
 		"file_transfer",
 		req.TransferID,
 		string(details),
