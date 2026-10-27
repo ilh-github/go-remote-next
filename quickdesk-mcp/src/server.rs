@@ -20,6 +20,10 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use crate::batch::{normalize_batch_devices, run_batch, validate_batch_size, BatchDeviceOutcome};
+use crate::chain::{
+    chain_skip_reason, chain_step_devices, chain_step_should_run, normalize_chain, ChainReport,
+    ChainStep, StepCondition, StepOutcome,
+};
 use crate::event_bus::EventBus;
 use crate::memory::MemoryStore;
 use crate::trust::TrustEngine;
@@ -522,6 +526,53 @@ struct BatchSkillExecParam {
     /// Arguments to pass to the tool as a JSON object
     #[serde(default, deserialize_with = "deserialize_args")]
     args: Option<serde_json::Value>,
+}
+
+/// One step of a cross-device chain.
+#[derive(Debug, Clone, serde::Deserialize, schemars::JsonSchema)]
+struct ChainStepParam {
+    /// Devices this step runs on. Omit or leave empty to run on whatever the
+    /// previous step succeeded on - the shape that lets a chain say "patch the
+    /// servers, then restart whatever got patched".
+    #[serde(default)]
+    device_ids: Vec<String>,
+    /// Tool to run on each device's skill host.
+    tool: String,
+    #[serde(default, deserialize_with = "deserialize_args")]
+    args: Option<serde_json::Value>,
+    /// When this step runs, given how the previous one went. The first step
+    /// cannot be conditioned, because there is nothing to condition on.
+    ///   always         - run regardless (the only valid value for step one)
+    ///   on_all_ok      - only if every device in the previous step succeeded
+    ///   on_any_ok      - if at least one did, and only on those
+    ///   on_failure     - only if the previous step did not fully succeed
+    #[serde(default = "default_chain_when")]
+    when: String,
+}
+
+fn default_chain_when() -> String {
+    "always".to_string()
+}
+
+/// A chain of steps across devices, run in order with conditions between them.
+#[derive(Debug, Clone, serde::Deserialize, schemars::JsonSchema)]
+struct ChainSkillExecParam {
+    steps: Vec<ChainStepParam>,
+}
+
+/// Maps the wire condition name onto the enum, rejecting an unknown one rather
+/// than silently treating it as `always`: a typo in the one field that decides
+/// whether a step runs would quietly mean the opposite of what was asked.
+fn parse_chain_when(raw: &str) -> Result<StepCondition, String> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "" | "always" => Ok(StepCondition::Always),
+        "on_all_ok" | "on_all_succeeded" => Ok(StepCondition::OnAllSucceeded),
+        "on_any_ok" | "on_any_succeeded" => Ok(StepCondition::OnAnySucceeded),
+        "on_failure" | "on_failed" => Ok(StepCondition::OnFailure),
+        other => Err(format!(
+            "unknown chain condition {other:?}; expected one of always, on_all_ok, on_any_ok, on_failure"
+        )),
+    }
 }
 
 /// Caps one device's answer inside a batch report. A host that returns a large
@@ -2166,6 +2217,156 @@ Use skill_list_tools first to discover the tool and its parameters.")]
         report.to_json().to_string()
     }
 
+    /// Run a sequence of steps across devices, where each step runs only if the
+    /// previous one went the way the caller asked.
+    ///
+    /// `batch_skill_exec` answers "the same command, everywhere, at once". This
+    /// answers the question a batch cannot: "patch the servers, and only if that
+    /// worked, restart them". Without it an operator orchestrating a change
+    /// across tiers reads a report, decides, and issues the second call by hand
+    /// - so the decision lives in a conversation rather than in the automation,
+    /// and a fleet-wide change is only as repeatable as whoever remembers the
+    /// second half.
+    ///
+    /// Nothing runs until the whole chain validates: a chain that acts on the
+    /// fleet and then discovers step three was malformed has already acted, and
+    /// this system cannot roll back. A step whose condition is not met is
+    /// skipped and reported as skipped, never as "ran and failed" - the report
+    /// lists every step including the ones that did not run, because a chain
+    /// that stopped is the single most important thing to know about it.
+    #[tool(description = "Run an ordered sequence of skill-host steps across devices, where each step runs only if the previous one went the way you asked. Use this when the next action depends on the previous one succeeding - patch the servers then restart them, or roll back if the patch failed - which batch_skill_exec cannot express because it runs the same command everywhere at once. Steps run in order; devices within a step run concurrently. Omit a step's device_ids to run it on whatever the previous step succeeded on. Each step's when is one of always, on_all_ok, on_any_ok, on_failure. The report lists every step including skipped ones. Use skill_list_tools first to discover tools and parameters.")]
+    async fn chain_skill_exec(&self, params: Parameters<ChainSkillExecParam>) -> String {
+        let p = params.0;
+
+        let steps: Vec<ChainStep> = match p
+            .steps
+            .into_iter()
+            .enumerate()
+            .map(|(index, step)| {
+                let when = parse_chain_when(&step.when)
+                    .map_err(|e| format!("step {}: {e}", index + 1))?;
+                Ok::<ChainStep, String>(ChainStep {
+                    device_ids: step.device_ids,
+                    tool: step.tool,
+                    args: step.args.unwrap_or(json!({})),
+                    when,
+                })
+            })
+            .collect::<Result<Vec<_>, String>>()
+        {
+            Ok(steps) => steps,
+            Err(e) => return json!({"error": e}).to_string(),
+        };
+
+        // Validated up front, so a malformed later step cannot act on the fleet
+        // first and be discovered afterwards.
+        let steps = match normalize_chain(steps) {
+            Ok(steps) => steps,
+            Err(e) => return json!({"error": e}).to_string(),
+        };
+
+        // The trust check is per device and per step, before anything is sent: a
+        // chain is not a way around the confirmation a single call would
+        // require, and the whole chain is refused if any step would need one.
+        for step in &steps {
+            for device_id in &step.device_ids {
+                if let Err(e) = self
+                    .check_trust_and_confirm(device_id, &step.tool, &step.args)
+                    .await
+                {
+                    return json!({"error": e}).to_string();
+                }
+            }
+        }
+
+        let ws = self.ws.clone();
+        let mut previous: Option<StepOutcome> = None;
+        let mut outcomes: Vec<StepOutcome> = Vec::with_capacity(steps.len());
+
+        for step in &steps {
+            if !chain_step_should_run(step.when, previous.as_ref()) {
+                let reason = chain_skip_reason(step.when, previous.as_ref());
+                outcomes.push(StepOutcome::skipped(&step.tool, &reason));
+                // A skipped step is not an outcome to condition the next one on:
+                // the following step is judged against the last step that ran.
+                continue;
+            }
+            let devices = match chain_step_devices(step, previous.as_ref()) {
+                Ok(devices) => devices,
+                Err(e) => {
+                    outcomes.push(StepOutcome::skipped(&step.tool, &e));
+                    continue;
+                }
+            };
+
+            let tool = step.tool.clone();
+            let args = step.args.clone();
+            let ws = ws.clone();
+            let report = run_batch(devices.clone(), move |device_id| {
+                let ws = ws.clone();
+                let tool = tool.clone();
+                let args = args.clone();
+                async move {
+                    let req = json!({
+                        "deviceId": device_id,
+                        "tool": tool,
+                        "args": args,
+                    });
+                    match ws.request("skillExec", req).await {
+                        Ok(v) => BatchDeviceOutcome {
+                            device_id,
+                            ok: true,
+                            detail: truncate_batch_detail(
+                                &serde_json::to_string_pretty(&v).unwrap_or_default(),
+                            ),
+                        },
+                        Err(e) => BatchDeviceOutcome {
+                            device_id,
+                            ok: false,
+                            detail: truncate_batch_detail(&e),
+                        },
+                    }
+                }
+            })
+            .await;
+
+            let mut outcome = StepOutcome::ran(&step.tool, devices);
+            for entry in report.outcomes {
+                if entry.ok {
+                    outcome.succeeded.push(entry.device_id);
+                } else {
+                    outcome.failures.push((entry.device_id, entry.detail));
+                }
+            }
+
+            // Audit and memory per device, exactly as a single call or a batch:
+            // a review has to see which machine each action landed on.
+            for device_id in &outcome.device_ids {
+                let ok = outcome.succeeded.iter().any(|id| id == device_id);
+                let detail = outcome
+                    .failures
+                    .iter()
+                    .find(|(id, _)| id == device_id)
+                    .map(|(_, why)| why.clone())
+                    .unwrap_or_default();
+                let risk = self.state.trust.assess_risk(&step.tool, &step.args);
+                self.state.trust.log_audit(
+                    device_id, &step.tool, &step.args, risk.risk_level, "executed",
+                    if ok { "success" } else { &detail }, "",
+                );
+                let session_id = format!("session-{device_id}");
+                self.state.memory.log_operation(
+                    &session_id, device_id, &step.tool, &step.args, &detail, ok, 0, "",
+                );
+            }
+
+            previous = Some(outcome.clone());
+            outcomes.push(outcome);
+        }
+
+        ChainReport { steps: outcomes }.to_json().to_string()
+    }
+
     #[tool(description = "List all tools available on the remote skill host. \
 Returns the tool names, descriptions, and input schemas so you know how to call them \
 with skill_exec.")]
@@ -3062,6 +3263,57 @@ impl ServerHandler for QuickDeskMcpServer {
             Err(e) => Err(ErrorData::internal_error(e, None)),
         }
     }
+}
+
+// The tool has to be in the router, not merely in the source. A method that
+// compiles but is not reachable is the half-wired shape the batch tool was
+// written to avoid, and `#[tool_router]` collects by macro - so this is the check
+// that the attribute actually landed on this method.
+#[test]
+fn chain_skill_exec_is_registered_as_a_tool() {
+    let router = QuickDeskMcpServer::tool_router();
+    let names: Vec<String> = router
+        .list_all()
+        .into_iter()
+        .map(|tool| tool.name.to_string())
+        .collect();
+    assert!(
+        names.iter().any(|n| n == "chain_skill_exec"),
+        "chain_skill_exec is not in the tool router; registered tools: {names:?}"
+    );
+    // And its sibling is still there, because the two answer different questions
+    // and losing either would be a silent regression.
+    assert!(
+        names.iter().any(|n| n == "batch_skill_exec"),
+        "batch_skill_exec disappeared from the tool router"
+    );
+}
+
+// An unknown condition name must be refused rather than coerced to `always`: the
+// `when` field is the one that decides whether a step runs, so a typo there would
+// quietly mean the opposite of what was asked.
+#[test]
+fn an_unknown_chain_condition_is_refused() {
+    for bad in ["sometimes", "if_ok", "always please"] {
+        let err = parse_chain_when(bad).unwrap_err();
+        assert!(err.contains(bad), "error for {bad:?} was: {err}");
+    }
+    assert!(matches!(
+        parse_chain_when("always").unwrap(),
+        StepCondition::Always
+    ));
+    assert!(matches!(
+        parse_chain_when("on_all_ok").unwrap(),
+        StepCondition::OnAllSucceeded
+    ));
+    assert!(matches!(
+        parse_chain_when("on_any_ok").unwrap(),
+        StepCondition::OnAnySucceeded
+    ));
+    assert!(matches!(
+        parse_chain_when("on_failure").unwrap(),
+        StepCondition::OnFailure
+    ));
 }
 
 #[cfg(test)]

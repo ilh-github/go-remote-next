@@ -1,6 +1,7 @@
 mod config;
 mod callback;
 mod batch;
+mod chain;
 mod delegation;
 mod distributed_claim;
 mod fair_queue;
