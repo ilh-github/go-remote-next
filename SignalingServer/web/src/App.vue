@@ -58,6 +58,10 @@
           <el-icon><LinkIcon /></el-icon>
           <span v-if="!isMobile">{{ t('nav.webhooks') }}</span>
         </el-menu-item>
+        <el-menu-item index="/notification-deliveries" :route="{ path: '/notification-deliveries' }">
+          <el-icon><Bell /></el-icon>
+          <span v-if="!isMobile">{{ t('nav.notificationDeliveries') }}</span>
+        </el-menu-item>
         <el-menu-item index="/update-releases" :route="{ path: '/update-releases' }">
           <el-icon><Upload /></el-icon>
           <span v-if="!isMobile">{{ t('nav.updateReleases') }}</span>
@@ -117,7 +121,7 @@ import { useI18n } from 'vue-i18n'
 import { useSettingsStore } from './stores/settings.js'
 import { logout, onSessionEnded } from './api/auth.js'
 import { setLocale, getLocale } from './i18n'
-import { House, Monitor, VideoCamera, Setting, User, UserFilled, SwitchButton, Tools, Connection, Folder, Document, Files, Link as LinkIcon, Upload } from '@element-plus/icons-vue'
+import { House, Monitor, VideoCamera, Setting, User, UserFilled, SwitchButton, Tools, Connection, Folder, Document, Files, Link as LinkIcon, Upload, Bell } from '@element-plus/icons-vue'
 
 const { t } = useI18n()
 const route = useRoute()

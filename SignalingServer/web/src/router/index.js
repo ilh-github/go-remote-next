@@ -13,6 +13,7 @@ import SystemLogsPage from '../views/SystemLogsPage.vue'
 import WebhooksPage from '../views/WebhooksPage.vue'
 import UpdateReleasesPage from '../views/UpdateReleasesPage.vue'
 import RemoteSessionsPage from '../views/RemoteSessionsPage.vue'
+import NotificationDeliveriesPage from '../views/NotificationDeliveriesPage.vue'
 import SettingsPage from '../views/SettingsPage.vue'
 
 const routes = [
@@ -31,6 +32,7 @@ const routes = [
   { path: '/webhooks', name: 'Webhooks', component: WebhooksPage, meta: { title: 'nav.webhooks' } },
   { path: '/update-releases', name: 'UpdateReleases', component: UpdateReleasesPage, meta: { title: 'nav.updateReleases' } },
   { path: '/remote-sessions', name: 'RemoteSessions', component: RemoteSessionsPage, meta: { title: 'nav.remoteSessions' } },
+  { path: '/notification-deliveries', name: 'NotificationDeliveries', component: NotificationDeliveriesPage, meta: { title: 'nav.notificationDeliveries' } },
   { path: '/settings', name: 'Settings', component: SettingsPage, meta: { title: 'nav.settings' } }
 ]
 
