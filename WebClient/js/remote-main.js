@@ -21,6 +21,7 @@ import { AnnotationModel, ANNOTATION_TOOL_PEN } from './ui/annotationModel.js';
 import { AnnotationLayer } from './ui/annotationLayer.js';
 import { AnnotationChannel } from './ui/annotationChannel.js';
 import { ControlGrantState } from './ui/control-grant.js';
+import { SessionMediaState } from './sessionMediaState.js';
 import { IceConfigFetcher } from './ice-config-fetcher.js';
 import { t, applyI18n, getLocale, setLocale } from './i18n.js';
 import { userApi } from './api/user-api.js';
@@ -77,9 +78,10 @@ class RemoteDesktopApp {
         this._reconnectTask = null;
         this._manualDisconnect = false;
 
-        this._receivedStreams = null;
-        this._selectedStreamId = null;
-        this._pendingAudioTrack = null;
+        // Everything in here belongs to the session currently connected and is
+        // dropped on teardown: the cached audio track, the received stream map
+        // and the selected stream id are all issued per session.
+        this._media = new SessionMediaState();
         this._remoteWidth = 0;
         this._remoteHeight = 0;
         this._currentDisplayList = [];
@@ -589,6 +591,11 @@ class RemoteDesktopApp {
 
     _resetSessionForReconnect() {
         this._cleanupInputHandlers()
+        // The media state belongs to the session that just ended. The audio track
+        // is the one that bites: it is cached separately and merged into every
+        // combined stream built afterwards, so a still-live track from the old
+        // session would play under the new session's video.
+        this._media.reset()
         const session = this.session
         this.session = null
         if (session) {
@@ -946,15 +953,13 @@ class RemoteDesktopApp {
         const streamId = (streams && streams.length > 0) ? streams[0].id : '';
         this._log(t('log.trackReceived', { kind: track.kind, stream: streamId }));
 
-        if (!this._receivedStreams) this._receivedStreams = new Map();
-
         if (track.kind === 'video' && streams && streams.length > 0) {
-            this._receivedStreams.set(streams[0].id, streams[0]);
+            this._media.addStream(streams[0].id, streams[0]);
         }
 
         if (track.kind === 'audio') {
             this._log(t('log.audioTrack', { enabled: track.enabled, muted: track.muted, state: track.readyState }));
-            this._pendingAudioTrack = track;
+            this._media.setAudioTrack(track);
             const video = document.getElementById('remoteVideo');
             if (video?.srcObject && addTrackOnce(video.srcObject, track)) {
                 this._log(t('log.audioMerged'));
@@ -962,7 +967,7 @@ class RemoteDesktopApp {
             return;
         }
 
-        if (track.kind === 'video' && this._selectedStreamId && streamId !== this._selectedStreamId) {
+        if (track.kind === 'video' && this._media.selectedStreamId && streamId !== this._media.selectedStreamId) {
             this._log(t('log.ignoreStream', { stream: streamId }));
             return;
         }
@@ -977,8 +982,9 @@ class RemoteDesktopApp {
         if (!video) return;
 
         const combinedStream = new MediaStream();
-        if (this._pendingAudioTrack && this._pendingAudioTrack.readyState === 'live') {
-            if (addTrackOnce(combinedStream, this._pendingAudioTrack)) {
+        const audioTrack = this._media.usableAudioTrack();
+        if (audioTrack) {
+            if (addTrackOnce(combinedStream, audioTrack)) {
                 this._log(t('log.audioMerged'));
             }
         }
@@ -1072,9 +1078,9 @@ class RemoteDesktopApp {
         let selectedTrack = null;
         let selectedIndex = 0;
 
-        if (this._selectedStreamId) {
+        if (this._media.selectedStreamId) {
             for (let i = 0; i < displays.length; i++) {
-                if (displays[i].mediaStreamId === this._selectedStreamId) {
+                if (displays[i].mediaStreamId === this._media.selectedStreamId) {
                     selectedTrack = displays[i];
                     selectedIndex = i;
                     break;
@@ -1113,9 +1119,9 @@ class RemoteDesktopApp {
         if (resEl) resEl.textContent = `${selectedTrack.width}x${selectedTrack.height}`;
 
         if (selectedTrack.mediaStreamId) {
-            this._selectedStreamId = selectedTrack.mediaStreamId;
-            if (this._receivedStreams) {
-                const targetStream = this._receivedStreams.get(this._selectedStreamId);
+            this._media.selectStream(selectedTrack.mediaStreamId);
+            {
+                const targetStream = this._media.selectedStream();
                 if (targetStream) {
                     const video = document.getElementById('remoteVideo');
                     if (video && video.srcObject !== targetStream) {
@@ -1314,19 +1320,20 @@ class RemoteDesktopApp {
         const track = this._currentDisplayList[index];
         if (!track.mediaStreamId) return;
 
-        this._selectedStreamId = track.mediaStreamId;
+        this._media.selectStream(track.mediaStreamId);
         this._activeDisplayIndex = index;
         this._remoteWidth = track.width;
         this._remoteHeight = track.height;
 
-        if (this._receivedStreams) {
-            const targetStream = this._receivedStreams.get(this._selectedStreamId);
+        {
+            const targetStream = this._media.selectedStream();
             if (targetStream) {
                 const video = document.getElementById('remoteVideo');
                 if (video) {
                     const combinedStream = new MediaStream();
-                    if (this._pendingAudioTrack && this._pendingAudioTrack.readyState === 'live') {
-                        combinedStream.addTrack(this._pendingAudioTrack);
+                    const audioTrack = this._media.usableAudioTrack();
+                    if (audioTrack) {
+                        combinedStream.addTrack(audioTrack);
                     }
                     for (const vt of targetStream.getVideoTracks()) {
                         combinedStream.addTrack(vt);
@@ -1818,6 +1825,9 @@ class RemoteDesktopApp {
         this._manualDisconnect = true
         // Release held input while the event data channel is still writable.
         this._cleanupInputHandlers();
+        // The session is over, so its media state goes with it - the same reason
+        // as the reconnect path.
+        this._media.reset();
         this.skillBridge?.close();
         this.chatPanel?.close();
         this.tabCoordinator?.releaseAll();
