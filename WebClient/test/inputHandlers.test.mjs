@@ -76,6 +76,30 @@ function makeMouse({ clientWidth, clientHeight, videoWidth, videoHeight, remoteW
   return { element, recorder, handler }
 }
 
+// Before the first track arrives there is no honest resolution, and a guess is
+// worse than nothing: 1920x1080 is a plausible desktop, so nothing looks broken
+// while every click is quietly wrong. Dropping the event is the correct answer,
+// and it is what makes the caller's early return safe to rely on.
+test('a click with no known resolution is dropped, not injected at a guess', () => {
+  const element = new FakeElement({
+    clientWidth: 1000, clientHeight: 500,
+    videoWidth: 1920, videoHeight: 1080,
+  })
+  const recorder = makeRecorder()
+  const handler = new MouseHandler(element, recorder, element)
+
+  // No setRemoteResolution call: this is the window between the session coming
+  // up and the first track arriving.
+  handler.enable()
+
+  element.emit('mousedown', { clientX: 500, clientY: 250, button: 0, pointerId: 1 })
+
+  assert.equal(recorder.events.length, 0,
+    'a click was injected with a guessed resolution')
+
+  handler.destroy()
+})
+
 // The point of the letterbox maths is that a click in the black bar must not
 // become a click on the desktop. Returning null for those is the only thing
 // stopping an off-screen coordinate from being injected at the edge.

@@ -620,6 +620,11 @@ class RemoteDesktopApp {
 
     _resetSessionForReconnect() {
         this._cleanupInputHandlers()
+        // The captured resolution belongs to the session that just ended. The new
+        // one may attach to a different monitor, and a click mapped through the
+        // old resolution lands at a fraction of where the operator aimed.
+        this._remoteWidth = 0
+        this._remoteHeight = 0
         // The media state belongs to the session that just ended. The audio track
         // is the one that bites: it is cached separately and merged into every
         // combined stream built afterwards, so a still-live track from the old
@@ -1194,8 +1199,15 @@ class RemoteDesktopApp {
 
         this._cleanupInputHandlers();
 
-        const w = this._remoteWidth || video.videoWidth || 1920;
-        const h = this._remoteHeight || video.videoHeight || 1080;
+        // Before the first track arrives there is no honest answer, and a guess is
+        // worse than nothing: 1920x1080 is a plausible desktop, so nothing looks
+        // broken while every click is quietly wrong. Leaving the handlers
+        // unconfigured makes the mapping return null, which drops the event
+        // instead of injecting it at the wrong place. `onloadedmetadata` and the
+        // display-switch path both set the real resolution and re-run this.
+        const w = this._remoteWidth || 0;
+        const h = this._remoteHeight || 0;
+        if (!w || !h) return;
 
         if (this._isMobile) {
             this.touchHandler = new TouchHandler(videoContainer || video, video, this.dcHandler);
