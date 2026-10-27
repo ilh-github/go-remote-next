@@ -6,6 +6,7 @@ Method | HTTP request | Description
 ------------- | ------------- | -------------
 [**ApproveAccessApproval**](DevicesAPI.md#ApproveAccessApproval) | **Post** /v1/me/devices/{device_id}/access-approvals/{approval_id}/approve | Approve a pending access request
 [**BanDeviceAccessSource**](DevicesAPI.md#BanDeviceAccessSource) | **Post** /v1/me/devices/{device_id}/access-bans | Permanently deny one source address
+[**BindMyDevice**](DevicesAPI.md#BindMyDevice) | **Post** /v1/me/devices | Bind a device to the authenticated user
 [**ClaimAccessApproval**](DevicesAPI.md#ClaimAccessApproval) | **Post** /v1/devices/{device_id}/access-approvals:claim | Exchange an approved request for a signal token
 [**CreateAccessGrant**](DevicesAPI.md#CreateAccessGrant) | **Post** /v1/me/devices/{device_id}/access-grants | Issue a time-boxed guest access code
 [**DenyAccessApproval**](DevicesAPI.md#DenyAccessApproval) | **Post** /v1/me/devices/{device_id}/access-approvals/{approval_id}/deny | Deny a pending access request
@@ -154,6 +155,72 @@ Name | Type | Description  | Notes
 ### Return type
 
 [**DeviceAccessPolicy**](DeviceAccessPolicy.md)
+
+### Authorization
+
+[ApiKeyAuth](../README.md#ApiKeyAuth), [BearerAuth](../README.md#BearerAuth)
+
+### HTTP request headers
+
+- **Content-Type**: application/json
+- **Accept**: application/json, application/problem+json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
+[[Back to Model list]](../README.md#documentation-for-models)
+[[Back to README]](../README.md)
+
+
+## BindMyDevice
+
+> Device BindMyDevice(ctx).BindMyDeviceRequest(bindMyDeviceRequest).Execute()
+
+Bind a device to the authenticated user
+
+
+
+### Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	openapiclient "github.com/ilh-github/go-remote-next/signaling"
+)
+
+func main() {
+	bindMyDeviceRequest := *openapiclient.NewBindMyDeviceRequest("DeviceId_example") // BindMyDeviceRequest | 
+
+	configuration := openapiclient.NewConfiguration()
+	apiClient := openapiclient.NewAPIClient(configuration)
+	resp, r, err := apiClient.DevicesAPI.BindMyDevice(context.Background()).BindMyDeviceRequest(bindMyDeviceRequest).Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error when calling `DevicesAPI.BindMyDevice``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
+	}
+	// response from `BindMyDevice`: Device
+	fmt.Fprintf(os.Stdout, "Response from `DevicesAPI.BindMyDevice`: %v\n", resp)
+}
+```
+
+### Path Parameters
+
+
+
+### Other Parameters
+
+Other parameters are passed through a pointer to a apiBindMyDeviceRequest struct via the builder pattern
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **bindMyDeviceRequest** | [**BindMyDeviceRequest**](BindMyDeviceRequest.md) |  | 
+
+### Return type
+
+[**Device**](Device.md)
 
 ### Authorization
 

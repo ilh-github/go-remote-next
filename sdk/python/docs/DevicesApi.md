@@ -6,6 +6,7 @@ Method | HTTP request | Description
 ------------- | ------------- | -------------
 [**approve_access_approval**](DevicesApi.md#approve_access_approval) | **POST** /v1/me/devices/{device_id}/access-approvals/{approval_id}/approve | Approve a pending access request
 [**ban_device_access_source**](DevicesApi.md#ban_device_access_source) | **POST** /v1/me/devices/{device_id}/access-bans | Permanently deny one source address
+[**bind_my_device**](DevicesApi.md#bind_my_device) | **POST** /v1/me/devices | Bind a device to the authenticated user
 [**claim_access_approval**](DevicesApi.md#claim_access_approval) | **POST** /v1/devices/{device_id}/access-approvals:claim | Exchange an approved request for a signal token
 [**create_access_grant**](DevicesApi.md#create_access_grant) | **POST** /v1/me/devices/{device_id}/access-grants | Issue a time-boxed guest access code
 [**deny_access_approval**](DevicesApi.md#deny_access_approval) | **POST** /v1/me/devices/{device_id}/access-approvals/{approval_id}/deny | Deny a pending access request
@@ -214,6 +215,106 @@ Name | Type | Description  | Notes
 **200** | The updated policy, including the complete deny list. |  -  |
 **400** | The request was malformed or failed validation. |  -  |
 **403** | Authenticated but not allowed (includes a rejected access code). |  -  |
+**404** | The addressed resource does not exist. |  -  |
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+# **bind_my_device**
+> Device bind_my_device(bind_my_device_request)
+
+Bind a device to the authenticated user
+
+Claims a provisioned device for the calling account, optionally taking it
+over from its previous owner. Idempotent: re-binding a device the caller
+already owns succeeds and is not counted against the account's device
+quota a second time.
+
+Refused with `403 DEVICE_QUOTA_EXCEEDED` when the account is already at
+the `device_count` limit reported by `GET /v1/me`. A `device_count` of 0
+means no limit is configured, which is the default for a new account. A
+takeover does not count against the new owner's quota, because the number
+of machines bound to that account does not change.
+
+
+### Example
+
+* Api Key Authentication (ApiKeyAuth):
+* Bearer (opaque) Authentication (BearerAuth):
+
+```python
+import quickdesk_signaling
+from quickdesk_signaling.models.bind_my_device_request import BindMyDeviceRequest
+from quickdesk_signaling.models.device import Device
+from quickdesk_signaling.rest import ApiException
+from pprint import pprint
+
+# Defining the host is optional and defaults to https://your-signaling-host
+# See configuration.py for a list of all supported configuration parameters.
+configuration = quickdesk_signaling.Configuration(
+    host = "https://your-signaling-host"
+)
+
+# The client must configure the authentication and authorization parameters
+# in accordance with the API server security policy.
+# Examples for each auth method are provided below, use the example that
+# satisfies your auth use case.
+
+# Configure API key authorization: ApiKeyAuth
+configuration.api_key['ApiKeyAuth'] = os.environ["API_KEY"]
+
+# Uncomment below to setup prefix (e.g. Bearer) for API key, if needed
+# configuration.api_key_prefix['ApiKeyAuth'] = 'Bearer'
+
+# Configure Bearer authorization (opaque): BearerAuth
+configuration = quickdesk_signaling.Configuration(
+    access_token = os.environ["BEARER_TOKEN"]
+)
+
+# Enter a context with an instance of the API client
+with quickdesk_signaling.ApiClient(configuration) as api_client:
+    # Create an instance of the API class
+    api_instance = quickdesk_signaling.DevicesApi(api_client)
+    bind_my_device_request = quickdesk_signaling.BindMyDeviceRequest() # BindMyDeviceRequest | 
+
+    try:
+        # Bind a device to the authenticated user
+        api_response = api_instance.bind_my_device(bind_my_device_request)
+        print("The response of DevicesApi->bind_my_device:\n")
+        pprint(api_response)
+    except Exception as e:
+        print("Exception when calling DevicesApi->bind_my_device: %s\n" % e)
+```
+
+
+
+### Parameters
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **bind_my_device_request** | [**BindMyDeviceRequest**](BindMyDeviceRequest.md)|  | 
+
+### Return type
+
+[**Device**](Device.md)
+
+### Authorization
+
+[ApiKeyAuth](../README.md#ApiKeyAuth), [BearerAuth](../README.md#BearerAuth)
+
+### HTTP request headers
+
+ - **Content-Type**: application/json
+ - **Accept**: application/json, application/problem+json
+
+### HTTP response details
+
+| Status code | Description | Response headers |
+|-------------|-------------|------------------|
+**200** | The device, now owned by the caller. |  -  |
+**400** | The request was malformed or failed validation. |  -  |
+**401** | Missing or expired credentials. |  -  |
+**403** | The account is at its device limit (&#x60;DEVICE_QUOTA_EXCEEDED&#x60;), or the request is otherwise not allowed. The device stays unowned.  |  -  |
 **404** | The addressed resource does not exist. |  -  |
 
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)

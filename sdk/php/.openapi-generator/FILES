@@ -30,6 +30,7 @@ docs/Model/ApprovalSummaryDeniedSourcesInner.md
 docs/Model/ApproveAccessApprovalRequest.md
 docs/Model/AuthSessionRequest.md
 docs/Model/AuthSessionResponse.md
+docs/Model/BindMyDeviceRequest.md
 docs/Model/ClipboardAuditInput.md
 docs/Model/DeleteMyDeviceGroup200Response.md
 docs/Model/Device.md
@@ -110,6 +111,7 @@ lib/Model/ApprovalSummaryDeniedSourcesInner.php
 lib/Model/ApproveAccessApprovalRequest.php
 lib/Model/AuthSessionRequest.php
 lib/Model/AuthSessionResponse.php
+lib/Model/BindMyDeviceRequest.php
 lib/Model/ClipboardAuditInput.php
 lib/Model/DeleteMyDeviceGroup200Response.php
 lib/Model/Device.php
@@ -188,6 +190,7 @@ test/Model/ApprovalSummaryTest.php
 test/Model/ApproveAccessApprovalRequestTest.php
 test/Model/AuthSessionRequestTest.php
 test/Model/AuthSessionResponseTest.php
+test/Model/BindMyDeviceRequestTest.php
 test/Model/ClipboardAuditInputTest.php
 test/Model/DeleteMyDeviceGroup200ResponseTest.php
 test/Model/DeviceAccessBanRequestTest.php

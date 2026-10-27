@@ -24,6 +24,7 @@ docs/ApproveAccessApprovalRequest.md
 docs/AuthApi.md
 docs/AuthSessionRequest.md
 docs/AuthSessionResponse.md
+docs/BindMyDeviceRequest.md
 docs/ClipboardAuditInput.md
 docs/DeleteMyDeviceGroup200Response.md
 docs/Device.md
@@ -134,6 +135,7 @@ src/main/java/org/openapitools/client/model/ApprovalSummaryDeniedSourcesInner.ja
 src/main/java/org/openapitools/client/model/ApproveAccessApprovalRequest.java
 src/main/java/org/openapitools/client/model/AuthSessionRequest.java
 src/main/java/org/openapitools/client/model/AuthSessionResponse.java
+src/main/java/org/openapitools/client/model/BindMyDeviceRequest.java
 src/main/java/org/openapitools/client/model/ClipboardAuditInput.java
 src/main/java/org/openapitools/client/model/DeleteMyDeviceGroup200Response.java
 src/main/java/org/openapitools/client/model/Device.java
@@ -209,6 +211,7 @@ src/test/java/org/openapitools/client/model/ApprovalSummaryTest.java
 src/test/java/org/openapitools/client/model/ApproveAccessApprovalRequestTest.java
 src/test/java/org/openapitools/client/model/AuthSessionRequestTest.java
 src/test/java/org/openapitools/client/model/AuthSessionResponseTest.java
+src/test/java/org/openapitools/client/model/BindMyDeviceRequestTest.java
 src/test/java/org/openapitools/client/model/ClipboardAuditInputTest.java
 src/test/java/org/openapitools/client/model/DeleteMyDeviceGroup200ResponseTest.java
 src/test/java/org/openapitools/client/model/DeviceAccessBanRequestTest.java

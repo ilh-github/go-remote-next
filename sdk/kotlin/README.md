@@ -102,6 +102,7 @@ All URIs are relative to *https://your-signaling-host*
 | *DeviceGroupsApi* | [**updateMyDeviceGroup**](docs/DeviceGroupsApi.md#updatemydevicegroup) | **PATCH** /v1/me/device-groups/{group_id} | Update one of the caller's address-book groups |
 | *DevicesApi* | [**approveAccessApproval**](docs/DevicesApi.md#approveaccessapproval) | **POST** /v1/me/devices/{device_id}/access-approvals/{approval_id}/approve | Approve a pending access request |
 | *DevicesApi* | [**banDeviceAccessSource**](docs/DevicesApi.md#bandeviceaccesssource) | **POST** /v1/me/devices/{device_id}/access-bans | Permanently deny one source address |
+| *DevicesApi* | [**bindMyDevice**](docs/DevicesApi.md#bindmydevice) | **POST** /v1/me/devices | Bind a device to the authenticated user |
 | *DevicesApi* | [**claimAccessApproval**](docs/DevicesApi.md#claimaccessapproval) | **POST** /v1/devices/{device_id}/access-approvals:claim | Exchange an approved request for a signal token |
 | *DevicesApi* | [**createAccessGrant**](docs/DevicesApi.md#createaccessgrant) | **POST** /v1/me/devices/{device_id}/access-grants | Issue a time-boxed guest access code |
 | *DevicesApi* | [**denyAccessApproval**](docs/DevicesApi.md#denyaccessapproval) | **POST** /v1/me/devices/{device_id}/access-approvals/{approval_id}/deny | Deny a pending access request |
@@ -169,6 +170,7 @@ All URIs are relative to *https://your-signaling-host*
  - [io.quickdesk.signaling.models.ApproveAccessApprovalRequest](docs/ApproveAccessApprovalRequest.md)
  - [io.quickdesk.signaling.models.AuthSessionRequest](docs/AuthSessionRequest.md)
  - [io.quickdesk.signaling.models.AuthSessionResponse](docs/AuthSessionResponse.md)
+ - [io.quickdesk.signaling.models.BindMyDeviceRequest](docs/BindMyDeviceRequest.md)
  - [io.quickdesk.signaling.models.ClipboardAuditInput](docs/ClipboardAuditInput.md)
  - [io.quickdesk.signaling.models.DeleteMyDeviceGroup200Response](docs/DeleteMyDeviceGroup200Response.md)
  - [io.quickdesk.signaling.models.Device](docs/Device.md)

@@ -76,6 +76,27 @@ namespace QuickDesk.Signaling.Client.Api
         /// <returns>ApiResponse of DeviceAccessPolicy</returns>
         ApiResponse<DeviceAccessPolicy> BanDeviceAccessSourceWithHttpInfo(string deviceId, DeviceAccessBanRequest deviceAccessBanRequest);
         /// <summary>
+        /// Bind a device to the authenticated user
+        /// </summary>
+        /// <remarks>
+        /// Claims a provisioned device for the calling account, optionally taking it over from its previous owner. Idempotent: re-binding a device the caller already owns succeeds and is not counted against the account&#39;s device quota a second time.  Refused with &#x60;403 DEVICE_QUOTA_EXCEEDED&#x60; when the account is already at the &#x60;device_count&#x60; limit reported by &#x60;GET /v1/me&#x60;. A &#x60;device_count&#x60; of 0 means no limit is configured, which is the default for a new account. A takeover does not count against the new owner&#39;s quota, because the number of machines bound to that account does not change. 
+        /// </remarks>
+        /// <exception cref="QuickDesk.Signaling.Client.Client.ApiException">Thrown when fails to make API call</exception>
+        /// <param name="bindMyDeviceRequest"></param>
+        /// <returns>Device</returns>
+        Device BindMyDevice(BindMyDeviceRequest bindMyDeviceRequest);
+
+        /// <summary>
+        /// Bind a device to the authenticated user
+        /// </summary>
+        /// <remarks>
+        /// Claims a provisioned device for the calling account, optionally taking it over from its previous owner. Idempotent: re-binding a device the caller already owns succeeds and is not counted against the account&#39;s device quota a second time.  Refused with &#x60;403 DEVICE_QUOTA_EXCEEDED&#x60; when the account is already at the &#x60;device_count&#x60; limit reported by &#x60;GET /v1/me&#x60;. A &#x60;device_count&#x60; of 0 means no limit is configured, which is the default for a new account. A takeover does not count against the new owner&#39;s quota, because the number of machines bound to that account does not change. 
+        /// </remarks>
+        /// <exception cref="QuickDesk.Signaling.Client.Client.ApiException">Thrown when fails to make API call</exception>
+        /// <param name="bindMyDeviceRequest"></param>
+        /// <returns>ApiResponse of Device</returns>
+        ApiResponse<Device> BindMyDeviceWithHttpInfo(BindMyDeviceRequest bindMyDeviceRequest);
+        /// <summary>
         /// Exchange an approved request for a signal token
         /// </summary>
         /// <remarks>
@@ -424,6 +445,29 @@ namespace QuickDesk.Signaling.Client.Api
         /// <param name="cancellationToken">Cancellation Token to cancel the request.</param>
         /// <returns>Task of ApiResponse (DeviceAccessPolicy)</returns>
         System.Threading.Tasks.Task<ApiResponse<DeviceAccessPolicy>> BanDeviceAccessSourceWithHttpInfoAsync(string deviceId, DeviceAccessBanRequest deviceAccessBanRequest, System.Threading.CancellationToken cancellationToken = default);
+        /// <summary>
+        /// Bind a device to the authenticated user
+        /// </summary>
+        /// <remarks>
+        /// Claims a provisioned device for the calling account, optionally taking it over from its previous owner. Idempotent: re-binding a device the caller already owns succeeds and is not counted against the account&#39;s device quota a second time.  Refused with &#x60;403 DEVICE_QUOTA_EXCEEDED&#x60; when the account is already at the &#x60;device_count&#x60; limit reported by &#x60;GET /v1/me&#x60;. A &#x60;device_count&#x60; of 0 means no limit is configured, which is the default for a new account. A takeover does not count against the new owner&#39;s quota, because the number of machines bound to that account does not change. 
+        /// </remarks>
+        /// <exception cref="QuickDesk.Signaling.Client.Client.ApiException">Thrown when fails to make API call</exception>
+        /// <param name="bindMyDeviceRequest"></param>
+        /// <param name="cancellationToken">Cancellation Token to cancel the request.</param>
+        /// <returns>Task of Device</returns>
+        System.Threading.Tasks.Task<Device> BindMyDeviceAsync(BindMyDeviceRequest bindMyDeviceRequest, System.Threading.CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Bind a device to the authenticated user
+        /// </summary>
+        /// <remarks>
+        /// Claims a provisioned device for the calling account, optionally taking it over from its previous owner. Idempotent: re-binding a device the caller already owns succeeds and is not counted against the account&#39;s device quota a second time.  Refused with &#x60;403 DEVICE_QUOTA_EXCEEDED&#x60; when the account is already at the &#x60;device_count&#x60; limit reported by &#x60;GET /v1/me&#x60;. A &#x60;device_count&#x60; of 0 means no limit is configured, which is the default for a new account. A takeover does not count against the new owner&#39;s quota, because the number of machines bound to that account does not change. 
+        /// </remarks>
+        /// <exception cref="QuickDesk.Signaling.Client.Client.ApiException">Thrown when fails to make API call</exception>
+        /// <param name="bindMyDeviceRequest"></param>
+        /// <param name="cancellationToken">Cancellation Token to cancel the request.</param>
+        /// <returns>Task of ApiResponse (Device)</returns>
+        System.Threading.Tasks.Task<ApiResponse<Device>> BindMyDeviceWithHttpInfoAsync(BindMyDeviceRequest bindMyDeviceRequest, System.Threading.CancellationToken cancellationToken = default);
         /// <summary>
         /// Exchange an approved request for a signal token
         /// </summary>
@@ -1262,6 +1306,147 @@ namespace QuickDesk.Signaling.Client.Api
             if (this.ExceptionFactory != null)
             {
                 Exception _exception = this.ExceptionFactory("BanDeviceAccessSource", localVarResponse);
+                if (_exception != null) throw _exception;
+            }
+
+            return localVarResponse;
+        }
+
+        /// <summary>
+        /// Bind a device to the authenticated user Claims a provisioned device for the calling account, optionally taking it over from its previous owner. Idempotent: re-binding a device the caller already owns succeeds and is not counted against the account&#39;s device quota a second time.  Refused with &#x60;403 DEVICE_QUOTA_EXCEEDED&#x60; when the account is already at the &#x60;device_count&#x60; limit reported by &#x60;GET /v1/me&#x60;. A &#x60;device_count&#x60; of 0 means no limit is configured, which is the default for a new account. A takeover does not count against the new owner&#39;s quota, because the number of machines bound to that account does not change. 
+        /// </summary>
+        /// <exception cref="QuickDesk.Signaling.Client.Client.ApiException">Thrown when fails to make API call</exception>
+        /// <param name="bindMyDeviceRequest"></param>
+        /// <returns>Device</returns>
+        public Device BindMyDevice(BindMyDeviceRequest bindMyDeviceRequest)
+        {
+            QuickDesk.Signaling.Client.Client.ApiResponse<Device> localVarResponse = BindMyDeviceWithHttpInfo(bindMyDeviceRequest);
+            return localVarResponse.Data;
+        }
+
+        /// <summary>
+        /// Bind a device to the authenticated user Claims a provisioned device for the calling account, optionally taking it over from its previous owner. Idempotent: re-binding a device the caller already owns succeeds and is not counted against the account&#39;s device quota a second time.  Refused with &#x60;403 DEVICE_QUOTA_EXCEEDED&#x60; when the account is already at the &#x60;device_count&#x60; limit reported by &#x60;GET /v1/me&#x60;. A &#x60;device_count&#x60; of 0 means no limit is configured, which is the default for a new account. A takeover does not count against the new owner&#39;s quota, because the number of machines bound to that account does not change. 
+        /// </summary>
+        /// <exception cref="QuickDesk.Signaling.Client.Client.ApiException">Thrown when fails to make API call</exception>
+        /// <param name="bindMyDeviceRequest"></param>
+        /// <returns>ApiResponse of Device</returns>
+        public QuickDesk.Signaling.Client.Client.ApiResponse<Device> BindMyDeviceWithHttpInfo(BindMyDeviceRequest bindMyDeviceRequest)
+        {
+            // verify the required parameter 'bindMyDeviceRequest' is set
+            if (bindMyDeviceRequest == null)
+                throw new QuickDesk.Signaling.Client.Client.ApiException(400, "Missing required parameter 'bindMyDeviceRequest' when calling DevicesApi->BindMyDevice");
+
+            QuickDesk.Signaling.Client.Client.RequestOptions localVarRequestOptions = new QuickDesk.Signaling.Client.Client.RequestOptions();
+
+            string[] _contentTypes = new string[] {
+                "application/json"
+            };
+
+            // to determine the Accept header
+            string[] _accepts = new string[] {
+                "application/json",
+                "application/problem+json"
+            };
+
+            var localVarContentType = QuickDesk.Signaling.Client.Client.ClientUtils.SelectHeaderContentType(_contentTypes);
+            if (localVarContentType != null) localVarRequestOptions.HeaderParameters.Add("Content-Type", localVarContentType);
+
+            var localVarAccept = QuickDesk.Signaling.Client.Client.ClientUtils.SelectHeaderAccept(_accepts);
+            if (localVarAccept != null) localVarRequestOptions.HeaderParameters.Add("Accept", localVarAccept);
+
+            localVarRequestOptions.Data = bindMyDeviceRequest;
+
+            // authentication (ApiKeyAuth) required
+            if (!string.IsNullOrEmpty(this.Configuration.GetApiKeyWithPrefix("X-API-Key")))
+            {
+                localVarRequestOptions.HeaderParameters.Add("X-API-Key", this.Configuration.GetApiKeyWithPrefix("X-API-Key"));
+            }
+            // authentication (BearerAuth) required
+            // bearer authentication required
+            if (!string.IsNullOrEmpty(this.Configuration.AccessToken) && !localVarRequestOptions.HeaderParameters.ContainsKey("Authorization"))
+            {
+                localVarRequestOptions.HeaderParameters.Add("Authorization", "Bearer " + this.Configuration.AccessToken);
+            }
+
+            // make the HTTP request
+            var localVarResponse = this.Client.Post<Device>("/v1/me/devices", localVarRequestOptions, this.Configuration);
+
+            if (this.ExceptionFactory != null)
+            {
+                Exception _exception = this.ExceptionFactory("BindMyDevice", localVarResponse);
+                if (_exception != null) throw _exception;
+            }
+
+            return localVarResponse;
+        }
+
+        /// <summary>
+        /// Bind a device to the authenticated user Claims a provisioned device for the calling account, optionally taking it over from its previous owner. Idempotent: re-binding a device the caller already owns succeeds and is not counted against the account&#39;s device quota a second time.  Refused with &#x60;403 DEVICE_QUOTA_EXCEEDED&#x60; when the account is already at the &#x60;device_count&#x60; limit reported by &#x60;GET /v1/me&#x60;. A &#x60;device_count&#x60; of 0 means no limit is configured, which is the default for a new account. A takeover does not count against the new owner&#39;s quota, because the number of machines bound to that account does not change. 
+        /// </summary>
+        /// <exception cref="QuickDesk.Signaling.Client.Client.ApiException">Thrown when fails to make API call</exception>
+        /// <param name="bindMyDeviceRequest"></param>
+        /// <param name="cancellationToken">Cancellation Token to cancel the request.</param>
+        /// <returns>Task of Device</returns>
+        public async System.Threading.Tasks.Task<Device> BindMyDeviceAsync(BindMyDeviceRequest bindMyDeviceRequest, System.Threading.CancellationToken cancellationToken = default)
+        {
+            QuickDesk.Signaling.Client.Client.ApiResponse<Device> localVarResponse = await BindMyDeviceWithHttpInfoAsync(bindMyDeviceRequest, cancellationToken).ConfigureAwait(false);
+            return localVarResponse.Data;
+        }
+
+        /// <summary>
+        /// Bind a device to the authenticated user Claims a provisioned device for the calling account, optionally taking it over from its previous owner. Idempotent: re-binding a device the caller already owns succeeds and is not counted against the account&#39;s device quota a second time.  Refused with &#x60;403 DEVICE_QUOTA_EXCEEDED&#x60; when the account is already at the &#x60;device_count&#x60; limit reported by &#x60;GET /v1/me&#x60;. A &#x60;device_count&#x60; of 0 means no limit is configured, which is the default for a new account. A takeover does not count against the new owner&#39;s quota, because the number of machines bound to that account does not change. 
+        /// </summary>
+        /// <exception cref="QuickDesk.Signaling.Client.Client.ApiException">Thrown when fails to make API call</exception>
+        /// <param name="bindMyDeviceRequest"></param>
+        /// <param name="cancellationToken">Cancellation Token to cancel the request.</param>
+        /// <returns>Task of ApiResponse (Device)</returns>
+        public async System.Threading.Tasks.Task<QuickDesk.Signaling.Client.Client.ApiResponse<Device>> BindMyDeviceWithHttpInfoAsync(BindMyDeviceRequest bindMyDeviceRequest, System.Threading.CancellationToken cancellationToken = default)
+        {
+            // verify the required parameter 'bindMyDeviceRequest' is set
+            if (bindMyDeviceRequest == null)
+                throw new QuickDesk.Signaling.Client.Client.ApiException(400, "Missing required parameter 'bindMyDeviceRequest' when calling DevicesApi->BindMyDevice");
+
+
+            QuickDesk.Signaling.Client.Client.RequestOptions localVarRequestOptions = new QuickDesk.Signaling.Client.Client.RequestOptions();
+
+            string[] _contentTypes = new string[] {
+                "application/json"
+            };
+
+            // to determine the Accept header
+            string[] _accepts = new string[] {
+                "application/json",
+                "application/problem+json"
+            };
+
+
+            var localVarContentType = QuickDesk.Signaling.Client.Client.ClientUtils.SelectHeaderContentType(_contentTypes);
+            if (localVarContentType != null) localVarRequestOptions.HeaderParameters.Add("Content-Type", localVarContentType);
+
+            var localVarAccept = QuickDesk.Signaling.Client.Client.ClientUtils.SelectHeaderAccept(_accepts);
+            if (localVarAccept != null) localVarRequestOptions.HeaderParameters.Add("Accept", localVarAccept);
+
+            localVarRequestOptions.Data = bindMyDeviceRequest;
+
+            // authentication (ApiKeyAuth) required
+            if (!string.IsNullOrEmpty(this.Configuration.GetApiKeyWithPrefix("X-API-Key")))
+            {
+                localVarRequestOptions.HeaderParameters.Add("X-API-Key", this.Configuration.GetApiKeyWithPrefix("X-API-Key"));
+            }
+            // authentication (BearerAuth) required
+            // bearer authentication required
+            if (!string.IsNullOrEmpty(this.Configuration.AccessToken) && !localVarRequestOptions.HeaderParameters.ContainsKey("Authorization"))
+            {
+                localVarRequestOptions.HeaderParameters.Add("Authorization", "Bearer " + this.Configuration.AccessToken);
+            }
+
+            // make the HTTP request
+
+            var localVarResponse = await this.AsynchronousClient.PostAsync<Device>("/v1/me/devices", localVarRequestOptions, this.Configuration, cancellationToken).ConfigureAwait(false);
+
+            if (this.ExceptionFactory != null)
+            {
+                Exception _exception = this.ExceptionFactory("BindMyDevice", localVarResponse);
                 if (_exception != null) throw _exception;
             }
 

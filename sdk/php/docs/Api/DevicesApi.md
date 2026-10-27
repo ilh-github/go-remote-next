@@ -6,6 +6,7 @@ All URIs are relative to https://your-signaling-host, except if the operation de
 | ------------- | ------------- | ------------- |
 | [**approveAccessApproval()**](DevicesApi.md#approveAccessApproval) | **POST** /v1/me/devices/{device_id}/access-approvals/{approval_id}/approve | Approve a pending access request |
 | [**banDeviceAccessSource()**](DevicesApi.md#banDeviceAccessSource) | **POST** /v1/me/devices/{device_id}/access-bans | Permanently deny one source address |
+| [**bindMyDevice()**](DevicesApi.md#bindMyDevice) | **POST** /v1/me/devices | Bind a device to the authenticated user |
 | [**claimAccessApproval()**](DevicesApi.md#claimAccessApproval) | **POST** /v1/devices/{device_id}/access-approvals:claim | Exchange an approved request for a signal token |
 | [**createAccessGrant()**](DevicesApi.md#createAccessGrant) | **POST** /v1/me/devices/{device_id}/access-grants | Issue a time-boxed guest access code |
 | [**denyAccessApproval()**](DevicesApi.md#denyAccessApproval) | **POST** /v1/me/devices/{device_id}/access-approvals/{approval_id}/deny | Deny a pending access request |
@@ -143,6 +144,71 @@ try {
 ### Return type
 
 [**\OpenAPI\Client\Model\DeviceAccessPolicy**](../Model/DeviceAccessPolicy.md)
+
+### Authorization
+
+[ApiKeyAuth](../../README.md#ApiKeyAuth), [BearerAuth](../../README.md#BearerAuth)
+
+### HTTP request headers
+
+- **Content-Type**: `application/json`
+- **Accept**: `application/json`, `application/problem+json`
+
+[[Back to top]](#) [[Back to API list]](../../README.md#endpoints)
+[[Back to Model list]](../../README.md#models)
+[[Back to README]](../../README.md)
+
+## `bindMyDevice()`
+
+```php
+bindMyDevice($bind_my_device_request): \OpenAPI\Client\Model\Device
+```
+
+Bind a device to the authenticated user
+
+Claims a provisioned device for the calling account, optionally taking it over from its previous owner. Idempotent: re-binding a device the caller already owns succeeds and is not counted against the account's device quota a second time.  Refused with `403 DEVICE_QUOTA_EXCEEDED` when the account is already at the `device_count` limit reported by `GET /v1/me`. A `device_count` of 0 means no limit is configured, which is the default for a new account. A takeover does not count against the new owner's quota, because the number of machines bound to that account does not change.
+
+### Example
+
+```php
+<?php
+require_once(__DIR__ . '/vendor/autoload.php');
+
+
+// Configure API key authorization: ApiKeyAuth
+$config = OpenAPI\Client\Configuration::getDefaultConfiguration()->setApiKey('X-API-Key', 'YOUR_API_KEY');
+// Uncomment below to setup prefix (e.g. Bearer) for API key, if needed
+// $config = OpenAPI\Client\Configuration::getDefaultConfiguration()->setApiKeyPrefix('X-API-Key', 'Bearer');
+
+// Configure Bearer (opaque) authorization: BearerAuth
+$config = OpenAPI\Client\Configuration::getDefaultConfiguration()->setAccessToken('YOUR_ACCESS_TOKEN');
+
+
+$apiInstance = new OpenAPI\Client\Api\DevicesApi(
+    // If you want use custom http client, pass your client which implements `GuzzleHttp\ClientInterface`.
+    // This is optional, `GuzzleHttp\Client` will be used as default.
+    new GuzzleHttp\Client(),
+    $config
+);
+$bind_my_device_request = new \OpenAPI\Client\Model\BindMyDeviceRequest(); // \OpenAPI\Client\Model\BindMyDeviceRequest
+
+try {
+    $result = $apiInstance->bindMyDevice($bind_my_device_request);
+    print_r($result);
+} catch (Exception $e) {
+    echo 'Exception when calling DevicesApi->bindMyDevice: ', $e->getMessage(), PHP_EOL;
+}
+```
+
+### Parameters
+
+| Name | Type | Description  | Notes |
+| ------------- | ------------- | ------------- | ------------- |
+| **bind_my_device_request** | [**\OpenAPI\Client\Model\BindMyDeviceRequest**](../Model/BindMyDeviceRequest.md)|  | |
+
+### Return type
+
+[**\OpenAPI\Client\Model\Device**](../Model/Device.md)
 
 ### Authorization
 

@@ -6,6 +6,7 @@ All URIs are relative to *https://your-signaling-host*
 |--------|--------------|-------------|
 | [**ApproveAccessApproval**](DevicesApi.md#approveaccessapproval) | **POST** /v1/me/devices/{device_id}/access-approvals/{approval_id}/approve | Approve a pending access request |
 | [**BanDeviceAccessSource**](DevicesApi.md#bandeviceaccesssource) | **POST** /v1/me/devices/{device_id}/access-bans | Permanently deny one source address |
+| [**BindMyDevice**](DevicesApi.md#bindmydevice) | **POST** /v1/me/devices | Bind a device to the authenticated user |
 | [**ClaimAccessApproval**](DevicesApi.md#claimaccessapproval) | **POST** /v1/devices/{device_id}/access-approvals:claim | Exchange an approved request for a signal token |
 | [**CreateAccessGrant**](DevicesApi.md#createaccessgrant) | **POST** /v1/me/devices/{device_id}/access-grants | Issue a time-boxed guest access code |
 | [**DenyAccessApproval**](DevicesApi.md#denyaccessapproval) | **POST** /v1/me/devices/{device_id}/access-approvals/{approval_id}/deny | Deny a pending access request |
@@ -233,6 +234,112 @@ catch (ApiException e)
 | **200** | The updated policy, including the complete deny list. |  -  |
 | **400** | The request was malformed or failed validation. |  -  |
 | **403** | Authenticated but not allowed (includes a rejected access code). |  -  |
+| **404** | The addressed resource does not exist. |  -  |
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+<a id="bindmydevice"></a>
+# **BindMyDevice**
+> Device BindMyDevice (BindMyDeviceRequest bindMyDeviceRequest)
+
+Bind a device to the authenticated user
+
+Claims a provisioned device for the calling account, optionally taking it over from its previous owner. Idempotent: re-binding a device the caller already owns succeeds and is not counted against the account's device quota a second time.  Refused with `403 DEVICE_QUOTA_EXCEEDED` when the account is already at the `device_count` limit reported by `GET /v1/me`. A `device_count` of 0 means no limit is configured, which is the default for a new account. A takeover does not count against the new owner's quota, because the number of machines bound to that account does not change. 
+
+### Example
+```csharp
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Net.Http;
+using QuickDesk.Signaling.Client.Api;
+using QuickDesk.Signaling.Client.Client;
+using QuickDesk.Signaling.Client.Model;
+
+namespace Example
+{
+    public class BindMyDeviceExample
+    {
+        public static void Main()
+        {
+            Configuration config = new Configuration();
+            config.BasePath = "https://your-signaling-host";
+            // Configure API key authorization: ApiKeyAuth
+            config.AddApiKey("X-API-Key", "YOUR_API_KEY");
+            // Uncomment below to setup prefix (e.g. Bearer) for API key, if needed
+            // config.AddApiKeyPrefix("X-API-Key", "Bearer");
+            // Configure Bearer token for authorization: BearerAuth
+            config.AccessToken = "YOUR_BEARER_TOKEN";
+
+            // create instances of HttpClient, HttpClientHandler to be reused later with different Api classes
+            HttpClient httpClient = new HttpClient();
+            HttpClientHandler httpClientHandler = new HttpClientHandler();
+            var apiInstance = new DevicesApi(httpClient, config, httpClientHandler);
+            var bindMyDeviceRequest = new BindMyDeviceRequest(); // BindMyDeviceRequest | 
+
+            try
+            {
+                // Bind a device to the authenticated user
+                Device result = apiInstance.BindMyDevice(bindMyDeviceRequest);
+                Debug.WriteLine(result);
+            }
+            catch (ApiException  e)
+            {
+                Debug.Print("Exception when calling DevicesApi.BindMyDevice: " + e.Message);
+                Debug.Print("Status Code: " + e.ErrorCode);
+                Debug.Print(e.StackTrace);
+            }
+        }
+    }
+}
+```
+
+#### Using the BindMyDeviceWithHttpInfo variant
+This returns an ApiResponse object which contains the response data, status code and headers.
+
+```csharp
+try
+{
+    // Bind a device to the authenticated user
+    ApiResponse<Device> response = apiInstance.BindMyDeviceWithHttpInfo(bindMyDeviceRequest);
+    Debug.Write("Status Code: " + response.StatusCode);
+    Debug.Write("Response Headers: " + response.Headers);
+    Debug.Write("Response Body: " + response.Data);
+}
+catch (ApiException e)
+{
+    Debug.Print("Exception when calling DevicesApi.BindMyDeviceWithHttpInfo: " + e.Message);
+    Debug.Print("Status Code: " + e.ErrorCode);
+    Debug.Print(e.StackTrace);
+}
+```
+
+### Parameters
+
+| Name | Type | Description | Notes |
+|------|------|-------------|-------|
+| **bindMyDeviceRequest** | [**BindMyDeviceRequest**](BindMyDeviceRequest.md) |  |  |
+
+### Return type
+
+[**Device**](Device.md)
+
+### Authorization
+
+[ApiKeyAuth](../README.md#ApiKeyAuth), [BearerAuth](../README.md#BearerAuth)
+
+### HTTP request headers
+
+ - **Content-Type**: application/json
+ - **Accept**: application/json, application/problem+json
+
+
+### HTTP response details
+| Status code | Description | Response headers |
+|-------------|-------------|------------------|
+| **200** | The device, now owned by the caller. |  -  |
+| **400** | The request was malformed or failed validation. |  -  |
+| **401** | Missing or expired credentials. |  -  |
+| **403** | The account is at its device limit (&#x60;DEVICE_QUOTA_EXCEEDED&#x60;), or the request is otherwise not allowed. The device stays unowned.  |  -  |
 | **404** | The addressed resource does not exist. |  -  |
 
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)

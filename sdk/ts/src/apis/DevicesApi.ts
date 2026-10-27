@@ -27,6 +27,8 @@ import type {
   ApprovalClaimRequest,
   ApprovalSummary,
   ApproveAccessApprovalRequest,
+  BindMyDeviceRequest,
+  Device,
   DeviceAccessBanRequest,
   DeviceAccessPolicy,
   DeviceAccessPolicyInput,
@@ -63,6 +65,10 @@ import {
     ApprovalSummaryToJSON,
     ApproveAccessApprovalRequestFromJSON,
     ApproveAccessApprovalRequestToJSON,
+    BindMyDeviceRequestFromJSON,
+    BindMyDeviceRequestToJSON,
+    DeviceFromJSON,
+    DeviceToJSON,
     DeviceAccessBanRequestFromJSON,
     DeviceAccessBanRequestToJSON,
     DeviceAccessPolicyFromJSON,
@@ -94,6 +100,10 @@ export interface ApproveAccessApprovalOperationRequest {
 export interface BanDeviceAccessSourceRequest {
     deviceId: string;
     deviceAccessBanRequest: DeviceAccessBanRequest;
+}
+
+export interface BindMyDeviceOperationRequest {
+    bindMyDeviceRequest: BindMyDeviceRequest;
 }
 
 export interface ClaimAccessApprovalRequest {
@@ -282,6 +292,59 @@ export class DevicesApi extends runtime.BaseAPI {
      */
     async banDeviceAccessSource(requestParameters: BanDeviceAccessSourceRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<DeviceAccessPolicy> {
         const response = await this.banDeviceAccessSourceRaw(requestParameters, initOverrides);
+        return await response.value();
+    }
+
+    /**
+     * Claims a provisioned device for the calling account, optionally taking it over from its previous owner. Idempotent: re-binding a device the caller already owns succeeds and is not counted against the account\'s device quota a second time.  Refused with `403 DEVICE_QUOTA_EXCEEDED` when the account is already at the `device_count` limit reported by `GET /v1/me`. A `device_count` of 0 means no limit is configured, which is the default for a new account. A takeover does not count against the new owner\'s quota, because the number of machines bound to that account does not change. 
+     * Bind a device to the authenticated user
+     */
+    async bindMyDeviceRaw(requestParameters: BindMyDeviceOperationRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<Device>> {
+        if (requestParameters['bindMyDeviceRequest'] == null) {
+            throw new runtime.RequiredError(
+                'bindMyDeviceRequest',
+                'Required parameter "bindMyDeviceRequest" was null or undefined when calling bindMyDevice().'
+            );
+        }
+
+        const queryParameters: any = {};
+
+        const headerParameters: runtime.HTTPHeaders = {};
+
+        headerParameters['Content-Type'] = 'application/json';
+
+        if (this.configuration && this.configuration.apiKey) {
+            headerParameters["X-API-Key"] = await this.configuration.apiKey("X-API-Key"); // ApiKeyAuth authentication
+        }
+
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("BearerAuth", []);
+
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+
+        let urlPath = `/v1/me/devices`;
+
+        const response = await this.request({
+            path: urlPath,
+            method: 'POST',
+            headers: headerParameters,
+            query: queryParameters,
+            body: BindMyDeviceRequestToJSON(requestParameters['bindMyDeviceRequest']),
+        }, initOverrides);
+
+        return new runtime.JSONApiResponse(response, (jsonValue) => DeviceFromJSON(jsonValue));
+    }
+
+    /**
+     * Claims a provisioned device for the calling account, optionally taking it over from its previous owner. Idempotent: re-binding a device the caller already owns succeeds and is not counted against the account\'s device quota a second time.  Refused with `403 DEVICE_QUOTA_EXCEEDED` when the account is already at the `device_count` limit reported by `GET /v1/me`. A `device_count` of 0 means no limit is configured, which is the default for a new account. A takeover does not count against the new owner\'s quota, because the number of machines bound to that account does not change. 
+     * Bind a device to the authenticated user
+     */
+    async bindMyDevice(requestParameters: BindMyDeviceOperationRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<Device> {
+        const response = await this.bindMyDeviceRaw(requestParameters, initOverrides);
         return await response.value();
     }
 

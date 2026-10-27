@@ -19,6 +19,7 @@ docs/ApproveAccessApprovalRequest.md
 docs/AuthApi.md
 docs/AuthSessionRequest.md
 docs/AuthSessionResponse.md
+docs/BindMyDeviceRequest.md
 docs/ClipboardAuditInput.md
 docs/DeleteMyDeviceGroup200Response.md
 docs/Device.md
@@ -124,6 +125,7 @@ src/main/kotlin/io/quickdesk/signaling/models/ApprovalSummaryDeniedSourcesInner.
 src/main/kotlin/io/quickdesk/signaling/models/ApproveAccessApprovalRequest.kt
 src/main/kotlin/io/quickdesk/signaling/models/AuthSessionRequest.kt
 src/main/kotlin/io/quickdesk/signaling/models/AuthSessionResponse.kt
+src/main/kotlin/io/quickdesk/signaling/models/BindMyDeviceRequest.kt
 src/main/kotlin/io/quickdesk/signaling/models/ClipboardAuditInput.kt
 src/main/kotlin/io/quickdesk/signaling/models/DeleteMyDeviceGroup200Response.kt
 src/main/kotlin/io/quickdesk/signaling/models/Device.kt
@@ -199,6 +201,7 @@ src/test/kotlin/io/quickdesk/signaling/models/ApprovalSummaryTest.kt
 src/test/kotlin/io/quickdesk/signaling/models/ApproveAccessApprovalRequestTest.kt
 src/test/kotlin/io/quickdesk/signaling/models/AuthSessionRequestTest.kt
 src/test/kotlin/io/quickdesk/signaling/models/AuthSessionResponseTest.kt
+src/test/kotlin/io/quickdesk/signaling/models/BindMyDeviceRequestTest.kt
 src/test/kotlin/io/quickdesk/signaling/models/ClipboardAuditInputTest.kt
 src/test/kotlin/io/quickdesk/signaling/models/DeleteMyDeviceGroup200ResponseTest.kt
 src/test/kotlin/io/quickdesk/signaling/models/DeviceAccessBanRequestTest.kt

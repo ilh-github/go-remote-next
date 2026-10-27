@@ -32,6 +32,7 @@ docs/ApproveAccessApprovalRequest.md
 docs/AuthAPI.md
 docs/AuthSessionRequest.md
 docs/AuthSessionResponse.md
+docs/BindMyDeviceRequest.md
 docs/ClipboardAuditInput.md
 docs/DeleteMyDeviceGroup200Response.md
 docs/Device.md
@@ -109,6 +110,7 @@ model_approval_summary_denied_sources_inner.go
 model_approve_access_approval_request.go
 model_auth_session_request.go
 model_auth_session_response.go
+model_bind_my_device_request.go
 model_clipboard_audit_input.go
 model_delete_my_device_group_200_response.go
 model_device.go

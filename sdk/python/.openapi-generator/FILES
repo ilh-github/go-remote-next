@@ -22,6 +22,7 @@ docs/ApproveAccessApprovalRequest.md
 docs/AuthApi.md
 docs/AuthSessionRequest.md
 docs/AuthSessionResponse.md
+docs/BindMyDeviceRequest.md
 docs/ClipboardAuditInput.md
 docs/DeleteMyDeviceGroup200Response.md
 docs/Device.md
@@ -114,6 +115,7 @@ quickdesk_signaling/models/approval_summary_denied_sources_inner.py
 quickdesk_signaling/models/approve_access_approval_request.py
 quickdesk_signaling/models/auth_session_request.py
 quickdesk_signaling/models/auth_session_response.py
+quickdesk_signaling/models/bind_my_device_request.py
 quickdesk_signaling/models/clipboard_audit_input.py
 quickdesk_signaling/models/delete_my_device_group200_response.py
 quickdesk_signaling/models/device.py
@@ -188,6 +190,7 @@ test/test_approve_access_approval_request.py
 test/test_auth_api.py
 test/test_auth_session_request.py
 test/test_auth_session_response.py
+test/test_bind_my_device_request.py
 test/test_clipboard_audit_input.py
 test/test_delete_my_device_group200_response.py
 test/test_device.py

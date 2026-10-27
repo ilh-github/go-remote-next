@@ -31,6 +31,8 @@ import io.quickdesk.signaling.models.ApprovalClaimPending
 import io.quickdesk.signaling.models.ApprovalClaimRequest
 import io.quickdesk.signaling.models.ApprovalSummary
 import io.quickdesk.signaling.models.ApproveAccessApprovalRequest
+import io.quickdesk.signaling.models.BindMyDeviceRequest
+import io.quickdesk.signaling.models.Device
 import io.quickdesk.signaling.models.DeviceAccessBanRequest
 import io.quickdesk.signaling.models.DeviceAccessPolicy
 import io.quickdesk.signaling.models.DeviceAccessPolicyInput
@@ -216,6 +218,80 @@ class DevicesApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/v1/me/devices/{device_id}/access-bans".replace("{"+"device_id"+"}", encodeURIComponent(deviceId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /v1/me/devices
+     * Bind a device to the authenticated user
+     * Claims a provisioned device for the calling account, optionally taking it over from its previous owner. Idempotent: re-binding a device the caller already owns succeeds and is not counted against the account&#39;s device quota a second time.  Refused with &#x60;403 DEVICE_QUOTA_EXCEEDED&#x60; when the account is already at the &#x60;device_count&#x60; limit reported by &#x60;GET /v1/me&#x60;. A &#x60;device_count&#x60; of 0 means no limit is configured, which is the default for a new account. A takeover does not count against the new owner&#39;s quota, because the number of machines bound to that account does not change. 
+     * @param bindMyDeviceRequest 
+     * @return Device
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    fun bindMyDevice(bindMyDeviceRequest: BindMyDeviceRequest) : Device {
+        val localVarResponse = bindMyDeviceWithHttpInfo(bindMyDeviceRequest = bindMyDeviceRequest)
+
+        return when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as Device
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /v1/me/devices
+     * Bind a device to the authenticated user
+     * Claims a provisioned device for the calling account, optionally taking it over from its previous owner. Idempotent: re-binding a device the caller already owns succeeds and is not counted against the account&#39;s device quota a second time.  Refused with &#x60;403 DEVICE_QUOTA_EXCEEDED&#x60; when the account is already at the &#x60;device_count&#x60; limit reported by &#x60;GET /v1/me&#x60;. A &#x60;device_count&#x60; of 0 means no limit is configured, which is the default for a new account. A takeover does not count against the new owner&#39;s quota, because the number of machines bound to that account does not change. 
+     * @param bindMyDeviceRequest 
+     * @return ApiResponse<Device?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    fun bindMyDeviceWithHttpInfo(bindMyDeviceRequest: BindMyDeviceRequest) : ApiResponse<Device?> {
+        val localVariableConfig = bindMyDeviceRequestConfig(bindMyDeviceRequest = bindMyDeviceRequest)
+
+        return request<BindMyDeviceRequest, Device>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation bindMyDevice
+     *
+     * @param bindMyDeviceRequest 
+     * @return RequestConfig
+     */
+    fun bindMyDeviceRequestConfig(bindMyDeviceRequest: BindMyDeviceRequest) : RequestConfig<BindMyDeviceRequest> {
+        val localVariableBody = bindMyDeviceRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json, application/problem+json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/v1/me/devices",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,

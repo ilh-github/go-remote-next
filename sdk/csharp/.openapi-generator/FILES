@@ -22,6 +22,7 @@ docs/ApproveAccessApprovalRequest.md
 docs/AuthApi.md
 docs/AuthSessionRequest.md
 docs/AuthSessionResponse.md
+docs/BindMyDeviceRequest.md
 docs/ClipboardAuditInput.md
 docs/DeleteMyDeviceGroup200Response.md
 docs/Device.md
@@ -106,6 +107,7 @@ src/QuickDesk.Signaling.Client.Test/Model/ApprovalSummaryTests.cs
 src/QuickDesk.Signaling.Client.Test/Model/ApproveAccessApprovalRequestTests.cs
 src/QuickDesk.Signaling.Client.Test/Model/AuthSessionRequestTests.cs
 src/QuickDesk.Signaling.Client.Test/Model/AuthSessionResponseTests.cs
+src/QuickDesk.Signaling.Client.Test/Model/BindMyDeviceRequestTests.cs
 src/QuickDesk.Signaling.Client.Test/Model/ClipboardAuditInputTests.cs
 src/QuickDesk.Signaling.Client.Test/Model/DeleteMyDeviceGroup200ResponseTests.cs
 src/QuickDesk.Signaling.Client.Test/Model/DeviceAccessBanRequestTests.cs
@@ -200,6 +202,7 @@ src/QuickDesk.Signaling.Client/Model/ApprovalSummaryDeniedSourcesInner.cs
 src/QuickDesk.Signaling.Client/Model/ApproveAccessApprovalRequest.cs
 src/QuickDesk.Signaling.Client/Model/AuthSessionRequest.cs
 src/QuickDesk.Signaling.Client/Model/AuthSessionResponse.cs
+src/QuickDesk.Signaling.Client/Model/BindMyDeviceRequest.cs
 src/QuickDesk.Signaling.Client/Model/ClipboardAuditInput.cs
 src/QuickDesk.Signaling.Client/Model/DeleteMyDeviceGroup200Response.cs
 src/QuickDesk.Signaling.Client/Model/Device.cs

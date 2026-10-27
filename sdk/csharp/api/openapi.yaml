@@ -124,6 +124,49 @@ paths:
       summary: Devices owned by the authenticated user
       tags:
       - devices
+    post:
+      description: |
+        Claims a provisioned device for the calling account, optionally taking it
+        over from its previous owner. Idempotent: re-binding a device the caller
+        already owns succeeds and is not counted against the account's device
+        quota a second time.
+
+        Refused with `403 DEVICE_QUOTA_EXCEEDED` when the account is already at
+        the `device_count` limit reported by `GET /v1/me`. A `device_count` of 0
+        means no limit is configured, which is the default for a new account. A
+        takeover does not count against the new owner's quota, because the number
+        of machines bound to that account does not change.
+      operationId: bindMyDevice
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/bindMyDevice_request"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Device"
+          description: "The device, now owned by the caller."
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: |
+            The account is at its device limit (`DEVICE_QUOTA_EXCEEDED`), or the
+            request is otherwise not allowed. The device stays unowned.
+        "404":
+          $ref: "#/components/responses/NotFound"
+      summary: Bind a device to the authenticated user
+      tags:
+      - devices
   /v1/me/file-transfer-audits:
     post:
       description: |
@@ -4676,6 +4719,12 @@ components:
           type: array
       required:
       - items
+    bindMyDevice_request:
+      properties:
+        device_id:
+          type: string
+      required:
+      - device_id
     deleteMyDeviceGroup_200_response:
       example:
         status: ok

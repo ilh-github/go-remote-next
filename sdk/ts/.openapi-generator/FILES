@@ -31,6 +31,7 @@ src/models/ApprovalSummaryDeniedSourcesInner.ts
 src/models/ApproveAccessApprovalRequest.ts
 src/models/AuthSessionRequest.ts
 src/models/AuthSessionResponse.ts
+src/models/BindMyDeviceRequest.ts
 src/models/ClipboardAuditInput.ts
 src/models/DeleteMyDeviceGroup200Response.ts
 src/models/Device.ts

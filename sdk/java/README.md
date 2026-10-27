@@ -178,6 +178,7 @@ Class | Method | HTTP request | Description
 *DeviceGroupsApi* | [**updateMyDeviceGroup**](docs/DeviceGroupsApi.md#updateMyDeviceGroup) | **PATCH** /v1/me/device-groups/{group_id} | Update one of the caller&#39;s address-book groups
 *DevicesApi* | [**approveAccessApproval**](docs/DevicesApi.md#approveAccessApproval) | **POST** /v1/me/devices/{device_id}/access-approvals/{approval_id}/approve | Approve a pending access request
 *DevicesApi* | [**banDeviceAccessSource**](docs/DevicesApi.md#banDeviceAccessSource) | **POST** /v1/me/devices/{device_id}/access-bans | Permanently deny one source address
+*DevicesApi* | [**bindMyDevice**](docs/DevicesApi.md#bindMyDevice) | **POST** /v1/me/devices | Bind a device to the authenticated user
 *DevicesApi* | [**claimAccessApproval**](docs/DevicesApi.md#claimAccessApproval) | **POST** /v1/devices/{device_id}/access-approvals:claim | Exchange an approved request for a signal token
 *DevicesApi* | [**createAccessGrant**](docs/DevicesApi.md#createAccessGrant) | **POST** /v1/me/devices/{device_id}/access-grants | Issue a time-boxed guest access code
 *DevicesApi* | [**denyAccessApproval**](docs/DevicesApi.md#denyAccessApproval) | **POST** /v1/me/devices/{device_id}/access-approvals/{approval_id}/deny | Deny a pending access request
@@ -244,6 +245,7 @@ Class | Method | HTTP request | Description
  - [ApproveAccessApprovalRequest](docs/ApproveAccessApprovalRequest.md)
  - [AuthSessionRequest](docs/AuthSessionRequest.md)
  - [AuthSessionResponse](docs/AuthSessionResponse.md)
+ - [BindMyDeviceRequest](docs/BindMyDeviceRequest.md)
  - [ClipboardAuditInput](docs/ClipboardAuditInput.md)
  - [DeleteMyDeviceGroup200Response](docs/DeleteMyDeviceGroup200Response.md)
  - [Device](docs/Device.md)
