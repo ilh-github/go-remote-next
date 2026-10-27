@@ -1267,6 +1267,14 @@ sessions closed once its lease expires (`REMOTE_SESSION_SWEEP_INTERVAL_MINUTES`,
 default 1, drives the periodic pass; the boot pass always runs). Unbound devices
 are recorded with `user_id: 0` and never appear in an owner's list.
 
+Finished rows are kept for `REMOTE_SESSION_RETENTION_DAYS` (default 0, meaning
+forever) and removed by a sweep every
+`REMOTE_SESSION_RETENTION_SWEEP_INTERVAL_MINUTES` (default 60). The window is
+measured from when the session **ended**, not from when it started, so a session
+that ran for months and finished yesterday is still recent history. Rows that are
+still open are never touched. Both settings are off by default so an existing
+deployment's history does not start disappearing on upgrade.
+
 The owner's realtime stream (`/v1/realtime/events`, §6) carries the transitions
 as `remote_session.started` and `remote_session.ended`, both with the same fields
 the list returns, so a client can keep a live view without polling. This is

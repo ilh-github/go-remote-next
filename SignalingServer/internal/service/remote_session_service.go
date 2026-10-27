@@ -287,6 +287,42 @@ func (s *RemoteSessionService) CloseOrphanedSessions(
 	return closed, nil
 }
 
+// PurgeEndedSessions deletes finished rows older than retentionDays and reports
+// how many went.
+//
+// QD-207's fourth stage. Open, close and the orphan sweep are all here; what was
+// missing was any bound on the table, so every session ever admitted kept its row
+// forever. The audit trail already made this argument in its own config: a table
+// with no natural terminal state only grows, and retention is the only thing that
+// bounds it. `remote_sessions` is that table.
+//
+// Two boundaries the delete must not cross. It never touches a row whose
+// `ended_at` is null, because that session is still open and erasing it would
+// make the control plane forget somebody is in there. And the window is measured
+// from `ended_at`, not `started_at`: a session that ran for two months and
+// finished yesterday is recent history, and measuring from the start would delete
+// it.
+//
+// retentionDays <= 0 keeps everything, the same convention the audit and
+// instance-log sweeps use, so a deployment that has not configured retention does
+// not get an empty table.
+func (s *RemoteSessionService) PurgeEndedSessions(ctx context.Context, retentionDays int) (int64, error) {
+	if s == nil || s.db == nil {
+		return 0, errors.New("remote session service is not configured")
+	}
+	if retentionDays <= 0 {
+		return 0, nil
+	}
+	cutoff := time.Now().UTC().AddDate(0, 0, -retentionDays)
+	res := s.db.WithContext(ctx).
+		Where("ended_at IS NOT NULL AND ended_at < ?", cutoff).
+		Delete(&models.RemoteSession{})
+	if res.Error != nil {
+		return 0, res.Error
+	}
+	return res.RowsAffected, nil
+}
+
 // RemoteSessionFilter narrows a listing. Zero values mean "no filter", except
 // Active, where nil is the zero value and means "either".
 type RemoteSessionFilter struct {

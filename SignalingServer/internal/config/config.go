@@ -172,6 +172,16 @@ type Config struct {
 // instance restarts. 0 disables the periodic worker; the boot pass still runs.
 type RemoteSessionConfig struct {
 	SweepIntervalMin int
+	// RetentionDays bounds how long a *finished* row is kept. The orphan sweep
+	// above maintains the open rows; nothing maintained the finished ones, so
+	// every session ever admitted kept its row forever - the same "a table with
+	// no natural terminal state only grows" problem the audit trail's retention
+	// solves. 0 keeps everything, which is the default so an existing
+	// deployment's history does not start disappearing on upgrade.
+	RetentionDays int
+	// RetentionSweepIntervalMin is how often the retention sweep runs. 0 disables
+	// it, which keeps RetentionDays from doing anything on its own.
+	RetentionSweepIntervalMin int
 	// RevokeCooldownSeconds keeps a thrown-out controller from walking straight
 	// back in with the same access code. It is keyed by device and observed
 	// source address, and 0 disables it (immediate reconnects allowed).
@@ -402,6 +412,12 @@ func Load() *Config {
 	// instance's sessions stop counting as "active" quickly, and long enough
 	// that the scan is negligible.
 	viper.SetDefault("REMOTE_SESSION_SWEEP_INTERVAL_MINUTES", 1)
+	// Retention of finished rows, off by default: an existing deployment's
+	// history should not start disappearing the moment it upgrades. Hourly once
+	// enabled, because nothing about a finished session row changes after the
+	// minute it was closed.
+	viper.SetDefault("REMOTE_SESSION_RETENTION_DAYS", 0)
+	viper.SetDefault("REMOTE_SESSION_RETENTION_SWEEP_INTERVAL_MINUTES", 60)
 	// Five minutes, matching the approval denial cooldown's default window: long
 	// enough that a kick is not cosmetic, short enough that a mistaken one is not
 	// an outage. 0 disables it.
@@ -643,9 +659,11 @@ func Load() *Config {
 		SweepIntervalMin: viper.GetInt("INSTANCE_LOG_SWEEP_INTERVAL_MINUTES"),
 	}
 	cfg.RemoteSession = RemoteSessionConfig{
-		SweepIntervalMin:       viper.GetInt("REMOTE_SESSION_SWEEP_INTERVAL_MINUTES"),
-		RevokeCooldownSeconds:  viper.GetInt("REVOKE_COOLDOWN_SECONDS"),
-		ControlGrantTTLSeconds: viper.GetInt("CONTROL_GRANT_TTL_SECONDS"),
+		SweepIntervalMin:          viper.GetInt("REMOTE_SESSION_SWEEP_INTERVAL_MINUTES"),
+		RetentionDays:             viper.GetInt("REMOTE_SESSION_RETENTION_DAYS"),
+		RetentionSweepIntervalMin: viper.GetInt("REMOTE_SESSION_RETENTION_SWEEP_INTERVAL_MINUTES"),
+		RevokeCooldownSeconds:     viper.GetInt("REVOKE_COOLDOWN_SECONDS"),
+		ControlGrantTTLSeconds:    viper.GetInt("CONTROL_GRANT_TTL_SECONDS"),
 	}
 	cfg.OfflineAlert = OfflineAlertConfig{
 		IntervalSeconds: viper.GetInt("OFFLINE_ALERT_INTERVAL_SECONDS"),

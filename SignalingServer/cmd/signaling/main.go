@@ -386,6 +386,31 @@ func main() {
 		log.Printf("Remote session sweep: interval=%dm (a killed instance's sessions close once its presence lease expires)",
 			cfg.RemoteSession.SweepIntervalMin)
 	}
+	// Retention of finished rows. The orphan sweep above keeps the *open* rows
+	// honest; nothing was bounding the finished ones, so every session ever
+	// admitted kept its row forever. Off unless REMOTE_SESSION_RETENTION_DAYS is
+	// set, so an existing deployment's history does not start disappearing on
+	// upgrade.
+	if cfg.RemoteSession.RetentionDays > 0 && cfg.RemoteSession.RetentionSweepIntervalMin > 0 {
+		go func() {
+			ticker := time.NewTicker(time.Duration(cfg.RemoteSession.RetentionSweepIntervalMin) * time.Minute)
+			defer ticker.Stop()
+			for range ticker.C {
+				removed, err := remoteSessionService.PurgeEndedSessions(
+					context.Background(), cfg.RemoteSession.RetentionDays)
+				if err != nil {
+					log.Printf("Warning: remote session retention sweep failed: %v", err)
+					continue
+				}
+				if removed > 0 {
+					log.Printf("Remote sessions: purged %d finished rows older than %d day(s)",
+						removed, cfg.RemoteSession.RetentionDays)
+				}
+			}
+		}()
+		log.Printf("Remote session retention: days=%d interval=%dm (finished rows older than the window are deleted)",
+			cfg.RemoteSession.RetentionDays, cfg.RemoteSession.RetentionSweepIntervalMin)
+	}
 	// Cross-instance log shipping. Attaching the sink after the database is open
 	// (rather than inside observability.Configure) is what makes it possible at
 	// all: the store is the database. Lines logged before this point - the
