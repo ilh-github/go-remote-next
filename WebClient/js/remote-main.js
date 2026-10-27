@@ -26,6 +26,7 @@ import { AnnotationChannel } from './ui/annotationChannel.js';
 import { ControlGrantState } from './ui/control-grant.js';
 import { SessionMediaState } from './sessionMediaState.js';
 import { auditLeafName } from './audit/audit-leaf-name.js';
+import { applyAudioPreference, reapplyAudioPreference } from './session/audio-state.js';
 import { IceConfigFetcher } from './ice-config-fetcher.js';
 import { t, applyI18n, getLocale, setLocale } from './i18n.js';
 import { userApi } from './api/user-api.js';
@@ -1045,6 +1046,15 @@ class RemoteDesktopApp {
         video.srcObject = combinedStream;
         if (this._wallMode) {
             video.muted = !this._wallAudioEnabled;
+        } else {
+            // Assigning a fresh srcObject resets `muted` to the element default,
+            // so the operator's mute has to be put back or a reconnect - the
+            // moment the link is least stable - is when the remote machine
+            // starts making noise again.
+            // The toolbar's default is audio-on, and it is created before the
+            // first stream arrives; reading a missing toolbar as "off" would
+            // mute an operator who never touched the toggle.
+            reapplyAudioPreference(video, this.floatingToolbar?.settings.audioEnabled !== false);
         }
 
         video.play().catch(e => {
@@ -1844,7 +1854,13 @@ class RemoteDesktopApp {
                 } else {
                     this.tabCoordinator?.release('audio');
                 }
-                this.dcHandler.sendAudioControl({ enable: detail.value });
+                // Both halves. Telling the host to stop sending was always
+                // here; muting the element that actually makes sound was not,
+                // so an operator who clicked mute kept hearing the remote
+                // machine until the buffer drained.
+                const { hostEnable } = applyAudioPreference(
+                    document.getElementById('remoteVideo'), detail.value);
+                this.dcHandler.sendAudioControl({ enable: hostEnable });
                 this._log(t('log.audioToggle', { state: detail.value ? t('log.audioOn') : t('log.audioOff') }));
                 break;
             case 'stats':
