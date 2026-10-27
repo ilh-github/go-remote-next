@@ -49,6 +49,7 @@ export class TouchHandler {
         this._longPressTimer = null;
         this._moved = false;
         this._activeTouches = 0;
+        this._fromPinch = false;
 
         this._lastTwoFingerX = 0;
         this._lastTwoFingerY = 0;
@@ -126,6 +127,7 @@ export class TouchHandler {
             this._lastSinglePos = { x: t.clientX, y: t.clientY };
             this._moved = false;
             this._secondTap = this._isSecondTap(t);
+            this._fromPinch = false;
             if (!this._secondTap) {
                 this._lastTapTime = 0;
                 this._lastTapPos = null;
@@ -227,7 +229,12 @@ export class TouchHandler {
                 this._sendButton(MouseButton.BUTTON_LEFT, false);
                 this._dragging = false;
                 this._secondTap = false;
+                this._fromPinch = false;
             } else if (!this._moved) {
+                if (this._fromPinch) {
+                    this._fromPinch = false;
+                    return;
+                }
                 // Send each click immediately. The host receives two normal
                 // left clicks for a double-click instead of a platform-
                 // specific button latch sequence.
@@ -249,6 +256,11 @@ export class TouchHandler {
             this._secondTap = false;
             this._lastTapTime = 0;
             this._lastTapPos = null;
+            // The gesture that is being continued came out of a pinch, and a
+            // pinch is never a tap. Marking the surviving finger as "not
+            // moved" would make its eventual release look like a tap, and the
+            // host would receive a click the user never made.
+            this._fromPinch = true;
         }
 
         if (e.touches.length === 0) {
