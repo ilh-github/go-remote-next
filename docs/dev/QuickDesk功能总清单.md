@@ -208,6 +208,17 @@
 
 最近验证：
 
+- `609ca99b`（上一个会话的音频轨可能在新会话的画面下播放）：`_pendingAudioTrack`、
+  `_receivedStreams`、`_selectedStreamId` 三个字段在会话拆卸时从未被清空。音频轨是最险的
+  一个：它单独缓存，并在之后每一个 combined stream 构建时被合并进去，而守卫只看
+  `readyState === 'live'`——重连后旧会话的音轨**仍然**是 live，于是旧机器的音频在新画面下
+  继续播。流映射按旧会话的 stream id 建键，新会话发自己的 id，旧条目最好不可达、id 相撞时
+  则挂上错误的流。三者抽成 `js/sessionMediaState.js`（「哪些字段是会话级的」才是必须做对
+  的那件事，而后加的字段没人清正是这类 bug 的形状），`usableAudioTrack()` 把「live」这一条
+  收在模块内，`selectedStream()` 让旧 id 解析为 null 而不是解析到已不属于此处的流。
+  `_resetSessionForReconnect()` 与 `_disconnect()` 都调用 `reset()`；控制权被撤销的三处
+  **不**调——那三条路会话还活着，清掉会让还在播的画面失去音频。7 条单测，`npm test`
+  358/358，重连 E2E 17/17，全量 E2E 门禁 17 passed / 0 failed / 1 skipped。
 - `e6a508d7`（release 在「通道已消失但标志未清」时抛异常并被吞掉）：接上一轮给
   `_cleanupInputHandlers` 加 `releaseAllInput` 之后核对它能否真的到达主机。
   `sendAction` 只检查 `_actionsReady` 一个标志，而那个标志只由 `destroy()` 清除；
