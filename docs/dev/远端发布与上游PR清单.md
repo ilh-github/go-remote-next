@@ -890,3 +890,14 @@ PR 描述至少写明：
   `build` check SUCCESS，等维护者合并。
 - 本轮未新建上游 PR：工作全部是测试底座与迁移文件，属 fork 自有验证基建，
   上游 `SignalingServer` 没有对应的 scratch-database 测试约定，摘不出最小候选。
+
+## 核心输入链路修复（2026-10-28）
+
+- fork 提交：`6ba8cc41`（鼠标拖出画面不释放按键）、`6afb9c6a`
+  （捏合手指抬起产生幻影点击）。`dev` 领先 `origin/dev` 2 个提交。
+- 远端写入：`git push origin dev` 与 `git push origin master` 均被策略拒绝
+  （approval required by policy, but AskForApproval is set to Never）。
+  已按要求记录在此，不绕过审批。本地 `dev` 与 `master` 已同步。
+- 上游候选：**未准备**。两处修复都在 WebClient 输入链路内部，不触碰
+  `openapi.yaml` 或任何 SDK 契约，因此无需重新生成七套 SDK；可作为纯
+  WebClient 增量候选后续从 `upstream/dev` 切出。
