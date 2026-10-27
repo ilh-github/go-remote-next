@@ -37,6 +37,11 @@ export function useSessionAudit(api) {
   const rows = ref([])
   const loading = ref(false)
   const error = ref('')
+  // Where the current rows came from. `live` is the table, `archive` is the
+  // per-day files retention moves expired rows into. An owner looking at an empty
+  // panel needs to know which one they are looking at, because "nothing was
+  // transferred" and "nothing is in the live table any more" are different facts.
+  const source = ref('live')
   // Whether the current rows came from a completed read. An empty list with
   // `loaded` true means "this account moved nothing"; an empty list with
   // `loaded` false means "we never asked", and the two must not render alike.
@@ -46,6 +51,7 @@ export function useSessionAudit(api) {
     rows.value = []
     loading.value = false
     error.value = ''
+    source.value = 'live'
     loaded.value = false
   }
 
@@ -66,18 +72,48 @@ export function useSessionAudit(api) {
       }
       rows.value = describeAuditRows(response.data?.items ?? [])
       loaded.value = true
+      source.value = 'live'
+      // An empty live table is not the whole answer once retention has run: the
+      // rows may have been archived rather than never having existed. Ask the
+      // archive only in that case, so a populated panel costs one request.
+      if (rows.value.length === 0) {
+        await loadFromArchive()
+      }
     } catch (err) {
       // The failure is kept and the rows are cleared: leaving the previous
       // read's transfers on screen would be a worse lie than an error message.
       rows.value = []
       loaded.value = false
       error.value = err?.message || String(err)
+      source.value = 'live'
     } finally {
       loading.value = false
     }
   }
 
-  return { rows, loading, error, loaded, load, reset }
+  /**
+   * Reads the archived half of the trail.
+   *
+   * A failure here does not fail the load: the live read already succeeded, and
+   * an unset archive directory is a configuration fact rather than something the
+   * owner did wrong. The rows simply stay empty and stay labelled `live`.
+   */
+  async function loadFromArchive() {
+    try {
+      const client = await resolveClient(api)
+      const response = await client.fetchArchivedAuditLogs({ limit: 100 })
+      if (!response || response.ok !== true) return
+      const archived = describeAuditRows(response.data?.items ?? [])
+      if (archived.length > 0) {
+        rows.value = archived
+        source.value = 'archive'
+      }
+    } catch {
+      // Deliberately swallowed: see above.
+    }
+  }
+
+  return { rows, loading, error, source, loaded, load, reset }
 }
 
 // Cached across composable instances so the real module is imported at most once.

@@ -1,14 +1,15 @@
 package handler
 
 import (
+	"encoding/csv"
+	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
 
-	"encoding/csv"
-	"fmt"
-
 	"quickdesk/signaling/internal/middleware"
+	"quickdesk/signaling/internal/models"
 	"quickdesk/signaling/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -220,4 +221,97 @@ func (h *OwnerAuditHandler) Export(c *gin.Context) {
 		})
 	}
 	writer.Flush()
+}
+
+// Archive serves GET /v1/me/audit-logs/archive: the owner's read of the archived
+// half of the same trail.
+//
+// Retention appends expired rows to a per-day JSONL file before deleting them, so
+// the live table stays bounded without the history being lost. The admin console
+// can search those files; until now the owner could not, which meant that after
+// retention ran the only person who could read a row was an admin -- the same
+// asymmetry the export had, one layer deeper.
+//
+// `QueryArchive` already filters on ActorUserID, so the scope is applied by
+// passing the caller's own id and ignoring any the request carries. A
+// caller-supplied actor is not rejected with an error, it is simply not honoured:
+// the parameter exists for the admin query, and answering "unknown parameter"
+// would tell a caller probing the endpoint that it is there.
+func (h *OwnerAuditHandler) Archive(c *gin.Context) {
+	if h.audit == nil {
+		ProblemInternal(c, "audit store is not configured")
+		return
+	}
+	uid := middleware.MustUserID(c)
+	if uid == 0 {
+		ProblemUnauthorized(c, ProblemCodeUnauthorized, "authentication required")
+		return
+	}
+	action := strings.TrimSpace(c.Query("action"))
+	if action != "" {
+		if _, ok := ownerAuditActions[action]; !ok {
+			ProblemBadRequest(c, ProblemCodeInvalidRequest,
+				"action must be one of file.transfer, clipboard.sync, file.transfer.upload, file.transfer.download, clipboard.sync.upload, clipboard.sync.download")
+			return
+		}
+		// The archive query has no details filter, so a direction-scoped action
+		// cannot be honoured exactly. Refused rather than quietly widened:
+		// answering "here are both directions" to "what did I upload" would hand
+		// back rows the caller did not ask for, which is the failure mode the
+		// live read's direction filter exists to prevent.
+		if _, scoped := directionActions[action]; scoped {
+			ProblemBadRequest(c, ProblemCodeInvalidRequest,
+				"the archive supports file.transfer and clipboard.sync only; a direction-scoped filter needs the live trail")
+			return
+		}
+	}
+	limit, err := parseAuditArchiveLimit(c.Query("limit"))
+	if err != nil {
+		ProblemBadRequest(c, ProblemCodeInvalidRequest, err.Error())
+		return
+	}
+
+	result, err := h.audit.QueryArchive(c.Request.Context(), service.AuditArchiveQuery{
+		Date:   c.Query("date"),
+		Query:  c.Query("q"),
+		Action: action,
+		// The caller's own id, whatever the request said. This is what keeps the
+		// read from becoming a way to see anybody else's archived rows.
+		ActorUserID: uid,
+		Limit:       limit,
+	})
+	if errors.Is(err, service.ErrAuditArchiveNotFound) {
+		// Nothing expired that day is the normal case on a young deployment, so it
+		// is an empty answer rather than a failure.
+		c.JSON(http.StatusOK, gin.H{
+			"items": []models.AuditLog{}, "count": 0, "date": result.Date,
+			"truncated": false, "has_more": false,
+		})
+		return
+	}
+	if errors.Is(err, service.ErrAuditArchiveBadDate) {
+		ProblemBadRequest(c, ProblemCodeInvalidRequest, err.Error())
+		return
+	}
+	if errors.Is(err, service.ErrAuditArchiveNotConfigured) {
+		ProblemBadRequest(c, ProblemCodeInvalidRequest,
+			"audit archive is not configured; set AUDIT_ARCHIVE_DIR")
+		return
+	}
+	if err != nil {
+		ProblemInternal(c, err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"items":         result.Items,
+		"count":         len(result.Items),
+		"date":          result.Date,
+		"scanned_bytes": result.ScannedBytes,
+		"scanned_lines": result.ScannedLines,
+		// Both matter: `truncated` says the scan gave up, so an empty result is not
+		// proof the event never happened -- exactly the distinction the live read
+		// has to make between "nothing" and "could not ask".
+		"truncated": result.Truncated,
+		"has_more":  result.HasMore,
+	})
 }

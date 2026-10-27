@@ -264,6 +264,7 @@ export const en = {
     auditReadFailed: 'Could not read the audit trail',
     exportAudit: 'Export CSV',
     auditExportFailed: 'Could not export the audit trail',
+    auditFromArchive: 'Showing archived entries — these have left the live table',
     clearConfirm: 'Kick every controller connected to {device}?',
     clearFailed: 'Clear failed',
     clearDone: 'Disconnected {revoked} session(s), {failed} failed.',

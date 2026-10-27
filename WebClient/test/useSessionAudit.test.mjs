@@ -33,6 +33,104 @@ function stubFetchAuditLogs(impl) {
   return () => { userApi.fetchAuditLogs = original }
 }
 
+function stubFetchArchivedAuditLogs(impl) {
+  const original = userApi.fetchArchivedAuditLogs
+  userApi.fetchArchivedAuditLogs = impl
+  return () => { userApi.fetchArchivedAuditLogs = original }
+}
+
+// QD-110: retention moves expired rows into per-day files, so an empty live table
+// is not the whole answer. The panel has to ask the archive, and say which one it
+// is showing - "nothing was transferred" and "nothing is in the live table any
+// more" are different facts.
+test('an empty live table falls back to the archive and says so', async () => {
+  const restoreLive = stubFetchAuditLogs(async () => ({ ok: true, data: { items: [] } }))
+  const restoreArchive = stubFetchArchivedAuditLogs(async () => ({
+    ok: true,
+    data: {
+      items: [
+        {
+          id: 9,
+          action: 'file.transfer.upload',
+          resource_id: 'tr-archived',
+          details: JSON.stringify({ status: 'completed', filename: 'old.pdf', bytes_transferred: 99 }),
+          created_at: '2026-09-01T10:00:00Z',
+        },
+      ],
+    },
+  }))
+  try {
+    const audit = useSessionAudit()
+    await audit.load()
+
+    assert.equal(audit.error.value, '')
+    assert.equal(audit.loaded.value, true)
+    assert.equal(audit.rows.value.length, 1, 'the archived row must reach the panel')
+    assert.equal(audit.rows.value[0].transferId, 'tr-archived')
+    assert.equal(audit.source.value, 'archive', 'the panel must say the rows came from the archive')
+  } finally {
+    restoreLive()
+    restoreArchive()
+  }
+})
+
+// A populated live table must not cost a second request: the archive is only
+// asked when the live read came back empty.
+test('a populated live table does not consult the archive', async () => {
+  let archiveCalls = 0
+  const restoreLive = stubFetchAuditLogs(async () => ({
+    ok: true,
+    data: {
+      items: [
+        {
+          id: 1,
+          action: 'clipboard.sync.upload',
+          resource_id: 'clip-1',
+          details: JSON.stringify({ status: 'completed', bytes: 42, mime_type: 'text/plain' }),
+          created_at: '2026-10-26T10:00:00Z',
+        },
+      ],
+    },
+  }))
+  const restoreArchive = stubFetchArchivedAuditLogs(async () => {
+    archiveCalls += 1
+    return { ok: true, data: { items: [] } }
+  })
+  try {
+    const audit = useSessionAudit()
+    await audit.load()
+
+    assert.equal(audit.rows.value.length, 1)
+    assert.equal(audit.source.value, 'live')
+    assert.equal(archiveCalls, 0, 'a populated live table should not trigger an archive read')
+  } finally {
+    restoreLive()
+    restoreArchive()
+  }
+})
+
+// An archive that cannot be read must not turn a successful live read into a
+// failure: an unset AUDIT_ARCHIVE_DIR is a server configuration fact, not
+// something the owner did wrong.
+test('an unreadable archive leaves a successful live read intact', async () => {
+  const restoreLive = stubFetchAuditLogs(async () => ({ ok: true, data: { items: [] } }))
+  const restoreArchive = stubFetchArchivedAuditLogs(async () => ({
+    ok: false, error: 'audit archive is not configured',
+  }))
+  try {
+    const audit = useSessionAudit()
+    await audit.load()
+
+    assert.equal(audit.error.value, '')
+    assert.equal(audit.loaded.value, true)
+    assert.equal(audit.rows.value.length, 0)
+    assert.equal(audit.source.value, 'live')
+  } finally {
+    restoreLive()
+    restoreArchive()
+  }
+})
+
 test('a successful read leaves the rows described and marks it loaded', async () => {
   const restore = stubFetchAuditLogs(async () => ({
     ok: true,

@@ -540,6 +540,22 @@ class UserApi {
     return { ok: true, blob, filename: named ? named[1] : `my-audit-logs.${format}` }
   }
 
+  // QD-110: the archived half of the same trail. Retention moves expired rows into
+  // per-day files before deleting them, so once it has run the live read is not
+  // the whole answer.
+  //
+  // Only the two aggregate actions are offered: the archive query has no details
+  // filter, so a direction-scoped filter would come back with both directions -
+  // which is what the server refuses rather than silently widening.
+  fetchArchivedAuditLogs({ date = '', q = '', limit } = {}) {
+    const params = new URLSearchParams()
+    if (date) params.set('date', date)
+    if (q) params.set('q', q)
+    if (limit) params.set('limit', String(limit))
+    const query = params.toString()
+    return this._req('GET', `/v1/me/audit-logs/archive${query ? `?${query}` : ''}`)
+  }
+
   // Full replace, not a partial update: the server resets every field this body
   // omits. Callers therefore send the whole policy back - see
   // `api/controlModeModel.js`, which builds that body from the stored row so a

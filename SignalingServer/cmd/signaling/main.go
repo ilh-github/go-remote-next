@@ -870,6 +870,11 @@ func main() {
 			// on the read, because an export does not page and so has to be scoped
 			// on its own.
 			me.GET("/audit-logs:export", ownerAuditHandler.Export)
+			// The archived half of the same trail. Retention moves expired rows
+			// into per-day files before deleting them; the admin console can search
+			// those, and until now the owner could not - which left the only person
+			// a row belongs to unable to read it once retention had run.
+			me.GET("/audit-logs/archive", ownerAuditHandler.Archive)
 
 			// Who is in the caller's machines right now (status=active) and who
 			// has been. Deliberately not /sessions, which is the caller's own

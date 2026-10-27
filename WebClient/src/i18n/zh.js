@@ -266,6 +266,7 @@ export const zh = {
     auditReadFailed: '读取审计记录失败',
     exportAudit: '导出 CSV',
     auditExportFailed: '导出审计记录失败',
+    auditFromArchive: '以下为归档记录——已离开在线表',
     clearConfirm: '把 {device} 上所有正在连接的控制端都踢出去？',
     clearFailed: '清空失败',
     clearDone: '已断开 {revoked} 个会话，失败 {failed} 个。',

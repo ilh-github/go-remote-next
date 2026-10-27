@@ -73,7 +73,16 @@
         <div v-else-if="auditRows.length === 0" class="hint">
           {{ $t('sessions.auditEmpty') }}
         </div>
-        <div v-else class="audit-list">
+        <template v-else>
+        <!-- QD-110: retention moves expired rows into per-day files, so an empty
+             live table is not the whole answer. The label sits above the rows
+             rather than in place of them: these rows exist, they have just left
+             the live table, and showing the label instead of them would be the
+             same "empty" lie one branch up. -->
+        <div v-if="auditSource === 'archive'" class="hint">
+          {{ $t('sessions.auditFromArchive') }}
+        </div>
+        <div class="audit-list">
           <div v-for="row in auditRows" :key="row.id" class="audit-row">
             <span>{{ formatTime(row.at) }}</span>
             <span>{{ auditRowLabel(row) }}</span>
@@ -83,6 +92,7 @@
             </span>
           </div>
         </div>
+        </template>
       </div>
 
       <div v-if="deviceFilter" class="card ban-panel">
@@ -245,6 +255,7 @@ const auditRows = auditState.rows
 const auditLoading = auditState.loading
 const auditError = auditState.error
 const auditLoaded = auditState.loaded
+const auditSource = auditState.source
 
 const statusOptions = [
   { value: 'active', label: 'sessions.filter.active' },

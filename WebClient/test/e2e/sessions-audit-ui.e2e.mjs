@@ -135,7 +135,7 @@ function sessionDetail() {
   }
 }
 
-async function openSessionsPage({ auditMode, withSessions = false }) {
+async function openSessionsPage({ auditMode, withSessions = false, archiveMode = 'rows' }) {
   // A fresh context per test. localStorage and route handlers live in the
   // context, so sharing one would let a previous test's token or mock decide
   // what this one sees - which is how a passing test starts failing only when
@@ -201,6 +201,23 @@ async function openSessionsPage({ auditMode, withSessions = false }) {
           'content-disposition': 'attachment; filename="my-audit-logs-20261027T120000Z.csv"',
         },
         body: 'id,action,resource_id,created_at\n1,file.transfer,clip-ui-1,2026-10-26T10:00:00Z\n',
+      })
+      return
+    }
+    if (method === 'GET' && url.pathname === '/v1/me/audit-logs/archive') {
+      await fulfillJSON(route, {
+        items: archiveMode === 'empty' ? [] : [
+          {
+            id: 91,
+            action: 'file.transfer',
+            resource_id: 'tr-archived-ui',
+            details: JSON.stringify({ status: 'completed', filename: 'old.pdf', bytes_transferred: 4096 }),
+            created_at: '2026-09-01T10:00:00Z',
+          },
+        ],
+        count: 1,
+        truncated: false,
+        has_more: false,
       })
       return
     }
@@ -319,6 +336,31 @@ test('the audit panel exports the trail as a file', async () => {
   }
 })
 
+// QD-110, archive half: retention moves expired rows into per-day files, so an
+// empty live table is not the whole answer. The panel has to ask the archive and
+// say where the rows came from - "nothing was transferred" and "nothing is in the
+// live table any more" are different facts, and only one of them is evidence.
+test('an empty live trail falls back to the archive and labels it', async () => {
+  const { page, context, pageErrors } = await openSessionsPage({ auditMode: 'empty', archiveMode: 'rows' })
+  try {
+    await page.getByRole('button', { name: 'Transfer audit' }).first().click()
+    const panel = page.locator('.audit-panel')
+    await panel.waitFor({ state: 'visible', timeout: 5000 })
+
+    // Wait for the read to settle before asserting, so the test is not racing the
+    // archive request that follows an empty live read.
+    const rows = panel.locator('.audit-row')
+    await rows.first().waitFor({ state: 'attached', timeout: 5000 })
+    await rows.first().waitFor({ state: 'attached', timeout: 5000 })
+    const text = await panel.innerText()
+    assert.ok(text.includes('old.pdf'), `the archived transfer is not described: ${text}`)
+    assert.ok(/archived/i.test(text), `the panel does not say the rows came from the archive: ${text}`)
+    assert.deepEqual(pageErrors, [])
+  } finally {
+    await context.close()
+  }
+})
+
 // The state that matters: a failed read must not look like an empty one. If the
 // panel rendered an empty list on failure, "the server refused" would read as
 // "nothing was transferred", which is the opposite of what happened.
@@ -354,7 +396,7 @@ test('a failed audit read is shown as a failure, not as an empty list', async ()
 // An empty successful read is the one case where an empty list is the truth, and
 // it has to look different from a failure.
 test('an empty audit read is shown as empty, not as a failure', async () => {
-  const { page, context, pageErrors } = await openSessionsPage({ auditMode: 'empty' })
+  const { page, context, pageErrors } = await openSessionsPage({ auditMode: 'empty', archiveMode: 'empty' })
   try {
     await page.getByRole('button', { name: 'Transfer audit' }).first().click()
     const panel = page.locator('.audit-panel')
