@@ -306,7 +306,12 @@ export class DataChannelHandler extends EventTarget {
      * @param {'sendAttentionSequence'|'lockWorkstation'|'enablePrivacyScreen'|'disablePrivacyScreen'} action 
      */
     sendAction(action) {
-        if (!this._actionsReady) {
+        // The flag alone is not enough: a channel can be gone while the flag
+        // still says ready (a peer-initiated close, or a teardown that cleared
+        // one and not the other). Writing to a closed or missing DataChannel
+        // throws, and every caller wraps this in try/catch, so the release would
+        // be silently lost - the host would keep the keys it was told to drop.
+        if (!this._actionsReady || !this.actionsChannel) {
             console.warn('[DataChannel] Actions channel not ready');
             return;
         }
