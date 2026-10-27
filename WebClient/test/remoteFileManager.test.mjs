@@ -98,3 +98,33 @@ test('rename validates the target and moves within the same directory', async ()
     });
     await assert.rejects(manager.rename({ name: 'old.txt' }, 'bad/name'), /separator/);
 });
+
+// The host's file-ops skill rejects any chunk above 256 KiB and silently clamps
+// read requests down to it. A manager configured above the limit would fail every
+// upload with an error naming a size the caller never chose.
+test('a chunk size above the host limit is clamped', () => {
+    const manager = new RemoteFileManager({ async request() { return {} } }, {
+        chunkBytes: 4 * 1024 * 1024,
+    });
+
+    assert.equal(manager.chunkBytes, 256 * 1024);
+});
+
+test('a chunk size within the host limit is left alone', () => {
+    const manager = new RemoteFileManager({ async request() { return {} } }, {
+        chunkBytes: 3,
+    });
+
+    assert.equal(manager.chunkBytes, 3);
+});
+
+// A zero or negative chunk size would make the upload loop never advance, and the
+// host would reject a zero-length write as an empty chunk.
+test('a zero or negative chunk size falls back to the default', () => {
+    for (const value of [0, -1, NaN, 'not a number']) {
+        const manager = new RemoteFileManager({ async request() { return {} } }, {
+            chunkBytes: value,
+        });
+        assert.equal(manager.chunkBytes, 64 * 1024, `chunk size ${value} was kept`);
+    }
+});

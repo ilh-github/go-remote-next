@@ -7,6 +7,12 @@ import {
 
 const DEFAULT_CHUNK_BYTES = 64 * 1024;
 
+// The host's `file-ops` skill rejects any chunk larger than this with "chunk is N
+// bytes; maximum is 262144", and it silently clamps read requests down to it. A
+// manager configured above the limit would fail every upload with an error that
+// names a number the caller never chose.
+const MAX_CHUNK_BYTES = 256 * 1024;
+
 export function bytesToBase64(bytes) {
     let binary = '';
     const block = 0x8000;
@@ -38,7 +44,13 @@ export class RemoteFileManager extends EventTarget {
             throw new TypeError('bridge.request is required');
         }
         this.bridge = bridge;
-        this.chunkBytes = Math.max(1, Number(chunkBytes) || DEFAULT_CHUNK_BYTES);
+        // Anything that is not a usable positive number falls back to the default
+        // rather than being clamped up to 1: a 1-byte chunk is a valid size, so
+        // `Math.max(1, ...)` would quietly accept it and turn every upload into
+        // one round trip per byte.
+        const requested = Number(chunkBytes);
+        const usable = Number.isFinite(requested) && requested >= 1 ? requested : DEFAULT_CHUNK_BYTES;
+        this.chunkBytes = Math.min(MAX_CHUNK_BYTES, Math.max(1, Math.floor(usable)));
         this.refreshAfterMutation = refreshAfterMutation;
         this.refreshAfterUpload = refreshAfterUpload;
         this.encodeBase64 = encodeBase64;
