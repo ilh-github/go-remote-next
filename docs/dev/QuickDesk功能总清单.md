@@ -208,6 +208,14 @@
 
 最近验证：
 
+- `2c9e37d9`（WebClient 分块大小可以与 host 契约不一致）：host 的 `file-ops` 技能把
+  `MAX_CHUNK_BYTES` 定为 256 KiB，超过即报「chunk is N bytes; maximum is 262144」，
+  读请求则被静默钳到该值。`RemoteFileManager` 的 `chunkBytes` 却没有任何上界，
+  配大了每一次上传都会以一个点名「调用方从未选过的数字」的错误失败。补上上界钳制。
+  顺带抓到同一表达式里的第二个问题：`Math.max(1, Number(x) || DEFAULT)` 让 `-1`
+  通过（`|| ` 只对 0/NaN/非数字生效），于是负值被钳成 1 字节——那是个合法大小，
+  于是每次上传变成每字节一次往返。改为「非有限或非正一律回退默认值」。
+  3 条新测试，两个守卫各自反向验证过（去掉上界则超限那条红）。
 - `609ca99b`（上一个会话的音频轨可能在新会话的画面下播放）：`_pendingAudioTrack`、
   `_receivedStreams`、`_selectedStreamId` 三个字段在会话拆卸时从未被清空。音频轨是最险的
   一个：它单独缓存，并在之后每一个 combined stream 构建时被合并进去，而守卫只看
