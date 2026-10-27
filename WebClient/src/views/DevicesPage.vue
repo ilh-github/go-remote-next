@@ -58,6 +58,12 @@
           <span class="device-count">
             {{ $t('devices.groups.deviceCount', { count: visibleDevices.length }) }}
           </span>
+          <span v-if="quota.limited" class="device-count">
+            {{ $t('devices.quota.ofLimit', { owned: quota.owned, quota: quota.quota }) }}
+          </span>
+          <span v-if="quotaReached" class="device-quota-warning">
+            {{ $t('devices.quota.reached') }}
+          </span>
         </div>
         <div v-if="myDevices.length === 0" class="empty-state">
           <div class="empty-icon">📱</div>
@@ -435,6 +441,7 @@ import {
   controlModeChanged,
   buildAccessPolicyBody,
 } from '../api/controlModeModel'
+import { deviceQuotaReached, deviceQuotaSummary } from '../../js/devices/quota'
 
 const { t } = useI18n()
 const showToast = inject('showToast')
@@ -485,6 +492,12 @@ const selectedGroup = computed(() => (
 const visibleDevices = computed(() => (
   filterDevicesByGroup(myDevices.value, selectedGroup.value)
 ))
+
+// QD-105: the server now refuses a bind once the account is at its device limit.
+// The count is the loaded list, not a separate request: /v1/me already returns
+// the quota, and the list is what the owner is looking at while deciding.
+const quota = computed(() => deviceQuotaSummary(authState.userInfo, myDevices.value.length))
+const quotaReached = computed(() => deviceQuotaReached(authState.userInfo, myDevices.value.length))
 
 function boundDeviceCount(group) {
   return filterDevicesByGroup(myDevices.value, group).length
@@ -929,6 +942,11 @@ onBeforeUnmount(() => {
   max-width: 640px; overflow-wrap: anywhere;
 }
 .device-count { color: var(--text-secondary); font-size: 12px; white-space: nowrap; }
+.device-quota-warning {
+  color: var(--warning, #f59e0b);
+  font-size: 12px;
+  white-space: nowrap;
+}
 .empty-action { margin-top: 12px; }
 
 .group-dialog {

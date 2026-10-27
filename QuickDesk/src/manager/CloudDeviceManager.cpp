@@ -272,8 +272,26 @@ void CloudDeviceManager::autoBindDevice(const QString& deviceId)
             Q_UNUSED(data);
             QMetaObject::invokeMethod(this, [statusCode, errorMsg, deviceId]() {
                 if (statusCode != 200 || !errorMsg.empty()) {
+                    // RFC 7807 problem+json: {code, title, detail, status}.
+                    // The quota refusal is the one failure here the user can
+                    // actually resolve, so it is surfaced as its own signal
+                    // instead of being folded into a generic warn line that
+                    // only a log reader ever sees.
+                    QJsonDocument doc = QJsonDocument::fromJson(
+                        QByteArray::fromStdString(data));
+                    QJsonObject obj = doc.object();
+                    QString code = obj.value("code").toString();
+                    QString detail = obj.value("detail").toString();
                     LOG_WARN("[CloudDeviceManager] autoBindDevice({}) failed: status={} err={}",
                              deviceId.toStdString(), statusCode, errorMsg);
+                    if (code == QStringLiteral("DEVICE_QUOTA_EXCEEDED")) {
+                        if (detail.isEmpty()) {
+                            detail = QStringLiteral(
+                                "This account has reached its device limit");
+                        }
+                        emit deviceBindQuotaExceeded(deviceId, detail);
+                        return;
+                    }
                     return;
                 }
                 LOG_INFO("[CloudDeviceManager] Device bound: {}",

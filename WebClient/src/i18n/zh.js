@@ -136,6 +136,11 @@ export const zh = {
     noDevices: '暂无绑定设备',
     noFavorites: '暂无收藏设备',
     loginRequired: '请先登录以查看设备列表',
+    // QD-105：设备配额由服务端强制执行，所以要在机器加不上之前就让属主看见。
+    quota: {
+      reached: '已达设备数量上限 - 请先解绑一台再添加',
+      ofLimit: '已绑定 {owned} / 上限 {quota} 台',
+    },
     connect: '连接',
     setRemark: '设置备注',
     // QD-314: who may drive this machine. `max_sessions` caps how many people

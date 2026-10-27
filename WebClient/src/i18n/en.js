@@ -136,6 +136,12 @@ export const en = {
     noDevices: 'No bound devices',
     noFavorites: 'No favorite devices',
     loginRequired: 'Please login to view device list',
+    // QD-105: the account's device limit is enforced server-side, so the owner
+    // needs to see it before a machine fails to appear.
+    quota: {
+      reached: 'Device limit reached - unbind a machine before adding another',
+      ofLimit: '{owned} of {quota} devices',
+    },
     connect: 'Connect',
     setRemark: 'Set Remark',
     // QD-314: who may drive this machine. `max_sessions` caps how many people

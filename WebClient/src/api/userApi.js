@@ -75,6 +75,10 @@ class UserApi {
       const u = payload.user
       localStorage.setItem(USER_INFO_KEY, JSON.stringify({
         id: u.id, username: u.username, phone: u.phone, email: u.email,
+        // QD-105: the device quota travels with the profile. It used to be
+        // dropped here, so nothing on the client could tell an owner they were
+        // at their limit until a bind was refused.
+        device_count: u.device_count,
       }))
     }
     this.scheduleProactiveRefresh()

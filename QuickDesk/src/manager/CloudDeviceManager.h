@@ -150,6 +150,11 @@ signals:
     void deviceAccessCodeReady(const QString& deviceId,
                                const QString& accessCode);
     void deviceAccessCodeFailed(const QString& deviceId, const QString& error);
+    // The account is at its device limit, so this machine was not bound. The
+    // owner has to unbind something (or have the limit raised) before this
+    // machine can appear in their list; without this signal the host would sit
+    // logged in, online, and invisible.
+    void deviceBindQuotaExceeded(const QString& deviceId, const QString& detail);
 
 private slots:
     void onSyncTextMessageReceived(const QString& message);

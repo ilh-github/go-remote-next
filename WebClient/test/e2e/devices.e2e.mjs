@@ -338,6 +338,124 @@ test('devices page drives connection, favorites, logs, and private groups', asyn
   }
 })
 
+// QD-105: the account's device limit is now enforced server-side. The host binds
+// itself on startup, so a refusal the owner only discovers by noticing a missing
+// machine is the failure this warning exists to prevent. This drives the real
+// DevicesPage against the real quota module, with the profile the server sends.
+test('devices page shows the device limit and warns when it is reached', async () => {
+  const state = {
+    devices: [
+      { device_id: 'device-a', remark: 'Desk Alpha', online: true, logged_in: true },
+      { device_id: 'device-b', remark: 'Tablet', online: true, logged_in: true },
+    ],
+  }
+
+  const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } })
+  await context.addInitScript(() => {
+    localStorage.setItem('quickdesk_lang', 'en-US')
+    localStorage.setItem('quickdesk_user_access_token', 'devices-quota-e2e-token')
+    // A quota of 2 with two bound machines: the warning has to appear without
+    // anybody clicking anything, because that is the state a refused host lands
+    // the owner in.
+    localStorage.setItem('quickdesk_user_info', JSON.stringify({
+      id: 7,
+      username: 'quota-owner',
+      device_count: 2,
+    }))
+  })
+  const page = await context.newPage()
+  const pageErrors = []
+  page.on('pageerror', (error) => pageErrors.push(error.message))
+
+  await page.route('**/v1/**', async (route) => {
+    const request = route.request()
+    const url = new URL(request.url())
+    if (request.method() === 'GET' && url.pathname === '/v1/me/devices') {
+      await fulfillJSON(route, { items: state.devices })
+      return
+    }
+    await fulfillJSON(route, { items: [] })
+  })
+
+  try {
+    await page.goto(`${baseUrl}/test/fixtures/devices.html`, { waitUntil: 'domcontentloaded' })
+    await page.waitForFunction(() => window.__devicesMounted === true)
+    await page.waitForFunction(
+      () => document.querySelector('.device-quota-warning') !== null,
+    )
+
+    const heading = await myDevicesCard(page).locator('.card-heading').textContent()
+    assert.ok(
+      heading.includes('2 of 2 devices'),
+      `heading should show the limit, got: ${heading}`,
+    )
+    assert.ok(
+      heading.includes('Device limit reached'),
+      `heading should warn that the limit is reached, got: ${heading}`,
+    )
+    assert.deepEqual(pageErrors, [])
+  } finally {
+    await context.close()
+  }
+})
+
+// The same page with no quota configured must show neither the count nor the
+// warning: 0 is the default every account is created with and means "no limit",
+// so rendering it would tell a user with working machines that they are blocked.
+test('devices page hides the limit when the account has none', async () => {
+  const state = {
+    devices: [
+      { device_id: 'device-a', remark: 'Desk Alpha', online: true, logged_in: true },
+    ],
+  }
+
+  const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } })
+  await context.addInitScript(() => {
+    localStorage.setItem('quickdesk_lang', 'en-US')
+    localStorage.setItem('quickdesk_user_access_token', 'devices-noquota-e2e-token')
+    localStorage.setItem('quickdesk_user_info', JSON.stringify({
+      id: 8,
+      username: 'unlimited-owner',
+      device_count: 0,
+    }))
+  })
+  const page = await context.newPage()
+  const pageErrors = []
+  page.on('pageerror', (error) => pageErrors.push(error.message))
+
+  await page.route('**/v1/**', async (route) => {
+    const request = route.request()
+    const url = new URL(request.url())
+    if (request.method() === 'GET' && url.pathname === '/v1/me/devices') {
+      await fulfillJSON(route, { items: state.devices })
+      return
+    }
+    await fulfillJSON(route, { items: [] })
+  })
+
+  try {
+    await page.goto(`${baseUrl}/test/fixtures/devices.html`, { waitUntil: 'domcontentloaded' })
+    await page.waitForFunction(() => window.__devicesMounted === true)
+    await page.waitForFunction(
+      () => document.querySelectorAll('.device-item').length === 1,
+    )
+
+    const heading = await myDevicesCard(page).locator('.card-heading').textContent()
+    assert.ok(
+      !heading.includes('of 0 devices'),
+      `an unlimited account must not be shown a limit, got: ${heading}`,
+    )
+    assert.equal(
+      await page.locator('.device-quota-warning').count(),
+      0,
+      'an unlimited account must not be warned about a limit',
+    )
+    assert.deepEqual(pageErrors, [])
+  } finally {
+    await context.close()
+  }
+})
+
 function myDevicesCard(page) {
   return page.locator('.card').nth(0)
 }

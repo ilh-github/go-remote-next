@@ -175,6 +175,9 @@ async function restoreSession() {
   if (r.ok && r.data) {
     localStorage.setItem('quickdesk_user_info', JSON.stringify({
       id: r.data.id, username: r.data.username, phone: r.data.phone, email: r.data.email,
+      // QD-105: keep the device quota, so the device list can show the limit
+      // instead of only the count.
+      device_count: r.data.device_count,
     }))
     updateAuthState()
     userSync.start()

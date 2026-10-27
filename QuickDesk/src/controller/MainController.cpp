@@ -396,6 +396,16 @@ MainController::MainController(QObject* parent)
         m_cloudSyncReady = false;
     });
 
+    // The host binds itself on startup, so the account's device limit is the one
+    // server refusal that can leave this machine logged in, online, and missing
+    // from the owner's list. The manager carries the signal; the page that owns
+    // the toast turns it into something on screen.
+    connect(m_cloudDeviceManager.get(), &CloudDeviceManager::deviceBindQuotaExceeded,
+            this, [](const QString& deviceId, const QString& detail) {
+                LOG_WARN("[MainController] device {} was not bound: account device limit reached ({})",
+                         deviceId.toStdString(), detail.toStdString());
+            });
+
     connect(m_updateManager.get(), &UpdateManager::installerLaunched, this, [this]() {
         LOG_INFO("Update installer launched; shutting down for installation");
         shutdown();

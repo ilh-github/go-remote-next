@@ -628,6 +628,19 @@ Item {
         mainController: root.mainController
     }
 
+    // The host binds itself on startup. When the account is already at its
+    // device limit that bind is refused, and without this the machine would sit
+    // here logged in, online, and absent from the owner's list with nothing on
+    // screen to say why. The server's detail already names the two ways out
+    // (unbind something, or have the limit raised), so it is shown verbatim.
+    Connections {
+        target: root.mainController ? root.mainController.cloudDeviceManager : null
+
+        function onDeviceBindQuotaExceeded(deviceId, detail) {
+            root.showToast(detail, 2)
+        }
+    }
+
     DeviceGroupManagerDialog {
         id: deviceGroupsDialog
         groupManager: root.groupManager
