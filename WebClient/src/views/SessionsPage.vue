@@ -49,7 +49,18 @@
       </div>
 
       <div v-if="auditOpen" class="card audit-panel">
-        <div class="audit-panel-title">{{ $t('sessions.transferAuditTitle') }}</div>
+        <div class="audit-panel-heading">
+          <div class="audit-panel-title">{{ $t('sessions.transferAuditTitle') }}</div>
+          <!-- QD-110: the owner can read this trail, and now take it with them.
+               Offered whenever the panel is open, including on an empty list, so
+               the control is findable rather than something that appears only
+               once there is something to export. -->
+          <button
+            class="btn btn-secondary btn-sm"
+            :disabled="auditExporting"
+            @click="exportAudit"
+          >{{ auditExporting ? '...' : $t('sessions.exportAudit') }}</button>
+        </div>
         <!-- A ref is unwrapped by the template, so these are `audit.loading` and
              not `audit.loading.value` - the latter is the script-side spelling and
              renders nothing here. -->
@@ -271,6 +282,29 @@ function formatDuration(seconds) {
 }
 
 const auditOpen = ref(false)
+const auditExporting = ref(false)
+
+// QD-110: the same rows the panel lists, as a file. The server names it from its
+// own clock, so the file is named by when the export was made rather than by
+// whatever the browser thought the time was.
+async function exportAudit() {
+  auditExporting.value = true
+  try {
+    const r = await userApi.exportAuditLogs({ format: 'csv' })
+    if (!r.ok) {
+      showToast(r.error || t('sessions.auditExportFailed'), 'error')
+      return
+    }
+    const url = URL.createObjectURL(r.blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = r.filename
+    link.click()
+    URL.revokeObjectURL(url)
+  } finally {
+    auditExporting.value = false
+  }
+}
 
 async function toggleAudit() {
   auditOpen.value = !auditOpen.value
@@ -660,6 +694,15 @@ onUnmounted(() => {
   font-weight: 600;
   margin-bottom: 8px;
 }
+/* The export sits beside the title rather than under it: it acts on the whole
+   panel, and burying it below the rows would make it look like a per-row action. */
+.audit-panel-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.audit-panel-heading .audit-panel-title { margin-bottom: 0; }
 .audit-list {
   display: flex;
   flex-direction: column;

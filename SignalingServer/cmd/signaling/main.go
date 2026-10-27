@@ -864,6 +864,12 @@ func main() {
 			// caller does not own, so this cannot become a view of anybody else's
 			// transfers.
 			me.GET("/audit-logs", ownerAuditHandler.List)
+			// The owner's own trail as a file. The admin console has exported the
+			// same rows for a while; without this the owner could read them on
+			// screen and nowhere else. A separate segment rather than a format flag
+			// on the read, because an export does not page and so has to be scoped
+			// on its own.
+			me.GET("/audit-logs:export", ownerAuditHandler.Export)
 
 			// Who is in the caller's machines right now (status=active) and who
 			// has been. Deliberately not /sessions, which is the caller's own

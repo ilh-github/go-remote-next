@@ -40,6 +40,12 @@ func CORSMiddleware(settings DynamicSettingsProvider) gin.HandlerFunc {
 		c.Header("Access-Control-Allow-Origin", c.GetHeader("Origin"))
 		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 		c.Header("Access-Control-Allow-Headers", "X-API-Key, Authorization, Content-Type")
+		// The export endpoints name their file in Content-Disposition, and a
+		// cross-origin fetch cannot read that header unless it is exposed. Without
+		// this the download still works but the client silently falls back to a
+		// name of its own, which loses the server's timestamp - the thing that
+		// tells two exports taken minutes apart apart.
+		c.Header("Access-Control-Expose-Headers", "Content-Disposition, Content-Type, Content-Length")
 		c.Header("Access-Control-Max-Age", "86400")
 
 		if c.Request.Method == http.MethodOptions {

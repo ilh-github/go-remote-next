@@ -514,6 +514,32 @@ class UserApi {
     return this._req('GET', `/v1/me/audit-logs${query ? `?${query}` : ''}`)
   }
 
+  // QD-110: the owner's own trail as a file. The admin console has exported these
+  // rows for a while; without this the owner could read them on screen and
+  // nowhere else.
+  //
+  // Not routed through `_req`, which parses the body as JSON -- a CSV would come
+  // back null. The filename comes from Content-Disposition when the server sends
+  // one, so the file is named by the server's clock rather than the browser's.
+  async exportAuditLogs({ action = '', format = 'csv' } = {}) {
+    this.ensureBaseUrl()
+    const params = new URLSearchParams()
+    if (action) params.set('action', action)
+    params.set('format', format)
+    const resp = await fetch(
+      `${this._baseUrl}/v1/me/audit-logs:export?${params.toString()}`,
+      { method: 'GET', headers: this._headers(), credentials: 'omit' },
+    )
+    if (!resp.ok) {
+      const problem = await this._parseProblemBody(resp)
+      return { ok: false, error: problem?.detail || resp.statusText, status: resp.status }
+    }
+    const blob = await resp.blob()
+    const disposition = resp.headers.get('Content-Disposition') || ''
+    const named = /filename="?([^"]+)"?/.exec(disposition)
+    return { ok: true, blob, filename: named ? named[1] : `my-audit-logs.${format}` }
+  }
+
   // Full replace, not a partial update: the server resets every field this body
   // omits. Callers therefore send the whole policy back - see
   // `api/controlModeModel.js`, which builds that body from the stored row so a

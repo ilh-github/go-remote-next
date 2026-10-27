@@ -264,6 +264,8 @@ export const zh = {
     auditEmpty: '还没有上报过文件或剪贴板传输。',
     auditFailed: '失败',
     auditReadFailed: '读取审计记录失败',
+    exportAudit: '导出 CSV',
+    auditExportFailed: '导出审计记录失败',
     clearConfirm: '把 {device} 上所有正在连接的控制端都踢出去？',
     clearFailed: '清空失败',
     clearDone: '已断开 {revoked} 个会话，失败 {failed} 个。',

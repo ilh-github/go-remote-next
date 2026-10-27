@@ -107,6 +107,7 @@ func ownerAuditRouter(t *testing.T, h *OwnerAuditHandler, userID uint) *gin.Engi
 		c.Next()
 	})
 	router.GET("/v1/me/audit-logs", h.List)
+	router.GET("/v1/me/audit-logs:export", h.Export)
 	return router
 }
 

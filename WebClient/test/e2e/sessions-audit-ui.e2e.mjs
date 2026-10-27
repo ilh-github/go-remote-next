@@ -145,6 +145,23 @@ async function openSessionsPage({ auditMode, withSessions = false }) {
     localStorage.clear()
     localStorage.setItem('quickdesk_lang', 'en-US')
     localStorage.setItem('quickdesk_user_access_token', 'sessions-audit-token')
+    window.__auditExportDownloaded = false
+    window.__auditExportFilename = ''
+    const createElement = document.createElement.bind(document)
+    document.createElement = (tag) => {
+      const el = createElement(tag)
+      if (String(tag).toLowerCase() === 'a') {
+        const click = el.click.bind(el)
+        el.click = () => {
+          if (el.download) {
+            window.__auditExportDownloaded = true
+            window.__auditExportFilename = el.download
+          }
+          click()
+        }
+      }
+      return el
+    }
   })
   const page = await context.newPage()
   const pageErrors = []
@@ -170,6 +187,21 @@ async function openSessionsPage({ auditMode, withSessions = false }) {
     const detail = url.pathname.match(/^\/v1\/me\/remote-sessions\/([^/]+)$/)
     if (method === 'GET' && detail) {
       await fulfillJSON(route, sessionDetail(decodeURIComponent(detail[1])))
+      return
+    }
+    if (method === 'GET' && url.pathname === '/v1/me/audit-logs:export') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'text/csv',
+        headers: {
+          'access-control-allow-origin': '*',
+          // The browser only hands the client this header when the server exposes
+          // it, which is what the CORS middleware now does.
+          'access-control-expose-headers': 'content-disposition',
+          'content-disposition': 'attachment; filename="my-audit-logs-20261027T120000Z.csv"',
+        },
+        body: 'id,action,resource_id,created_at\n1,file.transfer,clip-ui-1,2026-10-26T10:00:00Z\n',
+      })
       return
     }
     if (method === 'GET' && url.pathname === '/v1/me/audit-logs') {
@@ -255,6 +287,32 @@ test('the sessions page exposes a transfer audit panel that lists rows', async (
     assert.ok(text.includes('Clipboard'), `the clipboard row is not described: ${text}`)
     assert.ok(text.includes('1.2 KB'), `the byte count is not readable: ${text}`)
     assert.ok(text.includes('report.pdf'), `the file name is not shown: ${text}`)
+    assert.deepEqual(pageErrors, [])
+  } finally {
+    await context.close()
+  }
+})
+
+// QD-110: the owner can read this trail, and until now that was all. The admin
+// console has exported the same rows for a while, so the owner had to ask an
+// admin for a copy of their own history. The button has to produce a real
+// download named by the server, not just a request.
+test('the audit panel exports the trail as a file', async () => {
+  const { page, context, pageErrors } = await openSessionsPage({ auditMode: 'rows' })
+  const downloads = []
+  try {
+    await page.getByRole('button', { name: 'Transfer audit' }).first().click()
+    await page.locator('.audit-panel').waitFor({ state: 'visible', timeout: 5000 })
+    await page.locator('.audit-row').first().waitFor({ state: 'attached', timeout: 5000 })
+
+    page.on('download', (download) => downloads.push(download))
+    await page.getByRole('button', { name: 'Export CSV' }).first().click()
+
+    // The download is named by the server's clock, which is what keeps two
+    // exports taken minutes apart distinguishable.
+    await page.waitForFunction(() => window.__auditExportDownloaded === true, null, { timeout: 5000 })
+    const name = await page.evaluate(() => window.__auditExportFilename)
+    assert.equal(name, 'my-audit-logs-20261027T120000Z.csv')
     assert.deepEqual(pageErrors, [])
   } finally {
     await context.close()

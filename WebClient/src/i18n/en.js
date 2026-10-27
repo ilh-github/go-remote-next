@@ -262,6 +262,8 @@ export const en = {
     auditEmpty: 'No file or clipboard transfers have been reported.',
     auditFailed: 'failed',
     auditReadFailed: 'Could not read the audit trail',
+    exportAudit: 'Export CSV',
+    auditExportFailed: 'Could not export the audit trail',
     clearConfirm: 'Kick every controller connected to {device}?',
     clearFailed: 'Clear failed',
     clearDone: 'Disconnected {revoked} session(s), {failed} failed.',
