@@ -208,6 +208,26 @@
 
 最近验证：
 
+- `TODO9`（部署手册的默认值和代码不是一回事，`.env.example` 连数据库名都建不出来）：给两份部署
+  手册补「完整环境变量参考」时逐条对 `viper.SetDefault` 核，抓到**一处会让首次部署直接起不来**
+  和**四处会把操作员引向错误安全假设**的文档缺陷。真缺陷：`.env.example` 写着
+  `DB_NAME=quickdesk_signaling`，而代码默认 `quickdesk`，`start.sh` 也只
+  `CREATE DATABASE ${DB_NAME:-quickdesk}`——照模板复制的部署会去连一个没人建的库，报出来的
+  是连接错误，指向的是服务而不是那份被要求复制的文件。四处文档假象：①
+  `METRICS_TOKEN` 留空被写成「不校验，任何人都能读到指标」，实际是 `cfg.Metrics.Token != ""`
+  才注册路由，**留空直接没有 `/metrics` 这个端点**——按文档配的部署会以为指标在裸奔，其实
+  根本没有指标；②`TRUSTED_PROXIES` 留空被写成「除非在已知代理之后否则留空」，读作「默认不信任」，
+  实际默认是 `DefaultTrustedProxies`（回环 + 私网段），默认**信任**内网来源的
+  `X-Forwarded-For`；③`RECORDING_URL_SECRET` 被写成「生产必填，不填则媒体链接长期有效」，
+  实际留空回退 `API_KEY`，两者都空时票据是**拒绝签发**而不是签发一个无签名长链；④
+  `REVOKE_COOLDOWN_SECONDS` 没说 0 的含义，而 0 是「允许立即重连」（历史行为）。
+  修法之外补了三层门禁（`SignalingServer/internal/config/docs_defaults_test.go`）：81 个
+  `viper.SetDefault` 键两份手册必须全覆盖；文档默认值列必须和代码逐一相等（`(空)`/`(空)` 归一化）；
+  `.env.example` 的 SERVER/DB/REDIS 坐标必须和 `start.sh` 的创建默认一致；以及四条行为断言。
+  每层都做了双向验证：把 `LOG_MAX_BACKUPS` 改成 20、把 METRICS_TOKEN 那句改回去、把
+  DB_NAME 改回旧值，各自对应门禁立刻红。上一轮的教训在这里又应验一次——文档缺陷和代码缺陷
+  一样，都要走到「用户看到什么」才算数：这份手册的描述如果照做，得到的是一个连不上库的
+  部署和一个以为在裸奔其实没有指标的运维。
 - `0858c431`（重复键让批量重试按钮看起来像一句错误）：给 NotificationsPage 补浏览器
   E2E 的过程中抓到的真缺陷，两个 locale 都有。`notifications.deliveries.retryFailed`
   在同一个对象里声明了两次：第一处是**按钮标签**（「重试本通道失败投递」），第二处是

@@ -27,7 +27,7 @@ Configuration reference:
 | `DB_PORT` | 5432 | Database port |
 | `DB_USER` | quickdesk | Database user |
 | `DB_PASSWORD` | quickdesk123 | Database password |
-| `DB_NAME` | quickdesk_signaling | Database name |
+| `DB_NAME` | quickdesk | Database name |
 | `REDIS_HOST` | localhost | Redis host |
 | `REDIS_PORT` | 6379 | Redis port |
 | `REDIS_PASSWORD` | (empty) | Redis password |
@@ -55,10 +55,76 @@ These parameters can be preset in `.env` or configured later in the admin panel 
 | `ALIYUN_SMS_ACCESS_KEY_SECRET` | (empty) | Aliyun SMS AccessKey Secret |
 | `ALIYUN_SMS_SIGN_NAME` | (empty) | Aliyun SMS signature name |
 | `ALIYUN_SMS_TEMPLATE_CODE` | (empty) | Aliyun SMS template code |
+| `RECORDING_STORAGE_QUOTA_GB` | 0 | Recording artifact storage cap in GB; 0 = unlimited |
+| `UPDATE_STORAGE_QUOTA_GB` | 0 | Re-hosted update package storage cap in GB; 0 = unlimited |
 
 > **Note:** Optional `.env` values are only used to seed the database on first deployment. After that, all changes should be made through the admin panel.
 > 
 > **SMS:** Aliyun SMS enables phone number verification for login/register. SMS is auto-enabled when all four fields are set; leave any empty to disable.
+
+### Full Environment Reference
+
+The table above covers what a first deployment needs. These are the remaining
+server variables, with the defaults the code actually applies. Anything left at
+its default keeps the behaviour it names; the ones marked required in production
+have no safe default and must be set before the server is exposed.
+
+| `DB_DRIVER` | "postgres" or "sqlite" | Database driver. `sqlite` is the single-process lightweight mode. |
+| `DB_PATH` | ./data/quickdesk.db | SQLite database file, used when `DB_DRIVER=sqlite`. |
+| `REDIS_DRIVER` | (empty) | Redis driver override. Empty means the built-in in-process store, which is per-process only. |
+| `TRUSTED_PROXIES` | (empty) | Comma-separated proxy addresses whose `X-Forwarded-For` is believed. Empty = loopback and private ranges; `none` = trust nobody. Leave it empty unless the server sits behind a known proxy. |
+| `METRICS_TOKEN` | (empty) | Bearer token required to read `/metrics`. Empty disables the endpoint entirely - there is no unauthenticated mode - so a scrape setup has to set one. |
+| `PPROF_ADDR` | (empty) | Address for the pprof endpoint. Empty disables it; enabling it in production exposes internals. |
+| `LOG_DIR` | logs | Application log directory. |
+| `LOG_MAX_SIZE_MB` | 50 | Rotation size in MB. |
+| `LOG_MAX_BACKUPS` | 5 | Rotated log files kept. |
+| `POSTGRES_LOG_FILE` | (empty) | Postgres query log file, for debugging only. |
+| `REDIS_LOG_FILE` | (empty) | Redis client log file, for debugging only. |
+| `REVOKE_COOLDOWN_SECONDS` | 300 | How long a revoked session id stays unusable for that device and source, so a stolen ticket cannot be replayed. 0 disables it, which allows immediate reconnects. |
+| `RECORDING_DIR` | data/recordings | Recording artifact directory. |
+| `RECORDING_MAX_UPLOAD_MB` | 2048 | Largest single recording upload accepted. |
+| `RECORDING_STORAGE_QUOTA_GB` | 0 | Recording storage cap in GB; 0 = unlimited. |
+| `RECORDING_RETENTION_DAYS` | 0 | Recording retention in days; 0 = keep forever. |
+| `RECORDING_SWEEP_INTERVAL_MINUTES` | 30 | How often the retention pass runs. |
+| `RECORDING_STALE_MINUTES` | 240 | A recording with no progress for this long is considered abandoned and swept. |
+| `RECORDING_TICKET_TTL_SECONDS` | 600 | Lifetime of a one-shot recording upload ticket. |
+| `RECORDING_URL_SECRET` | (empty) | Secret for signing short-lived recording media URLs. Falls back to `API_KEY` when unset, so a deployment that already gates its API needs no new setting. With neither set, playback and download tickets are refused rather than issued unsigned. |
+| `CONTROLLER_CHALLENGE_SECRET` | (empty) | Secret for the controller challenge chain. Required in production. |
+| `REMOTE_SESSION_SWEEP_INTERVAL_MINUTES` | 1 | How often orphaned sessions are reaped. |
+| `REMOTE_SESSION_RETENTION_DAYS` | 0 | Ended-session row retention in days; 0 = keep forever. |
+| `REMOTE_SESSION_RETENTION_SWEEP_INTERVAL_MINUTES` | 60 | How often the session retention pass runs. |
+| `UPDATE_ARTIFACT_DIR` | data/updates | Re-hosted update package directory. |
+| `UPDATE_MAX_UPLOAD_MB` | 4096 | Largest update package accepted. |
+| `UPDATE_STORAGE_QUOTA_GB` | 0 | Update package storage cap in GB; 0 = unlimited. |
+| `UPDATE_PUBLIC_BASE_URL` | (empty) | Public base URL clients use to download updates. Required when the server is behind a proxy. |
+| `UPDATE_STALE_UPLOAD_MINUTES` | 360 | An upload with no progress for this long is abandoned and swept. |
+| `UPDATE_SWEEP_INTERVAL_MINUTES` | 60 | How often the update artifact pass runs. |
+| `NOTIFICATION_RETENTION_DAYS` | 0 | Delivery row retention in days; 0 = keep forever. |
+| `NOTIFICATION_SWEEP_INTERVAL_MINUTES` | 60 | How often the delivery retention pass runs. |
+| `NOTIFICATION_ARCHIVE_DIR` | (empty) | Directory purged delivery rows are appended to as JSONL before deletion. |
+| `NOTIFICATION_ARCHIVE_COLD_DIR` | (empty) | Colder storage the archive files move to. |
+| `NOTIFICATION_ARCHIVE_RETENTION_DAYS` | 0 | Archive file retention in days; 0 = keep forever. |
+| `NOTIFICATION_AGGREGATE_SECONDS` | 0 | Window for collapsing repeat notifications; 0 = no aggregation. |
+| `AUDIT_RETENTION_DAYS` | 0 | Audit row retention in days; 0 = keep forever. |
+| `AUDIT_SWEEP_INTERVAL_MINUTES` | 60 | How often the audit retention pass runs. |
+| `AUDIT_ARCHIVE_DIR` | (empty) | Directory purged audit rows are appended to as JSONL before deletion. |
+| `AUDIT_ARCHIVE_COLD_DIR` | (empty) | Colder storage the archive files move to. |
+| `AUDIT_ARCHIVE_RETENTION_DAYS` | 0 | Archive file retention in days; 0 = keep forever. |
+| `AUDIT_MAX_ROWS` | 0 | Total audit row cap; 0 = unlimited. |
+| `AUDIT_MAX_ROWS_PER_ACTOR` | 0 | Per-actor audit row cap; 0 = unlimited. |
+| `AUDIT_MAX_ROWS_PER_DEVICE` | 0 | Per-device audit row cap; 0 = unlimited. |
+| `AUDIT_MAX_ROWS_PER_ACTION` | 0 | Per-action audit row cap; 0 = unlimited. |
+| `INSTANCE_LOG_SINK` | false | Record per-instance connection logs. |
+| `INSTANCE_LOG_RETENTION_DAYS` | 7 | Instance log retention in days. |
+| `INSTANCE_LOG_SWEEP_INTERVAL_MINUTES` | 30 | How often the instance log pass runs. |
+| `OFFLINE_ALERT_INTERVAL_SECONDS` | 30 | How often the sustained-offline evaluator runs. |
+| `SCHEDULED_TASK_INTERVAL_SECONDS` | 30 | How often the scheduled-task worker checks for due tasks. |
+| `APPROVAL_DENIAL_COOLDOWN_SECONDS` | 300 | Cooldown applied to a source after a denied approval. |
+| `APPROVAL_DENIAL_COOLDOWN_MULTIPLIER` | 1 | How much the cooldown grows with each further denial. |
+| `APPROVAL_DENIAL_COOLDOWN_MAX_SECONDS` | 0 | Ceiling on the grown cooldown; 0 = no ceiling. |
+| `HOLIDAY_CALENDAR_DIR` | (empty) | Directory holding the holiday calendar shipped with scheduled tasks. |
+| `HOLIDAY_CALENDAR_URL` | (empty) | URL the holiday calendar is refreshed from. |
+| `HOLIDAY_CALENDAR_REFRESH_MINUTES` | 0 | Refresh interval; 0 = never refresh. |
 
 ### Persistent Data Directory
 
