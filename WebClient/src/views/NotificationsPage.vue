@@ -363,8 +363,27 @@
             <button class="btn btn-secondary btn-sm" :disabled="deliveriesLoading" @click="loadDeliveries">
               {{ $t('notifications.deliveries.reload') }}
             </button>
+            <!-- Two safety controls, not conveniences. The preview reports how
+                 many rows a replay would touch before touching any of them, and
+                 the pacing spreads the backlog instead of making it all due at
+                 once - which matters because the outage that parked these rows
+                 is also why the endpoint is fragile right now. -->
+            <label class="dry-run-toggle" :title="$t('notifications.deliveries.dryRunHint')">
+              <input v-model="retryDryRun" type="checkbox">
+              <span>{{ $t('notifications.deliveries.dryRun') }}</span>
+            </label>
+            <input
+              v-model.number="retrySpreadMinutes"
+              class="spread-input"
+              type="number"
+              min="0"
+              step="1"
+              :placeholder="$t('notifications.deliveries.spreadPlaceholder')"
+              :title="$t('notifications.deliveries.spreadHint')"
+              @keyup.enter="retryChannelFailed"
+            >
             <button class="btn btn-secondary btn-sm" :disabled="deliveryBulkBusy" @click="retryChannelFailed">
-              {{ $t('notifications.deliveries.retryFailed') }}
+              {{ retryDryRun ? $t('notifications.deliveries.previewReplay') : $t('notifications.deliveries.retryFailed') }}
             </button>
             <button class="btn btn-secondary btn-sm" @click="closeDeliveries">
               {{ $t('notifications.close') }}
@@ -497,6 +516,7 @@ import { computed, inject, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import WindowEditor from '../components/WindowEditor.vue'
 import { userApi } from '../api/userApi'
+import { buildRetryFailedPayload } from '../api/notificationModels.js'
 import {
   buildChannelPayload,
   buildMetricAlertPayload,
@@ -534,6 +554,10 @@ const unackedDeliveries = ref(0)
 const deliveriesLoading = ref(false)
 const deliveryBusy = ref(0)
 const deliveryBulkBusy = ref(false)
+// Defaults are deliberate: a preview first, and no pacing until the operator
+// asks for it, so an accidental click cannot flood a just-recovered endpoint.
+const retryDryRun = ref(true)
+const retrySpreadMinutes = ref(0)
 const quietSaving = ref(false)
 
 const quietForm = reactive({
@@ -877,31 +901,57 @@ async function ackDelivery(delivery) {
 async function retryChannelFailed() {
   if (!selectedChannelId.value) return
   deliveryBulkBusy.value = true
-  const result = await userApi.retryFailedNotificationDeliveries(selectedChannelId.value, {})
+  let payload
+  try {
+    payload = buildRetryFailedPayload({
+      dryRun: retryDryRun.value,
+      spreadOverMinutes: retrySpreadMinutes.value,
+    })
+  } catch (error) {
+    deliveryBulkBusy.value = false
+    toastError({ message: error.message }, 'notifications.deliveries.retryFailed')
+    return
+  }
+  const result = await userApi.retryFailedNotificationDeliveries(selectedChannelId.value, payload)
   deliveryBulkBusy.value = false
   if (!result.ok) {
     toastError(result, 'notifications.deliveries.retryFailed')
     return
   }
-  showToast(t('notifications.deliveries.requeued', {
-    count: Number(result.data?.requeued) || 0,
+  // A preview and a real replay are different facts and must not share a
+  // sentence: one says what would happen, the other says what did.
+  const dry = result.data?.dry_run === true
+  showToast(t(dry ? 'notifications.deliveries.previewed' : 'notifications.deliveries.requeued', {
+    count: Number(dry ? result.data?.matched : result.data?.requeued) || 0,
   }), 'success')
-  await loadDeliveries()
+  if (!dry) await loadDeliveries()
 }
 
 async function retryAllFailed() {
   if (!confirm(t('notifications.channels.retryAllConfirm'))) return
   retryingAll.value = true
-  const result = await userApi.retryFailedNotificationDeliveriesForUser({})
+  let payload
+  try {
+    payload = buildRetryFailedPayload({
+      dryRun: retryDryRun.value,
+      spreadOverMinutes: retrySpreadMinutes.value,
+    })
+  } catch (error) {
+    retryingAll.value = false
+    toastError({ message: error.message }, 'notifications.deliveries.retryFailed')
+    return
+  }
+  const result = await userApi.retryFailedNotificationDeliveriesForUser(payload)
   retryingAll.value = false
   if (!result.ok) {
     toastError(result, 'notifications.deliveries.retryFailed')
     return
   }
-  showToast(t('notifications.channels.retryAllDone', {
-    count: Number(result.data?.requeued) || 0,
+  const dry = result.data?.dry_run === true
+  showToast(t(dry ? 'notifications.deliveries.previewed' : 'notifications.channels.retryAllDone', {
+    count: Number(dry ? result.data?.matched : result.data?.requeued) || 0,
   }), 'success')
-  if (selectedChannelId.value) await loadDeliveries()
+  if (!dry && selectedChannelId.value) await loadDeliveries()
 }
 
 async function loadOfflineAlert() {
@@ -1375,6 +1425,18 @@ onMounted(() => {
 
 .meta-strip,
 .signature-line,
+.dry-run-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.spread-input {
+  width: 84px;
+  padding: 4px 6px;
+  font-size: 13px;
+}
 .unacked-count {
   color: var(--text-secondary);
   font-size: 11px;

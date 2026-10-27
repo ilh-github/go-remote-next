@@ -19,6 +19,7 @@ const {
   buildMetricAlertPayload,
   buildOfflineAlertPayload,
   buildQuietHoursPayload,
+  buildRetryFailedPayload,
   normalizeChannelList,
   normalizeMetricAlert,
   normalizeOfflineAlert,
@@ -198,4 +199,87 @@ test('notification API methods use owner-scoped v1 paths', async () => {
     ['PUT', '/v1/me/devices/device%2F2/metric-alert', { enabled: true }],
     ['DELETE', '/v1/me/devices/device%2F2/metric-alert'],
   ])
+})
+
+// The retry-failed replay accepts seven server-side parameters. Until now the
+// UI sent an empty body to both entry points, which means every one of them was
+// unreachable - and two of them are safety features rather than conveniences:
+// `dry_run` reports how many rows a replay would touch before touching them, and
+// `spread_over_minutes` paces the backlog instead of making it all due at once,
+// which matters precisely because the outage that parked the rows is also the
+// reason the endpoint is fragile right now.
+test('a replay with no options sends nothing the server has to reject', () => {
+  assert.deepEqual(buildRetryFailedPayload({}), {})
+})
+
+test('a dry run is carried so the caller can see the blast radius first', () => {
+  assert.equal(buildRetryFailedPayload({ dryRun: true }).dry_run, true)
+  // Explicitly off must survive too: a checkbox the user unchecked is a choice.
+  assert.equal(buildRetryFailedPayload({ dryRun: false }).dry_run, false)
+})
+
+test('pacing is carried only when it is actually set', () => {
+  assert.equal(buildRetryFailedPayload({ spreadOverMinutes: 30 }).spread_over_minutes, 30)
+  // Zero means "no pacing" to the server, but sending 0 from a blank input would
+  // be indistinguishable from a value the user never entered.
+  assert.ok(!('spread_over_minutes' in buildRetryFailedPayload({})))
+})
+
+test('a blank pacing input is omitted rather than sent as zero', () => {
+  assert.ok(!('spread_over_minutes' in buildRetryFailedPayload({ spreadOverMinutes: '' })))
+  assert.ok(!('spread_over_minutes' in buildRetryFailedPayload({ spreadOverMinutes: 0 })))
+})
+
+test('the row cap is carried when positive', () => {
+  assert.equal(buildRetryFailedPayload({ limit: 25 }).limit, 25)
+  assert.ok(!('limit' in buildRetryFailedPayload({})))
+})
+
+test('filters narrow the replay by event and device', () => {
+  const payload = buildRetryFailedPayload({ eventType: 'device.offline', deviceId: '123456789' })
+  assert.equal(payload.event_type, 'device.offline')
+  assert.equal(payload.device_id, '123456789')
+  assert.ok(!('event_type' in buildRetryFailedPayload({ eventType: '  ' })))
+  assert.ok(!('device_id' in buildRetryFailedPayload({ deviceId: '' })))
+})
+
+test('the time window is carried as the RFC3339 strings the server parses', () => {
+  const payload = buildRetryFailedPayload({
+    createdAfter: '2026-10-01T00:00:00Z',
+    createdBefore: '2026-10-02T00:00:00Z',
+  })
+  // Both forms parse; toISOString is the one that cannot be mis-built by hand.
+  assert.equal(payload.created_after, '2026-10-01T00:00:00.000Z')
+  assert.equal(payload.created_before, '2026-10-02T00:00:00.000Z')
+})
+
+test('a reversed window is refused before the server sees it', () => {
+  // The server answers an empty window with "matched: 0", which sends the
+  // operator hunting for rows that cannot exist.
+  assert.throws(
+    () => buildRetryFailedPayload({
+      createdAfter: '2026-10-02T00:00:00Z',
+      createdBefore: '2026-10-01T00:00:00Z',
+    }),
+    /created_after/i,
+  )
+})
+
+test('a malformed window edge is refused rather than silently dropped', () => {
+  assert.throws(() => buildRetryFailedPayload({ createdAfter: 'not-a-date' }), /created_after/i)
+})
+
+test('the cross-channel replay carries the channel ids it was given', () => {
+  const payload = buildRetryFailedPayload({ channelIds: [3, 7] })
+  assert.deepEqual(payload.channel_ids, [3, 7])
+  assert.ok(!('channel_ids' in buildRetryFailedPayload({ channelIds: [] })))
+  // A non-numeric id would be rejected by the server after the round trip.
+  assert.throws(() => buildRetryFailedPayload({ channelIds: ['x'] }), /channel_ids/i)
+})
+
+test('a dry run never also claims to have replayed anything', () => {
+  // dry_run is the whole safety feature, so the two flags must not both arrive.
+  const payload = buildRetryFailedPayload({ dryRun: true })
+  assert.equal(payload.dry_run, true)
+  assert.ok(!('requeued' in payload))
 })

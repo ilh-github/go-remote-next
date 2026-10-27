@@ -216,4 +216,71 @@ export function buildMetricAlertPayload(form, options = {}) {
   }
 }
 
+// Serializes the retry-failed replay.
+//
+// The server takes seven parameters; the UI used to send an empty body, so all
+// seven were unreachable. Two of them are safety features rather than
+// conveniences and are the reason this exists:
+//
+//   dry_run            report how many rows a replay would touch, before
+//                      touching them. An operator re-queuing a backlog after an
+//                      outage is guessing otherwise.
+//   spread_over_minutes pace the replay instead of making it all due at once,
+//                      which matters precisely because the outage that parked
+//                      the rows is also why the endpoint is fragile right now.
+//
+// A blank field is omitted rather than sent as zero. The server reads 0 as "no
+// cap" / "no pacing", so a value the user never entered would look like a choice
+// they made - and the difference between "left blank" and "explicitly none" is
+// exactly what an operator needs to see in the request they are about to send.
+export function buildRetryFailedPayload(form = {}) {
+  const payload = {}
+
+  if (typeof form?.dryRun === 'boolean') payload.dry_run = form.dryRun
+
+  const spread = Number(form?.spreadOverMinutes)
+  if (Number.isFinite(spread) && spread > 0) payload.spread_over_minutes = Math.floor(spread)
+
+  const limit = Number(form?.limit)
+  if (Number.isFinite(limit) && limit > 0) payload.limit = Math.floor(limit)
+
+  const eventType = String(form?.eventType ?? '').trim()
+  if (eventType) payload.event_type = eventType
+
+  const deviceId = String(form?.deviceId ?? '').trim()
+  if (deviceId) payload.device_id = deviceId
+
+  const after = parseReplayWindowEdge(form?.createdAfter, 'created_after')
+  const before = parseReplayWindowEdge(form?.createdBefore, 'created_before')
+  if (after && before && after > before) {
+    // The server answers an empty window with "matched: 0", which sends the
+    // operator hunting for rows that cannot exist.
+    throw new Error('created_after must not be later than created_before')
+  }
+  if (after) payload.created_after = after.toISOString()
+  if (before) payload.created_before = before.toISOString()
+
+  if (Array.isArray(form?.channelIds) && form.channelIds.length > 0) {
+    payload.channel_ids = form.channelIds.map((id) => {
+      const parsed = Number(id)
+      if (!Number.isFinite(parsed) || parsed <= 0) {
+        throw new Error('channel_ids must all be positive')
+      }
+      return Math.floor(parsed)
+    })
+  }
+
+  return payload
+}
+
+function parseReplayWindowEdge(value, field) {
+  const raw = String(value ?? '').trim()
+  if (!raw) return null
+  const parsed = new Date(raw)
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error(`${field} must be an RFC3339 timestamp`)
+  }
+  return parsed
+}
+
 export { parseStoredEvents, normalizeWindows }
