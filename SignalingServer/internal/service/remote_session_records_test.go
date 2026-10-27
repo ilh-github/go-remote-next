@@ -15,7 +15,12 @@ import (
 // may hand back a neighbour's row just because the session id matched.
 func TestRemoteSessionRelatedRecordsBatchFilters(t *testing.T) {
 	db := newRemoteSessionTestDB(t)
-	migrateTestSchema(t, db, &models.SessionRecording{}, &models.DeviceAccessLog{})
+	// Both tables are defined by migrations/001_init.sql, and GORM's
+	// uniqueIndex naming does not match the index names the SQL file leaves to
+	// Postgres, so AutoMigrate spends the run trying to drop an index that was
+	// never there. Replay the SQL instead, which is what applyTestMigration is
+	// for.
+	applyTestMigration(t, db)
 	ctx := context.Background()
 	const (
 		deviceID   = "700000006"
@@ -105,7 +110,7 @@ func TestRemoteSessionRelatedRecordsBatchFilters(t *testing.T) {
 // else: the session id is the boundary that keeps a cross-user page honest.
 func TestRemoteSessionRelatedRecordsAdminBatchSpansOwners(t *testing.T) {
 	db := newRemoteSessionTestDB(t)
-	migrateTestSchema(t, db, &models.SessionRecording{}, &models.DeviceAccessLog{})
+	applyTestMigration(t, db)
 	ctx := context.Background()
 	const (
 		deviceA = "700000016"

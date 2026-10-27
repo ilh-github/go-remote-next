@@ -324,6 +324,12 @@ ALTER TABLE device_access_policies
 ALTER TABLE device_access_policies
     ADD COLUMN IF NOT EXISTS approval_trusted_ips TEXT NOT NULL DEFAULT '[]';
 
+-- Several controllers on one device: exclusive (a lock the holder can lose) or
+-- shared. Arrived with the model after the table shipped, so an install that
+-- runs this file needs the column added rather than created.
+ALTER TABLE device_access_policies
+    ADD COLUMN IF NOT EXISTS control_mode VARCHAR(16) NOT NULL DEFAULT '';
+
 -- ---------------------------------------------------------------
 -- Device access grants (owner-issued, time-boxed, optionally single-use)
 -- An alternative to the device's own rotating access code: the policy gate

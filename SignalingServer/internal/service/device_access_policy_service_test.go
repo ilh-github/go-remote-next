@@ -172,7 +172,12 @@ func TestRemoveDeniedIP(t *testing.T) {
 func newAccessPolicyTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db := openTestPostgres(t)
-	migrateTestSchema(t, db, &models.DeviceAccessPolicy{})
+	// `device_access_policies` is defined by migrations/001_init.sql. AutoMigrate
+	// cannot create it, because GORM names a unique index
+	// uni_<table>_<column> while that file writes plain `UNIQUE` and lets
+	// Postgres name it, so AutoMigrate's index comparison would try to drop a
+	// constraint that was never there.
+	applyTestMigration(t, db)
 	return db
 }
 
@@ -265,7 +270,9 @@ func TestDeletingDeviceRemovesItsAccessPolicy(t *testing.T) {
 		deviceID = "880000004"
 		userID   = uint(990304)
 	)
-	migrateTestSchema(t, db, &models.User{}, &models.Device{})
+	// `users` and `devices` are both defined by migrations/001_init.sql, so they
+	// come from the same replay as the policy table rather than from AutoMigrate.
+	applyTestMigration(t, db)
 	if err := db.Exec("DELETE FROM devices WHERE device_id = ?", deviceID).Error; err != nil {
 		t.Fatalf("clear device: %v", err)
 	}

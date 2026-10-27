@@ -49,6 +49,15 @@ func openTestPostgres(t *testing.T) *gorm.DB {
 // session refuses a multi-statement Exec, and several tests replay
 // migrations/001_init.sql verbatim. So the flag belongs on the migration
 // session alone and the caller keeps a plain handle for everything else.
+//
+// A second trap lives in the same path and is not fixable with a session flag:
+// GORM names a unique index uni_<table>_<column> while migrations/001_init.sql
+// writes plain `UNIQUE` and lets Postgres name it <table>_<column>_key. On a
+// table the SQL file created, AutoMigrate's index comparison tries to drop a
+// constraint that was never there. So a table the SQL file defines must go
+// through applyTestMigration, and a table only GORM defines may go through
+// here. Getting that choice wrong fails at migrate time rather than silently,
+// which is why the helpers stay separate instead of one trying both.
 func migrateTestSchema(t *testing.T, db *gorm.DB, models ...interface{}) {
 	t.Helper()
 	if err := db.Session(&gorm.Session{PrepareStmt: true}).AutoMigrate(models...); err != nil {

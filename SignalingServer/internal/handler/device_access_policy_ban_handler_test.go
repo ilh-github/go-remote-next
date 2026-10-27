@@ -21,7 +21,12 @@ import (
 func newPolicyHandlerTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db := openTestPostgres(t)
-	migrateTestSchema(t, db, &models.User{}, &models.Device{}, &models.DeviceAccessPolicy{})
+	// All three tables are defined by migrations/001_init.sql. AutoMigrate names
+	// a unique index uni_<table>_<column> while that file writes plain `UNIQUE`
+	// and lets Postgres name it, so its index comparison tries to drop a
+	// constraint that was never there as soon as anything has created the table
+	// first -- which the shared scratch database guarantees by the second run.
+	applyTestMigration(t, db)
 	return db
 }
 
