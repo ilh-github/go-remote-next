@@ -869,3 +869,24 @@ PR 描述至少写明：
   `codex/upstream-qd-111-file-transfer-audit` 同一基线约束，等 #25 合并后
   作为 stacked 增量拆出。
 - SDK 已重新生成并提交：见第 208 节，7 套 freshness 门禁全部通过。
+
+## 上游 PR #23 合并后的缺口核对（2026-10-27）
+
+- 上游 `dev` 已由 `5db316c` 前进到 `88d4d36`（PR #23 会话录像与回放，
+  2026-10-25 23:31 合并，7 个提交 +5822 行）。
+- **结论：fork 无功能缺口，不回灌。** 逐文件核对后，那 7 个提交落在录像子系统，
+  而 fork 在同一基线上自己实现了同一片区域且是严格超集：
+  `session_recording_service.go` 上游符号全在、fork 多 13 个；
+  `recording_ticket.go` 与 `session_recording_lifecycle.go` 同为超集；
+  `DeviceRecorder.cpp` 两边逐字节相同；`recording_upload_ticket.go`、
+  `session_recording_resume.go`、`RecordingManager.cpp`、
+  `recordinglifecycle.cpp`、`recording-upload.js` 只存在于 fork。
+- 整树合并预演有 22 个冲突文件且不带来任何新能力，因此不做；U0 闸门对 PR #23
+  的结论由「等待同步」改为「已确认超集」。
+- 上游 `event_bus_test.go` 看似比 fork 少 5 个测试，实为方向读反：上游 1 个，
+  fork 6 个，缺的是上游不是 fork。
+- 上游 open PR 仍为 #23（已合并）、#25、#26、#27、#28、#31、#32、#33、#34；
+  其中 #34 为本 fork 的 Postgres 迁移修复，`mergeStateStatus=CLEAN`、
+  `build` check SUCCESS，等维护者合并。
+- 本轮未新建上游 PR：工作全部是测试底座与迁移文件，属 fork 自有验证基建，
+  上游 `SignalingServer` 没有对应的 scratch-database 测试约定，摘不出最小候选。

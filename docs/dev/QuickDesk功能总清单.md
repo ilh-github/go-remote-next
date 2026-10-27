@@ -208,6 +208,26 @@
 
 最近验证：
 
+- `8e39a3c`（Postgres 测试底座可重跑 + `control_mode` 补进 SQL）：Postgres 测试
+  共用同一个 scratch 库且没有任何东西在两轮之间重置它，所以凡是裸
+  `db.AutoMigrate` 建出来的表，第一次全绿、第二次必红——这个失败本来就在树里，
+  `remote_session_records` 的两个用例第二次跑挂，另外四个访问策略用例在
+  `users` 已被别的测试建出来之后挂。根因是同一条路径上的第二个坑，session flag
+  修不了：GORM 把唯一索引命名为 `uni_<table>_<column>`，而
+  `migrations/001_init.sql` 写的是裸 `UNIQUE`、名字交给 Postgres 定为
+  `<table>_<column>_key`，于是只要表是 SQL 建的，AutoMigrate 的索引比对就去删一个
+  从来没存在的约束。`migrateTestSchema` 只补掉了 PrepareStmt 那一半，所以现在
+  两个 helper 按「表归谁」分工：SQL 定义的表走 `applyTestMigration`，只有 GORM
+  定义的表走 `migrateTestSchema`；规则写进两个 helper 的注释，并用三个测试从两个方向
+  钉住边界——包括钉住裸 `AutoMigrate` 确实会失败，免得这个分工哪天又塌回一个 helper。
+  改走 SQL 重放之后暴露出一个不是测试问题的真缺口：`control_mode`（QD-314 多人同时控制）
+  在 Go model 里、在每一次访问策略写入里，却不在 `001_init.sql` 里。生产没发现是因为
+  `RUN_AUTO_MIGRATE` 会按 model 逐个补列，于是只靠 SQL 引导的服务端会得到一张写不进去的表，
+  每个访问策略调用都回 500；按该文件既有的 `ADD COLUMN IF NOT EXISTS` 惯例补上。
+  剩下的裸 `AutoMigrate` 调用全是 SQLite，不触发索引命名这个坑。
+  证据：全新库全量 8 个包全绿，**同一库再跑一遍仍然全绿**（这正是此前被破坏的性质）；
+  WebClient 239/239；改动文件 gofmt 干净。红绿双向：把 SQL 里的 `control_mode`
+  改名，策略服务与封禁 handler 立刻以真实 SQLSTATE 42703 变红，改回即绿。
 - QD-113 的 CI 首跑（`64c5523` 起）与 `270b7d3` 的修复：`QUICKDESK_BUILD_TESTS=ON`
   在两个 runner 上都能配置整个 Qt 工程；首跑抓到潜伏的 `recordinglifecycle`
   只进测试 target 未进 app target（`8120ed6` 已修）；链接修好后 Windows 侧
@@ -1023,9 +1043,22 @@ rotation 的事件写入同一数据库事务，`6386a48` 又把 TURN/STUN setti
 ### 16.1 上游来源
 
 - 上游仓库：<https://github.com/barry-ran/QuickDesk>
-- 上游基线（2026-10-24 复核）：`master` = `5969ae3`（PR #22 的线程亲和性修复）、
-  `dev` = `5db316c`（PR #24 的 skill-host 运行库修复）。两个分支已不同线，
-  `master` 领先 `f6651f0` 一个提交。
+- 上游基线（2026-10-27 复核）：`master` = `5969ae3`（PR #22 的线程亲和性修复）、
+  `dev` = `88d4d36`（PR #23 会话录像与回放，2026-10-25 23:31 合并，7 个提交
+  +5822 行）。两个分支已不同线，`master` 领先 `f6651f0` 一个提交。
+  **PR #23 已核对无功能缺口**：那 7 个提交落在录像子系统，而 fork 在
+  `5db316c` 之后自己实现了同一片区域并且是**严格超集**——
+  `session_recording_service.go` 的上游符号全部在 fork 里，fork 还多
+  `WithOutbox` / `AttachArtifactVerified` / `ListForSessionIDs` /
+  `VerifyArtifactDigest` 等 13 个；`recording_ticket.go` 与
+  `session_recording_lifecycle.go` 同样是超集；
+  `QuickDesk/src/manager/DeviceRecorder.cpp` 两边逐字节相同；
+  `recording_upload_ticket.go`、`session_recording_resume.go`、
+  `RecordingManager.cpp`、`recordinglifecycle.cpp`、`recording-upload.js`
+  只存在于 fork。所以这不是「fork 缺上游功能」而是两条线并行长出同一区域，
+  整树合并只会带来 22 个冲突文件而没有新增能力；U0 闸门对该 PR 的结论
+  由「等待同步」改为「已确认超集，无需回灌」。PR #23 里唯一看似 fork 缺失的
+  是 `event_bus_test.go` 的 5 个测试，实为 fork 侧新增（上游 1 个，fork 6 个）。
 - 上游 Roadmap：Windows、macOS、P2P/TURN、MCP、虚拟屏、隐私屏、文件传输、音频、无人值守已完成；Linux、iOS/Android、Address book & device groups 未完成
 - `Multi-tab multi-connection` 在上游已勾选；QD-003 补的是同一设备多个标签的控制/音频互斥，不重复“多连接”能力
 - 维护计划：issue #21，维护者明确“持续维护、暂缓更新、重点偏 MCP、欢迎从 dev 切分支贡献、Remoting 改动由维护者处理”
