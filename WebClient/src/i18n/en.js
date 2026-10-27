@@ -214,6 +214,7 @@ export const en = {
       noBoundDevices: 'This account has no devices available to add.',
       saveMembers: 'Save members ({count})',
       membersSaveFailed: 'Could not save members; restored the server membership',
+      tooManyMembers: 'A group cannot hold more than {max} devices; this selection is {excess} over.',
       membersSaved: 'Group members saved',
       editMembers: 'Manage members',
       deviceCount: '{count} device(s)',

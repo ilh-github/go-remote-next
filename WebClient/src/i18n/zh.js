@@ -216,6 +216,7 @@ export const zh = {
       noBoundDevices: '当前账户还没有可加入分组的设备。',
       saveMembers: '保存成员（{count}）',
       membersSaveFailed: '保存成员失败，已恢复为服务端当前成员',
+      tooManyMembers: '一个分组最多 {max} 台设备，当前选择超出 {excess} 台。',
       membersSaved: '分组成员已保存',
       editMembers: '管理成员',
       deviceCount: '{count} 台',

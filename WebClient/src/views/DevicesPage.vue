@@ -437,10 +437,16 @@
                 <div v-if="groupDialog.memberError" class="form-error">
                   {{ groupDialog.memberError }}
                 </div>
+                <div v-if="groupMembership.overLimit" class="form-error">
+                  {{ $t('devices.groups.tooManyMembers', {
+                    excess: groupMembership.excess,
+                    max: MAX_GROUP_DEVICES,
+                  }) }}
+                </div>
                 <div class="form-actions">
                   <button
                     class="btn btn-primary btn-sm"
-                    :disabled="groupDialog.savingMembers"
+                    :disabled="groupDialog.savingMembers || groupMembership.overLimit"
                     @click="saveGroupMembers"
                   >
                     {{ groupDialog.savingMembers
@@ -467,7 +473,9 @@ import { userSync } from '../api/userSync'
 import { openRemoteSession } from '../utils/remoteLauncher'
 import {
   buildDeviceGroupPayload,
+  describeGroupMembership,
   filterDevicesByGroup,
+  MAX_GROUP_DEVICES,
   normalizeDeviceGroupList,
   normalizeGroupDeviceIds,
 } from '../api/deviceGroupModels'
@@ -520,6 +528,12 @@ const groupDialog = reactive({
   error: '',
   memberError: '',
 })
+
+// Live membership count against the server's ceiling, so the operator learns they
+// have selected too many while they are still choosing rather than after a round
+// trip that undoes their work.
+const groupMembership = computed(() => describeGroupMembership(groupDialog.memberIds))
+
 // QD-314: which controller may drive the machine. `loading` is keyed by device
 // id so opening the dialog for one device does not blank another's row.
 const controlDialog = reactive({

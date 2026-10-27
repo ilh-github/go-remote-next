@@ -19,8 +19,70 @@ const {
   filterDevicesByGroup,
   normalizeDeviceGroupList,
   normalizeGroupDeviceIds,
+  MAX_GROUP_DEVICES,
+  describeGroupMembership,
 } = await import('../src/api/deviceGroupModels.js')
 const { userApi } = await import('../src/api/userApi.js')
+
+// The membership ceiling is the server's rule - a group cannot contain more than
+// 500 devices - and the save path already surfaces it correctly when the server
+// refuses. What was missing is the selection side: nothing told the operator they
+// had chosen too many until after the round trip, so they picked 501 devices,
+// waited for the request, and got a rejection that undid their work.
+//
+// A model that knows the ceiling can say so while they are still choosing.
+test('a selection over the ceiling is described before it is sent', () => {
+  const overBy = 7
+  const ids = Array.from({ length: MAX_GROUP_DEVICES + overBy }, (_, i) => `device-${i}`)
+
+  const described = describeGroupMembership(ids)
+
+  assert.equal(described.overLimit, true, 'a selection over the ceiling was not reported')
+  assert.equal(described.excess, overBy,
+    'the operator was not told how many devices they are over by')
+  assert.equal(described.count, MAX_GROUP_DEVICES + overBy)
+})
+
+test('a selection at the ceiling is not over it', () => {
+  // The boundary has to be exact in both directions: 500 is fine and 501 is not,
+  // and an off-by-one here either blocks a legal selection or lets an illegal
+  // one through to a guaranteed rejection.
+  const atLimit = Array.from({ length: MAX_GROUP_DEVICES }, (_, i) => `device-${i}`)
+
+  const described = describeGroupMembership(atLimit)
+
+  assert.equal(described.overLimit, false)
+  assert.equal(described.excess, 0)
+})
+
+test('duplicates do not count toward the ceiling', () => {
+  // De-duplication happens before the count matters: selecting the same device
+  // five times is one device, and charging it five times would refuse a
+  // selection the server would have accepted.
+  const ids = []
+  for (let i = 0; i < MAX_GROUP_DEVICES; i += 1) ids.push('device-0', `device-${i}`)
+
+  const described = describeGroupMembership(ids)
+
+  assert.equal(described.overLimit, false,
+    'duplicates were charged against the ceiling')
+  assert.equal(described.count, MAX_GROUP_DEVICES)
+})
+
+// The model test above proves the rule; this one proves the page obeys it. A
+// ceiling nobody consults is the same as no ceiling, and the wiring is the part
+// that rots.
+test('the devices page disables the save and warns while the selection is over', async () => {
+  const source = await import('node:fs/promises').then(fs =>
+    fs.readFile(new URL('../src/views/DevicesPage.vue', import.meta.url), 'utf8'))
+
+  assert.match(source, /groupMembership\.overLimit/,
+    'the page never consults the membership description')
+  assert.match(source, /:disabled="groupDialog\.savingMembers \|\| groupMembership\.overLimit"/,
+    'the save button is not disabled while the selection is over the ceiling')
+  assert.match(source, /devices\.groups\.tooManyMembers/,
+    'the operator is not told why the save is disabled')
+})
 
 test('group list normalizes ids, text fields, and de-duplicates membership', () => {
   const result = normalizeDeviceGroupList({

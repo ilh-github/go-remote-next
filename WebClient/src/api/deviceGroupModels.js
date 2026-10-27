@@ -7,6 +7,12 @@ function positiveInteger(value) {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : 0
 }
 
+// A group cannot contain more than 500 devices. The server is the authority and
+// rejects a larger selection; the point of knowing the number here is to say so
+// while the operator is still choosing, rather than after a round trip that
+// undoes their work.
+export const MAX_GROUP_DEVICES = 500
+
 export function normalizeGroupDeviceIds(values) {
   if (!Array.isArray(values)) return []
   return [...new Set(values.map(trimmed).filter(Boolean))]
@@ -44,5 +50,25 @@ export function buildDeviceGroupPayload(form) {
     name: trimmed(form?.name),
     description: trimmed(form?.description),
     color: trimmed(form?.color),
+  }
+}
+
+/**
+ * Describes a membership selection against the ceiling.
+ *
+ * The count is taken after de-duplication, because that is the number the server
+ * will actually be asked to store: charging a repeated device five times would
+ * refuse a selection the server would have accepted.
+ *
+ * @param {Array<string>} values the raw selection
+ * @returns {{count: number, overLimit: boolean, excess: number}}
+ */
+export function describeGroupMembership(values) {
+  const ids = normalizeGroupDeviceIds(values)
+  const excess = Math.max(0, ids.length - MAX_GROUP_DEVICES)
+  return {
+    count: ids.length,
+    overLimit: excess > 0,
+    excess,
   }
 }
