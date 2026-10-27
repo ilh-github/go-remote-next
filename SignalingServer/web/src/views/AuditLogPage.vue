@@ -14,9 +14,69 @@
             </el-dropdown-menu>
           </template>
         </el-dropdown>
+        <el-button size="small" :loading="sweeping" @click="openSweep">{{ t('auditLog.sweep') }}</el-button>
         <el-button type="primary" :icon="Refresh" size="small" @click="loadLogs">{{ t('common.refresh') }}</el-button>
       </div>
     </div>
+
+    <!-- The retention pass has six independent bounds, so an operator can run it
+         now instead of waiting for the next tick. Showing the result per bound is
+         the point: "why did my history disappear" is answered by which bound did
+         the work, not by one total. -->
+    <el-dialog v-model="sweepDialog" :title="t('auditLog.sweepTitle')" width="520px">
+      <el-form label-width="150px">
+        <el-form-item :label="t('auditLog.sweepOlderThanDays')">
+          <el-input-number v-model="sweepForm.olderThanDays" :min="0" :controls="false" size="small" style="width: 160px" />
+        </el-form-item>
+        <el-form-item :label="t('auditLog.sweepMaxRowsPerActor')">
+          <el-input-number v-model="sweepForm.maxRowsPerActor" :min="0" :controls="false" size="small" style="width: 160px" />
+        </el-form-item>
+        <el-form-item :label="t('auditLog.sweepMaxRowsPerDevice')">
+          <el-input-number v-model="sweepForm.maxRowsPerDevice" :min="0" :controls="false" size="small" style="width: 160px" />
+        </el-form-item>
+        <el-form-item :label="t('auditLog.sweepMaxRowsPerAction')">
+          <el-input-number v-model="sweepForm.maxRowsPerAction" :min="0" :controls="false" size="small" style="width: 160px" />
+        </el-form-item>
+        <el-form-item :label="t('auditLog.sweepMaxRows')">
+          <el-input-number v-model="sweepForm.maxRows" :min="0" :controls="false" size="small" style="width: 160px" />
+        </el-form-item>
+        <el-form-item :label="t('auditLog.sweepArchiveRetentionDays')">
+          <el-input-number v-model="sweepForm.archiveRetentionDays" :min="0" :controls="false" size="small" style="width: 160px" />
+        </el-form-item>
+      </el-form>
+      <div class="sweep-hint">{{ t('auditLog.sweepHint') }}</div>
+      <template #footer>
+        <el-button size="small" @click="sweepDialog = false">{{ t('common.cancel') }}</el-button>
+        <el-button type="primary" size="small" :loading="sweeping" @click="runSweep">
+          {{ t('auditLog.sweepRun') }}
+        </el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="sweepResultDialog" :title="t('auditLog.sweepResultTitle')" width="520px">
+      <div v-if="sweepResult">
+        <p class="sweep-total">
+          {{ t('auditLog.sweepTotal') }}: {{ sweepResult.totalRemoved }}
+        </p>
+        <el-table :data="sweepResult.rows" size="small" style="width: 100%">
+          <el-table-column :label="t('auditLog.sweepBound')">
+            <template #default="{ row }">{{ row.label }}</template>
+          </el-table-column>
+          <el-table-column :label="t('auditLog.sweepRemoved')" width="120" align="right">
+            <template #default="{ row }">{{ row.value }}</template>
+          </el-table-column>
+        </el-table>
+        <div class="sweep-meta">
+          <span v-if="sweepResult.cutoff">{{ t('auditLog.sweepCutoff') }}: {{ sweepResult.cutoff }}</span>
+          <span v-if="sweepResult.moved > 0">
+            {{ t('auditLog.sweepMoved', { count: sweepResult.moved }) }} → {{ sweepResult.coldDir }}
+          </span>
+        </div>
+      </div>
+      <template #footer>
+        <el-button size="small" @click="sweepResultDialog = false">{{ t('common.confirm') }}</el-button>
+      </template>
+    </el-dialog>
 
     <el-card shadow="never" class="filter-card">
       <div class="filter-bar">
@@ -183,8 +243,9 @@ import { ref, reactive, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { ArrowDown, Download, Refresh, Search } from '@element-plus/icons-vue'
-import { exportAuditLogs, getAuditLogs, searchAuditArchive } from '../api/audit.js'
+import { exportAuditLogs, getAuditLogs, searchAuditArchive, sweepAuditLogs } from '../api/audit.js'
 import { archiveErrorKind } from './audit-archive-errors.js'
+import { summary as sweepSummary } from './audit-sweep-model.js'
 import CursorPagination from '../components/CursorPagination.vue'
 
 const { t } = useI18n()
@@ -299,6 +360,45 @@ const archiveRows = ref([])
 const archiveLoading = ref(false)
 const archiveNotConfigured = ref(false)
 const archiveNoFile = ref(false)
+const sweepDialog = ref(false)
+const sweepResultDialog = ref(false)
+const sweeping = ref(false)
+const sweepResult = ref(null)
+const sweepForm = reactive({
+  olderThanDays: undefined,
+  maxRowsPerActor: undefined,
+  maxRowsPerDevice: undefined,
+  maxRowsPerAction: undefined,
+  maxRows: undefined,
+  archiveRetentionDays: undefined,
+})
+
+function openSweep() {
+  sweepDialog.value = true
+}
+
+async function runSweep() {
+  sweeping.value = true
+  try {
+    const r = await sweepAuditLogs({
+      olderThanDays: sweepForm.olderThanDays || undefined,
+      maxRowsPerActor: sweepForm.maxRowsPerActor || undefined,
+      maxRowsPerDevice: sweepForm.maxRowsPerDevice || undefined,
+      maxRowsPerAction: sweepForm.maxRowsPerAction || undefined,
+      maxRows: sweepForm.maxRows || undefined,
+      archiveRetentionDays: sweepForm.archiveRetentionDays || undefined,
+    })
+    sweepResult.value = sweepSummary(r)
+    sweepDialog.value = false
+    sweepResultDialog.value = true
+    // The list below is now stale: whatever the bounds removed is gone from it.
+    await loadLogs()
+  } catch (e) {
+    ElMessage.error(t('common.failed') + ': ' + e.message)
+  } finally {
+    sweeping.value = false
+  }
+}
 const archiveTruncated = ref(false)
 
 async function loadArchive() {
@@ -341,6 +441,16 @@ async function loadArchive() {
 
 <style scoped>
 .audit-page { width: 100%; padding: 20px; box-sizing: border-box; }
+.sweep-hint { color: var(--el-text-color-secondary); font-size: 12px; margin-bottom: 8px; }
+.sweep-total { margin: 0 0 12px; font-weight: 600; }
+.sweep-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 12px;
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+}
 .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
 .page-header h2 { margin: 0; font-size: 24px; font-weight: 600; color: #303133; }
 .header-actions { display: flex; gap: 8px; }

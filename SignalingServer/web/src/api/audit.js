@@ -44,3 +44,25 @@ export function searchAuditArchive(params = {}) {
   const qs = q.toString()
   return authJson(`${ARCHIVE_BASE}:search${qs ? `?${qs}` : ''}`)
 }
+
+// POST /v1/admin/audit-logs:sweep — run the audit retention pass now.
+//
+// Six independent bounds: age, per-actor, per-device, per-action, table-wide
+// rows, and how long the daily archive files are kept. Any combination may be
+// passed; the server rejects a request that supplies none of them. Rows may be
+// kept forever while the JSONL they were purged into is not, which is why the
+// archive bound is separate rather than implied by the age bound.
+export function sweepAuditLogs(params = {}) {
+  const body = {}
+  if (params.olderThanDays) body.older_than_days = params.olderThanDays
+  if (params.maxRows) body.max_rows = params.maxRows
+  if (params.maxRowsPerActor) body.max_rows_per_actor = params.maxRowsPerActor
+  if (params.maxRowsPerDevice) body.max_rows_per_device = params.maxRowsPerDevice
+  if (params.maxRowsPerAction) body.max_rows_per_action = params.maxRowsPerAction
+  if (params.archiveRetentionDays) body.archive_retention_days = params.archiveRetentionDays
+  return authJson(`${BASE}:sweep`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
