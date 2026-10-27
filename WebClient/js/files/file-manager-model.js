@@ -11,24 +11,41 @@ function withoutTrailingSeparator(path) {
     return path.replace(/[\\/]+$/, '');
 }
 
+// Collapse a run of separators into one, so `/home//user` and `/home/user` are
+// the same path.
+//
+// `breadcrumbs` already did this by splitting and filtering; `parentPath` sliced
+// at the last separator and kept the run, so the two disagreed about the same
+// input - and a parent computed with a doubled separator is not the string the
+// server was given, which is how a rename lands somewhere else.
+function collapseSeparators(path) {
+    return path.replace(/[\\/]{2,}/g, (run) => run[0]);
+}
+
 export function parentPath(path) {
-    const clean = withoutTrailingSeparator(path || '');
+    const clean = collapseSeparators(withoutTrailingSeparator(path || ''));
     if (!clean) return '';
     if (clean === '/') return '/';
     if (/^[A-Za-z]:$/.test(clean)) return `${clean}\\`;
     if (/^[A-Za-z]:\\$/.test(clean)) return clean;
 
+    // `C:docs` is drive-relative: no separator at all, so the index lookup below
+    // finds nothing and returns '' - which a caller reads as "no parent" and
+    // then writes at the filesystem root. Its parent is the drive root.
+    if (/^[A-Za-z]:[^\\/]/.test(clean)) return `${clean.slice(0, 2)}\\`;
     const index = Math.max(clean.lastIndexOf('/'), clean.lastIndexOf('\\'));
     if (index < 0) return '';
     if (index === 0) return '/';
-    if (index === 2 && isWindowsPath(clean)) return `${clean.slice(0, 2)}\\`;
     return clean.slice(0, index);
 }
 
 export function basename(path) {
-    const clean = withoutTrailingSeparator(path || '');
+    const clean = collapseSeparators(withoutTrailingSeparator(path || ''));
     if (!clean || clean === '/' || /^[A-Za-z]:\\?$/.test(clean)) return '';
     const index = Math.max(clean.lastIndexOf('/'), clean.lastIndexOf('\\'));
+    // Same drive-relative case: `C:docs` has no directory part, so its basename
+    // is `docs`, not the whole string.
+    if (index <= 1 && /^[A-Za-z]:/.test(clean)) return clean.slice(2);
     return index < 0 ? clean : clean.slice(index + 1);
 }
 
