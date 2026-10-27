@@ -110,6 +110,76 @@
         </div>
       </div>
 
+      <!-- Guest grants (QD-107). The server has served create/list/delete all
+           along and neither control end could reach them, so the only way to
+           issue a bounded code was a hand-written request. A live row has to be
+           distinguishable from a revoked or expired one: showing a dead code as
+           usable sends the owner to hand it to a guest who is then refused. -->
+      <div v-if="deviceFilter" class="card ban-panel">
+        <div class="ban-panel-title">{{ $t('sessions.guestGrants') }}</div>
+        <p class="hint">{{ $t('sessions.guestGrantsHint') }}</p>
+
+        <div class="grant-form">
+          <input
+            v-model="grantForm.label"
+            class="form-input"
+            type="text"
+            :placeholder="$t('sessions.grantLabelPlaceholder')"
+          >
+          <input
+            v-model.number="grantForm.expiresInMinutes"
+            class="form-input form-input-narrow"
+            type="number"
+            min="1"
+            step="1"
+            :placeholder="$t('sessions.grantExpires')"
+          >
+          <input
+            v-model.number="grantForm.maxUses"
+            class="form-input form-input-narrow"
+            type="number"
+            min="0"
+            step="1"
+            :placeholder="$t('sessions.grantMaxUses')"
+          >
+          <input
+            v-model="grantForm.boundClientId"
+            class="form-input"
+            type="text"
+            :placeholder="$t('sessions.grantBoundClient')"
+          >
+          <input
+            v-model="grantForm.boundIps"
+            class="form-input"
+            type="text"
+            :placeholder="$t('sessions.grantBoundIpsPlaceholder')"
+          >
+          <button class="btn btn-primary btn-sm" :disabled="grantBusy" @click="createGrant">
+            {{ grantBusy ? '...' : $t('sessions.createGrant') }}
+          </button>
+        </div>
+
+        <p v-if="grants.length === 0" class="hint">{{ $t('sessions.grantsEmpty') }}</p>
+        <div v-else class="grant-list">
+          <div v-for="grant in grants" :key="grant.id" class="grant-row">
+            <code class="grant-code">{{ grant.code }}</code>
+            <span class="grant-meta">
+              {{ $t('sessions.grantRemaining') }}:
+              {{ grant.unlimited ? $t('sessions.grantUnlimited') : grant.remainingUses }}
+            </span>
+            <span class="grant-meta">{{ $t('sessions.grantExpiresAt') }}: {{ formatGrantTime(grant.expiresAt) }}</span>
+            <span class="grant-meta">{{ $t('sessions.grantBinding') }}: {{ grant.binding }}</span>
+            <span v-if="!grant.usable" class="grant-dead">{{ $t(grant.stateKey) }}</span>
+            <button
+              v-if="grant.usable"
+              class="btn btn-secondary btn-sm"
+              :disabled="grantBusy"
+              @click="revokeGrant(grant)"
+            >{{ $t('sessions.revokeGrant') }}</button>
+          </div>
+        </div>
+      </div>
+
       <p v-if="notice" class="notice">{{ notice }}</p>
       <p v-if="error" class="hint error">{{ error }}</p>
 
@@ -211,6 +281,7 @@ import { useI18n } from 'vue-i18n'
 import { userApi } from '../api/userApi'
 import { userSync } from '../api/userSync'
 import { describeSessionDetail, resolveRecordingUrl } from '../sessionDetailModel'
+import { buildAccessGrantPayload, grantRow } from '../api/accessGrantModels'
 import { useSessionAudit } from '../composables/useSessionAudit'
 import { auditRowLabel } from '../api/auditLogModel'
 
@@ -238,6 +309,12 @@ const describedDetail = computed(() => (detail.value ? describeSessionDetail(det
 const busy = ref('')
 const clearBusy = ref(false)
 const blockedSources = ref([])
+// Guest grants (QD-107). Defaults are deliberately conservative: a one-hour
+// window and one session, so an accidental submit does not mint an open-ended
+// code for the device.
+const grants = ref([])
+const grantBusy = ref(false)
+const grantForm = ref({ label: '', expiresInMinutes: 60, maxUses: 1, boundClientId: '', boundIps: '' })
 const banRemoving = ref('')
 
 // QD-909: the data-channel audit trail, read back for the first time. See the
@@ -361,6 +438,7 @@ async function refresh() {
   detail.value = null
   await load(true)
   await loadBlockedSources()
+  await loadGrants()
 }
 
 function loadMore() {
@@ -454,6 +532,79 @@ async function loadBlockedSources() {
   blockedSources.value = []
   const r = await userApi.fetchAccessPolicy(deviceFilter.value)
   if (r.ok) blockedSources.value = r.data?.deny_ips ?? []
+}
+
+function formatGrantTime(value) {
+  if (!value) return '-'
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? '-' : parsed.toLocaleString()
+}
+
+async function loadGrants() {
+  if (!deviceFilter.value) {
+    grants.value = []
+    return
+  }
+  const r = await userApi.listAccessGrants(deviceFilter.value)
+  if (!r.ok) {
+    error.value = r.error || t('sessions.grantsLoadFailed')
+    grants.value = []
+    return
+  }
+  // Rows are derived rather than stored raw, so "is this usable right now" is
+  // answered in one place instead of being re-decided by every template site.
+  grants.value = (r.data?.items ?? []).map(grantRow)
+}
+
+async function createGrant() {
+  if (!deviceFilter.value) return
+  grantBusy.value = true
+  error.value = ''
+  notice.value = ''
+  let payload
+  try {
+    payload = buildAccessGrantPayload({
+      label: grantForm.value.label,
+      expiresInMinutes: grantForm.value.expiresInMinutes,
+      maxUses: grantForm.value.maxUses,
+      boundClientId: grantForm.value.boundClientId,
+      boundIps: grantForm.value.boundIps
+        ? grantForm.value.boundIps.split(',').map((entry) => entry.trim()).filter(Boolean)
+        : [],
+    })
+  } catch (e) {
+    grantBusy.value = false
+    error.value = e.message
+    return
+  }
+  const r = await userApi.createAccessGrant(deviceFilter.value, payload)
+  grantBusy.value = false
+  if (!r.ok) {
+    error.value = r.error || t('sessions.grantCreateFailed')
+    return
+  }
+  // The code is shown once by the server on creation and is the one thing the
+  // owner has to communicate, so it goes straight into the confirmation.
+  notice.value = t('sessions.grantCreated', {
+    code: r.data?.code ?? '',
+    minutes: payload.expires_in_minutes,
+  })
+  await loadGrants()
+}
+
+async function revokeGrant(grant) {
+  if (!deviceFilter.value) return
+  if (!confirm(t('sessions.grantRevokeConfirm'))) return
+  grantBusy.value = true
+  error.value = ''
+  const r = await userApi.deleteAccessGrant(deviceFilter.value, grant.id)
+  grantBusy.value = false
+  if (!r.ok) {
+    error.value = r.error || t('sessions.grantRevokeFailed')
+    return
+  }
+  notice.value = t('sessions.grantRevoked')
+  await loadGrants()
 }
 
 async function unbanSource(source) {
@@ -692,6 +843,24 @@ onUnmounted(() => {
 .ban-panel {
   margin-bottom: 12px;
 }
+.grant-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.form-input-narrow { width: 110px; }
+.grant-list { display: flex; flex-direction: column; gap: 6px; }
+.grant-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+}
+.grant-code { font-weight: 600; }
+.grant-meta { color: var(--el-text-color-secondary, #6b7280); }
+.grant-dead { color: var(--el-color-danger, #dc2626); }
 .ban-panel-title {
   font-size: 14px;
   font-weight: 600;

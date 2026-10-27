@@ -107,9 +107,99 @@ export function buildAccessGrantPayload(form = {}) {
     }
     addresses.push(parsed)
   }
+  // Sent as a JSON array, not a stringified one. The request struct takes
+  // []string; the server stores it as a text column, which is an internal detail
+  // and not the wire shape. Sending the encoded string fails with a 400 that
+  // names the Go type, which tells the caller nothing useful.
   if (addresses.length > 0) {
-    payload.bound_ips = JSON.stringify(addresses)
+    payload.bound_ips = addresses
   }
 
   return payload
+}
+
+// Turns one API row into what a list row has to answer: is it usable right now,
+// how much budget is left, and what is it bound to.
+//
+// The first question is the dangerous one. Showing a revoked or expired code as
+// live invites the owner to hand it to a guest who is then refused, with no
+// explanation on either side - which is worse than not offering the feature.
+export function grantRow(row = {}) {
+  const expiresAt = Date.parse(row.expires_at)
+  const revokedAt = Date.parse(row.revoked_at)
+  const maxUses = Number(row.max_uses) || 0
+  const uses = Number(row.uses) || 0
+
+  // A row with no parsable expiry cannot be judged live. Guessing would show a
+  // code as usable that the server may well refuse.
+  const hasExpiry = Number.isFinite(expiresAt)
+  const expired = !hasExpiry || expiresAt <= Date.now()
+  const revoked = Number.isFinite(revokedAt)
+  const usedUp = maxUses > 0 && uses >= maxUses
+
+  // The row carries the i18n key for its own state rather than leaving the
+  // template to derive one from a machine reason: `used_up` and `grantStateUsedUp`
+  // do not compose by any rule, and a template that concatenates silently renders
+  // the raw key when the two drift apart.
+  let reason = ''
+  let stateKey = ''
+  if (!hasExpiry) {
+    reason = 'unknown'
+    stateKey = 'sessions.grantStateUnknown'
+  } else if (revoked) {
+    reason = 'revoked'
+    stateKey = 'sessions.grantStateRevoked'
+  } else if (expired) {
+    reason = 'expired'
+    stateKey = 'sessions.grantStateExpired'
+  } else if (usedUp) {
+    reason = 'used_up'
+    stateKey = 'sessions.grantStateUsedUp'
+  }
+
+  const unlimited = maxUses <= 0
+
+  return {
+    id: row.id,
+    code: String(row.code ?? ''),
+    label: String(row.label ?? '').trim(),
+    usable: !revoked && !expired && !usedUp,
+    reason,
+    stateKey,
+    unlimited,
+    remainingUses: unlimited ? null : Math.max(0, maxUses - uses),
+    uses,
+    maxUses,
+    expiresAt: hasExpiry ? new Date(expiresAt).toISOString() : '',
+    binding: describeBinding(row),
+  }
+}
+
+function describeBinding(row) {
+  const parts = []
+  const clientId = String(row.bound_client_id ?? '').trim()
+  if (clientId) parts.push(clientId)
+
+  // The response carries bound_ips as a real array. A JSON string is accepted
+  // too, because a row that has been through a store that flattens it arrives
+  // that way, and one bad row must not take the list down with a parse error.
+  const rawIps = row.bound_ips
+  let addresses = []
+  if (Array.isArray(rawIps)) {
+    addresses = rawIps.map((entry) => String(entry).trim()).filter(Boolean)
+  } else if (typeof rawIps === 'string' && rawIps.trim()) {
+    try {
+      const parsed = JSON.parse(rawIps)
+      if (Array.isArray(parsed)) {
+        addresses = parsed.map((entry) => String(entry).trim()).filter(Boolean)
+      }
+    } catch {
+      addresses = []
+    }
+  }
+  if (addresses.length > 0) parts.push(addresses.join(', '))
+
+  if (String(row.bound_client_public_key ?? '').trim()) parts.push('key-bound')
+
+  return parts.length > 0 ? parts.join(' · ') : 'anyone with the code'
 }

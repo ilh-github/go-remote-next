@@ -490,6 +490,29 @@ class UserApi {
     return this._req('GET', `/v1/me/devices/${encodeURIComponent(deviceId)}/access-policy`)
   }
 
+  // Guest access grants (QD-107). A grant is an alternative to the device's own
+  // rotating code: bounded in time and in sessions, optionally bound to one
+  // controller. The server has served all three since long before either control
+  // end could reach them.
+  listAccessGrants(deviceId) {
+    return this._req('GET', `/v1/me/devices/${encodeURIComponent(deviceId)}/access-grants`)
+  }
+
+  createAccessGrant(deviceId, payload) {
+    return this._req(
+      'POST',
+      `/v1/me/devices/${encodeURIComponent(deviceId)}/access-grants`,
+      payload,
+    )
+  }
+
+  deleteAccessGrant(deviceId, grantId) {
+    return this._req(
+      'DELETE',
+      `/v1/me/devices/${encodeURIComponent(deviceId)}/access-grants/${encodeURIComponent(grantId)}`,
+    )
+  }
+
   // QD-909: metadata only - direction, MIME type and byte count. The endpoint
   // has no field for the clipboard text on purpose, and this client does not
   // invent one.
