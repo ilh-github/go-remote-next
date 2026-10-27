@@ -208,6 +208,7 @@
 
 最近验证：
 
+- `c4d5389`（E2E 固化成单一门禁）：见 QD-910。上一轮发现三个审计 E2E 自 QD-111 起一直红着，根因是套件由一串逐个文件的 npm script 组成，**没有 script 的文件就是没人跑的文件**。新增 `WebClient/scripts/run-e2e.mjs`：自动发现 `test/e2e/`，每文件独立进程（它们各自起浏览器和服务器，一个崩不该带走整轮），汇总 verdict 并点名每个失败测试。两个坑：TAP 输出在 **stdout** 而非 stderr（读错流得到空串，报告只剩「exit code 1」而不说是哪条）；`wall-soak` 显式跳过并报成 skipped 而非 passed——大部分没跑的套件不能读作绿。CI 两个 job 都改走 runner。验证：17 passed / 1 skipped / 18 total，exit 0；红绿按动机验证——破坏一个**自己没有 npm script** 的 `owner-audit.e2e.mjs`，门禁 exit 1 并点名该测试。单测 271/271。
 - `12b91bd`（两个路径助手对同一路径各说一套）：见 QD-002。`parentPath` 不折叠连续分隔符而 `breadcrumbs` 折叠，且 `parentPath('C:docs')` 返回 `''` 会被读成「没有父目录」而写到文件系统根；`basename` 有镜像 bug。8 条边界测试，WebClient 271/271，18 个 E2E 全绿，红绿双向（两处分别验证）。
 - `425a067`（三个审计 E2E 自 QD-111 起一直红）：direction 已从 action 名移出，三个浏览器测试还在断言 `clipboard.sync.upload` 旧名；改为断言聚合名并检查 direction 在 details 里存活。修完全套 18 个 E2E 文件全绿（此前并非如此）。
 - `58f49f5`（一个 transfer id 一行，并发也成立）：见 QD-909。`LogActorOnce` 的幂等此前只是 count+insert 无约束背书，两个并发上报会各写一行；补部分唯一索引（只覆盖 actor 行、只覆盖两个 transfer action、resource_id 非空），scope 改了两轮均由测试发现。Go 9 包绿、红绿双向。
