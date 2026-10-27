@@ -208,6 +208,15 @@
 
 最近验证：
 
+- `8805474b`（首条 track 到达前会把猜出来的 1920x1080 焊进输入 handler）：
+  `_setupInputHandlers` 的回退是 `this._remoteWidth || video.videoWidth || 1920`。两个回退都
+  不诚实：`video.videoWidth` 在换流期间是**上一条流**的固有尺寸（正是此前修过的
+  monitor-switch 缺陷的另一个入口），而 `1920x1080` 是个看似合理的桌面——什么都不像坏的，
+  而每一次点击在真实 metadata 到达前都悄悄落错位置。同时 `_resetSessionForReconnect` 不清
+  `_remoteWidth`/`_remoteHeight`，于是重连后用的是**上一个会话**的分辨率，而新会话可能接的是
+  另一台显示器。修为：重连时清零，没有已知分辨率时直接 return 不建 handler。这样做的安全性
+  依赖一个已被测住的性质——`_mapCoordinates` 在分辨率未知时返回 null，事件被丢弃而不是被注入
+  到猜的位置；本轮把那条性质也钉成了测试（反向验证：把 `|| 1920` 加回去立刻红）。
 - `3bc17071`（进度事件不带 total 会把进度条打回 0%）：两端对账的最后一类。host 在传输
   开始时宣告 total，之后的事件可以不带——审计状态早就为此保留着「最后一次已知的 total」
   （`state.totalBytes = Number(...) || state.totalBytes`），而进度条用的是**事件里的原始值**：
