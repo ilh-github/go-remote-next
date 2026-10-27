@@ -82,6 +82,99 @@
         />
       </div>
     </el-card>
+
+    <!-- The archived half of the same trail. Retention moves expired rows into a
+         per-day file before deleting them, so the live table above only covers the
+         retention window; this is the only way "what happened last week" survives
+         the purge. -->
+    <el-card shadow="never" style="margin-top: 16px">
+      <template #header>
+        <div class="archive-header">
+          <span>{{ t('auditLog.archiveTitle') }}</span>
+          <span class="archive-hint">{{ t('auditLog.archiveHint') }}</span>
+        </div>
+      </template>
+
+      <div class="filter-bar">
+        <el-date-picker
+          v-model="archiveDate"
+          type="date"
+          :placeholder="t('auditLog.archiveDate')"
+          value-format="YYYY-MM-DD"
+          size="default"
+          style="width: 180px"
+        />
+        <el-select
+          v-model="archiveFilters.action"
+          :placeholder="t('auditLog.filterAction')"
+          clearable
+          style="width: 160px"
+        >
+          <el-option label="login" value="login" />
+          <el-option label="create_user" value="create_user" />
+          <el-option label="delete_user" value="delete_user" />
+          <el-option label="update_settings" value="update_settings" />
+        </el-select>
+        <el-input
+          v-model="archiveFilters.q"
+          :placeholder="t('auditLog.archiveSearch')"
+          clearable
+          style="width: 200px"
+          @keyup.enter="loadArchive"
+        />
+        <el-button :icon="Search" :loading="archiveLoading" @click="loadArchive">
+          {{ t('auditLog.archiveSearchButton') }}
+        </el-button>
+      </div>
+
+      <!-- An unconfigured archive directory is a fact the operator can act on, not
+           an empty result. Rendering "nothing found" here would read as "retention
+           deleted it", which is the opposite of what happened. -->
+      <el-alert
+        v-if="archiveNotConfigured"
+        :title="t('auditLog.archiveNotConfigured')"
+        type="warning"
+        show-icon
+        :closable="false"
+        style="margin-bottom: 12px"
+      />
+      <el-alert
+        v-else-if="archiveTruncated"
+        :title="t('auditLog.archiveTruncated')"
+        type="info"
+        show-icon
+        :closable="false"
+        style="margin-bottom: 12px"
+      />
+      <!-- That day simply has no file. The archive is on and healthy, so this is
+           an empty answer rather than a warning. -->
+      <el-alert
+        v-else-if="archiveNoFile"
+        :title="t('auditLog.archiveNoFile')"
+        type="info"
+        show-icon
+        :closable="false"
+        style="margin-bottom: 12px"
+      />
+        type="info"
+        show-icon
+        :closable="false"
+        style="margin-bottom: 12px"
+      />
+
+      <el-table :data="archiveRows" stripe style="width: 100%" size="small">
+        <el-table-column prop="created_at" :label="t('auditLog.time')" width="170">
+          <template #default="{ row }">{{ formatDate(row.created_at) }}</template>
+        </el-table-column>
+        <el-table-column prop="admin_username" :label="t('auditLog.admin')" width="120" />
+        <el-table-column prop="action" :label="t('auditLog.action')" width="140" />
+        <el-table-column prop="resource_type" :label="t('auditLog.resourceType')" width="120" />
+        <el-table-column prop="resource_id" :label="t('auditLog.resourceId')" width="120" />
+        <el-table-column prop="details" :label="t('auditLog.details')" show-overflow-tooltip />
+        <el-table-column prop="ip" label="IP" width="140" />
+        <template #empty>{{ t('auditLog.archiveEmpty') }}</template>
+      </el-table>
+    </el-card>
   </div>
 </template>
 
@@ -90,7 +183,8 @@ import { ref, reactive, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { ArrowDown, Download, Refresh, Search } from '@element-plus/icons-vue'
-import { exportAuditLogs, getAuditLogs } from '../api/audit.js'
+import { exportAuditLogs, getAuditLogs, searchAuditArchive } from '../api/audit.js'
+import { archiveErrorKind } from './audit-archive-errors.js'
 import CursorPagination from '../components/CursorPagination.vue'
 
 const { t } = useI18n()
@@ -190,6 +284,59 @@ async function exportLogs(format) {
 }
 
 onMounted(loadLogs)
+
+// ---------------------------------------------------------------------------
+// Archived rows
+//
+// Not loaded on mount: the archive is a separate file from the live table, and
+// most visits to this page are about today. It is one click, and the answer is
+// labelled with the day it came from so a result is never mistaken for the live
+// list.
+// ---------------------------------------------------------------------------
+const archiveDate = ref('')
+const archiveFilters = reactive({ action: '', q: '' })
+const archiveRows = ref([])
+const archiveLoading = ref(false)
+const archiveNotConfigured = ref(false)
+const archiveNoFile = ref(false)
+const archiveTruncated = ref(false)
+
+async function loadArchive() {
+  archiveLoading.value = true
+  archiveNotConfigured.value = false
+  archiveNoFile.value = false
+  archiveTruncated.value = false
+  try {
+    const data = await searchAuditArchive({
+      date: archiveDate.value || undefined,
+      action: archiveFilters.action || undefined,
+      q: archiveFilters.q || undefined,
+      limit: 200,
+    })
+    archiveRows.value = data.items || []
+    // The scan reports when it gave up, so an empty result is not proof the event
+    // never happened - which is the same distinction the live read has to make
+    // between "nothing" and "could not ask".
+    archiveTruncated.value = data.truncated === true
+    if (data.date) archiveDate.value = data.date
+  } catch (error) {
+    const kind = archiveErrorKind(error)
+    if (kind === 'not_configured') {
+      archiveNotConfigured.value = true
+      archiveRows.value = []
+    } else if (kind === 'no_file') {
+      // That day simply has no file. It is an empty answer, not a failure, and
+      // saying "not configured" here would send the operator to fix an env var
+      // that is already set.
+      archiveNoFile.value = true
+      archiveRows.value = []
+    } else {
+      ElMessage.error(t('common.loadFailed') + ': ' + error.message)
+    }
+  } finally {
+    archiveLoading.value = false
+  }
+}
 </script>
 
 <style scoped>
@@ -198,6 +345,9 @@ onMounted(loadLogs)
 .page-header h2 { margin: 0; font-size: 24px; font-weight: 600; color: #303133; }
 .header-actions { display: flex; gap: 8px; }
 .filter-card { border-radius: 8px; }
+.archive-header { display: flex; align-items: baseline; gap: 12px; }
+/* Secondary to the card title: it explains what the panel is, not what to do. */
+.archive-hint { font-size: 12px; font-weight: 400; color: #909399; }
 .filter-bar { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
 .pagination-bar { display: flex; justify-content: flex-end; margin-top: 16px; }
 </style>

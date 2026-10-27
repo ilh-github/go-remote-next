@@ -320,7 +320,16 @@ export default {
     endDate: 'End Date',
     exportCsv: 'Export CSV',
     exportJson: 'Export JSON',
-    exportFailed: 'Failed to export audit logs'
+    exportFailed: 'Failed to export audit logs',
+    archiveTitle: 'Archived Records',
+    archiveHint: 'Expired rows moved aside by retention, stored per day',
+    archiveDate: 'Archive date',
+    archiveSearch: 'Search the archive',
+    archiveSearchButton: 'Search archive',
+    archiveEmpty: 'No archived records for that day',
+    archiveNoFile: 'No archive file exists for that date (the archive directory is enabled)',
+    archiveNotConfigured: 'No archive directory configured (AUDIT_ARCHIVE_DIR); archive search is unavailable',
+    archiveTruncated: 'The scan stopped at its limit, so earlier matching rows may exist'
   },
   systemLogs: {
     title: 'System Logs',

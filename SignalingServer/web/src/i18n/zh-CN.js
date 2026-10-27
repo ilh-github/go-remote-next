@@ -323,7 +323,16 @@ export default {
     endDate: '结束日期',
     exportCsv: '导出 CSV',
     exportJson: '导出 JSON',
-    exportFailed: '导出审计日志失败'
+    exportFailed: '导出审计日志失败',
+    archiveTitle: '归档记录',
+    archiveHint: '保留策略移出的过期行，按天存放',
+    archiveDate: '归档日期',
+    archiveSearch: '搜索归档内容',
+    archiveSearchButton: '搜索归档',
+    archiveEmpty: '该日没有归档记录',
+    archiveNoFile: '该日期没有归档文件（归档目录已启用）',
+    archiveNotConfigured: '未配置归档目录（AUDIT_ARCHIVE_DIR），归档检索不可用',
+    archiveTruncated: '扫描在达到上限时停止，更早的匹配行可能存在'
   },
   systemLogs: {
     title: '系统日志',
