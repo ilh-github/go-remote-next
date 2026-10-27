@@ -214,6 +214,7 @@ export class FileManagerPanel {
         await this._run(
             () => this.manager.createDirectory(name),
             t('files.created', { name }),
+            'files.created',
         );
     }
 
@@ -223,6 +224,7 @@ export class FileManagerPanel {
         await this._run(
             () => this.manager.rename(entry, name),
             t('files.renamed', { name }),
+            'files.renamed',
         );
     }
 
@@ -231,6 +233,7 @@ export class FileManagerPanel {
         await this._run(
             () => this.manager.trash(entry),
             t('files.trashed', { name: entry.name }),
+            'files.trashed',
         );
     }
 
@@ -405,12 +408,14 @@ export class FileManagerPanel {
         this._previewText.textContent = '';
     }
 
-    async _run(task, successMessage = '') {
+    async _run(task, successMessage = '', successKey = '') {
         try {
             await task();
-            if (successMessage) this._setStatus(successMessage);
+            if (successMessage) this._setStatus(successMessage, false, successKey);
         } catch (error) {
-            this._setStatus(error.message || String(error), true);
+            // An error is the one message that must always get through, so it
+            // carries a key whose subject the line accepts over everything.
+            this._setStatus(error.message || String(error), true, 'files.error');
         }
     }
 

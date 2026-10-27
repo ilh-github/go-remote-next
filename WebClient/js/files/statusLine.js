@@ -20,6 +20,13 @@ export const StatusSubject = {
   Transfer: 'transfer',
   /** The listing is being read. */
   Listing: 'listing',
+  /**
+   * An operation on one entry: created, renamed, trashed. It is neither a
+   * transfer nor the listing, so it displaces either - but it is its own
+   * subject rather than `Other`, because two of them in a row are about
+   * different entries and the newer one is the news.
+   */
+  Entry: 'entry',
   /** Anything else: an error, a one-off confirmation, an idle hint. */
   Other: 'other',
 }
@@ -41,6 +48,9 @@ export function subjectForKey(key) {
   if (name.startsWith('files.downloaded')) return StatusSubject.Transfer
   if (name.startsWith('files.loading')) return StatusSubject.Listing
   if (name.startsWith('files.itemCount')) return StatusSubject.Listing
+  if (name.startsWith('files.created')) return StatusSubject.Entry
+  if (name.startsWith('files.renamed')) return StatusSubject.Entry
+  if (name.startsWith('files.trashed')) return StatusSubject.Entry
   return StatusSubject.Other
 }
 
@@ -87,7 +97,15 @@ export class StatusLine {
    */
   accepts(key) {
     const incoming = subjectForKey(key)
+    // A listing message does not displace a transfer's readout: the refresh that
+    // produces it is part of finishing that transfer, not separate news.
     if (incoming === StatusSubject.Listing && this._subject === StatusSubject.Transfer) {
+      return false
+    }
+    // The same reasoning covers an entry confirmation. Renaming a file in
+    // another directory is not news about the transfer that just finished, and
+    // letting it through is what erased the "100%" the operator was reading.
+    if (incoming === StatusSubject.Entry && this._subject === StatusSubject.Transfer) {
       return false
     }
     return true

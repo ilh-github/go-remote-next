@@ -267,6 +267,27 @@
 | ID | 优先级 | 功能 | 状态 | 上游 | 验收标准 |
 |---|---|---|---|---|---|
 | QD-001 | P0 | 建立独立功能总清单 | `[x]` | Fork-only | 文件覆盖全部范围、状态、优先级和验收口径 |
+- QD-002 状态行规则有一个一直没接上的半口：`StatusLine` 把消息按「它在讲什么」分subject，
+  规则是「后到的消息只在同 subject 时替换先到的」，它的测试很完整。但**面板并没有把所有消息
+  都送进这条规则**——事件处理器送了（`uploadProgress` 送 `files.uploading`、列表送
+  `files.itemCount`、busy 送 `files.loading`），而 `_run` 没有。`_run` 是每个按钮动作的包装层，
+  它的两条消息——成功确认与错误——都不带 key，而面板把「不带 key」定义为「总是显示」。
+  这对错误是对的（「传输失败」必须盖过「传输到 40%」），对成功确认是错的：操作员上传完文件，
+  进度读数还挂着，此时他在别的目录做的一次重命名会把「已重命名为 notes.txt」直接写到那行
+  读数上面，而「上传已完成」的确认就此消失。修法两处：①`subjectForKey` 新增 `Entry` subject
+  （created / renamed / trashed）——它们既不是传输也不是列表，但是**自己的** subject 而不是
+  `Other`，因为 `Other` 会被一切接受，映射到那里等于没修；②`_run` 的两条消息都带 key
+  （成功用调用方的 `successKey`，错误用 `files.error`），三个 entry 调用点把 key 传进去，
+  并且 `accepts` 对 Entry-over-Transfer 与 Listing-over-Transfer 同样拒绝。
+  验证：5 条新测试（`npm test` 426/426，原 421），其中「Entry 确认不替换传输读数」与
+  「第二条 Entry 确认替换第一条」钉住新 subject 的两个方向，另两条是接线守卫——它们匹配
+  **调用形状**而不是裸名字，因为一个永远是空的第三参能满足形状却不改变任何行为，
+  这与前几轮「定义不是调用」是同一类假绿。红绿双向：删掉 Entry 分支，仅第 4 条红。
+  生产构建绿、`file-manager.e2e.mjs` 1/1、`git diff --check` 通过。
+  **过程中纠正自己一次**：第一版我把面板的 `if (...accepts(key)) return` 改成「照样写 DOM」，
+  那会让读数在视觉上真的被替换掉，正好把这条规则作废——已回退，真正的缺口在
+  `_run` 那一侧，不在面板的提前返回。
+
 | QD-002 | P0 | Web 控制端完整文件管理器 | `[x]` | UP-Ready | 经 `qd-skill-bridge` 完成目录浏览、新建、重命名、版本保留软删除、文本预览、分块上传下载；62 项 WebClient 测试、生产构建和桌面/移动浏览器烟测通过。本轮复核 host 侧 `file-ops` 时**抓到一个真缺陷**（`c8b9cb3`）：`trash_path` 的工具描述写着「file or directory」，而测试只覆盖了「文件删掉再删一次」——那是另一种情况，因为第二个文件的父目录是真实目录。**已经在回收站里的路径**会被静默嵌套：它的父目录本身就是 `.quickdesk-trash`，于是目的地变成 `.quickdesk-trash/.quickdesk-trash/...`，每重复一次就往里埋一层，而任何清理回收站的逻辑都不会往那看。现在按**父目录**判定并拒绝。同时补上描述隐含的两个用例：目录连同内容一起移动、同一毫秒内两次删除两份都在（这才真正压到碰撞循环，而不是指望时钟足够慢）。**skill-host 测试也首次进入 CI**：它和 MCP bridge 一样只被 build 不被 test，而这里是全场最不该省的——`file-ops` 就是在远端机器上删东西的那个技能。证据：Windows run `40312641669`（head `c8b9cb3`）的 `Test Skill Host` 报 `7 passed; 0 failed`，`Test MCP Bridge` 报 `129 passed; 0 failed`；macOS run `40312641640` 的 arm64 job 同样两步全过（129 / 7）。两个平台仍只有 `Package DMG` 失败，原因是缺 `MACOS_SIGN_IDENTITY`，与代码无关。。`12b91bd` 再修两个路径助手缺陷：`parentPath('/home//user///docs')` 返回 `/home//user//`，而 `breadcrumbs` 对同一输入返回折叠后的 `/home/user/docs`——两个助手对同一条路径各说一套，而带双分隔符算出来的 parent 并不是服务端收到的那串，重命名就会落到别处；`breadcrumbs` 本来就靠 split+filter 折叠，`parentPath` 是按最后一个分隔符切片、把连续分隔符留下了。另一处：`parentPath('C:docs')` 返回 `''`，驱动器相对路径压根没有分隔符，索引查找落空，而 `''` 被调用方读作「没有父目录」、于是往文件系统根写；`basename` 有镜像 bug，返回整串而不是 `docs`。修法是两个助手都折叠连续分隔符，驱动器相对情形在索引查找之前处理（而不是靠只覆盖其中一种形状的 index===2 判断）。另 `425a067` 修好三个自 QD-111 起就一直红着的审计 E2E：direction 已从 action 名里移出，行带的是 `clipboard.sync` 而 direction 在 details 里，那三个浏览器测试还在断言旧名 |
 | QD-003 | P0 | 多标签控制与音频抢占 | `[x]` | UP-Ready | 同一设备多个同源标签页只有一个控制者/音频播放者；新标签接管后旧标签立即释放；真实 Chrome 三标签 E2E 覆盖抢占、释放、音频独立撤销和设备隔离 |
 | QD-004 | P0 | Host/Relay 权威自动录制 | `[~]` | UP-Remoting | 被控端或中继自动录制，断线自动收尾并上传索引；断线收尾的控制端半边已由 QD-505 补齐；`f365e1b` + `2062b95` 补服务端半边：一次性上传票据可经 `PUT /v1/recordings/:id/artifact?t=` 实际使用（Redis 标记 nonce，满足验收第 5 条「票据过期、会话错配、recording ID 错配全部被拒绝」），且票据绑 recording 的 session，跨会话写入返回 403 而非落到错误行；`a390735` 再补 artifact 摘要校验：上传字节的 SHA-256 与 `X-Artifact-Sha256` 声明值不符即拒绝并删除临时文件，行不被标记；`f19db63` 收口需求第 4 节「不能留下永久 `recording`」的另一半——僵死行进 `failed` 时同时写入 `ended_at`（此前只改状态，详情页没有结束时间、保留清理只能按 `updated_at` 计龄，而 sweep 每次都刷新它），并删掉一份没有调用方的重复 sweep 方法；Host 侧采集与编码仍待 `docs/dev/Host权威录制Remoting需求.md` 的 Remoting 协议 |
