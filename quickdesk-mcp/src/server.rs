@@ -692,9 +692,11 @@ struct SetStepExpectationParam {
     workflow_id: String,
     /// 1-based step sequence number
     seq: u32,
-    /// `screen_hash` or `screen_contains`; omit or pass empty to clear
+    /// `screen_contains`, `screen_absent`, `screen_contains_exact`,
+    /// `screen_title_contains`, `screen_title_equals` or `screen_hash`; omit or
+    /// pass empty to clear
     kind: Option<String>,
-    /// Expected frame hash, or text that must be on screen
+    /// Expected frame hash, or the text / window title the screen must be in
     value: Option<String>,
     /// How many checks to make before parking the step (default 1)
     retries: Option<u32>,
@@ -1123,10 +1125,13 @@ fn parse_frame_hash_response(
 /// The host's `VerificationService::evaluate` switches on exactly five
 /// condition types and treats anything else as unknown, which leaves `passed`
 /// false. Sending our own vocabulary would park every guarded step on a screen
-/// that actually matches, so `screen_contains` goes out as the host's
-/// `text_present`. `screen_hash` has no host condition type at all and is
-/// therefore checked against the frame hash `getUiState` reports, compared
-/// here where the recorded value is known.
+/// that actually matches, so each workflow kind goes out as the host condition
+/// it means: `screen_contains` as `text_present`, `screen_absent` as
+/// `text_absent`, `screen_contains_exact` as `text_present_exact`, and the two
+/// title kinds as `window_title_contains` / `window_title_equals`.
+/// `screen_hash` has no host condition type at all and is therefore checked
+/// against the frame hash `getUiState` reports, compared here where the
+/// recorded value is known.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ScreenExpectationCheck {
     /// Ask the host `assertScreenState` with this condition type.
@@ -1138,6 +1143,18 @@ enum ScreenExpectationCheck {
 fn screen_expectation_check(kind: &str) -> Option<ScreenExpectationCheck> {
     match kind {
         "screen_contains" => Some(ScreenExpectationCheck::HostCondition("text_present")),
+        // "the error message is gone" is one of the most natural playback
+        // assertions there is, and it used to be inexpressible: the host has
+        // implemented `text_absent` all along, but nothing here mapped onto it,
+        // so a step waiting for a dialog to disappear could only park forever.
+        "screen_absent" => Some(ScreenExpectationCheck::HostCondition("text_absent")),
+        // Case-sensitive variant, for when "Save" and "save" are different
+        // buttons and the loose match would pass on the wrong one.
+        "screen_contains_exact" => Some(ScreenExpectationCheck::HostCondition("text_present_exact")),
+        // The active window title is often the better signal than the pixels:
+        // a modal dialog changes it while the page behind it is unchanged.
+        "screen_title_contains" => Some(ScreenExpectationCheck::HostCondition("window_title_contains")),
+        "screen_title_equals" => Some(ScreenExpectationCheck::HostCondition("window_title_equals")),
         "screen_hash" => Some(ScreenExpectationCheck::FrameHash),
         _ => None,
     }
@@ -3412,6 +3429,79 @@ mod tests {
             build_screen_assertion_request("device-1", &expectation("screen_pixel", "1,2")),
             None,
             "an unsupported kind must not be sent to the host",
+        );
+    }
+
+    // The host's VerificationService implements five condition types, and the
+    // workflow vocabulary only reached two of them. "the error message is gone"
+    // is one of the most natural playback assertions there is, and it was not
+    // expressible at all: `text_absent` had no counterpart here, so a step that
+    // wanted to wait for a dialog to disappear could only park forever.
+    #[test]
+    fn every_host_condition_type_is_reachable_from_a_workflow_step() {
+        for (kind, host_type) in [
+            ("screen_contains", "text_present"),
+            ("screen_absent", "text_absent"),
+            ("screen_contains_exact", "text_present_exact"),
+            ("screen_title_contains", "window_title_contains"),
+            ("screen_title_equals", "window_title_equals"),
+        ] {
+            assert_eq!(
+                screen_expectation_check(kind),
+                Some(ScreenExpectationCheck::HostCondition(host_type)),
+                "{kind} must map to the host's {host_type}",
+            );
+            assert_eq!(
+                build_screen_assertion_request("device-1", &expectation(kind, "Save")),
+                Some(json!({
+                    "deviceId": "device-1",
+                    "expectations": [{"type": host_type, "value": "Save"}],
+                })),
+                "{kind} must produce a host request, not a parked step",
+            );
+        }
+    }
+
+    // The two lists of supported kinds - what this file will send to the host,
+    // and what workflow.rs is willing to classify - must not drift. When they
+    // do, a step parks claiming "this build does not implement that check" over
+    // a check that actually runs, and the operator hunts a missing feature.
+    #[test]
+    fn the_supported_kind_list_agrees_with_the_classifier() {
+        for kind in [
+            "screen_contains",
+            "screen_absent",
+            "screen_contains_exact",
+            "screen_title_contains",
+            "screen_title_equals",
+            "screen_hash",
+        ] {
+            assert!(
+                crate::workflow::is_supported_expectation_kind(kind),
+                "{kind} is sent to the host here, so the classifier must accept it too",
+            );
+        }
+        for kind in ["screen_pixel", "screen_colour", "textContains", ""] {
+            assert!(
+                screen_expectation_check(kind).is_none(),
+                "{kind} must not be sent to the host",
+            );
+            assert!(
+                !crate::workflow::is_supported_expectation_kind(kind),
+                "{kind} is not sent to the host, so the classifier must reject it too",
+            );
+        }
+    }
+
+    // A kind that stays unknown must still refuse rather than reach the host:
+    // the host answers unknown conditions with passed=false, which parks a step
+    // on a screen that actually matches.
+    #[test]
+    fn an_unknown_kind_still_refuses_to_reach_the_host() {
+        assert_eq!(screen_expectation_check("screen_pixel"), None);
+        assert_eq!(
+            build_screen_assertion_request("device-1", &expectation("screen_pixel", "1,2")),
+            None,
         );
     }
 

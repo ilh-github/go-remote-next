@@ -28,9 +28,14 @@ pub struct WorkflowStep {
 /// A pre-condition on the remote screen, checked before a replay step runs.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct StepExpectation {
-    /// `screen_hash` or `screen_contains`.
+    /// One of `screen_contains`, `screen_absent`, `screen_contains_exact`,
+    /// `screen_title_contains`, `screen_title_equals` or `screen_hash`.
+    ///
+    /// The first five are sent to the host's `VerificationService` as its own
+    /// condition types; `screen_hash` is compared locally against the frame hash
+    /// `getUiState` reports.
     pub kind: String,
-    /// The expected hash, or the text that must be on screen.
+    /// The expected hash, or the text / window title the screen must be in.
     pub value: String,
     /// How many times the check is retried before the step is parked.
     #[serde(default = "default_expectation_retries")]
@@ -674,7 +679,7 @@ pub enum MismatchKind {
 /// only the two strings, and an unsupported kind looks exactly like a genuine
 /// mismatch there. The expectation still knows which check was asked for.
 pub fn classify_mismatch(expect: &StepExpectation) -> MismatchKind {
-    if expect.kind != "screen_hash" && expect.kind != "screen_contains" {
+    if !is_supported_expectation_kind(&expect.kind) {
         return MismatchKind::UnsupportedKind;
     }
     if expect.value.trim().is_empty() {
@@ -684,6 +689,25 @@ pub fn classify_mismatch(expect: &StepExpectation) -> MismatchKind {
         "screen_hash" => MismatchKind::ScreenChanged,
         _ => MismatchKind::TextMissing,
     }
+}
+
+/// Whether this build can actually run the check the expectation names.
+///
+/// Kept as one list on purpose: `classify_mismatch` reports a kind the host
+/// cannot check as `UnsupportedKind`, and that report has to agree with what
+/// `screen_expectation_check` will really send. When the two drift, a step parks
+/// with "this build does not implement that check" over a check that works, and
+/// the operator goes looking for a missing feature instead of at the screen.
+pub fn is_supported_expectation_kind(kind: &str) -> bool {
+    matches!(
+        kind,
+        "screen_contains"
+            | "screen_absent"
+            | "screen_contains_exact"
+            | "screen_title_contains"
+            | "screen_title_equals"
+            | "screen_hash"
+    )
 }
 
 /// One line of guidance for a mismatch kind: what to check, in the operator's
@@ -1252,6 +1276,56 @@ mod tests {
                     "{label} and {other_label} must not share guidance"
                 );
             }
+        }
+    }
+
+    // A kind the host can check must never be classified as unsupported.
+    //
+    // The mapping in server.rs learned five condition types; classify_mismatch
+    // still only knew two, so a step waiting for a dialog to disappear parked
+    // with "this build does not implement that check" - a diagnosis that sends
+    // the operator to look for a missing feature instead of at the screen.
+    #[test]
+    fn a_kind_the_host_supports_is_not_reported_as_unsupported() {
+        for kind in [
+            "screen_contains",
+            "screen_absent",
+            "screen_contains_exact",
+            "screen_title_contains",
+            "screen_title_equals",
+            "screen_hash",
+        ] {
+            let expect = expectation(kind, "Save");
+            assert_ne!(
+                classify_mismatch(&expect),
+                MismatchKind::UnsupportedKind,
+                "{kind} is implemented by the host, so it must not read as unsupported",
+            );
+        }
+        // The genuinely unknown kind still has to land somewhere of its own.
+        assert_eq!(
+            classify_mismatch(&expectation("screen_pixel", "10,20")),
+            MismatchKind::UnsupportedKind,
+        );
+    }
+
+    // The text-shaped kinds share one failure shape - the text is not in the
+    // state the step asked for - but they are not the same check, and an empty
+    // value has to be caught before any of them is treated as a real mismatch.
+    #[test]
+    fn an_empty_value_is_caught_before_the_kind_is_judged() {
+        for kind in [
+            "screen_contains",
+            "screen_absent",
+            "screen_contains_exact",
+            "screen_title_contains",
+            "screen_title_equals",
+        ] {
+            assert_eq!(
+                classify_mismatch(&expectation(kind, "  ")),
+                MismatchKind::EmptyExpectation,
+                "{kind} with no value is a recording gap, not a screen mismatch",
+            );
         }
     }
 
