@@ -155,6 +155,24 @@
   和没有 publisher 是同一件事，而接线才是会烂的那部分。红绿双向：把心跳里的调用摘掉，
   路由级测试立刻以 `outbox rows = 0, want 1` 失败。`go test ./...` 全绿、`go vet ./...`
   干净、`gofmt` 对本次改动文件干净、`git diff --check` 通过。
+- QD-610 管理端 webhook fan-out 补齐重试，outbox 扫描到此收口：`WebhookService.Dispatch`
+  是管理端一侧的对偶，而它的缺口比用户侧更糟——用户侧至少还打一行日志，这里是
+  **静默 return**：读 enabled webhooks 失败就整件事没有任何痕迹，而携带该事件的 outbox 行
+  那时早已 delivered。到达这里的三个事件是 `session.revoked`、`turn.config.changed` 和
+  `device.secret.rotated`；其中「会话已被撤销、审计链里有、而该被告知的 SIEM 没被告知」
+  是这三个里唯一有安全后果的那个。修法与用户侧同形：`fanOut` 抽成可重试单元，
+  3 次尝试、200/400ms 退避；预算内仍不成功才打日志。
+  **测试 seams 的位置是一次修正**：观测点最初放在 `postWebhook` 之后，于是成功路径的测试
+  在等一个发往 `example.invalid` 的真实 POST——它自带 2s/4s 的退避，和被测的加载重试无关。
+  改到 POST 之前：测试问的是「有没有尝试过」，不是「那个尝试成功了没有」。
+  验证：3 条新测试（第一次读失败后重试并确实投递、读始终不恢复时预算内放弃且不投递、
+  成功路径逐字节不变且无重试延迟），红绿双向（摘掉重试调用，只有重试那条红）。
+  `go test ./...` 全绿、`go vet ./...` 干净、`gofmt` 干净、`git diff --check` 通过。
+  **outbox 扫描结论**：presence 双向、session 撤销、用户通知 fan-out、管理端 webhook fan-out
+  四类生产者均已收口；剩余的生产者都在各自注释里明确写了 best-effort 及其理由
+  （`device.metrics.updated` 高频、`LogActorOnce` 去重、审计 fan-out 消费侧），
+  不属于同一形状的缺口，扫描结束。
+
 - QD-610 通知 fan-out 自身补齐重试：`NotificationChannelService.DispatchEvent` 跑在事件总线的
   单个 subscriber worker 上，而它开头的那个「读这个用户有哪些 channel」和后面的 enqueue 打的是
   同一个库。此前这一次读失败就**整件事只有一行日志**——携带该事件的 outbox 行那时早已被标记
