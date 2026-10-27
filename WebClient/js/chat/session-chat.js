@@ -1,4 +1,7 @@
-const MAX_CHAT_TEXT_LENGTH = 4000;
+// Exported so a test can assert against the real limit instead of a copy of the
+// number. A boundary that only exists as a literal in two places is a boundary
+// nobody can check: raise one side and nothing goes red.
+export const MAX_CHAT_TEXT_LENGTH = 4000;
 
 export class SessionChatModel extends EventTarget {
     constructor({ send, now = () => new Date().toISOString(), idFactory } = {}) {

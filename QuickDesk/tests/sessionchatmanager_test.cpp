@@ -126,6 +126,39 @@ int main(int argc, char** argv)
     Expect(manager.unreadCount(QStringLiteral("device-1")) == 0,
            "opening the chat clears unread");
 
+    // The length boundary exists in both the controller and the host, and until
+    // now nothing asserted it on either side. Both count UTF-16 code units, so
+    // the same number of characters is the same length on both ends - which is
+    // the property that lets each side trust the other's rejection.
+    //
+    // Asserted on the error signal rather than the return value: a refusal has
+    // to be observable to the UI, and a manager that returned false while
+    // emitting nothing would leave the user pressing send into silence.
+    QSignalSpy errorSpy(&manager, &quickdesk::SessionChatManager::errorOccurred);
+    const QString atLimit(4000, QLatin1Char('a'));
+    const QString overLimit(4001, QLatin1Char('a'));
+
+    Expect(manager.sendToHost(QStringLiteral("device-1"), atLimit),
+           "a message at the limit is sent");
+    Expect(sentPayload.value(QStringLiteral("text")).toString().length() == 4000,
+           "the at-limit message reaches the host intact");
+
+    sentPayload = QJsonObject();
+    Expect(!manager.sendToHost(QStringLiteral("device-1"), overLimit),
+           "one character over the limit is refused");
+    Expect(sentPayload.isEmpty(),
+           "the refused message must not have reached the host");
+    Expect(errorSpy.count() == 1,
+           "the refusal is reported to the UI, not just returned");
+    Expect(errorSpy.takeFirst().at(1).toString().contains(
+               QStringLiteral("4000")),
+           "the refusal names the limit so the user knows what to cut");
+
+    Expect(!manager.sendToControllers(overLimit),
+           "the host side enforces the same limit");
+    Expect(errorSpy.count() == 1,
+           "the host side reports its refusal too");
+
     std::cout << "session chat manager tests passed\n";
     return 0;
 }
