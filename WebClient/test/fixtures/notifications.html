@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Notifications E2E</title>
+  <style>
+    body { margin: 0; padding: 20px; background: #1a1a2e; color: #eee; font-family: sans-serif; }
+    .card { margin-bottom: 16px; padding: 16px; background: #1e2a4a; }
+    .channel-row, .channel-actions, .delivery-toolbar, .delivery-actions { display: flex; gap: 8px; align-items: center; }
+    .channel-row { justify-content: space-between; }
+    .dry-run-toggle { display: inline-flex; gap: 6px; align-items: center; }
+    .spread-input { width: 90px; padding: 4px 6px; }
+    .unacked-count { font-size: 13px; color: #ffcf6b; }
+    .delivery-table-wrap { overflow-x: auto; }
+    .delivery-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .delivery-table th, .delivery-table td { padding: 6px 8px; text-align: left; border-bottom: 1px solid rgba(255,255,255,.08); }
+    .btn { padding: 6px 12px; border: 0; border-radius: 4px; cursor: pointer; }
+    .btn-primary { background: #4f7cff; color: #fff; }
+    .btn-secondary { background: rgba(255,255,255,.14); color: #eee; }
+    .btn-sm { padding: 4px 10px; font-size: 13px; }
+    .empty-state.compact { padding: 12px 0; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <script type="module">
+    import { createApp, h } from 'vue'
+    import { createI18n } from 'vue-i18n'
+    import NotificationsPage from '/src/views/NotificationsPage.vue'
+    import { en } from '/src/i18n/en.js'
+    import { zh } from '/src/i18n/zh.js'
+    import { userApi } from '/src/api/userApi.js'
+    import { authState, updateAuthState } from '/src/store/auth.js'
+
+    localStorage.setItem('quickdesk_signaling_url', location.origin.replace(/^http/, 'ws'))
+    localStorage.setItem('quickdesk_lang', 'en-US')
+    userApi.setBaseUrl(location.origin)
+    updateAuthState()
+
+    const i18n = createI18n({
+      legacy: false,
+      locale: 'en-US',
+      fallbackLocale: 'en-US',
+      messages: { 'zh-CN': zh, 'en-US': en },
+    })
+    const app = createApp({
+      render: () => h(NotificationsPage),
+    })
+    app.use(i18n)
+    app.provide('showToast', (message, type) => {
+      window.__notifToasts.push({ message, type })
+    })
+    app.provide('showLogin', () => {
+      window.__showLoginCalls += 1
+    })
+    app.provide('authState', authState)
+
+    window.__notifToasts = []
+    window.__showLoginCalls = 0
+    app.mount('#app')
+    window.__notifMounted = true
+  </script>
+</body>
+</html>

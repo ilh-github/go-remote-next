@@ -880,7 +880,7 @@ async function retryDelivery(delivery) {
   const result = await userApi.retryNotificationDelivery(selectedChannelId.value, delivery.id)
   deliveryBusy.value = 0
   if (!result.ok) {
-    toastError(result, 'notifications.deliveries.retryFailed')
+    toastError(result, 'notifications.deliveries.retryFailedError')
     return
   }
   await loadDeliveries()
@@ -909,13 +909,13 @@ async function retryChannelFailed() {
     })
   } catch (error) {
     deliveryBulkBusy.value = false
-    toastError({ message: error.message }, 'notifications.deliveries.retryFailed')
+    toastError({ message: error.message }, 'notifications.deliveries.retryFailedError')
     return
   }
   const result = await userApi.retryFailedNotificationDeliveries(selectedChannelId.value, payload)
   deliveryBulkBusy.value = false
   if (!result.ok) {
-    toastError(result, 'notifications.deliveries.retryFailed')
+    toastError(result, 'notifications.deliveries.retryFailedError')
     return
   }
   // A preview and a real replay are different facts and must not share a
@@ -938,13 +938,13 @@ async function retryAllFailed() {
     })
   } catch (error) {
     retryingAll.value = false
-    toastError({ message: error.message }, 'notifications.deliveries.retryFailed')
+    toastError({ message: error.message }, 'notifications.deliveries.retryFailedError')
     return
   }
   const result = await userApi.retryFailedNotificationDeliveriesForUser(payload)
   retryingAll.value = false
   if (!result.ok) {
-    toastError(result, 'notifications.deliveries.retryFailed')
+    toastError(result, 'notifications.deliveries.retryFailedError')
     return
   }
   const dry = result.data?.dry_run === true

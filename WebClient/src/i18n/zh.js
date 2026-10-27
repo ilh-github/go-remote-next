@@ -669,7 +669,7 @@ export const zh = {
       spreadPlaceholder: '分摊分钟',
       spreadHint: '把积压分摊到这么多分钟里入队，避免一次性打刚恢复的端点；留空为不分摊',
       loadFailed: '加载投递记录失败',
-      retryFailed: '重试投递失败',
+      retryFailedError: '重试投递失败',
       ackFailed: '确认投递失败',
     },
     deliveryStatus: {

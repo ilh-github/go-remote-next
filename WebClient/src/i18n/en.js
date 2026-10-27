@@ -667,7 +667,7 @@ export const en = {
       spreadPlaceholder: 'Spread min',
       spreadHint: 'Spread the backlog over this many minutes instead of making it all due at once; blank means no pacing',
       loadFailed: 'Failed to load deliveries',
-      retryFailed: 'Failed to retry delivery',
+      retryFailedError: 'Failed to retry deliveries',
       ackFailed: 'Failed to acknowledge delivery',
     },
     deliveryStatus: {
