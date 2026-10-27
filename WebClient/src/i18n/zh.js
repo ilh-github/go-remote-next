@@ -171,6 +171,12 @@ export const zh = {
     editFavorite: '编辑',
     connectionLogs: '连接记录',
     noLogs: '暂无连接记录',
+    deleteLog: '删除这条记录',
+    clearLogs: '清空历史',
+    confirmClearLogs: '确定要删除全部连接记录吗？此操作无法撤销。',
+    logDeleted: '记录已删除',
+    logsCleared: '历史已清空',
+    clearLogsFailed: '清空历史失败',
     refresh: '刷新',
     groups: {
       filterLabel: '设备分组筛选',

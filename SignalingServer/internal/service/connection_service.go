@@ -32,6 +32,12 @@ type RecordInput struct {
 
 var ErrInvalidConnectionStatus = errors.New("status must be success|failed|timeout")
 
+// ErrConnectionHistoryNotFound is what a delete of somebody else's row returns.
+// The row id alone is not authority: without this, one account could remove
+// another account's history entry by guessing an id, and the caller could not
+// tell "not yours" from "already gone".
+var ErrConnectionHistoryNotFound = errors.New("connection history entry not found")
+
 func (s *ConnectionService) Record(ctx context.Context, userID uint, in RecordInput) (*models.ConnectionHistory, error) {
 	switch in.Status {
 	case "success", "failed", "timeout":
@@ -95,4 +101,39 @@ func (s *ConnectionService) List(ctx context.Context, userID uint, p ConnectionL
 		return nil, err
 	}
 	return out, nil
+}
+
+// Delete removes one entry, scoped to its owner.
+//
+// The history grows a row on every connection attempt, so without this the list
+// only accumulates -- upstream issue #18 asks for "delete single entry" for
+// exactly that reason. The owner is part of the WHERE clause rather than a
+// check afterwards: a delete that fetched by id first and then compared owners
+// would still remove the row in the window between the two statements.
+func (s *ConnectionService) Delete(ctx context.Context, userID uint, id uint) error {
+	res := s.db.WithContext(ctx).
+		Where("id = ? AND user_id = ?", id, userID).
+		Delete(&models.ConnectionHistory{})
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return ErrConnectionHistoryNotFound
+	}
+	return nil
+}
+
+// Clear removes the owner's whole history and reports how many rows went.
+//
+// The count is what the UI confirms with, so it is the real number rather than a
+// generic "cleared". Scoped by user id: a clear-all that matched on nothing else
+// would empty every account's history.
+func (s *ConnectionService) Clear(ctx context.Context, userID uint) (int64, error) {
+	res := s.db.WithContext(ctx).
+		Where("user_id = ?", userID).
+		Delete(&models.ConnectionHistory{})
+	if res.Error != nil {
+		return 0, res.Error
+	}
+	return res.RowsAffected, nil
 }

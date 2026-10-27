@@ -3,6 +3,7 @@ package handler
 import (
 	"errors"
 	"net/http"
+	"strconv"
 
 	"quickdesk/signaling/internal/middleware"
 	"quickdesk/signaling/internal/models"
@@ -23,6 +24,8 @@ import (
 //	DELETE /v1/me/devices/:device_id/session (clear logged_in)
 //	GET    /v1/me/connections
 //	POST   /v1/me/connections
+//	DELETE /v1/me/connections/:id
+//	DELETE /v1/me/connections
 //	GET    /v1/me/devices/:device_id/access-logs
 //	GET    /v1/me/favorites
 //	POST   /v1/me/favorites
@@ -471,6 +474,48 @@ func (h *DeviceHandler) ListConnections(c *gin.Context) {
 		rows = rows[:p.Limit]
 	}
 	c.JSON(http.StatusOK, gin.H{"items": rows, "next_cursor": next})
+}
+
+// DeleteConnection handles DELETE /v1/me/connections/:id — removing one entry
+// from the owner's own history.
+//
+// The history gains a row on every connection attempt and had no way to lose
+// one, so it only ever accumulated. Upstream issue #18 asks for "delete single
+// entry" for that reason. A row belonging to another account answers 404 rather
+// than 403: the caller's own view of that id is that it does not exist, and
+// confirming otherwise would leak that the id is real.
+func (h *DeviceHandler) DeleteConnection(c *gin.Context) {
+	uid := middleware.MustUserID(c)
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		ProblemBadRequest(c, ProblemCodeInvalidRequest, "Invalid connection id")
+		return
+	}
+	if err := h.connections.Delete(c.Request.Context(), uid, uint(id)); err != nil {
+		if errors.Is(err, service.ErrConnectionHistoryNotFound) {
+			ProblemNotFound(c, ProblemCodeNotFound, "Connection history entry not found")
+			return
+		}
+		ProblemInternal(c, err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"deleted": true})
+}
+
+// ClearConnections handles DELETE /v1/me/connections — the owner's whole
+// history in one call, reporting how many rows went so the UI can confirm with
+// the real number rather than a generic "cleared".
+//
+// Scoped to the caller: a clear that matched on nothing else would empty every
+// account's history.
+func (h *DeviceHandler) ClearConnections(c *gin.Context) {
+	uid := middleware.MustUserID(c)
+	removed, err := h.connections.Clear(c.Request.Context(), uid)
+	if err != nil {
+		ProblemInternal(c, err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"removed": removed})
 }
 
 // ListAccessLogs handles GET /v1/me/devices/:device_id/access-logs — the

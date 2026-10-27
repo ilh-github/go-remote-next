@@ -165,6 +165,25 @@ test('devices page drives connection, favorites, logs, and private groups', asyn
       return
     }
 
+    // The history can lose rows as well as gain them: one entry by id, or the
+    // whole list. Both are exercised by the delete/clear assertions below.
+    const connectionDelete = url.pathname.match(/^\/v1\/me\/connections\/(\d+)$/)
+    if (method === 'DELETE' && connectionDelete) {
+      const id = Number(connectionDelete[1])
+      const before = state.logs.length
+      state.logs = state.logs.filter((log) => log.id !== id)
+      state.mutations.push({ method, path: url.pathname })
+      await fulfillJSON(route, { deleted: before !== state.logs.length })
+      return
+    }
+    if (method === 'DELETE' && url.pathname === '/v1/me/connections') {
+      const removed = state.logs.length
+      state.mutations.push({ method, path: url.pathname })
+      state.logs = []
+      await fulfillJSON(route, { removed })
+      return
+    }
+
     const verify = url.pathname.match(/^\/v1\/devices\/([^/]+)\/access-code:verify$/)
     if (method === 'POST' && verify) {
       const deviceId = decodeURIComponent(verify[1])
@@ -293,6 +312,33 @@ test('devices page drives connection, favorites, logs, and private groups', asyn
       await logsCard(page).getByRole('button', { name: 'Connect', exact: true }).count(),
       2,
     )
+
+    // The history grows a row on every attempt, so it has to be able to lose one.
+    // Deleting removes that row and only that row.
+    await logsCard(page).getByTitle('Delete this entry').first().click()
+    await page.waitForFunction(() => document.querySelectorAll('.card')[2].querySelectorAll('.device-item').length === 2)
+    assert.equal(state.logs.length, 2)
+    assert.equal(
+      state.mutations.some(
+        (item) => item.method === 'DELETE' && /^\/v1\/me\/connections\/\d+$/.test(item.path),
+      ),
+      true,
+      'the delete went to the single-entry endpoint, not the collection',
+    )
+
+    // Clearing asks first -- it is the whole history and cannot be undone -- and
+    // only proceeds once confirmed.
+    page.once('dialog', (dialog) => dialog.accept())
+    await page.getByRole('button', { name: 'Clear history', exact: true }).click()
+    await page.waitForFunction(() => document.querySelectorAll('.card')[2].querySelectorAll('.device-item').length === 0)
+    assert.equal(state.logs.length, 0)
+    assert.equal(
+      state.mutations.some(
+        (item) => item.method === 'DELETE' && item.path === '/v1/me/connections',
+      ),
+      true,
+    )
+    await page.getByText('No connection logs', { exact: true }).waitFor()
     assert.equal(await groupCount(page, 'Lab'), '1')
     assert.equal(await groupCount(page, 'Empty'), '0')
 

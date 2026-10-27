@@ -169,6 +169,12 @@ export const en = {
     editFavorite: 'Edit',
     connectionLogs: 'Connection Logs',
     noLogs: 'No connection logs',
+    deleteLog: 'Delete this entry',
+    clearLogs: 'Clear history',
+    confirmClearLogs: 'Delete every entry in your connection history? This cannot be undone.',
+    logDeleted: 'Entry deleted',
+    logsCleared: 'History cleared',
+    clearLogsFailed: 'Could not clear the history',
     refresh: 'Refresh',
     groups: {
       filterLabel: 'Device group filter',

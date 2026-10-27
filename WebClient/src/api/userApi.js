@@ -432,6 +432,17 @@ class UserApi {
     })
   }
 
+  // The history gains a row on every attempt, so it needs a way to lose one:
+  // delete a single entry, or clear the whole list. The clear reports how many
+  // rows went so the UI can confirm with the real number.
+  deleteConnection(id) {
+    return this._req('DELETE', `/v1/me/connections/${encodeURIComponent(id)}`)
+  }
+
+  clearConnections() {
+    return this._req('DELETE', '/v1/me/connections')
+  }
+
   // ========================================================================
   // Remote sessions — the control plane's record of who is in the caller's
   // machines right now and who has been. One row is one controller's signaling

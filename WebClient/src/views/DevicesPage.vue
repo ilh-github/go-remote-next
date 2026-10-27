@@ -135,7 +135,19 @@
 
       <!-- Connection Logs -->
       <div class="card">
-        <div class="card-title">{{ $t('devices.connectionLogs') }}</div>
+        <div class="card-heading">
+          <div class="card-title">{{ $t('devices.connectionLogs') }}</div>
+          <!-- The history gains a row on every attempt, so it needs a way to lose
+               them. Offered only when there is something to clear. -->
+          <button
+            v-if="logs.length > 0"
+            class="btn btn-secondary btn-sm"
+            :disabled="clearingLogs"
+            @click="clearLogs"
+          >
+            {{ $t('devices.clearLogs') }}
+          </button>
+        </div>
         <div v-if="logs.length === 0" class="empty-state">
           <div class="empty-icon">📋</div>
           <p>{{ $t('devices.noLogs') }}</p>
@@ -157,6 +169,11 @@
                still bound and its code is available, because connecting has to
                verify one. -->
           <div class="device-actions">
+            <button
+              class="icon-btn danger"
+              :title="$t('devices.deleteLog')"
+              @click="deleteLog(log)"
+            >🗑</button>
             <button
               v-if="log.canConnect"
               class="btn btn-primary btn-sm"
@@ -472,6 +489,7 @@ const authState = inject('authState')
 const myDevices = ref([])
 const myFavorites = ref([])
 const logs = ref([])
+const clearingLogs = ref(false)
 
 // Described once per row so the template reads named fields instead of reaching
 // into the raw API shape: name, reason and duration are derived, and a failed
@@ -566,6 +584,39 @@ async function loadFavorites() {
 async function loadLogs() {
   const r = await userApi.fetchConnectionLogs()
   if (r.ok && r.data) logs.value = Array.isArray(r.data.items) ? r.data.items : []
+}
+
+// The history grows one row on every attempt, so without these it only
+// accumulates. Deleting drops the row locally on success rather than refetching:
+// the server already said which row went, and a refetch would also reorder the
+// list under the user's cursor.
+async function deleteLog(log) {
+  const r = await userApi.deleteConnection(log.id)
+  if (!r.ok) {
+    showToast(r.error || t('toast.networkError'), 'error')
+    return
+  }
+  const index = logs.value.findIndex((row) => row.id === log.id)
+  if (index >= 0) logs.value.splice(index, 1)
+}
+
+// Clearing asks first, because it is the whole history and cannot be undone. The
+// server reports how many rows went, which is what the confirmation uses rather
+// than a generic "cleared".
+async function clearLogs() {
+  if (!confirm(t('devices.confirmClearLogs'))) return
+  clearingLogs.value = true
+  try {
+    const r = await userApi.clearConnections()
+    if (!r.ok) {
+      showToast(r.error || t('devices.clearLogsFailed'), 'error')
+      return
+    }
+    logs.value = []
+    showToast(t('devices.logsCleared'), 'success')
+  } finally {
+    clearingLogs.value = false
+  }
 }
 
 async function loadDeviceGroups() {

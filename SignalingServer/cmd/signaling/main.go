@@ -845,6 +845,11 @@ func main() {
 
 			me.GET("/connections", deviceHandler.ListConnections)
 			me.POST("/connections", deviceHandler.RecordConnection)
+			// The history gains a row on every attempt, so it needs a way to lose
+			// one. DELETE on the collection clears the owner's whole history and
+			// reports the count; the id form removes a single entry.
+			me.DELETE("/connections", deviceHandler.ClearConnections)
+			me.DELETE("/connections/:id", deviceHandler.DeleteConnection)
 			// The Remoting file data channel bypasses signaling. Controllers
 			// report completion or failure here so the control plane can retain
 			// an attributable audit trail without proxying file bytes.
