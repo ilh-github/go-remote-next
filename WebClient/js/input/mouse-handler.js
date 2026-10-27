@@ -21,6 +21,7 @@ export class MouseHandler {
         this.remoteHeight = 0;
         this._enabled = false;
         this._handlers = {};
+        this._capturedPointerId = null;
     }
 
     /**
@@ -61,6 +62,18 @@ export class MouseHandler {
     disable() {
         if (!this._enabled) return;
         this._enabled = false;
+
+        // A capture outliving its handler retargets every later mouse event to
+        // an element that no longer listens, so the remote cursor would freeze
+        // while the page still looked live.
+        if (this._capturedPointerId !== null && this._capturedPointerId !== undefined) {
+            try {
+                this.videoElement.releasePointerCapture?.(this._capturedPointerId);
+            } catch (_) {
+                // The element may already be detached.
+            }
+            this._capturedPointerId = null;
+        }
 
         const el = this.videoElement;
         el.removeEventListener('mousemove', this._handlers.mousemove);
@@ -175,6 +188,28 @@ export class MouseHandler {
         event.preventDefault();
         const coords = this._mapCoordinates(event);
         if (!coords) return;
+
+        // Capturing the pointer on press is what keeps a drag alive once the
+        // cursor wanders off the video. Without it the release lands on
+        // whatever is underneath, this handler never sees it, and the remote
+        // machine is left holding the button down until some later click
+        // happens to land back on the video.
+        if (isDown && event.pointerId !== undefined) {
+            try {
+                this.videoElement.setPointerCapture?.(event.pointerId);
+                this._capturedPointerId = event.pointerId;
+            } catch (_) {
+                // A pointer that has already gone away cannot be captured; the
+                // press itself is still valid and must go through.
+            }
+        } else if (!isDown && this._capturedPointerId !== null && this._capturedPointerId !== undefined) {
+            try {
+                this.videoElement.releasePointerCapture?.(this._capturedPointerId);
+            } catch (_) {
+                // Releasing an uncaptured pointer is a no-op on the host side.
+            }
+            this._capturedPointerId = null;
+        }
 
         this.dcHandler.sendMouseEvent({
             x: coords.x,
