@@ -208,6 +208,30 @@
 
 最近验证：
 
+- `2c72e87a`（WebClient 输入链路三处 stuck-state 缺陷，全部先红后绿两轮验证）：主线输入
+   handlers 此前**零测试覆盖**——`rg` 过 `WebClient/test/`，mouse/keyboard/touch 三个
+   handler 一个都没有对应测试文件，而它们正是「控制」这件事的全部。本轮补 15 条测试并
+   当场抓到三个真缺陷。**①拖出画面不松键**：`MouseHandler` 监听的是 `mouseup`，而鼠标
+   拖出 video 元素后那个事件落在别的元素上，handler 永远收不到——远程机器就这样保持按下
+   状态，直到下一次点击恰好又落在画面上。修法是按下时 `setPointerCapture`，松键时
+   `releasePointerCapture`，`disable()` 里也释放（捕获比 handler 活得长会把后续鼠标事件
+   重定向到一个不再监听的元素上，远程光标会僵住而页面看着还正常）。**②捏合手指抬起产生
+   幻影点击**：两指捏合时 `_onTouchStart` 把 `_moved` 置 true，而 `_onTouchEnd` 的
+   「多于一指落到一指」分支为延续手势把它重置为 false——于是 surviving finger 抬手时走进
+   单指分支、`_moved` 为 false，主机收到一次用户从没做过的左键单击。修法是引入
+   `_fromPinch`：从捏合延续出来的手势永不产生点击。**③控制端消失后主机按键卡住**：
+   Qt 客户端用 `releaseAllInput` 守住了同一类暴露（焦点丢失和窗口失活都调用），WebClient
+   却从未发送过它，而 `_cleanupInputHandlers()` 会把还没出去的 key-up 一并丢掉——下一个
+   坐到机器前的人，每次按键都带着上一个会话卡住的修饰键。`releaseAllInput` 的枚举值不是
+   猜的：从预编译 host 二进制的 descriptor 表里读出
+   `sendAttentionSequence=1 / lockWorkstation=2 / privacyScreen=3 / (off)=4 / releaseAllInput=5`，
+   与既有 1~4 完全吻合后补 5。同时发现 actions channel 的创建条件只列了另外三个能力，
+   一个只支持 releaseAllInput 的 host 将拿不到 channel——恰好是唯一能防 stuck input 的
+   那个动作发不出去，已把该能力按自身资格加入条件。验证：15 条新测试（红绿双向各两轮：
+   去掉 pointer capture、去掉 letterbox 守卫、去掉 deltaMode 归一化、去掉 `_fromPinch`
+   守卫、去掉 release 的枚举项、去掉能力门禁，各自被对应测试抓住），`npm test` 326/326，
+   全量 E2E 门禁 17 passed / 0 failed / 1 skipped（skipped 为两小时 wall-soak），
+   生产构建绿，`git diff --check` 干净。
 - `d44a9680`（11 个候选分支与 dev 的内容对账，结论：内容已在 dev）：上一轮发现这 11 个分支 rebase 时冲突集中在录像文件，一度判断为「我们的旧录像实现 vs 上游 PR #23」。逐层查证后**该判断被推翻**，真实情况是它们的内容早已全部落在 `dev`：①按签名比对录像服务，上游 16 个方法我们全有，只多 `WithOutbox`（outbox 集成）与三个会话维度查询（`ListForSession`/`ListForSessionIDs`/`ListForSessions`）——dev 的录像实现是上游功能的**超集**，不是另一套；②11 个分支相对共同基点 `f6651f03` 的改动并集共 1233 个文件，用 `-z` 正确解转义后逐一核对，**在 dev 中缺失的为 0**；③抽两个最有代表性的主题实证：SQLite 模式在 dev 有 `internal/database/sqlite.go` 且 5 个测试全过（覆盖比分枝的 131 行版本更多），踢人冷却在 dev 有 `internal/service/revoke_cooldown.go` 连同测试；④`dev` 自身 `go build ./...` 与 database/service 测试绿。**所以这些分支不是待拆分的工作，而是已完成工作的旧切片**。它们的冲突源于基于早期控制面提交，而 dev 早已演进到超越上游。U2 批次「把 PR #25 拆成小 PR」的前提因此改变：拆分的目的是让上游能逐个审查，而内容侧 dev 已经完备。过程中修掉自己两个测量错误：一是用提交对象判断「是否在 dev」（`merge-base --is-ancestor` 全返回 no），但 dev 是用不同提交对象实现同样功能，提交级比较毫无意义，必须比内容；二是 `git diff --name-only` 对中文路径加引号而我的 Python 没解转义，一度误报「2 个文档只在分支有」，改用 `-z` 后归零。另外清理了一次合并实验留下的未提交状态、临时分支 `union-analysis` 和两个 `__pycache__/`。
 - `TODO8`（29 个上游候选分支的状态核对与 rebase）：清单多份条目写着「远端写入恢复后推送并建 PR」，本轮核实这条路**走不通**：`git push upstream` 返回 `Permission to barry-ran/QuickDesk.git denied to ilh-github`，且 `ilh-github/QuickDesk` 这个 fork 不存在。不是时机问题，是权限问题——我们既没有上游写权限，也没有 fork 可推。**能做且已做的是 rebase**：上游 dev 已从各分支的基点（`f6651f0`/`5db316c`）前进 7-8 个提交到 `88d4d36`（PR #23 录像落地）。15 个候选分支已全部 rebase 到最新上游、落后 0 提交，随时可提 PR 且不带冲突：`qd-911-security`、`qd-114-spki`、`qd-115-trust-model`、`qd-212-local-device`、`qd-213-access-code-refresh`、`qd-214-file-transfer-errors`、`qd-214-spake2-webclient`、`qd-215-win-runtime-check`、`qd-403-webclient`、`qd-506-recording-upload`、`qd-510-workflow`、`qd-002-file-ops`、`mcp-failure-lock`、`signaling-postgres-migrate`、`cross-tab-coordination`。rebase 后抽查 `qd-002-file-ops`：`cargo build -p file-ops` 通过、4 个测试全过。顺带清理了 8 个 prunable worktree 和一个我上次跑守卫时留下的 `scripts/__pycache__/`。**两类分支没能 rebase，原因与处置**：①10 个分支（`qd-006-sqlite`、`qd-111`、`qd-604-metrics`、`qd-607-batch-revoke`、`qd-204-api`、`qd-204-client`、`event-outbox`、`event-replay-retention`、`websocket-auth-timeout`、`access-bans`、`qd-608-extra-sdks`）全部基于我们 fork 的 PR #25 巨型提交，冲突集中在 8 个录像相关文件——那不是代码冲突，是「我们整个自托管控制面 vs 上游刚合并的 PR #23 录像重写」。解法仍是清单 U2 既有的结论：把 PR #25 拆成可独立审查的小 PR，逐个从 `upstream/dev` 切出。②`qd-316-session-chat-v2` 冲突在 `QuickDesk/qml/views/RemoteWindow.qml`，且是**同一个 UI 元素的用途冲突**：上游把该 Rectangle 改成录制按钮，我们的分支把它当聊天按钮。这需要产品判断（两个按钮如何共存），已 `rebase --abort` 保持原状，未擅自解。另发现 `qd-316-session-chat` 与 `cross-machine-queue` 两个分支相对上游 dev 是 0 提交/0 文件——停在旧基点且无自有提交，疑似曾推送并被合并，待核实后应删除以免混淆。
 - `5fc8c42a`（smoke 还原守卫接入 CI）：接上一轮的静态守卫。原放在 `scripts/` 根下，接入时发现 `signaling-server-verify.yml` 的 `paths` 触发器只有 `SignalingServer/**`、`sdk/**`、`scripts/sdk/**`——**不含 `scripts/` 根**，也就是改守卫本身不会触发任何流水线，一个不会被触发的门禁等于没有。移到 `scripts/sdk/`（与它守护的 smoke 同目录），ROOT 计算相应改为上溯三级。守卫步落在 `contract` job、紧跟「Committed clients match the spec」之后，注释写清它为何是静态的：要回答的是 smoke **将会**发什么，不是活服务器答什么，所以不需要起服务。移动与改路径后**重新做了反向验证**（删掉 snooze 行 → exit 1 且指名结构体；恢复 → exit 0），并在仓库根与 `scripts/sdk/` 两个位置分别调用确认路径解析正确。验证：workflow YAML 解析通过，守卫步确认在 `contract` job 且 `scripts/sdk/**` 已在触发器内；`python3 scripts/sdk/check-smoke-restore-coverage.py` exit 0；`node --check scripts/sdk/openapi-smoke.mjs` 通过；`git diff --check` 干净。
