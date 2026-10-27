@@ -208,6 +208,11 @@
 
 最近验证：
 
+- `8977f28`（连接记录可读）：见 QD-203。清单标 `[x]` 的项按「它自己的描述承诺了什么」
+  再审一遍，QD-203 的「最近连接」承诺的是一个能查的记录列表，而实现只渲染了 device_id
+  和时间戳，API 返回的 `device_name` / `connect_ip` / `error_msg` 全部未消费——
+  `error_msg` 尤其致命：失败行不说明原因。行派生收进 `connectionLogModel.js` 并补兜底，
+  E2E 从「只数行数」扩到断言内容。WebClient 245/245，生产构建绿，红绿双向。
 - `8e39a3c`（Postgres 测试底座可重跑 + `control_mode` 补进 SQL）：Postgres 测试
   共用同一个 scratch 库且没有任何东西在两轮之间重置它，所以凡是裸
   `db.AutoMigrate` 建出来的表，第一次全绿、第二次必红——这个失败本来就在树里，
@@ -852,7 +857,7 @@ fork 是否能继续开发，也不能因为 fork 自己有实现就再次向 up
 |---|---|---|---|
 | QD-201 | 设备 ID、设备密钥、自动 provisioning | `[x]` | Host 自动注册 |
 | QD-202 | Pair Code / 设备绑定 | `[x]` | 用户绑定与解绑 |
-| QD-203 | 设备列表、收藏、最近连接 | `[x]` | WebClient 和 Qt 均有入口 |
+| QD-203 | 设备列表、收藏、最近连接 | `[x]` | WebClient 和 Qt 均有入口。本轮 `8977f28` 补上「最近连接」真正可读的那一半：连接记录一直在取、在记、在渲染，所以行数是真的，但每行只打印裸 device_id 加时间戳，而 API 在每一行都返回 `device_name`、`connect_ip` 和 `error_msg`——三个全被丢掉，其中 `error_msg` 正是用户打开这个列表要读的那个：标着 failed 却不说明原因，等于告诉 owner「出事了」而不说「出了什么事」。另外两个同样是白扔：设备名才是人认得的，九位数字不是；客户端地址则用来区分「是我的另一台机器」和「是我不认识的地址」。行派生收进 `connectionLogModel.js`，模板读命名字段而不是直接摸 API 形状，兜底也因此可测：没有设备名就退回 id 而不是渲染空白，失败但没有记录原因就完全不显示理由而不是一个空括号或「undefined」，时长为 0 不渲染而不是「0m0s」。既有 E2E 只数了行数，这正是它能存活的原因——数行数会在行内容什么都不说的时候照样绿，现在同时断言设备名、时长和记录在案的失败原因都到达页面。验证：WebClient 245/245（原 239，新增 6 条模型测试加扩写后的 E2E）、生产构建绿、`git diff --check` 干净；红绿双向：把旧的裸 id 行放回去，E2E 在三条新断言上同时红 |
 | QD-204 | 地址簿与设备分组 | `[x]` | 上游 Roadmap 的 Address book & device groups；owner-scoped API/SDK、WebClient、Qt、成员整体替换、500 上限和绑定生命周期清理均已完成，提交 `f270487`、`b1a1155`、`162ac6e`、`b013a62` |
 | QD-205 | 在线状态与心跳 | `[x]` | Redis presence + heartbeat |
 | QD-206 | 连接历史与快速连接 | `[x]` | 上游 `dev` 与 fork 都已有 `ConnectionHistory` 和连接历史 UI；issue #18 看起来已过期，先验证再关闭，不重复实现 |
