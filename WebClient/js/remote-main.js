@@ -12,6 +12,7 @@ import { KeyboardHandler } from './input/keyboard-handler.js';
 import { TouchHandler } from './input/touch-handler.js';
 import { ClipboardHandler } from './input/clipboard-handler.js';
 import { watchForRelease } from './input/visibilityRelease.js';
+import { selectDisplayTrack } from './videoLayout.js';
 import { CursorRenderer } from './ui/cursor-renderer.js';
 import { MouseButton } from './protocol/protobuf-messages.js';
 import { addTrackOnce } from './protocol/media-stream.js';
@@ -1090,36 +1091,28 @@ class RemoteDesktopApp {
         this._log(t('log.videoLayout', { count: displays.length }));
 
         this._currentDisplayList = displays;
-        if (displays.length === 0) return;
+
+        // An empty layout is a state, not a non-event: the display strip has to
+        // stop showing monitors the host no longer reports. Returning before
+        // this point left the previous list standing, and clicking one of its
+        // entries selected a stream id the host will never send.
+        if (this.floatingToolbar) {
+            this.floatingToolbar.updateDisplayList(displays, -1);
+        }
 
         let selectedTrack = null;
         let selectedIndex = 0;
 
-        if (this._media.selectedStreamId) {
-            for (let i = 0; i < displays.length; i++) {
-                if (displays[i].mediaStreamId === this._media.selectedStreamId) {
-                    selectedTrack = displays[i];
-                    selectedIndex = i;
-                    break;
-                }
-            }
-        }
+        const selection = selectDisplayTrack(displays, {
+            selectedStreamId: this._media.selectedStreamId,
+            primaryScreenId: layout.primaryScreenId,
+        });
+        selectedTrack = selection.track;
+        selectedIndex = selection.index;
 
-        if (!selectedTrack) {
-            if (layout.primaryScreenId !== undefined) {
-                for (let i = 0; i < displays.length; i++) {
-                    if (displays[i].screenId === layout.primaryScreenId) {
-                        selectedTrack = displays[i];
-                        selectedIndex = i;
-                        break;
-                    }
-                }
-            }
-            if (!selectedTrack) {
-                selectedTrack = displays[0];
-                selectedIndex = 0;
-            }
-        }
+        // Nothing selectable: the strip has already been told, and there is no
+        // monitor to point the resolution or the video element at.
+        if (!selectedTrack) return;
 
         this._log(t('log.selectMonitor', { width: selectedTrack.width, height: selectedTrack.height }));
         this._remoteWidth = selectedTrack.width;
