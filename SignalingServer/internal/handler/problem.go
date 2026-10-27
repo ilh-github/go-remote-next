@@ -27,17 +27,18 @@ const (
 	ProblemCodeInvalidCredentials = httpx.CodeInvalidCredentials
 	ProblemCodeAccountDisabled    = httpx.CodeAccountDisabled
 
-	ProblemCodeDeviceNotFound     = httpx.CodeDeviceNotFound
-	ProblemCodeHostOffline        = httpx.CodeHostOffline
-	ProblemCodeInvalidCode        = httpx.CodeInvalidCode
-	ProblemCodeAccessPolicyDenied = httpx.CodeAccessPolicyDenied
-	ProblemCodeTooManyAttempts    = httpx.CodeTooManyAttempts
-	ProblemCodeDeviceSecretBad    = httpx.CodeDeviceSecretBad
-	ProblemCodeProvisionFailed    = httpx.CodeProvisionFailed
-	ProblemCodePeerDisconnected   = httpx.CodePeerDisconnected
-	ProblemCodeDeviceNotOwned     = httpx.CodeDeviceNotOwned
-	ProblemCodeDeviceGroupMissing = httpx.CodeDeviceGroupMissing
-	ProblemCodeDeviceGroupExists  = httpx.CodeDeviceGroupExists
+	ProblemCodeDeviceNotFound      = httpx.CodeDeviceNotFound
+	ProblemCodeHostOffline         = httpx.CodeHostOffline
+	ProblemCodeInvalidCode         = httpx.CodeInvalidCode
+	ProblemCodeAccessPolicyDenied  = httpx.CodeAccessPolicyDenied
+	ProblemCodeTooManyAttempts     = httpx.CodeTooManyAttempts
+	ProblemCodeDeviceSecretBad     = httpx.CodeDeviceSecretBad
+	ProblemCodeProvisionFailed     = httpx.CodeProvisionFailed
+	ProblemCodePeerDisconnected    = httpx.CodePeerDisconnected
+	ProblemCodeDeviceNotOwned      = httpx.CodeDeviceNotOwned
+	ProblemCodeDeviceGroupMissing  = httpx.CodeDeviceGroupMissing
+	ProblemCodeDeviceGroupExists   = httpx.CodeDeviceGroupExists
+	ProblemCodeDeviceQuotaExceeded = httpx.CodeDeviceQuotaExceeded
 
 	ProblemCodeControllerProofRequired = httpx.CodeControllerProofRequired
 	ProblemCodeControllerProofInvalid  = httpx.CodeControllerProofInvalid

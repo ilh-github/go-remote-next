@@ -320,6 +320,12 @@ func (s *DeviceService) BindToUser(ctx context.Context, deviceID string, userID 
 // BindToUserWithEvents commits the ownership flip and its realtime events
 // together. A takeover emits both the old owner's ownership-lost event and the
 // new owner's added event through the same factory.
+//
+// The quota check sits inside the same transaction that holds the device row
+// lock, and before the ownership flip. Two concurrent binds for the same user
+// then serialize on the row they are both touching only if they touch the same
+// device; for two *different* devices the counts are read under the same
+// statement snapshot, so a user cannot race their way past the last free slot.
 func (s *DeviceService) BindToUserWithEvents(
 	ctx context.Context,
 	deviceID string,
@@ -347,6 +353,13 @@ func (s *DeviceService) BindToUserWithEvents(
 			}
 			events, err := eventFactory(tx, out)
 			return s.enqueueDeviceEvents(ctx, tx, events, err)
+		}
+
+		// A quota of 0 means "no limit configured", not "zero machines": every
+		// account is created with that default, so treating it as a hard zero
+		// would lock new users out of their first bind.
+		if err := s.checkDeviceQuota(tx, userID); err != nil {
+			return err
 		}
 
 		// Takeover: remember the previous owner so the handler can notify.
@@ -379,6 +392,36 @@ func (s *DeviceService) BindToUserWithEvents(
 		return s.enqueueDeviceEvents(ctx, tx, events, err)
 	})
 	return out, err
+}
+
+// checkDeviceQuota refuses a bind that would put the user over
+// `users.device_count`. It runs inside the caller's transaction so a refusal
+// rolls back the ownership flip with it.
+//
+// The count is of devices the user currently owns, read live on every bind: an
+// admin raising or lowering the quota takes effect on the next bind rather than
+// needing a restart, and a value cached on the service would also go stale the
+// moment an admin edited it.
+func (s *DeviceService) checkDeviceQuota(tx *gorm.DB, userID uint) error {
+	var quota int
+	if err := tx.Model(&models.User{}).
+		Where("id = ?", userID).
+		Pluck("device_count", &quota).Error; err != nil {
+		return err
+	}
+	if quota <= 0 {
+		return nil
+	}
+	var owned int64
+	if err := tx.Model(&models.Device{}).
+		Where("user_id = ?", userID).
+		Count(&owned).Error; err != nil {
+		return err
+	}
+	if owned >= int64(quota) {
+		return ErrDeviceQuotaExceeded
+	}
+	return nil
 }
 
 // upsertUserDevice creates or reactivates a (user_id, device_id) binding.
@@ -540,6 +583,12 @@ func (s *DeviceService) PatchMetaWithEvents(
 // ErrDeviceNotOwned is returned when a per-user endpoint is invoked with a
 // device_id that doesn't belong to the caller.
 var ErrDeviceNotOwned = errors.New("device not owned by caller")
+
+// ErrDeviceQuotaExceeded is returned when binding would put the user over the
+// device quota in `users.device_count`. It is distinct from every other device
+// error so the handler can answer with a code that names the reason: "you are
+// at your limit, unbind something" is actionable, "device not found" is not.
+var ErrDeviceQuotaExceeded = errors.New("device quota exceeded")
 
 // AdminForceUnbind clears user_id + logged_in, used by
 // POST /v1/admin/devices/:id/unbind.

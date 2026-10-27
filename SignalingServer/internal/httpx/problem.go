@@ -45,6 +45,11 @@ const (
 	CodeDeviceNotOwned     = "DEVICE_NOT_OWNED"
 	CodeDeviceGroupMissing = "DEVICE_GROUP_NOT_FOUND"
 	CodeDeviceGroupExists  = "DEVICE_GROUP_NAME_EXISTS"
+	// CodeDeviceQuotaExceeded is the account's device limit, not anything about
+	// the machine being bound. The distinction matters to the caller: this one
+	// is resolved by unbinding another device, so a client that shows it as
+	// "device not found" tells the user to retry something that cannot succeed.
+	CodeDeviceQuotaExceeded = "DEVICE_QUOTA_EXCEEDED"
 	// Proof of possession for a key-bound access grant.
 	CodeControllerProofRequired = "CONTROLLER_PROOF_REQUIRED"
 	CodeControllerProofInvalid  = "CONTROLLER_PROOF_INVALID"

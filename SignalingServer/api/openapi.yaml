@@ -109,6 +109,52 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
   /v1/me/devices:
+    post:
+      tags: [devices]
+      summary: Bind a device to the authenticated user
+      operationId: bindMyDevice
+      description: |
+        Claims a provisioned device for the calling account, optionally taking it
+        over from its previous owner. Idempotent: re-binding a device the caller
+        already owns succeeds and is not counted against the account's device
+        quota a second time.
+
+        Refused with `403 DEVICE_QUOTA_EXCEEDED` when the account is already at
+        the `device_count` limit reported by `GET /v1/me`. A `device_count` of 0
+        means no limit is configured, which is the default for a new account. A
+        takeover does not count against the new owner's quota, because the number
+        of machines bound to that account does not change.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [device_id]
+              properties:
+                device_id:
+                  type: string
+      responses:
+        '200':
+          description: The device, now owned by the caller.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Device'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: |
+            The account is at its device limit (`DEVICE_QUOTA_EXCEEDED`), or the
+            request is otherwise not allowed. The device stays unowned.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          $ref: '#/components/responses/NotFound'
     get:
       tags: [devices]
       summary: Devices owned by the authenticated user

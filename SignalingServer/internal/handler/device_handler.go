@@ -250,6 +250,15 @@ func (h *DeviceHandler) Bind(c *gin.Context) {
 			ProblemNotFound(c, ProblemCodeDeviceNotFound, "Device not registered")
 			return
 		}
+		if errors.Is(err, service.ErrDeviceQuotaExceeded) {
+			// 403 rather than 409: the request is well formed and the device
+			// exists, what is wrong is how many machines this account already
+			// owns. The detail names the two ways forward so the client does
+			// not have to guess.
+			ProblemForbidden(c, ProblemCodeDeviceQuotaExceeded,
+				"This account has reached its device limit; unbind a device or ask an administrator to raise the limit")
+			return
+		}
 		ProblemInternal(c, err.Error())
 		return
 	}
