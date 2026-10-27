@@ -86,6 +86,23 @@ func (p *PresenceService) instanceKey(instance string) string {
 	return fmt.Sprintf("qd:presence:instance:%s", instance)
 }
 
+// liveInstancesKey is the set of instances that currently hold a lease. It
+// exists alongside the per-instance keys because the two answer different
+// questions, and only one of them has exact semantics.
+//
+// The per-instance keys are the liveness truth: each expires within
+// presenceInstanceTTL of its process dying, so a crashed instance drops out on
+// its own. But *listing* them requires SCAN, and Redis documents SCAN as
+// returning a possibly incomplete set - the same key may come back twice, or not
+// at all, before the cursor reaches zero. LiveInstances feeds the orphan sweep,
+// which closes every session row whose instance is not in the answer, so an
+// enumeration that ended one instance early would stamp that instance's live
+// sessions as finished. A set read is exact, which is the property the sweep
+// needs; the per-instance keys stay because they are what expires.
+func (p *PresenceService) liveInstancesKey() string {
+	return "qd:presence:instances"
+}
+
 // Start keeps this server instance marked as live so stale WS presence keys
 // from old processes don't keep devices falsely online after a restart.
 func (p *PresenceService) Start(ctx context.Context) {
@@ -108,7 +125,18 @@ func (p *PresenceService) Start(ctx context.Context) {
 }
 
 func (p *PresenceService) markInstanceAlive(ctx context.Context) error {
-	return p.rdb.Set(ctx, p.instanceKey(p.instanceID), "1", presenceInstanceTTL).Err()
+	// One pipeline: the lease key that expires, and the set entry that names who
+	// holds one. The set outlives the keys it points at by design - a dead
+	// instance's entry is removed the next time anybody reads the set, by checking
+	// the lease keys that are actually there.
+	pipe := p.rdb.Pipeline()
+	pipe.Set(ctx, p.instanceKey(p.instanceID), "1", presenceInstanceTTL)
+	pipe.SAdd(ctx, p.liveInstancesKey(), p.instanceID)
+	// The set itself is given the same lease so an instance that dies without
+	// anything else running does not leave a set entry behind forever.
+	pipe.Expire(ctx, p.liveInstancesKey(), presenceInstanceTTL)
+	_, err := pipe.Exec(ctx)
+	return err
 }
 
 // MarkAlive refreshes this instance's presence lease synchronously. Start()
@@ -138,28 +166,61 @@ func (p *PresenceService) InstanceID() string {
 // presenceInstanceTTL of a process dying (or being killed without cleanup), so
 // a crashed instance drops out on its own and never has to be reaped by hand.
 // The caller uses it to decide which open session rows are orphans.
+//
+// The answer is read from a set rather than enumerated with SCAN. SCAN's own
+// documentation allows it to omit a key that exists before the cursor reaches
+// zero, and this answer is what the orphan sweep uses to decide whose sessions
+// to close: an instance missing from the list has its live sessions stamped as
+// finished. SMEMBERS is exact, so the sweep cannot be handed a short list.
+//
+// Set entries for instances whose lease has already expired are dropped on the
+// way out. A set entry alone is not evidence of life - only the lease key is -
+// so the two are checked together rather than trusting either on its own.
 func (p *PresenceService) LiveInstances(ctx context.Context) ([]string, error) {
 	if p == nil || p.rdb == nil {
 		return nil, errors.New("presence service is not configured")
 	}
-	const prefix = "qd:presence:instance:"
-	var live []string
-	var cursor uint64
-	for {
-		keys, next, err := p.rdb.Scan(ctx, cursor, prefix+"*", 100).Result()
-		if err != nil {
-			return nil, err
+	members, err := p.rdb.SMembers(ctx, p.liveInstancesKey()).Result()
+	if err != nil {
+		return nil, err
+	}
+	if len(members) == 0 {
+		return nil, nil
+	}
+
+	// Confirm each member still holds its lease. This is what makes the set
+	// self-cleaning without a reaper: a crashed instance's entry survives in the
+	// set until somebody reads it, and this read is when it goes.
+	pipe := p.rdb.Pipeline()
+	checks := make(map[string]*redis.IntCmd, len(members))
+	for _, id := range members {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
 		}
-		for _, key := range keys {
-			if id := strings.TrimPrefix(key, prefix); id != "" {
-				live = append(live, id)
-			}
+		checks[id] = pipe.Exists(ctx, p.instanceKey(id))
+	}
+	if _, err := pipe.Exec(ctx); err != nil && !errors.Is(err, redis.Nil) {
+		return nil, err
+	}
+
+	live := make([]string, 0, len(checks))
+	stale := make([]interface{}, 0)
+	for id, cmd := range checks {
+		if cmd != nil && cmd.Val() > 0 {
+			live = append(live, id)
+			continue
 		}
-		cursor = next
-		if cursor == 0 {
-			return live, nil
+		stale = append(stale, id)
+	}
+	if len(stale) > 0 {
+		if err := p.rdb.SRem(ctx, p.liveInstancesKey(), stale...).Err(); err != nil {
+			// Not fatal: the answer above is already correct. Failing the whole
+			// call here would turn a cleanup problem into a sweep that never runs.
+			log.Printf("[Presence] removing stale instance set entries failed: %v", err)
 		}
 	}
+	return live, nil
 }
 
 // Heartbeat refreshes the heartbeat TTL for deviceID. Called from

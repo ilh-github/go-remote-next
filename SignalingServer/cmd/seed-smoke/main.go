@@ -217,24 +217,24 @@ func markDeviceOnline(deviceID string) error {
 }
 
 // liveInstance returns one signaling instance that is currently refreshing its
-// presence key.
+// presence lease.
+//
+// It reads the instance set the server maintains instead of enumerating lease
+// keys with SCAN, for two reasons that both come from what the caller does with
+// the answer: the seeded device is attached to whatever this returns, so an
+// instance that has stopped refreshing would take the device offline again
+// seconds later; and SCAN is allowed to return keys whose TTL has already passed
+// but which Redis has not reclaimed yet. The set holds only instances that still
+// hold a lease.
 func liveInstance(ctx context.Context, rdb *redis.Client) (string, error) {
-	var cursor uint64
-	for {
-		keys, next, err := rdb.Scan(ctx, cursor, "qd:presence:instance:*", 50).Result()
-		if err != nil {
-			return "", err
-		}
-		for _, key := range keys {
-			if id := strings.TrimPrefix(key, "qd:presence:instance:"); id != "" {
-				return id, nil
-			}
-		}
-		cursor = next
-		if cursor == 0 {
-			return "", errors.New("no live signaling instance found in Redis; start the server before seeding")
-		}
+	members, err := service.NewPresenceService(rdb, "").LiveInstances(ctx)
+	if err != nil {
+		return "", err
 	}
+	if len(members) == 0 {
+		return "", errors.New("no live signaling instance found in Redis; start the server before seeding")
+	}
+	return members[0], nil
 }
 
 func postJSON(client *http.Client, url, apiKey, token string, body interface{}, out interface{}) error {
