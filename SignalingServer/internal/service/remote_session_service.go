@@ -278,6 +278,16 @@ func (s *RemoteSessionService) CloseOrphanedSessions(
 			if err := s.enqueueRemoteSessionEvent(ctx, tx, EventRemoteSessionEnded, &rows[i]); err != nil {
 				return err
 			}
+			// The same reason Close clears it: a command for a session that is
+			// over has nothing left to revoke, and Pending loads every
+			// undelivered command on every pass - leaving the row behind makes
+			// the delivery loop re-examine it forever. Orphaned sessions are
+			// where this matters most, because the instance that held the socket
+			// is exactly the one that was never going to receive the command.
+			if err := tx.Where("session_id = ?", rows[i].SessionID).
+				Delete(&models.SessionRevokeCommand{}).Error; err != nil {
+				return err
+			}
 		}
 		return nil
 	})
