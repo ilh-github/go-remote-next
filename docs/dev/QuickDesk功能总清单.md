@@ -1277,6 +1277,22 @@ fork 是否能继续开发，也不能因为 fork 自己有实现就再次向 up
   靠 computed 的惰性才不出错——已移到声明之后，不靠求值顺序的巧合。
 
 | QD-204 | 地址簿与设备分组 | `[x]` | 上游 Roadmap 的 Address book & device groups；owner-scoped API/SDK、WebClient、Qt、成员整体替换、500 上限和绑定生命周期清理均已完成，提交 `f270487`、`b1a1155`、`162ac6e`、`b013a62` |
+- QD-205 心跳响应里有一个「文档承诺、代码从不提供」的字段：`heartbeatResp` 声明了
+  `SuggestedHeartbeatIntervalSec`，API 手册第 1672 行也把 `suggested_heartbeat_interval_sec: 30`
+  写进示例响应，但**代码里从来没有任何地方给它赋值**。零值配上 `omitempty` 的结果是：这个字段
+  永远不出现在 JSON 里，客户端读不到一个手册说它在的旋钮。这与本清单此前记过的
+  `users.device_count` 是同一类——一个被声明、被文档承诺、却不被任何一行代码兑现的东西。
+  修法是给出这个数并说明它为什么是这个数：**30 秒 = 90 秒 presence TTL 的三分之一**，
+  照做的设备在心跳键过期前有三次刷新机会——丢一次请求不至于把设备判成离线，而真的停了的设备
+  也会被及时发现。做成命名常量而不是散落的字面量，好让 TTL 改动时有人被迫重新想这个数。
+  验证：1 条新测试驱动真实 `Heartbeat` handler 并解码响应体，断言字段**存在**且等于 30
+  （断言存在而不是只断言值，因为 `omitempty` 让「零值」和「字段缺失」在 JSON 里长得一模一样，
+  只比较值的话 0 == 0 会放过整个缺陷）。红绿双向：把赋值摘掉，测试立刻以
+  「the response omits suggested_heartbeat_interval_sec」失败。`go test ./...` 全绿、
+  `go vet ./...` 干净、`gofmt` 干净、`git diff --check` 通过。
+  顺带核对：这个端点在 `SignalingServer/api/openapi.yaml` 里本就不存在（它是设备侧接口），
+  所以不需要重新生成 SDK。
+
 | QD-205 | 在线状态与心跳 | `[x]` | Redis presence + heartbeat |
 - QD-206 清空历史的确认说的是服务端给的条数，代码里却是一句固定文案：`DELETE /v1/me/connections`
   早就回 `{removed: N}`，`clearLogs` 上方的注释也明写「服务端回报删了几行，确认用的是那个数

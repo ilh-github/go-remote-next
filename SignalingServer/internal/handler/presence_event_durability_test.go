@@ -242,6 +242,46 @@ func TestSignalDisconnectRoutePublishesDurableOffline(t *testing.T) {
 	assertPresenceEventDelivered(t, db, rows[0].ID)
 }
 
+// The heartbeat response documents `suggested_heartbeat_interval_sec` and the
+// API manual shows it as 30. The field was declared and never assigned, so it
+// was always zero and `omitempty` dropped it from the JSON entirely - a
+// documented knob no client could ever read.
+//
+// 30 is a third of the presence heartbeat TTL (90s), which is what makes it a
+// sensible suggestion rather than an arbitrary number: a device that follows it
+// gets three chances to refresh before its key expires and it is reported
+// offline.
+func TestHeartbeatResponseCarriesTheSuggestedInterval(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, rdb, bus, _ := newPresenceEventTestStack(t)
+	deviceID := "900000007"
+	seedOwnedDevice(t, db, 7307, deviceID)
+
+	h := newHostHandlerForPresenceEvent(db, rdb, bus)
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Set("auth.device_id", deviceID)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/devices/"+deviceID+"/heartbeat", nil)
+
+	h.Heartbeat(c)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body = %s", recorder.Code, recorder.Body.String())
+	}
+	var body map[string]interface{}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode heartbeat response: %v", err)
+	}
+	got, ok := body["suggested_heartbeat_interval_sec"]
+	if !ok {
+		t.Fatal("the response omits suggested_heartbeat_interval_sec, which the API manual documents")
+	}
+	if n, _ := got.(float64); n != 30 {
+		t.Fatalf("suggested_heartbeat_interval_sec = %v, want 30 (a third of the 90s presence TTL)", got)
+	}
+}
+
 type failingPresenceOutbox struct{}
 
 func (failingPresenceOutbox) EnqueueTx(_ context.Context, _ *gorm.DB, _ service.Event) (service.Event, error) {

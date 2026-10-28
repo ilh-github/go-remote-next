@@ -213,8 +213,20 @@ func (h *HostHandler) Heartbeat(c *gin.Context) {
 	c.JSON(http.StatusOK, heartbeatResp{
 		ServerTime:        time.Now().UTC().Format("2006-01-02T15:04:05Z"),
 		TurnConfigVersion: h.settings.Get().TurnConfigVersion,
+		// A third of the 90s presence TTL: a device that follows this gets three
+		// chances to refresh before its heartbeat key expires and it is reported
+		// offline. The field was declared and never set, so the documented knob
+		// was always absent from the JSON.
+		SuggestedHeartbeatIntervalSec: suggestedHeartbeatIntervalSec,
 	})
 }
+
+// suggestedHeartbeatIntervalSec is what the heartbeat response advertises to a
+// device. It is a third of the presence heartbeat TTL (90s), which leaves two
+// retries before the key expires - enough that one lost request does not flap a
+// device offline, and close enough that a genuinely stopped device is noticed
+// promptly.
+const suggestedHeartbeatIntervalSec = 30
 
 // -----------------------------------------------------------------------
 // POST /v1/devices/:device_id/signal-tokens
