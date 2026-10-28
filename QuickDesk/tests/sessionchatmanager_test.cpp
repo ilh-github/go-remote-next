@@ -159,6 +159,23 @@ int main(int argc, char** argv)
     Expect(errorSpy.count() == 1,
            "the host side reports its refusal too");
 
+    // The ceiling measures the text that is actually sent, which is the trimmed
+    // form. Measuring the raw input refused a message of exactly 4000 characters
+    // whenever it carried trailing whitespace - the user was told they had
+    // exceeded a limit their message did not exceed. Pasted text routinely has
+    // a trailing newline, so this is not a contrived shape.
+    const QString atLimitWithTrailingSpace = atLimit + QStringLiteral("   \n");
+    // The spy still holds the previous refusal, so this asserts that the call
+    // adds no *new* error rather than that the spy is empty.
+    const int errorsBefore = errorSpy.count();
+    sentPayload = QJsonObject();
+    Expect(manager.sendToHost(QStringLiteral("device-1"), atLimitWithTrailingSpace),
+           "a message of 4000 characters plus trailing whitespace is sent");
+    Expect(sentPayload.value(QStringLiteral("text")).toString().length() == 4000,
+           "the trailing whitespace is trimmed before sending");
+    Expect(errorSpy.count() == errorsBefore,
+           "a message within the limit after trimming is not refused");
+
     std::cout << "session chat manager tests passed\n";
     return 0;
 }

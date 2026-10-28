@@ -190,11 +190,16 @@ void SessionChatManager::setUnreadCount(const QString& deviceId, int count)
 bool SessionChatManager::validateText(const QString& deviceId,
                                       const QString& text)
 {
-    if (text.trimmed().isEmpty()) {
+    // Both callers send `text.trimmed()`, so the trimmed form is what the host
+    // will receive and therefore what the ceiling has to measure. Measuring the
+    // raw input refused a message of 4000 characters with trailing whitespace -
+    // the user was told they had exceeded a limit their message did not exceed.
+    const QString trimmed = text.trimmed();
+    if (trimmed.isEmpty()) {
         emit errorOccurred(deviceId, tr("Chat message must not be empty"));
         return false;
     }
-    if (text.size() > kMaxChatTextLength) {
+    if (trimmed.size() > kMaxChatTextLength) {
         emit errorOccurred(
             deviceId,
             tr("Chat message exceeds %1 characters").arg(kMaxChatTextLength));

@@ -103,3 +103,49 @@ test('the limit counts characters, not bytes', () => {
     assert.equal(model.send('中'.repeat(MAX_CHAT_TEXT_LENGTH)), true);
     assert.equal(sent.length, 1);
 });
+
+// QD-316 promises a *bidirectional* 4000-character boundary. The send side
+// enforced it; the receive side did not. A chat message arriving over the skill
+// bridge was rendered whatever its size, so a host that was older, different, or
+// simply not validating could push an unbounded string into the DOM - and the
+// renderer is the side that pays for it.
+test('an oversized inbound message is refused rather than rendered', () => {
+    const model = new SessionChatModel({ send: () => {} });
+    const added = [];
+    const errors = [];
+    model.addEventListener('messageAdded', event => added.push(event.detail));
+    model.addEventListener('error', event => errors.push(event.detail.message));
+
+    model.handleMessage({
+        id: 'host-chat-oversized',
+        type: 'chatMessage',
+        from: 'host',
+        text: 'a'.repeat(MAX_CHAT_TEXT_LENGTH + 1),
+        sentAt: '2026-10-18T00:00:02.000Z',
+    });
+
+    assert.equal(added.length, 0, 'an oversized inbound message reached the message list');
+    assert.equal(errors.length, 1, 'the refusal was silent');
+    assert.match(errors[0], new RegExp(`${MAX_CHAT_TEXT_LENGTH}`),
+        'the refusal does not name the limit');
+    assert.equal(model.unreadCount, 0, 'an oversized message counted as unread');
+});
+
+test('an inbound message exactly at the limit is still rendered', () => {
+    // The guard has to be exact in both directions: refusing the boundary case
+    // would drop a legitimate message, which is worse than the overflow it
+    // prevents.
+    const model = new SessionChatModel({ send: () => {} });
+    const added = [];
+    model.addEventListener('messageAdded', event => added.push(event.detail));
+
+    model.handleMessage({
+        id: 'host-chat-at-limit',
+        type: 'chatMessage',
+        from: 'host',
+        text: 'a'.repeat(MAX_CHAT_TEXT_LENGTH),
+        sentAt: '2026-10-18T00:00:03.000Z',
+    });
+
+    assert.equal(added.length, 1, 'a message at the limit was dropped');
+});

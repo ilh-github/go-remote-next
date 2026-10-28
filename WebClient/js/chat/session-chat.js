@@ -69,6 +69,15 @@ export class SessionChatModel extends EventTarget {
                 outgoing,
             };
             if (!detail.text) return;
+            // QD-316's boundary is bidirectional. The send side enforced it; the
+            // receive side did not, so a host that was older, different, or not
+            // validating could push an unbounded string into the DOM - and the
+            // renderer is the side that pays for it. Refused rather than
+            // truncated: a shortened message reads as the sender's words.
+            if (detail.text.length > MAX_CHAT_TEXT_LENGTH) {
+                this._emitError(`Chat message exceeds ${MAX_CHAT_TEXT_LENGTH} characters`);
+                return;
+            }
             if (!outgoing) {
                 this._unreadCount++;
                 this._emitUnreadChanged();
