@@ -299,6 +299,8 @@ export const zh = {
     exportAudit: '导出 CSV',
     auditExportFailed: '导出审计记录失败',
     auditFromArchive: '以下为归档记录——已离开在线表',
+    auditArchiveCapped: '归档中的条目多于一页，这份列表可能不完整。',
+    auditArchiveTruncated: '归档扫描在完成前用尽了预算，因此空列表或短列表不代表没有发生过。',
     clearConfirm: '把 {device} 上所有正在连接的控制端都踢出去？',
     clearFailed: '清空失败',
     clearDone: '已断开 {revoked} 个会话，失败 {failed} 个。',

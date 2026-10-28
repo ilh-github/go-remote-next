@@ -375,3 +375,93 @@ test('a server that returns the same cursor forever does not spin', async () => 
     restoreArchive()
   }
 })
+
+// QD-110: the archive answers with `has_more` and `truncated`, and the panel
+// dropped both. `has_more` is the server saying the response was capped, and
+// `truncated` is it saying the byte budget ran out before the scan finished -
+// two different ways of saying "this is not the whole answer". A panel that
+// renders the rows and ignores the flags tells the owner "these are my archived
+// transfers" when the server already said it could not promise that.
+test('the archive flags that the answer is incomplete are surfaced', async () => {
+  const restore = stubFetchAuditLogs(async () => ({ ok: true, data: { items: [], next: '' } }))
+  const restoreArchive = stubFetchArchivedAuditLogs(async () => ({
+    ok: true,
+    data: {
+      items: [{ id: 1, action: 'file.transfer' }],
+      has_more: true,
+      truncated: false,
+    },
+  }))
+  try {
+    const audit = useSessionAudit()
+    await audit.load()
+
+    assert.equal(audit.hasMore.value, true,
+      'the archive said the response was capped and the panel dropped it')
+    assert.equal(audit.truncated.value, false)
+  } finally {
+    restore()
+    restoreArchive()
+  }
+})
+
+test('a truncated archive scan is surfaced separately from a capped one', async () => {
+  // The two flags mean different things: `truncated` says the scan gave up
+  // before it could finish, which is stronger than "there were more rows than
+  // fit" - an empty result from a truncated scan is not proof the event never
+  // happened.
+  const restore = stubFetchAuditLogs(async () => ({ ok: true, data: { items: [], next: '' } }))
+  const restoreArchive = stubFetchArchivedAuditLogs(async () => ({
+    ok: true,
+    data: { items: [], truncated: true, has_more: true },
+  }))
+  try {
+    const audit = useSessionAudit()
+    await audit.load()
+
+    assert.equal(audit.truncated.value, true,
+      'the archive said the scan gave up and the panel dropped it')
+    assert.equal(audit.hasMore.value, true)
+  } finally {
+    restore()
+    restoreArchive()
+  }
+})
+
+test('a live read resets the archive flags', async () => {
+  // A stale `hasMore` from a previous archive read must not annotate a live
+  // read that returned everything.
+  const restore = stubFetchAuditLogs(async () => ({
+    ok: true,
+    data: { items: [{ id: 1, action: 'file.transfer' }], next: '' },
+  }))
+  const restoreArchive = stubFetchArchivedAuditLogs(async () => ({
+    ok: true, data: { items: [{ id: 9 }], has_more: true, truncated: true },
+  }))
+  try {
+    const audit = useSessionAudit()
+    await audit.load()
+    assert.equal(audit.hasMore.value, false,
+      'a live read inherited the archive flags from a previous load')
+    assert.equal(audit.truncated.value, false)
+  } finally {
+    restore()
+    restoreArchive()
+  }
+})
+
+// The composable tests above prove the flags survive the read; this proves the
+// panel shows them. A flag nobody renders is the same as no flag, and that is
+// precisely the state these two had been sitting in - the server had been
+// answering `has_more` and `truncated` all along.
+test('the audit panel renders both archive warnings', async () => {
+  const source = await import('node:fs/promises').then(fs =>
+    fs.readFile(new URL('../src/views/SessionsPage.vue', import.meta.url), 'utf8'))
+
+  assert.match(source, /auditTruncated/, 'the panel never consults the truncated flag')
+  assert.match(source, /auditHasMore/, 'the panel never consults the capped flag')
+  assert.match(source, /sessions\.auditArchiveTruncated/,
+    'a truncated scan has no message, so an empty result still reads as "nothing happened"')
+  assert.match(source, /sessions\.auditArchiveCapped/,
+    'a capped archive has no message, so a partial list still reads as complete')
+})

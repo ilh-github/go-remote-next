@@ -70,6 +70,13 @@
         <div v-else-if="auditError" class="hint audit-error">
           {{ $t('sessions.auditReadFailed') }}: {{ auditError }}
         </div>
+        <!-- An empty result from a scan that gave up is not proof nothing
+             happened. Rendering it as "no transfers" would turn "we could not
+             finish looking" into "there is nothing", which is the lie the error
+             branch above exists to avoid. -->
+        <div v-else-if="auditRows.length === 0 && auditTruncated" class="hint audit-error">
+          {{ $t('sessions.auditArchiveTruncated') }}
+        </div>
         <div v-else-if="auditRows.length === 0" class="hint">
           {{ $t('sessions.auditEmpty') }}
         </div>
@@ -81,6 +88,16 @@
              same "empty" lie one branch up. -->
         <div v-if="auditSource === 'archive'" class="hint">
           {{ $t('sessions.auditFromArchive') }}
+        </div>
+        <!-- The archive answers with `has_more` when it capped the response and
+             `truncated` when the scan gave up. Both mean "this is not the whole
+             answer", and without this line the panel would present a partial
+             list as a complete one. -->
+        <div v-if="auditTruncated" class="hint audit-error">
+          {{ $t('sessions.auditArchiveTruncated') }}
+        </div>
+        <div v-else-if="auditHasMore" class="hint">
+          {{ $t('sessions.auditArchiveCapped') }}
         </div>
         <div class="audit-list">
           <div v-for="row in auditRows" :key="row.id" class="audit-row">
@@ -333,6 +350,11 @@ const auditLoading = auditState.loading
 const auditError = auditState.error
 const auditLoaded = auditState.loaded
 const auditSource = auditState.source
+// Named with the audit prefix because `hasMore` is already the sessions list's
+// own cursor flag. These two are the archive's admission that its answer is
+// incomplete: `hasMore` means it was capped, `truncated` means the scan gave up.
+const auditHasMore = auditState.hasMore
+const auditTruncated = auditState.truncated
 
 const statusOptions = [
   { value: 'active', label: 'sessions.filter.active' },

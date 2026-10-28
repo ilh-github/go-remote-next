@@ -297,6 +297,8 @@ export const en = {
     exportAudit: 'Export CSV',
     auditExportFailed: 'Could not export the audit trail',
     auditFromArchive: 'Showing archived entries — these have left the live table',
+    auditArchiveCapped: 'The archive returned more entries than one page holds; this list may be incomplete.',
+    auditArchiveTruncated: 'The archive scan ran out of budget before it finished, so an empty or short list does not mean nothing happened.',
     clearConfirm: 'Kick every controller connected to {device}?',
     clearFailed: 'Clear failed',
     clearDone: 'Disconnected {revoked} session(s), {failed} failed.',

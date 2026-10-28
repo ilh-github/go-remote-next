@@ -46,6 +46,12 @@ export function useSessionAudit(api) {
   // `loaded` true means "this account moved nothing"; an empty list with
   // `loaded` false means "we never asked", and the two must not render alike.
   const loaded = ref(false)
+  // The archive's own admission that the answer is incomplete. `hasMore` means
+  // the response was capped; `truncated` means the scan gave up before it could
+  // finish. They are kept apart because the second is stronger - an empty result
+  // from a truncated scan is not proof the event never happened.
+  const hasMore = ref(false)
+  const truncated = ref(false)
 
   function reset() {
     rows.value = []
@@ -53,6 +59,8 @@ export function useSessionAudit(api) {
     error.value = ''
     source.value = 'live'
     loaded.value = false
+    hasMore.value = false
+    truncated.value = false
   }
 
   /**
@@ -64,6 +72,10 @@ export function useSessionAudit(api) {
   async function load() {
     loading.value = true
     error.value = ''
+    // Cleared before the read so a previous archive load's flags cannot annotate
+    // a live read that returned everything it had.
+    hasMore.value = false
+    truncated.value = false
     try {
       const client = await resolveClient(api)
       rows.value = describeAuditRows(await readEveryPage(client))
@@ -131,6 +143,12 @@ async function readEveryPage(client, limit = 200) {
       const response = await client.fetchArchivedAuditLogs({ limit: 100 })
       if (!response || response.ok !== true) return
       const archived = describeAuditRows(response.data?.items ?? [])
+      // The flags are set whenever the archive answered, not only when it
+      // returned rows. An empty result from a scan that gave up is not the same
+      // fact as an empty result from a scan that finished, and that distinction
+      // is exactly what `truncated` carries.
+      hasMore.value = response.data?.has_more === true
+      truncated.value = response.data?.truncated === true
       if (archived.length > 0) {
         rows.value = archived
         source.value = 'archive'
@@ -140,7 +158,7 @@ async function readEveryPage(client, limit = 200) {
     }
   }
 
-  return { rows, loading, error, source, loaded, load, reset }
+  return { rows, loading, error, source, loaded, hasMore, truncated, load, reset }
 }
 
 // Cached across composable instances so the real module is imported at most once.
