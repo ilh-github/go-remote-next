@@ -176,6 +176,8 @@ export const zh = {
     confirmClearLogs: '确定要删除全部连接记录吗？此操作无法撤销。',
     logDeleted: '记录已删除',
     logsCleared: '历史已清空',
+    logsClearedCount: '已清空 {count} 条连接历史',
+    logsClearedNone: '没有可清空的连接历史',
     clearLogsFailed: '清空历史失败',
     refresh: '刷新',
     groups: {

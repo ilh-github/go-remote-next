@@ -1278,6 +1278,19 @@ fork 是否能继续开发，也不能因为 fork 自己有实现就再次向 up
 
 | QD-204 | 地址簿与设备分组 | `[x]` | 上游 Roadmap 的 Address book & device groups；owner-scoped API/SDK、WebClient、Qt、成员整体替换、500 上限和绑定生命周期清理均已完成，提交 `f270487`、`b1a1155`、`162ac6e`、`b013a62` |
 | QD-205 | 在线状态与心跳 | `[x]` | Redis presence + heartbeat |
+- QD-206 清空历史的确认说的是服务端给的条数，代码里却是一句固定文案：`DELETE /v1/me/connections`
+  早就回 `{removed: N}`，`clearLogs` 上方的注释也明写「服务端回报删了几行，确认用的是那个数
+  而不是一句笼统的『已清空』」——但实际调用的是 `t('devices.logsCleared')`。于是清掉 137 条和
+  清掉 1 条，操作员看到的是同一句话；注释承诺的那件事从来没被实现，也没有测试能发现，因为
+  两者都只是「一句话」。新增 `describeClearResult()` 并把三种答案分开：条数大于 0 时报出条数；
+  条数为 0 时说「没有可清空的」，而不是对着一个空列表声称成功；**没有可用条数时退回通用文案**，
+  因为编造一句「已清空 0 条」是对一个没给出的答案做具体断言。三个边界都由测试钉住
+  （`removed: 137` / `removed: 0` / 缺失与 `null`、`'many'` 这类不可用值）。
+  验证：4 条新测试（`npm test` 440/440，原 436），其中一条是接线守卫——它断言页面调用
+  `describeClearResult(r.data)` 且 toast 用的是 `cleared.key/params`，同时断言那句硬编码文案
+  已经不在了；红绿双向（把调用改回硬编码，仅守卫红）。生产构建绿、`devices.e2e.mjs` 3/3、
+  `git diff --check` 通过。
+
 | QD-206 | 连接历史与快速连接 | `[x]` | 上游 `dev` 与 fork 都已有 `ConnectionHistory` 和连接历史 UI；issue #18 看起来已过期，先验证再关闭，不重复实现。本轮 `8977f28` + `f56d88d` 补上它承诺的「快速连接」和记录本身的可读性：历史行此前只渲染裸 device_id 加时间戳，API 返回的 `device_name` / `connect_ip` / `error_msg` 一个都没用——`error_msg` 尤其致命，标着 failed 却不说明原因；而设备列表和收藏卡片都有连接按钮，唯独历史行没有，可历史恰恰是用户为了「回到刚才那台机器」才打开的列表。访问码不取自历史行：API 有意不存它，与 issue #18「Do NOT persist verification-code by default for security」一致；收藏把它明文存下来专供快速连接，对一个每次连接都会增长一行的列表是更差的取舍。改为按 device_id 与设备列表连接，设备列表确实返回 `access_code`。两个边界单独钉住，因为那里答错比没有按钮更糟：行点名的设备已解绑则不给按钮，设备在但没有码也不给——连接必须校验码，那个按钮只会产出「no access code」toast；连接只按 device_id 匹配，匹配不上的行不会悄悄借用邻行的码。**issue #18 四项诉求的核对结论**：①连接后自动保存 device-id/别名/时间戳——已有（服务端 `connection_histories`，WebClient 自动 `recordConnection`）；②主界面展示历史、点击填入以快速重连——本轮补齐（历史行直接给连接按钮，比「填入输入框再连」少一步，且 WebClient 本就没有设备 id 输入框）；③编辑别名、删除单条、清空——当时**部分**：别名编辑在设备行有（`PATCH` remark），历史行自身没有编辑/删除/清空入口；`489e215` 补上删除半边：`DELETE /v1/me/connections/:id` 删单条、`DELETE /v1/me/connections` 清空并回报删了几行，两者都以 owner 作用域收口——单条的 owner 写进 WHERE 而不是取出再比对（先查后判会在两条语句之间仍然删掉别人的行），别人的行回 404 而不是 403（调用方对那个 id 的视角就是「不存在」，确认它存在等于泄露 id 是真的）；客户端删除成功后本地摘行而非重取，清空先确认。④不持久化验证码——满足且必须保持（前两轮的设计正依赖它）。**至此 issue #18 四项诉求全部满足**，可回复并建议关闭 |
 | QD-207 | 会话创建、运行、结束、清理 | `[x]` | `remote_sessions` 控制面已落地。前三段（创建/运行/结束）确实完整：`Open`、`Close`、孤儿 sweep（没有存活实例上报时甚至拒绝执行而不是把所有人关掉）都在；第四段「清理」此前是空的——已结束的行没有任何上界，每个曾经建立的会话都永久占着一行。审计配置里早就把这个道理写明了：没有自然终态的表只会增长，保留是唯一能约束它的东西。`9c38ce6` 按同一形状补上：`PurgeEndedSessions` + `REMOTE_SESSION_RETENTION_DAYS`（默认 0＝永久，升级不该让现存历史开始消失）+ `REMOTE_SESSION_RETENTION_SWEEP_INTERVAL_MINUTES`（默认 60）。两条不能越过的边界：`ended_at` 为 NULL 的行绝不碰（那个会话还在，删掉等于让控制面忘记里面有人）；窗口按 `ended_at` 而不是 `started_at` 计——跑了四个月、昨天结束的会话是近期历史，按开始时间算会正好删掉 owner 最可能查的那些行。第二条由最强的那条测试钉住：WHERE 写成 `started_at` 时，sweep 删长会话、留昨天的短会话，正好反了。验证：5 条服务测试，Go 全量 9 包绿，WebClient 263/263 未触及仍绿，七套 SDK 门禁绿；红绿双向：把 WHERE 换成 `started_at`，五条里三条红（含点名四个月会话那条） |
 | QD-208 | 会话详情、录像、访问日志聚合 | `[x]` | WebClient 和 API 已完成。本轮 `359cbf7` 补上聚合里被跳过的半边：服务端 `detailEnvelope` 一直把完整 `recordings` 数组放在响应里，UI 却只读 `counts.recordings` 什么都不列，而访问日志有完整列表——于是「有几条录像」成了全部信息，owner 不知道是哪一条、什么时候录的、有没有东西可播。详情改由 `sessionDetailModel.js` 描述而不是模板直接摸原始结构，这也顺带定下一件事：**counts 与数组不一致时以数组为准**，因为 owner 依据的是行，而「写着 99 旁边两条」是个谎；计数仍显示，缺 counts 时回退到数组长度而非 0，免得负载不含 counts 就被渲染成空。每条录像显示时间、状态、时长，只在有媒体时可播；服务端还在写的行明说「暂无媒体」而不是给一个注定失败的按钮。播放解析 artifact URL 并先取短期签名 URL（浏览器没法给 `<video src>` 或 `window.open` 带 Bearer token），与录像页同一份实现共享而非复制，两页不会对「这条能不能播」给出不同答案。验证：10 条新模型测试，E2E 断言录像以行渲染（时间、状态、时长、不可播行说明原因），WebClient 260/260，生产构建绿，红绿双向（删掉模板里的录像列表，新 E2E 即红） |

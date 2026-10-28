@@ -174,6 +174,8 @@ export const en = {
     confirmClearLogs: 'Delete every entry in your connection history? This cannot be undone.',
     logDeleted: 'Entry deleted',
     logsCleared: 'History cleared',
+    logsClearedCount: 'Cleared {count} history entries',
+    logsClearedNone: 'There was no history to clear',
     clearLogsFailed: 'Could not clear the history',
     refresh: 'Refresh',
     groups: {

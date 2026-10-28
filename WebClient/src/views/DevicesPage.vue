@@ -487,7 +487,7 @@ import {
   buildAccessPolicyBody,
 } from '../api/controlModeModel'
 import { deviceQuotaReached, deviceQuotaSummary } from '../../js/devices/quota'
-import { describeConnectionLog } from '../connectionLogModel'
+import { describeClearResult, describeConnectionLog } from '../connectionLogModel'
 
 const { t } = useI18n()
 const showToast = inject('showToast')
@@ -627,7 +627,10 @@ async function clearLogs() {
       return
     }
     logs.value = []
-    showToast(t('devices.logsCleared'), 'success')
+    // The server answers with how many rows went, and the count is the only
+    // thing that separates clearing one entry from clearing a year of them.
+    const cleared = describeClearResult(r.data)
+    showToast(t(cleared.key, cleared.params), 'success')
   } finally {
     clearingLogs.value = false
   }

@@ -1,3 +1,37 @@
+/**
+ * Describes the toast a clear-history call earns from the server's answer.
+ *
+ * The endpoint answers `{removed: N}`, and the page's comment says the
+ * confirmation uses that number "rather than a generic 'cleared'". The count is
+ * the only thing that distinguishes clearing one row from clearing a year of
+ * them, and an operator who just wiped 137 entries is owed the number.
+ *
+ * Three cases, kept separate on purpose:
+ *  - a usable count above zero names it;
+ *  - a usable count of zero says nothing was there, rather than claiming a
+ *    generic success over an empty list;
+ *  - a response without a usable count falls back to the generic message,
+ *    because inventing "cleared 0" would be a specific claim about an answer
+ *    that was not actually given.
+ *
+ * @param {{removed?: unknown}} response the server body
+ * @returns {{key: string, params: object}}
+ */
+export function describeClearResult(response) {
+  const raw = response && typeof response === 'object' ? response.removed : undefined
+  const removed = Number(raw)
+  // `Number(null)` is 0 and `Number('')` is 0, so the raw value is checked for
+  // nullish and non-numeric shapes before the count is trusted.
+  const usable = raw !== null && raw !== undefined && raw !== '' && Number.isFinite(removed)
+  if (!usable) {
+    return { key: 'devices.logsCleared', params: {} }
+  }
+  if (removed <= 0) {
+    return { key: 'devices.logsClearedNone', params: {} }
+  }
+  return { key: 'devices.logsClearedCount', params: { count: removed } }
+}
+
 // The connection log row is where an owner finds out why a connection did not
 // happen, so the fields the server already returns on every row are worth
 // surfacing: the device name, the client address, and above all the failure
