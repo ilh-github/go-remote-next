@@ -513,6 +513,20 @@ class UserApi {
     )
   }
 
+  // QD-106/QD-909: every attempt to reach the machine, written by the server at
+  // verification time. Failed attempts never create a session, so this is the
+  // only place an owner can see somebody guessing at their access code.
+  fetchAccessLogs(deviceId, { cursor = '', limit } = {}) {
+    const params = new URLSearchParams()
+    if (cursor) params.set('cursor', cursor)
+    if (limit) params.set('limit', String(limit))
+    const query = params.toString()
+    return this._req(
+      'GET',
+      `/v1/me/devices/${encodeURIComponent(deviceId)}/access-logs${query ? `?${query}` : ''}`,
+    )
+  }
+
   // QD-909: metadata only - direction, MIME type and byte count. The endpoint
   // has no field for the clipboard text on purpose, and this client does not
   // invent one.

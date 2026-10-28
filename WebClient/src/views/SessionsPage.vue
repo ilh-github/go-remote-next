@@ -197,6 +197,37 @@
         </div>
       </div>
 
+      <!-- Access attempts (QD-106/QD-909). The server records every attempt at
+           verification time and has served them for a while; nothing consumed
+           them, so "is somebody trying to get into my machine?" had no answer in
+           any UI. A failed attempt never creates a session, which is why the
+           session detail could never show the rows that matter most. -->
+      <div v-if="deviceFilter" class="card ban-panel">
+        <div class="ban-panel-title">{{ $t('sessions.accessAttempts') }}</div>
+        <p class="hint">{{ $t('sessions.accessAttemptsHint') }}</p>
+        <p v-if="accessLogs.length === 0" class="hint">{{ $t('sessions.accessAttemptsEmpty') }}</p>
+        <div v-else class="grant-list">
+          <div
+            v-for="entry in accessLogs"
+            :key="entry.id"
+            :class="['grant-row', { 'access-row-suspicious': entry.suspicious }]"
+          >
+            <span :class="['access-outcome', `access-outcome-${entry.outcome}`]">
+              {{ $t(`sessions.accessOutcome.${entry.outcome}`) }}
+            </span>
+            <span class="grant-meta">{{ formatGrantTime(entry.at) }}</span>
+            <span class="grant-meta">{{ entry.ip || '-' }}</span>
+            <span v-if="entry.reason" class="grant-meta">{{ entry.reason }}</span>
+            <button
+              v-if="entry.suspicious && entry.ip"
+              class="btn btn-secondary btn-sm"
+              :disabled="busy === entry.ip"
+              @click="banAccessLogSource(entry)"
+            >{{ $t('sessions.banSource') }}</button>
+          </div>
+        </div>
+      </div>
+
       <p v-if="notice" class="notice">{{ notice }}</p>
       <p v-if="error" class="hint error">{{ error }}</p>
 
@@ -299,6 +330,7 @@ import { userApi } from '../api/userApi'
 import { userSync } from '../api/userSync'
 import { describeSessionDetail, resolveRecordingUrl } from '../sessionDetailModel'
 import { buildAccessGrantPayload, grantRow } from '../api/accessGrantModels'
+import { describeAccessLogs } from '../api/accessLogModel'
 import { useSessionAudit } from '../composables/useSessionAudit'
 import { auditRowLabel } from '../api/auditLogModel'
 
@@ -330,6 +362,8 @@ const blockedSources = ref([])
 // window and one session, so an accidental submit does not mint an open-ended
 // code for the device.
 const grants = ref([])
+// QD-106/QD-909: the attempts that never became sessions.
+const accessLogs = ref([])
 const grantBusy = ref(false)
 const grantForm = ref({ label: '', expiresInMinutes: 60, maxUses: 1, boundClientId: '', boundIps: '' })
 const banRemoving = ref('')
@@ -461,6 +495,7 @@ async function refresh() {
   await load(true)
   await loadBlockedSources()
   await loadGrants()
+  await loadAccessLogs()
 }
 
 function loadMore() {
@@ -560,6 +595,33 @@ function formatGrantTime(value) {
   if (!value) return '-'
   const parsed = new Date(value)
   return Number.isNaN(parsed.getTime()) ? '-' : parsed.toLocaleString()
+}
+
+async function loadAccessLogs() {
+  if (!deviceFilter.value) {
+    accessLogs.value = []
+    return
+  }
+  accessLogs.value = []
+  const r = await userApi.fetchAccessLogs(deviceFilter.value, { limit: 50 })
+  if (r.ok) accessLogs.value = describeAccessLogs(r.data?.items ?? [])
+}
+
+// The row already carries the address the attempt came from, so banning is one
+// click from the evidence rather than a separate form the owner has to retype.
+async function banAccessLogSource(entry) {
+  if (!entry?.ip) return
+  busy.value = entry.ip
+  notice.value = ''
+  error.value = ''
+  const r = await userApi.banAccessSource(deviceFilter.value, entry.ip)
+  busy.value = ''
+  if (!r.ok) {
+    error.value = r.error || t('sessions.banFailed')
+    return
+  }
+  notice.value = t('sessions.banned', { ip: entry.ip })
+  await loadBlockedSources()
 }
 
 async function loadGrants() {
@@ -883,6 +945,22 @@ onUnmounted(() => {
 .grant-code { font-weight: 600; }
 .grant-meta { color: var(--el-text-color-secondary, #6b7280); }
 .grant-dead { color: var(--el-color-danger, #dc2626); }
+/* A guess at the access code is the row an owner scanning this list is looking
+   for, so it gets a left rule rather than a colour on the whole row: the IP and
+   the time still have to be readable at a glance. */
+.access-row-suspicious {
+  border-left: 3px solid var(--el-color-danger, #dc2626);
+  padding-left: 9px;
+}
+.access-outcome {
+  font-weight: 600;
+  text-transform: none;
+}
+.access-outcome-granted { color: var(--el-color-success, #16a34a); }
+.access-outcome-denied { color: var(--el-color-danger, #dc2626); }
+.access-outcome-pending { color: var(--el-color-warning, #d97706); }
+.access-outcome-offline,
+.access-outcome-unknown { color: var(--el-text-color-secondary, #6b7280); }
 .ban-panel-title {
   font-size: 14px;
   font-weight: 600;

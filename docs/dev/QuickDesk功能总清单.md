@@ -1227,6 +1227,26 @@ fork 是否能继续开发，也不能因为 fork 自己有实现就再次向 up
 | QD-103 | JWT 刷新、会话撤销 | `[x]` | access token、refresh token、session revoke |
 | QD-104 | 管理员登录与 TOTP | `[x]` | 管理端双重验证 |
 | QD-105 | 设备配额与用户设备隔离 | `[x]` | 设备归属和 owner-scoped API；**本轮 `b68a1b0` 补上配额强制执行**：此前 `users.device_count` 只有列、管理端可改、`/v1/me` 会回显，但全仓库没有任何一处读它做判断——`device_count = 1` 的用户可以无限绑定设备，管理端那个数字一直是装饰品。判定放在 `BindToUserWithEvents` 事务内、device 行 `FOR UPDATE` 之后、所有权翻转之前：两个并发绑定在同一份语句快照里数配额，谁都 race 不过最后一个空位；被拒则连翻转带事件一起回滚，不会有事件宣布一台不属于用户的机器。三条边界决定它是能用还是 merely 严格：**配额 0 表示未配置而非零台**（每个新账号的默认值，读成硬零会把所有新用户锁在自己的第一台机器外）、**重复绑定已拥有的设备不重复计数**（Qt 被控端每次重连都重新 bind，把幂等重试算进去会让配额满之后连重试都失败）、**接管不计入新属主配额**（该账号绑定的机器总数没变）。拒绝映射为 `403 DEVICE_QUOTA_EXCEEDED`，而不是原先落入的内部错误分支：要行动的是属主，"解绑一台"可执行，"设备不存在"不可执行。Qt 侧 `CloudDeviceManager` 解析它本来就会读的 RFC 7807 体并发出 `deviceBindQuotaExceeded`，设备页把它变成带服务端原文的 toast——被控端开机自动绑定，这是唯一一个能让机器"已登录、在线、却不在属主列表里"且屏幕上没有任何解释的服务端拒绝；WebClient 设备列表显示"已绑定 2 / 上限 5 台"并在满额时告警，配额此前在写入 localStorage 时被丢掉，客户端从来不可能显示它。`POST /v1/me/devices` 此前根本不在 OpenAPI 契约里，本轮补上并附新拒绝分支，七套生成客户端已重新生成。验证：7 个 service 测试（真实 SQLite 文件：配额 0 时首个绑定成功、满额拒绝、幂等重绑、解绑腾位、接管、管理端中途提额、outbox 回滚），三条强制拒绝的测试做过红绿双向；1 个 handler 测试断言 403 code、非空 detail 和被拒设备保持无主，摘掉映射即以用户实际拿到的 `500 INTERNAL_ERROR` 形状失败；5 个 WebClient 单测，改掉"0 表示无限制"即红；2 个 Playwright E2E 用真实 Chrome 驱动真实 `DevicesPage`，满额告警出现、无限制账号既不见计数也不见告警；干净 scratch Postgres 上 `go test ./...` 全绿、`go vet` 干净、sdk/go vet+build 干净、`npm test` 239/239、生产构建绿、七套 `check-generated-sdk.sh` 全新鲜。新增 Qt 测试已接进 CMake 但本地无 Qt 工具链未跑，首跑在 Windows 与 macOS CI job。 |
+- QD-106 / QD-909 访问尝试的观察面补齐：服务端从 QD-909 起就在验证码校验时记录每一次访问尝试
+  （谁、从哪来、结果如何），并且一直通过 `GET /v1/me/devices/:id/access-logs` 提供——**但没有任何
+  客户端调用它**。于是「有没有人在试我的机器？」这个 owner 最该问的问题，在界面上无处可问。
+  会话详情里那个 `access_log` 是**按会话**聚合的，而失败的尝试根本不会产生会话，所以最要紧的那些
+  行恰恰是最没有地方出现的。新增 `src/api/accessLogModel.js`（把 10 个服务端 result 归并成
+  5 个 outcome）、`userApi.fetchAccessLogs()`、以及 SessionsPage 的「访问尝试」面板。
+  三处判定值得单列：①**猜码与策略拒绝必须分开**——`denied_invalid_code` / `denied_rate_limited`
+  是有人在猜，标为 `suspicious`；而 `denied_policy` / `denied_session_limit` / `denied_revoked` /
+  `denied_approval` 是码对了、被 owner 自己的规则挡下，把它们也标红会让真正的猜码淹没在噪音里；
+  ②**`host_offline` 不是拒绝**——码是对的，只是机器不在，服务端注释自己写了「不计为失败」，
+  面板也照此呈现；③**未知 result 归为 unknown 而不是猜**——默认成 granted 会藏起一次拒绝，
+  默认成 denied 会狼来了，两者都不是知识。面板还把可疑行的封禁按钮做成一键的：行里已经有地址，
+  让 owner 再去别的表单重打一遍是把证据和动作隔开。
+  验证：10 条新测试（`npm test` 454/454，原 444）：8 条钉结果映射（猜码/策略拒绝/host_offline/
+  pending/unknown/缺字段），2 条是接线守卫——它们断言客户端确实打的是
+  `/v1/me/devices/:id/access-logs`，且页面**真的调用了** loader、渲染了 `accessLogs`、并给出
+  一键封禁入口。红绿双向：把 `await loadAccessLogs()` 摘掉，接线守卫立刻红（**第一次写守卫时
+  只检查了 loader 存在、没检查它被调用，那次改动没被发现——补上调用断言才真的挡住**）。
+  生产构建绿、`sessions-audit-ui` + `owner-audit` E2E 11/11、`git diff --check` 通过。
+
 | QD-106 | 设备访问策略 | `[x]` | 开关、IP/CIDR、允许时段、例外日 |
 | QD-107 | 临时访客授权 | `[x]` | 限时、限次、可撤销、IP/client 绑定 |
 | QD-108 | 二次访问审批 | `[x]` | 服务端、WebClient 和 Qt 均已完成；Qt 提交 `7c23f13` 覆盖入口、决定、汇总、冲突处理和实时消费 |
